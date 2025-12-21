@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1e293b" />
+    <title>نظام الموظفين الذكي</title>
+    <link rel="manifest" href="/manifest.json">
+    
+    <!-- Suppress Tailwind Production Warning -->
+    <script>
+      (function() {
+        var originalWarn = console.warn;
+        console.warn = function(...args) {
+          if (args.length > 0) {
+            const msg = args.join(' ');
+            if (typeof msg === 'string' && (msg.includes('cdn.tailwindcss.com') || msg.includes('production'))) {
+              return;
+            }
+          }
+          originalWarn.apply(console, args);
+        };
+      })();
+    </script>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Cairo', 'sans-serif'],
+              serif: ['Tajawal', 'serif'], // Used for print headers
+            },
+            colors: {
+              primary: '#2563eb', // blue-600
+              secondary: '#1e293b', // slate-800
+              accent: '#f59e0b', // amber-500
+              danger: '#dc2626', // red-600
+              success: '#16a34a', // green-600
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      body {
+        background-color: #f1f5f9;
+        font-family: 'Cairo', sans-serif;
+      }
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #f1f5f9; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1; 
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8; 
+      }
+      
+      @media print {
+        @page {
+          size: landscape;
+          margin: 0.5cm;
+        }
+        body {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+          background-color: white !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          font-family: 'Tajawal', sans-serif !important;
+          font-size: 11px; /* Slightly smaller base font for information density */
+        }
+        
+        /* Hide UI elements */
+        .no-print, button, input, select, .print\:hidden, nav, header, .sidebar, .toast {
+          display: none !important;
+        }
+
+        /* Reset Containers */
+        .min-h-screen {
+          min-height: 0 !important;
+          height: auto !important;
+          padding: 0 !important;
+        }
+        
+        /* Typography Crispness */
+        h1, h2, h3, h4, h5, h6 {
+          color: #000 !important;
+        }
+        
+        /* Table enhancements */
+        table {
+          width: 100% !important;
+          border-collapse: collapse !important;
+          page-break-inside: auto;
+        }
+        tr {
+          page-break-inside: avoid;
+          page-break-after: auto;
+        }
+        thead {
+          display: table-header-group;
+        }
+        tfoot {
+          display: table-footer-group;
+        }
+        
+        /* Clean up shadows/gradients for paper */
+        * {
+           box-shadow: none !important; 
+           text-shadow: none !important;
+        }
+        
+        /* Tailwind Grid/Columns override */
+        .print\:block { display: block !important; }
+        .print\:hidden { display: none !important; }
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/",
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "vite": "https://aistudiocdn.com/vite@^7.2.6",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+    "path": "https://aistudiocdn.com/path@^0.12.7"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+</body>
+</html>

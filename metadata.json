@@ -1,0 +1,7 @@
+{
+  "name": "Smart Employee System",
+  "description": "A high-performance, interactive employee management system with real-time scheduling and requests.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

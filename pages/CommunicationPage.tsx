@@ -243,7 +243,8 @@ const CommunicationPage: React.FC = () => {
         setInsightsContent('');
 
         try {
-            const apiKey = (process.env.API_KEY || '').trim();
+         const apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
+
             if (!apiKey) {
                 throw new Error("Missing API Key. Check .env file.");
             }

@@ -77,8 +77,8 @@ const TechSupportPage: React.FC = () => {
         setLoading(true);
         setResponse("");
         try {
-            const apiKey = (process.env.API_KEY || '').trim();
-            if (!apiKey) {
+         const apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
+         if (!apiKey) {
                 throw new Error("Missing API Key. Please add GEMINI_API_KEY to your .env file.");
             }
             

@@ -119,185 +119,186 @@ const SupervisorAttendance: React.FC = () => {
     }, []);
 
     const calculateAttendance = async () => {
-        setIsCalculatingAtt(true);
-        setAttendanceSummaries([]);
-        try {
-            const startD = new Date(attFilterStart);
-            const endD = new Date(attFilterEnd);
-            const fetchEndD = new Date(endD); fetchEndD.setDate(fetchEndD.getDate() + 1);
-            const summaryMap = new Map<string, EmployeeAttendanceSummary>();
-            const usersToProcess = attFilterUser ? users.filter(u => u.id === attFilterUser) : users;
-            
-            usersToProcess.forEach(u => summaryMap.set(u.id, {
-                userId: u.id, 
-                userName: u.name || u.email, 
-                totalWorkDays: 0, 
-                fridaysWorked: 0, 
-                totalLateMinutes: 0, 
-                totalEarlyMinutes: 0,
-                totalOvertimeHours: 0, 
-                absentDays: 0, 
-                riskCount: 0,
-                details: []
-            }));
+    setIsCalculatingAtt(true);
+    setAttendanceSummaries([]);
+    try {
+        const startD = new Date(attFilterStart);
+        const endD = new Date(attFilterEnd);
+        // نزيد يوماً واحداً في البحث لجلب بصمات الخروج التي تقع في صباح اليوم التالي
+        const fetchEndD = new Date(endD); 
+        fetchEndD.setDate(fetchEndD.getDate() + 2); 
 
-            const qSch = query(collection(db, 'schedules')); 
-            const snapSch = await getDocs(qSch);
-            const schedules = snapSch.docs.map(doc => doc.data() as Schedule);
+        const summaryMap = new Map<string, EmployeeAttendanceSummary>();
+        const usersToProcess = attFilterUser ? users.filter(u => u.id === attFilterUser) : users;
+        
+        usersToProcess.forEach(u => summaryMap.set(u.id, {
+            userId: u.id, 
+            userName: u.name || u.email, 
+            totalWorkDays: 0, 
+            fridaysWorked: 0, 
+            totalLateMinutes: 0, 
+            totalEarlyMinutes: 0,
+            totalOvertimeHours: 0, 
+            absentDays: 0, 
+            riskCount: 0,
+            details: []
+        }));
 
-            const qLogs = query(collection(db, 'attendance_logs'), where('date', '>=', startD.toISOString().split('T')[0]), where('date', '<=', fetchEndD.toISOString().split('T')[0]));
-            const snapLogs = await getDocs(qLogs);
-            const allLogs = snapLogs.docs.map(doc => doc.data() as AttendanceLog);
+        const qSch = query(collection(db, 'schedules')); 
+        const snapSch = await getDocs(qSch);
+        const schedules = snapSch.docs.map(doc => doc.data() as Schedule);
 
-            for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
-                const dateStr = d.toISOString().split('T')[0];
-                const dayOfWeek = d.getDay();
-                usersToProcess.forEach(user => {
-                    const summary = summaryMap.get(user.id)!;
-                    let myShifts: { start: string, end: string }[] = [];
-                    const userSchedules = schedules.filter(s => s.userId === user.id);
-                    const specific = userSchedules.find(s => s.date === dateStr);
-                    
-                    if (specific) {
-                        myShifts = specific.shifts || parseMultiShifts(specific.note || "");
-                    } else {
-                        userSchedules.forEach(sch => {
-                            if (sch.date) return;
-                            let applies = false;
-                            const isFri = (sch.locationId || '').toLowerCase().includes('friday');
-                            if (dayOfWeek === 5) { if (isFri) applies = true; } else { if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; }
-                            if (applies) {
-                                if (sch.validFrom && dateStr < sch.validFrom) applies = false;
-                                if (sch.validTo && dateStr > sch.validTo) applies = false;
-                            }
-                            if (applies) {
-                                const parsed = sch.shifts || parseMultiShifts(sch.note||"");
-                                if (parsed.length > 0) myShifts = parsed;
-                            }
-                        });
-                    }
+        // جلب اللوجات للفترة المطلوبة + يوم إضافي
+        const qLogs = query(
+            collection(db, 'attendance_logs'), 
+            where('date', '>=', startD.toISOString().split('T')[0]), 
+            where('date', '<=', fetchEndD.toISOString().split('T')[0])
+        );
+        const snapLogs = await getDocs(qLogs);
+        const allLogs = snapLogs.docs.map(doc => doc.data() as AttendanceLog);
+        
+        // ترتيب كل اللوجات زمنياً لضمان دقة الربط
+        const allLogsSorted = allLogs.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
 
-                    // Get logs for the day and sort
-                    const userLogsToday = allLogs.filter(l => l.userId === user.id && l.date === dateStr).sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
-                    
-                    // Identify Shift 1 and Shift 2 Punches
-                    // Logic: Pairs of IN -> OUT.
-                    // 1st IN -> 1st OUT (if exists and time > in1)
-                    // 2nd IN (if exists and time > out1) -> 2nd OUT (if exists)
-                    
-                    let in1 = null, out1 = null, in2 = null, out2 = null;
-                    const ins = userLogsToday.filter(l => l.type === 'IN');
-                    const outs = userLogsToday.filter(l => l.type === 'OUT');
+        for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
+            const dateStr = d.toISOString().split('T')[0];
+            const dayOfWeek = d.getDay();
 
-                    if (ins.length > 0) in1 = ins[0];
-                    if (outs.length > 0 && in1) {
-                        // Find first OUT after IN1
-                        out1 = outs.find(o => o.timestamp.seconds > in1.timestamp.seconds);
-                    }
-
-                    if (ins.length > 1) {
-                        // IN2 must be after OUT1 (if exists) or just the second IN
-                        if (out1) {
-                            in2 = ins.find(i => i.timestamp.seconds > out1.timestamp.seconds);
-                        } else {
-                            // If no OUT1, technically messy, but let's assume second IN is second shift start
-                            in2 = ins[1];
+            usersToProcess.forEach(user => {
+                const summary = summaryMap.get(user.id)!;
+                let myShifts: { start: string, end: string }[] = [];
+                
+                // --- (هنا يبقى منطق استخراج الجدول myShifts كما هو في كودك الأصلي) ---
+                const userSchedules = schedules.filter(s => s.userId === user.id);
+                const specific = userSchedules.find(s => s.date === dateStr);
+                if (specific) {
+                    myShifts = specific.shifts || parseMultiShifts(specific.note || "");
+                } else {
+                    userSchedules.forEach(sch => {
+                        if (sch.date) return;
+                        let applies = false;
+                        const isFri = (sch.locationId || '').toLowerCase().includes('friday');
+                        if (dayOfWeek === 5) { if (isFri) applies = true; } else { if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; }
+                        if (applies) {
+                            if (sch.validFrom && dateStr < sch.validFrom) applies = false;
+                            if (sch.validTo && dateStr > sch.validTo) applies = false;
                         }
-                    }
-
-                    if (in2 && outs.length > 0) {
-                        out2 = outs.find(o => o.timestamp.seconds > in2.timestamp.seconds);
-                    }
-
-                    let status: 'Present'|'Absent'|'Incomplete'|'Off' = 'Absent';
-                    let lateMins = 0;
-                    let earlyMins = 0;
-                    let workMinutes = 0;
-                    let ot = 0;
-                    let flags: string[] = [];
-
-                    const fmtTime = (log: any) => log ? log.timestamp.toDate().toLocaleTimeString('en-US', {hour12:false, hour:'2-digit', minute:'2-digit'}) : null;
-
-                    // Calculate Hours & Late for Shift 1
-                    if (in1) {
-                        status = out1 ? 'Present' : 'Incomplete';
-                        // Shift 1 Calc
-                        if (out1) {
-                            workMinutes += Math.round((out1.timestamp.seconds - in1.timestamp.seconds) / 60);
+                        if (applies) {
+                            const parsed = sch.shifts || parseMultiShifts(sch.note||"");
+                            if (parsed.length > 0) myShifts = parsed;
                         }
-                        // Late Calc (Shift 1)
-                        if (myShifts[0] && fmtTime(in1)) {
-                            const schedStart = timeToMinutes(myShifts[0].start);
-                            const actStart = timeToMinutes(fmtTime(in1)!);
-                            if (actStart > schedStart + 15) lateMins += (actStart - schedStart);
-                        }
-                    }
-
-                    // Calculate Hours & Late for Shift 2
-                    if (in2) {
-                        // Shift 2 Calc
-                        if (out2) {
-                            workMinutes += Math.round((out2.timestamp.seconds - in2.timestamp.seconds) / 60);
-                        } else {
-                            if(status === 'Present') status = 'Incomplete'; // If shift 1 was done but shift 2 incomplete
-                        }
-                        // Late Calc (Shift 2)
-                        // Look for 2nd scheduled shift, or assume generic split if not defined
-                        const schedShift2 = myShifts[1];
-                        if (schedShift2 && fmtTime(in2)) {
-                             const schedStart2 = timeToMinutes(schedShift2.start);
-                             const actStart2 = timeToMinutes(fmtTime(in2)!);
-                             if (actStart2 > schedStart2 + 15) lateMins += (actStart2 - schedStart2);
-                        }
-                    }
-
-                    if (in1 || in2) {
-                        summary.totalWorkDays++;
-                        if (dayOfWeek === 5) summary.fridaysWorked++;
-                    } else {
-                        status = myShifts.length > 0 ? 'Absent' : 'Off';
-                        if (status === 'Absent') summary.absentDays++;
-                    }
-
-                    if (workMinutes > 540) ot = (workMinutes - 540) / 60; // > 9 hours
-
-                    // Risk Flags (Location)
-                    [in1, out1, in2, out2].forEach(l => {
-                        if (l && l.distanceKm && l.distanceKm > 0.15) flags.push(`Fake Loc`);
                     });
+                }
 
-                    summary.totalLateMinutes += lateMins;
-                    summary.totalEarlyMinutes += earlyMins; // Simplified early calculation
-                    summary.totalOvertimeHours += ot;
-                    if (flags.length > 0) summary.riskCount++;
+                // --- منطق الربط الجديد (يدعم الشفت الليلي وبصمة مقصود) ---
+                
+                // 1. بصمات الدخول لهذا اليوم الفعلي
+                const insToday = allLogsSorted.filter(l => l.userId === user.id && l.type === 'IN' && l.date === dateStr);
+                // 2. بصمات الخروج لهذا اليوم الفعلي (قد تشمل بصمة خروج مقصود)
+                const outsToday = allLogsSorted.filter(l => l.userId === user.id && l.type === 'OUT' && l.date === dateStr);
+
+                let in1 = null, out1 = null, in2 = null, out2 = null;
+
+                if (insToday.length > 0) {
+                    in1 = insToday[0];
+                    // نبحث عن أول خروج "بعد" هذا الدخول (حتى لو في يوم آخر) في كامل المصفوفة المرتبة
+                    out1 = allLogsSorted.find(o => 
+                        o.userId === user.id && 
+                        o.type === 'OUT' && 
+                        o.timestamp.seconds > in1.timestamp.seconds &&
+                        (o.timestamp.seconds - in1.timestamp.seconds) < 57600 // أقصى مدة 16 ساعة
+                    );
+
+                    if (insToday.length > 1) {
+                        in2 = insToday[1];
+                        out2 = allLogsSorted.find(o => 
+                            o.userId === user.id && 
+                            o.type === 'OUT' && 
+                            o.timestamp.seconds > in2.timestamp.seconds &&
+                            o.timestamp.seconds !== out1?.timestamp.seconds
+                        );
+                    }
+                } 
+
+                // حالة "مقصود": إذا لم نجد دخول اليوم، ولكن يوجد خروج اليوم غير مرتبط بدخول سابق
+                if (!in1 && outsToday.length > 0) {
+                    // نتحقق إذا كان الخروج يخص شفت بدأ بالأمس (عبر منتصف الليل)
+                    const linkedToYesterday = allLogsSorted.find(i => 
+                        i.userId === user.id && i.type === 'IN' && 
+                        i.timestamp.seconds < outsToday[0].timestamp.seconds &&
+                        (outsToday[0].timestamp.seconds - i.timestamp.seconds) < 57600
+                    );
                     
-                    summary.details.push({
-                        date: dateStr, 
-                        day: d.toLocaleDateString('en-US', {weekday:'short'}),
-                        shiftsScheduled: myShifts,
-                        actualIn1: fmtTime(in1),
-                        actualOut1: fmtTime(out1),
-                        in1Lat: in1?.locationLat, in1Lng: in1?.locationLng,
-                        out1Lat: out1?.locationLat, out1Lng: out1?.locationLng,
-                        
-                        actualIn2: fmtTime(in2),
-                        actualOut2: fmtTime(out2),
-                        in2Lat: in2?.locationLat, in2Lng: in2?.locationLng,
-                        out2Lat: out2?.locationLat, out2Lng: out2?.locationLng,
+                    if (!linkedToYesterday) {
+                        out1 = outsToday[0]; // أظهر البصمة كخروج وحيد
+                    }
+                }
 
-                        lateMinutes: lateMins, 
-                        earlyMinutes: earlyMins,
-                        dailyWorkMinutes: workMinutes, 
-                        overtimeMinutes: Math.round(ot * 60), 
-                        status,
-                        riskFlags: [...new Set(flags)] // Unique flags
-                    });
+                // --- حسابات الحالة والوقت ---
+                let status: 'Present'|'Absent'|'Incomplete'|'Off' = 'Absent';
+                let lateMins = 0;
+                let workMinutes = 0;
+                let flags: string[] = [];
+
+                const fmtTime = (log: any) => log ? log.timestamp.toDate().toLocaleTimeString('en-US', {hour12:false, hour:'2-digit', minute:'2-digit'}) : null;
+
+                if (in1 || out1) {
+                    status = (in1 && out1) ? 'Present' : 'Incomplete';
+                    summary.totalWorkDays++;
+                    if (dayOfWeek === 5) summary.fridaysWorked++;
+
+                    if (in1 && out1) {
+                        workMinutes += Math.round((out1.timestamp.seconds - in1.timestamp.seconds) / 60);
+                    }
+                    
+                    // تأخر الشفت الأول
+                    if (myShifts[0] && in1) {
+                        const schedStart = timeToMinutes(myShifts[0].start);
+                        const actStart = timeToMinutes(fmtTime(in1)!);
+                        if (actStart > schedStart + 15) lateMins += (actStart - schedStart);
+                    }
+                } else {
+                    status = myShifts.length > 0 ? 'Absent' : 'Off';
+                    if (status === 'Absent') summary.absentDays++;
+                }
+
+                // إضافة المخاطر (Fake Loc)
+                [in1, out1, in2, out2].forEach(l => {
+                    if (l && l.distanceKm && l.distanceKm > 0.15) flags.push(`Fake Loc`);
                 });
-            }
-            setAttendanceSummaries(Array.from(summaryMap.values()));
-        } catch(e) { console.error(e); setToast({msg:'Error', type:'error'}); }
-        finally { setIsCalculatingAtt(false); }
-    };
+
+                summary.totalLateMinutes += lateMins;
+                if (flags.length > 0) summary.riskCount++;
+
+                summary.details.push({
+                    date: dateStr, 
+                    day: d.toLocaleDateString('en-US', {weekday:'short'}),
+                    shiftsScheduled: myShifts,
+                    actualIn1: fmtTime(in1),
+                    actualOut1: fmtTime(out1),
+                    in1Lat: in1?.locationLat, in1Lng: in1?.locationLng,
+                    out1Lat: out1?.locationLat, out1Lng: out1?.locationLng,
+                    actualIn2: fmtTime(in2),
+                    actualOut2: fmtTime(out2),
+                    in2Lat: in2?.locationLat, in2Lng: in2?.locationLng,
+                    out2Lat: out2?.locationLat, out2Lng: out2?.locationLng,
+                    lateMinutes: lateMins, 
+                    earlyMinutes: 0,
+                    dailyWorkMinutes: workMinutes, 
+                    overtimeMinutes: workMinutes > 540 ? workMinutes - 540 : 0, 
+                    status,
+                    riskFlags: [...new Set(flags)]
+                });
+            });
+        }
+        setAttendanceSummaries(Array.from(summaryMap.values()));
+    } catch(e) { 
+        console.error(e); 
+        setToast({msg:'Error calculating attendance', type:'error'}); 
+    } finally { 
+        setIsCalculatingAtt(false); 
+    }
+};
 
     const handleExportExcel = () => {
         if (attendanceSummaries.length === 0) return setToast({ msg: 'No data to export', type: 'error' });

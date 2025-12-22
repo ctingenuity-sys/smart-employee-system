@@ -5,6 +5,7 @@ import { db, auth } from '../firebase';
 import { collection, addDoc, updateDoc, deleteDoc, doc, query, orderBy, limit, onSnapshot, Timestamp, arrayUnion, where, getDocs } from 'firebase/firestore';
 import { ShiftLog, Announcement, User, Location } from '../types';
 import Loading from '../components/Loading';
+import SkeletonLoader from '../components/SkeletonLoader';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 import VoiceInput from '../components/VoiceInput';
@@ -26,6 +27,7 @@ const CommunicationPage: React.FC = () => {
     const [logCategory, setLogCategory] = useState<'general'|'machine'|'patient'|'supply'>('general');
     const [logImportant, setLogImportant] = useState(false);
     const [logLocation, setLogLocation] = useState(''); // Sender Location
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Checklist State
     const [checklist, setChecklist] = useState({
@@ -148,6 +150,18 @@ const CommunicationPage: React.FC = () => {
     const handleLogSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         
+        // --- Validation ---
+        if (!logLocation) {
+            setToast({msg: 'Please select your location', type: 'error'});
+            return;
+        }
+        if (!logContent.trim() && !Object.values(checklist).some(Boolean)) {
+            setToast({msg: 'Log cannot be empty', type: 'error'});
+            return;
+        }
+
+        setIsSubmitting(true);
+
         // Construct Content from Checklist + Text
         let finalContent = logContent;
         const checkedItems = [];
@@ -159,9 +173,6 @@ const CommunicationPage: React.FC = () => {
         if (checkedItems.length > 0) {
             finalContent = `${checkedItems.join(' • ')}\n${finalContent}`;
         }
-
-        if (!finalContent.trim()) return setToast({msg: 'Empty Log', type: 'error'});
-        if (!logLocation) return setToast({msg: t('location'), type: 'error'});
 
         try {
             await addDoc(collection(db, 'shiftLogs'), {
@@ -175,9 +186,16 @@ const CommunicationPage: React.FC = () => {
                 createdAt: Timestamp.now()
             });
             setToast({ msg: t('save'), type: 'success' });
-            setLogContent(''); setLogImportant(false);
+            
+            // Optimistic Clear
+            setLogContent(''); 
+            setLogImportant(false);
             setChecklist({ devices: false, inventory: false, keys: false, clean: false });
-        } catch (e) { setToast({ msg: 'Error', type: 'error' }); }
+        } catch (e) { 
+            setToast({ msg: 'Error', type: 'error' }); 
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     const handleConfirmReceive = async () => {
@@ -227,7 +245,7 @@ const CommunicationPage: React.FC = () => {
         try {
             const apiKey = (process.env.API_KEY || '').trim();
             if (!apiKey) {
-                throw new Error("API Key missing");
+                throw new Error("Missing API Key. Check .env file.");
             }
 
             // Collect last 50 logs text
@@ -258,9 +276,10 @@ const CommunicationPage: React.FC = () => {
             console.error(e);
             let msg = "Failed to generate analysis.";
             if (e.message?.includes("API key") || e.message?.includes("400")) {
-                msg = "Invalid API Key. Please check your configuration.";
+                msg = "Invalid API Key. Please check your .env file.";
+                setToast({msg, type: 'error'});
             }
-            setInsightsContent(msg);
+            setInsightsContent(`<p style="color:red; font-weight:bold">${msg}</p>`);
         } finally {
             setIsGeneratingInsights(false);
         }
@@ -381,7 +400,15 @@ const CommunicationPage: React.FC = () => {
         setChecklist(prev => ({...prev, [key]: !prev[key]}));
     };
 
-    if (loading) return <Loading />;
+    if (loading) return (
+        <div className="min-h-screen bg-slate-50 p-8 max-w-6xl mx-auto space-y-6">
+            <SkeletonLoader type="text" count={1} />
+            <div className="grid md:grid-cols-12 gap-6">
+                <div className="md:col-span-4"><SkeletonLoader type="card" count={1} /></div>
+                <div className="md:col-span-8"><SkeletonLoader type="card" count={3} /></div>
+            </div>
+        </div>
+    );
 
     return (
         <div className="min-h-screen bg-slate-50 pb-20 font-sans" dir={dir}>
@@ -524,8 +551,12 @@ const CommunicationPage: React.FC = () => {
                                         </label>
                                     </div>
 
-                                    <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-transform active:scale-95">
-                                        {t('comm.log.btn')}
+                                    <button 
+                                        type="submit" 
+                                        disabled={isSubmitting}
+                                        className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-transform active:scale-95 disabled:opacity-70 disabled:scale-100"
+                                    >
+                                        {isSubmitting ? <i className="fas fa-spinner fa-spin"></i> : t('comm.log.btn')}
                                     </button>
                                 </form>
                             </div>

@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import InventorySystem from '../components/InventorySystem';
 import { auth, db } from '../firebase';
+// @ts-ignore
 import { doc, getDoc } from 'firebase/firestore';
 import Loading from '../components/Loading';
 

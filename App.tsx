@@ -1,29 +1,57 @@
-import React, { useEffect, useState } from 'react';
+
+import React, { useEffect, useState, Suspense, createContext, useContext } from 'react';
 // @ts-ignore
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { auth, db } from './firebase';
-import Login from './pages/Login';
-import SupervisorDashboard from './pages/SupervisorDashboard';
-import UserDashboard from './pages/UserDashboard';
-import ScheduleBuilder from './pages/ScheduleBuilder';
-import Reports from './pages/Reports';
-import AttendanceAnalyzer from './pages/AttendanceAnalyzer';
-import InventoryPage from './pages/InventoryPage';
-import CommunicationPage from './pages/CommunicationPage';
-import TasksPage from './pages/TasksPage';
-import TechSupportPage from './pages/TechSupportPage';
-import HRAssistantPage from './pages/HRAssistantPage';
-import DoctorDashboard from './pages/DoctorDashboard'; 
-import AttendancePage from './pages/AttendancePage'; // Import New Page
-import Layout from './components/Layout';
 import Loading from './components/Loading';
 import { UserRole } from './types';
 import { LanguageProvider } from './contexts/LanguageContext';
-
 // @ts-ignore
 import { doc, getDoc } from 'firebase/firestore';
+import Layout from './components/Layout';
 
-const AppContent: React.FC = () => {
+// --- Lazy Loading Pages (Code Splitting) ---
+const Login = React.lazy(() => import('./pages/Login'));
+const SupervisorDashboard = React.lazy(() => import('./pages/SupervisorDashboard'));
+const SupervisorAttendance = React.lazy(() => import('./pages/supervisor/SupervisorAttendance'));
+const SupervisorEmployees = React.lazy(() => import('./pages/supervisor/SupervisorEmployees'));
+const SupervisorSwaps = React.lazy(() => import('./pages/supervisor/SupervisorSwaps'));
+const SupervisorLeaves = React.lazy(() => import('./pages/supervisor/SupervisorLeaves'));
+const SupervisorMarket = React.lazy(() => import('./pages/supervisor/SupervisorMarket'));
+const SupervisorLocations = React.lazy(() => import('./pages/supervisor/SupervisorLocations'));
+const SupervisorHistory = React.lazy(() => import('./pages/supervisor/SupervisorHistory'));
+
+const UserDashboard = React.lazy(() => import('./pages/UserDashboard'));
+const UserSchedule = React.lazy(() => import('./pages/UserSchedule'));
+const UserRequests = React.lazy(() => import('./pages/UserRequests'));
+const UserMarket = React.lazy(() => import('./pages/UserMarket'));
+const UserIncoming = React.lazy(() => import('./pages/UserIncoming'));
+const UserHistory = React.lazy(() => import('./pages/UserHistory'));
+const UserProfile = React.lazy(() => import('./pages/UserProfile'));
+
+const ScheduleBuilder = React.lazy(() => import('./pages/ScheduleBuilder'));
+const Reports = React.lazy(() => import('./pages/Reports'));
+const AttendanceAnalyzer = React.lazy(() => import('./pages/AttendanceAnalyzer'));
+const InventoryPage = React.lazy(() => import('./pages/InventoryPage'));
+const CommunicationPage = React.lazy(() => import('./pages/CommunicationPage'));
+const TasksPage = React.lazy(() => import('./pages/TasksPage'));
+const TechSupportPage = React.lazy(() => import('./pages/TechSupportPage'));
+const HRAssistantPage = React.lazy(() => import('./pages/HRAssistantPage'));
+const DoctorDashboard = React.lazy(() => import('./pages/DoctorDashboard'));
+const AttendancePage = React.lazy(() => import('./pages/AttendancePage'));
+
+// --- Auth Context ---
+interface AuthContextType {
+  user: any;
+  role: string | null;
+  userName: string;
+  loading: boolean;
+}
+const AuthContext = createContext<AuthContextType>({ user: null, role: null, userName: '', loading: true });
+const useAuth = () => useContext(AuthContext);
+
+// --- Auth Provider ---
+const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<any>(null);
   const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,7 +60,13 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
       if (currentUser) {
-        setLoading(true); 
+        // Optimistic check: if we have local storage role, use it while fetching fresh data
+        const cachedRole = localStorage.getItem("role");
+        const cachedName = localStorage.getItem("username");
+        if(cachedRole) setRole(cachedRole);
+        if(cachedName) setUserName(cachedName);
+        setUser(currentUser);
+
         try {
           const userRef = doc(db, 'users', currentUser.uid);
           const userSnap = await getDoc(userRef);
@@ -44,18 +78,16 @@ const AppContent: React.FC = () => {
             
             setRole(userRole);
             setUserName(name);
-            setUser(currentUser);
-
+            
+            // Update Cache
             localStorage.setItem("role", userRole);
             localStorage.setItem("username", name);
           } else {
             setRole(null);
             setUserName(currentUser.email || '');
-            setUser(currentUser);
           }
         } catch (e) {
           console.error('Error fetching role', e);
-          setUser(currentUser);
           setRole(null);
         }
       } else {
@@ -79,164 +111,89 @@ const AppContent: React.FC = () => {
     );
 
   return (
+      <AuthContext.Provider value={{ user, role, userName, loading }}>
+          {children}
+      </AuthContext.Provider>
+  );
+};
+
+// --- Protected Route Component ---
+const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
+    const { user, role, userName } = useAuth();
+
+    if (!user) return <Navigate to="/login" replace />;
+    
+    if (allowedRoles && role && !allowedRoles.includes(role)) {
+        // Redirect based on actual role
+        if (role === UserRole.USER) return <Navigate to="/user" replace />;
+        if (role === UserRole.DOCTOR) return <Navigate to="/doctor" replace />;
+        return <Navigate to="/login" replace />;
+    }
+    return (
+        <Layout userRole={role || ''} userName={userName}>
+            <Suspense fallback={<div className="p-8"><Loading /></div>}>
+                {children}
+            </Suspense>
+        </Layout>
+    );
+};
+
+const AppRoutes: React.FC = () => {
+  const { user, role } = useAuth();
+
+  return (
     <Router>
       <Routes>
         <Route
           path="/login"
           element={
-            !user ? <Login /> : 
-            role === UserRole.DOCTOR ? <Navigate to="/doctor" replace /> :
-            (role === UserRole.USER ? <Navigate to="/user" replace /> : <Navigate to="/supervisor" replace />)
+            <Suspense fallback={<Loading />}>
+                {!user ? <Login /> : 
+                role === UserRole.DOCTOR ? <Navigate to="/doctor" replace /> :
+                (role === UserRole.USER ? <Navigate to="/user" replace /> : <Navigate to="/supervisor" replace />)
+                }
+            </Suspense>
           }
         />
 
-        <Route
-          path="/supervisor"
-          element={
-            user && (role === UserRole.ADMIN || role === UserRole.SUPERVISOR) ? (
-              <Layout userRole={role} userName={userName}>
-                <SupervisorDashboard />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-        <Route
-          path="/schedule-builder"
-          element={
-            user && (role === UserRole.ADMIN || role === UserRole.SUPERVISOR) ? (
-              <Layout userRole={role} userName={userName}>
-                <ScheduleBuilder />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-        <Route
-          path="/reports"
-          element={
-            user && (role === UserRole.ADMIN || role === UserRole.SUPERVISOR) ? (
-              <Layout userRole={role} userName={userName}>
-                <Reports />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-        <Route
-          path="/attendance"
-          element={
-            user && (role === UserRole.ADMIN || role === UserRole.SUPERVISOR) ? (
-              <Layout userRole={role} userName={userName}>
-                <AttendanceAnalyzer />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
+        {/* Supervisor Routes */}
+        <Route path="/supervisor" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorDashboard /></ProtectedRoute>} />
+        <Route path="/supervisor/attendance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorAttendance /></ProtectedRoute>} />
+        <Route path="/supervisor/employees" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorEmployees /></ProtectedRoute>} />
+        <Route path="/supervisor/swaps" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorSwaps /></ProtectedRoute>} />
+        <Route path="/supervisor/leaves" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorLeaves /></ProtectedRoute>} />
+        <Route path="/supervisor/market" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorMarket /></ProtectedRoute>} />
+        <Route path="/supervisor/locations" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorLocations /></ProtectedRoute>} />
+        <Route path="/supervisor/history" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorHistory /></ProtectedRoute>} />
 
-        <Route
-          path="/user"
-          element={
-            user && (role === UserRole.USER) ? (
-              <Layout userRole={role} userName={userName}>
-                <UserDashboard />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
+        {/* User Routes */}
+        <Route path="/user" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><UserDashboard /></ProtectedRoute>} />
+        <Route path="/user/schedule" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><UserSchedule /></ProtectedRoute>} />
+        <Route path="/user/requests" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><UserRequests /></ProtectedRoute>} />
+        <Route path="/user/market" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><UserMarket /></ProtectedRoute>} />
+        <Route path="/user/incoming" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><UserIncoming /></ProtectedRoute>} />
+        <Route path="/user/history" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><UserHistory /></ProtectedRoute>} />
+        <Route path="/user/profile" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><UserProfile /></ProtectedRoute>} />
 
-        {/* Separate Attendance Page (No Layout) */}
-        <Route
-          path="/attendance-punch"
-          element={
-            user ? <AttendancePage /> : <Navigate to="/login" replace />
-          }
-        />
+        {/* Other Routes */}
+        <Route path="/schedule-builder" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ScheduleBuilder /></ProtectedRoute>} />
+        <Route path="/reports" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><Reports /></ProtectedRoute>} />
+        <Route path="/attendance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><AttendanceAnalyzer /></ProtectedRoute>} />
 
-        <Route
-          path="/doctor"
-          element={
-            user && (role === UserRole.DOCTOR) ? (
-              <Layout userRole={role} userName={userName}>
-                <DoctorDashboard />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
+        <Route path="/attendance-punch" element={
+            <Suspense fallback={<Loading />}>
+                {user ? <AttendancePage /> : <Navigate to="/login" replace />}
+            </Suspense>
+        } />
 
-        <Route
-          path="/communications"
-          element={
-            user ? (
-              <Layout userRole={role || UserRole.USER} userName={userName}>
-                <CommunicationPage />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
+        <Route path="/doctor" element={<ProtectedRoute allowedRoles={[UserRole.DOCTOR]}><DoctorDashboard /></ProtectedRoute>} />
 
-        <Route
-          path="/inventory"
-          element={
-            user ? (
-              <Layout userRole={role || UserRole.USER} userName={userName}>
-                <InventoryPage />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-
-        <Route
-          path="/tasks"
-          element={
-            user ? (
-              <Layout userRole={role || UserRole.USER} userName={userName}>
-                <TasksPage />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-
-        <Route
-          path="/tech-support"
-          element={
-            user ? (
-              <Layout userRole={role || UserRole.USER} userName={userName}>
-                <TechSupportPage />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-
-        <Route
-          path="/hr-assistant"
-          element={
-            user ? (
-              <Layout userRole={role || UserRole.USER} userName={userName}>
-                <HRAssistantPage />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
+        {/* Shared Routes */}
+        <Route path="/communications" element={<ProtectedRoute><CommunicationPage /></ProtectedRoute>} />
+        <Route path="/inventory" element={<ProtectedRoute><InventoryPage /></ProtectedRoute>} />
+        <Route path="/tasks" element={<ProtectedRoute><TasksPage /></ProtectedRoute>} />
+        <Route path="/tech-support" element={<ProtectedRoute><TechSupportPage /></ProtectedRoute>} />
+        <Route path="/hr-assistant" element={<ProtectedRoute><HRAssistantPage /></ProtectedRoute>} />
 
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
@@ -247,7 +204,9 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <LanguageProvider>
-      <AppContent />
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
     </LanguageProvider>
   );
 };

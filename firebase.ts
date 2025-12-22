@@ -2,6 +2,7 @@
 // firebase.ts
 // @ts-ignore
 import { initializeApp } from "firebase/app";
+// @ts-ignore
 import { getAuth } from "firebase/auth";
 // @ts-ignore
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";

@@ -11,8 +11,8 @@ import { useNavigate } from 'react-router-dom';
 
 const HOSPITAL_LAT = 21.584135549676002;
 const HOSPITAL_LNG = 39.208052479784165; 
-const ALLOWED_RADIUS_KM = 0.20; 
-const MAX_GPS_ACCURACY_METERS = 200; 
+const ALLOWED_RADIUS_KM = 0.08; 
+const MAX_GPS_ACCURACY_METERS = 80; 
 
 // --- Helpers (Pure Functions) ---
 const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -153,10 +153,13 @@ const AttendancePage: React.FC = () => {
     const [errorDetails, setErrorDetails] = useState<{title: string, msg: string}>({title: '', msg: ''});
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
     const [showHistory, setShowHistory] = useState(false);
-
-    // Data State
+    const [timeLeft, setTimeLeft] = useState<number | null>(null);
+ 
+// Data State
     const [todayLogs, setTodayLogs] = useState<AttendanceLog[]>([]);
+    const [yesterdayLogs, setYesterdayLogs] = useState<AttendanceLog[]>([]); // <--- إضافة جديدة
     const [todayShifts, setTodayShifts] = useState<{ start: string, end: string }[]>([]);
+    const [overrideExpiries, setOverrideExpiries] = useState<Date[]>([]);
     const [hasOverride, setHasOverride] = useState(false);
     const [userProfile, setUserProfile] = useState<any>(null);
     const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -191,29 +194,45 @@ const AttendancePage: React.FC = () => {
     }, []);
 
     // 2. Clock Logic
-    useEffect(() => {
-        if (!isTimeSynced) return;
-        setCurrentTime(new Date(Date.now() + timeOffset));
-        const timer = setInterval(() => {
-            const now = new Date(Date.now() + timeOffset);
-            setCurrentTime(now);
-            if (now.getSeconds() === 0) {
-                setLogicTicker(prev => prev + 1);
-            }
-        }, 1000);
-        return () => clearInterval(timer);
-    }, [isTimeSynced, timeOffset]);
+useEffect(() => {
+    if (!isTimeSynced) return;
+    const timer = setInterval(() => {
+        const now = new Date(Date.now() + timeOffset);
+        setCurrentTime(now);
 
-    // 3. Data Subscriptions
-    useEffect(() => {
+        // --- حساب العداد التنازلي ---
+        // نبحث عن أقرب وقت انتهاء مستقبلي
+        const activeExpiry = overrideExpiries.find(expiry => expiry > now);
+        
+        if (activeExpiry) {
+            setHasOverride(true);
+            // حساب الفرق بالثواني
+            const seconds = Math.max(0, Math.round((activeExpiry.getTime() - now.getTime()) / 1000));
+            setTimeLeft(seconds);
+        } else {
+            setHasOverride(false);
+            setTimeLeft(null);
+        }
+
+        if (now.getSeconds() === 0) {
+            setLogicTicker(prev => prev + 1);
+        }
+    }, 1000);
+    return () => clearInterval(timer);
+}, [isTimeSynced, timeOffset, overrideExpiries]);
+
+
+    // 3. Data Subscriptions (MODIFIED FOR NIGHT SHIFT)
+
+useEffect(() => {
         if (!currentUserId || !currentTime) return;
 
         const unsubUser = onSnapshot(doc(db, 'users', currentUserId), (docSnap) => {
             if(docSnap.exists()) setUserProfile(docSnap.data());
         });
 
+        // جلب سجلات اليوم
         const todayStr = getLocalDateKey(currentTime);
-        
         const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', todayStr));
         const unsubLogs = onSnapshot(qLogs, (snap) => {
             const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
@@ -221,20 +240,37 @@ const AttendancePage: React.FC = () => {
             setTodayLogs(logs);
         });
 
-        const qOverride = query(collection(db, 'attendance_overrides'), where('userId', '==', currentUserId));
-        const unsubOver = onSnapshot(qOverride, (snap) => {
-            let active = false;
-            const now = new Date(Date.now() + timeOffset);
-            snap.docs.forEach(d => { if (d.data().validUntil && d.data().validUntil.toDate() > now) active = true; });
-            setHasOverride(active);
+        // --- إضافة جديدة: جلب سجلات الأمس لمعالجة الدوام الليلي ---
+        const yesterdayDate = new Date(currentTime);
+        yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+        const yesterdayStr = getLocalDateKey(yesterdayDate);
+        
+        const qLogsYesterday = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', yesterdayStr));
+        const unsubLogsYesterday = onSnapshot(qLogsYesterday, (snap) => {
+            const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
+            logs.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+            setYesterdayLogs(logs);
         });
+        // -------------------------------------------------------
 
+// داخل الـ useEffect الثالث الخاص بالبيانات
+const qOverride = query(collection(db, 'attendance_overrides'), where('userId', '==', currentUserId));
+const unsubOver = onSnapshot(qOverride, (snap) => {
+    // جلب كل التواريخ المتاحة للأذونات
+    const expiries = snap.docs
+        .map(d => d.data().validUntil?.toDate())
+        .filter(date => date != null);
+    
+    setOverrideExpiries(expiries); // تخزين التواريخ في المصفوفة
+});
         const currentMonth = currentTime.toISOString().slice(0, 7);
         const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', '==', currentMonth));
         const unsubSch = onSnapshot(qSch, (snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
 
-        return () => { unsubUser(); unsubLogs(); unsubOver(); unsubSch(); };
+        return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); };
     }, [currentUserId, isTimeSynced, currentTime ? currentTime.getDate() : 0]);
+
+
 
     // 4. Calculate Shifts (Data layer)
     useEffect(() => {
@@ -268,7 +304,7 @@ const AttendancePage: React.FC = () => {
     }, [schedules, currentTime]);
 
     // --- 5. THE ULTIMATE SHIFT LOGIC (GENIUS EDITION V5.0 - AUTO SKIP & RELATIVE GATING) ---
-    const shiftLogic = useMemo(() => {
+const shiftLogic = useMemo(() => {
         if (!currentTime) return { state: 'LOADING', message: 'SYNCING', sub: 'Server Time', canPunch: false };
 
         const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
@@ -279,120 +315,154 @@ const AttendancePage: React.FC = () => {
             return h * 60 + (m || 0);
         };
 
-        if (todayShifts.length === 0) {
-            return { state: 'NO_SCHEDULE', message: 'OFF DUTY', sub: 'No shift scheduled', canPunch: false };
-        }
-
-        const logsCount = todayLogs.length;
-        const lastLog = logsCount > 0 ? todayLogs[logsCount - 1] : null;
+        // --- 1. تجهيز السجلات (المنطق الذكي الجديد) ---
+        let effectiveLogs = [...todayLogs];
+        let isContinuationFromYesterday = false;
         
-        // --- PHASE 0: DETERMINING ENTRY POINT ---
-        if (logsCount === 0) {
-            const shift1Start = toMins(todayShifts[0].start);
-            let shift1End = toMins(todayShifts[0].end);
+        // التحقق من سجلات الأمس (فقط إذا لم يبدأ الموظف دوامه اليوم)
+        if (todayLogs.length === 0 && yesterdayLogs.length > 0) {
+            const lastYesterday = yesterdayLogs[yesterdayLogs.length - 1];
             
-            // FIX: If shift ends next day (e.g., 17:00 to 01:00), add 24 hours to end time
-            if (shift1End < shift1Start) {
-                shift1End += 1440;
-            }
-            
-            // Allow entry 30 mins before
-            const s1WindowOpen = shift1Start - 30; 
-            
-            // Only skip shift if current time is past end AND multiple shifts exist
-            // Using a modest buffer of 120 mins after end to allow late punching out if forgotten? 
-            // No, for ENTRY logic: if we are way past end of S1, check S2.
-            
-            if (currentMinutes > shift1End && todayShifts.length > 1) {
-                // Shift 1 Missed. Check Shift 2.
-                let s2Start = toMins(todayShifts[1].start);
-                const s1EndVal = toMins(todayShifts[0].end);
+            if (lastYesterday.type === 'IN') {
+                // هنا الجزء المهم: هل هذا الدخول المعلق ما زال سارياً أم انتهى وقته؟
                 
-                // PM Correction logic
-                if (s2Start < s1EndVal) s2Start += 720; // Heuristic adjustment if order seems wrong, though usually sorted
+                // 1. تحديد أي وردية كان يتبع لها هذا السجل (نفترض الوردية الأولى أو حسب shiftIndex)
+                const yShiftIdx = lastYesterday.shiftIndex || 1;
+                const yShiftDef = todayShifts[yShiftIdx - 1] || todayShifts[0]; // نستخدم جدول اليوم كمرجع تقريبي
 
-                const s2WindowOpen = s2Start - 15;
-
-                if (hasOverride || currentMinutes >= s2WindowOpen) {
-                    // READY FOR SHIFT 2 DIRECTLY
-                    return { state: 'READY_IN', message: 'START', sub: 'Shift 2 (Shift 1 Missed)', canPunch: true, shiftIdx: 2 };
-                } else {
-                    // WAITING FOR SHIFT 2
-                    let diff = s2WindowOpen - currentMinutes;
-                    const h = Math.floor(diff / 60);
-                    const m = diff % 60;
-                    const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
+                if (yShiftDef) {
+                    const yEnd = toMins(yShiftDef.end);
+                    const yStart = toMins(yShiftDef.start);
                     
-                    return { 
-                        state: 'DISABLED', 
-                        message: 'BREAK', 
-                        sub: `Shift 1 Missed. S2 in ${timeStr}`, 
-                        timeRemaining: timeStr,
-                        canPunch: false,
-                        isBreak: true
-                    };
-                }
-            } else if (currentMinutes > shift1End && todayShifts.length === 1) {
-                 return { state: 'COMPLETED', message: 'ABSENT', sub: 'Shift Ended', canPunch: false };
-            }
+                    // حساب وقت الإغلاق التلقائي لهذه الوردية القديمة
+                    // (نهاية الدوام + 60 دقيقة سماحية)
+                    let absoluteCloseTime = yEnd + 60; 
+                    
+                    // تحويل التوقيت الحالي ليكون متوافقاً مع توقيت الأمس للمقارنة
+                    // بما أننا في "اليوم"، والوردية من "الأمس"، نضيف 1440 دقيقة (24 ساعة) للوقت الحالي
+                    // إلا إذا كانت الوردية ليلية ممتدة لصباح اليوم
+                    
+                    let timeNowComparison = currentMinutes;
+                    
+                    // إذا كانت الوردية ليلية (مثلاً تنتهي 4 فجراً) ونحن الآن 5 فجراً
+                    // yStart=20:00, yEnd=04:00.
+                    // في منطق الأمس: النهاية هي 28 ساعة (04:00 + 24)
+                    
+                    let effectiveShiftEnd = yEnd;
+                    if (yEnd < yStart) effectiveShiftEnd += 1440; // الوردية تعبر لليوم التالي
 
-            // Normal Shift 1 Logic
-            if (hasOverride || currentMinutes >= s1WindowOpen) {
-                return { state: 'READY_IN', message: 'START', sub: 'Shift 1', canPunch: true, shiftIdx: 1 };
-            } else {
-                const diff = s1WindowOpen - currentMinutes;
-                const h = Math.floor(diff/60);
-                const m = diff%60;
-                return { state: 'LOCKED', message: 'WAIT', sub: `Starts in ${h>0?h+'h ':''}${m}m`, canPunch: false };
+                    // بما أننا نقارن "سجل أمس" بـ "وقت اليوم"، المعادلة الأدق هي:
+                    // هل الوقت الحالي (اليوم) تجاوز وقت النهاية؟
+                    
+                    // سيناريو 1: دوام عادي (8ص - 4م). الآن نحن في اليوم التالي 8ص.
+                    // yEnd = 16:00. timeNow = 08:00 (اليوم التالي).
+                    // الفرق كبير جداً. يجب التجاهل.
+                    
+                    // سيناريو 2: دوام ليلي (8م - 4فجراً). الآن الساعة 04:30 فجراً.
+                    // yEnd = 04:00. timeNow = 04:30.
+                    // الفرق 30 دقيقة -> نسمح بالخروج.
+                    
+                    // سيناريو 3: دوام ليلي (8م - 4فجراً). الآن الساعة 08:00 مساءً (بداية دوام جديد).
+                    // yEnd = 04:00. timeNow = 20:00.
+                    // الفرق 16 ساعة -> يجب التجاهل وبدء دوام جديد.
+
+                    // الحل:
+                    // إذا كان الفرق بين (وقت النهاية) و (الوقت الحالي) أكبر من ساعة، نتجاهل سجل الأمس.
+                    // لكن الحساب معقد بسبب التفاف الساعة 24.
+                    
+                    // أسهل طريقة: إذا كان الوقت الحالي يقع ضمن "نافذة الدوام الجديد"، تجاهل القديم.
+                    // أو ببساطة: إذا مر أكثر من 16 ساعة على وقت الدخول، فهو بالتأكيد انتهى.
+                    
+                    // سنستخدم منطق "ساعة السماحية" للقرار:
+                    let isExpired = false;
+                    
+                    if (yEnd < yStart) { 
+                        // وردية ليلية (تنتهي في صباح اليوم)
+                        // وقت النهاية هو صباح اليوم (مثلاً 04:00 = 240 دقيقة)
+                        // الوقت الحالي هو currentMinutes (مثلاً 05:30 = 330 دقيقة)
+                        if (currentMinutes > (yEnd + 60)) {
+                            isExpired = true; 
+                        }
+                        // حالة خاصة: إذا جاء الموظف لدوام الليلة التالية (الساعة 20:00)
+                        // currentMinutes (1200) > yEnd (240). شرط محقق -> Expired. ممتاز.
+                    } else {
+                        // وردية نهارية (انتهت في نفس يوم أمس)
+                        // بما أننا في "اليوم التالي"، فهي منتهية حكماً.
+                        isExpired = true;
+                    }
+
+                    if (!isExpired) {
+                        // ما زلنا في فترة السماحية للدوام الليلي -> نعتمد السجل
+                        effectiveLogs = [lastYesterday];
+                        isContinuationFromYesterday = true;
+                    } 
+                    // else { الدوام منتهي -> effectiveLogs تظل فارغة -> يفتح بصمة دخول جديدة }
+                }
             }
         }
+        
 
-        // --- PHASE 1: LOGGED IN ONCE ---
+        const logsCount = effectiveLogs.length;
+        const lastLog = logsCount > 0 ? effectiveLogs[logsCount - 1] : null;
+
+        // ... (باقي الكود كما هو تماماً، سيعمل الآن بشكل صحيح) ...
+        
+        if (todayShifts.length === 0 && !isContinuationFromYesterday) {
+             // ...
+        }
+
+
+        
+// --- PHASE 1: LOGGED IN ONCE (تم تسجيل الدخول - بانتظار الخروج) ---
         if (logsCount === 1 && lastLog?.type === 'IN') {
             const currentShiftIndex = lastLog.shiftIndex || 1;
-            const shiftDef = todayShifts[currentShiftIndex - 1]; // shiftIndex is 1-based
+            let shiftDef = todayShifts[currentShiftIndex - 1];
             
+            // (نفس كود معالجة الوردية الليلية السابق...)
+            if (!shiftDef && isContinuationFromYesterday) {
+                 return { state: 'READY_OUT', message: 'END', sub: 'Overnight Shift', canPunch: true, shiftIdx: currentShiftIndex };
+            }
             if (!shiftDef) return { state: 'ERROR', message: 'ERR', sub: 'Invalid Shift', canPunch: false };
 
             const shiftStart = toMins(shiftDef.start);
             let shiftEnd = toMins(shiftDef.end);
             
-            // Handle PM/AM wrap for end time
             let adjustedEnd = shiftEnd;
             let adjustedCurrent = currentMinutes;
             
-            // FIX: If shift ends next day (e.g. 17:00 to 01:00)
+            // معالجة الدوام الليلي وتعديل التوقيت
             if (shiftEnd < shiftStart) {
                 adjustedEnd += 1440;
-                // If currently it's early morning (e.g. 00:30), technically date logic handles 'date', 
-                // but just in case this component remains mounted across midnight without data refresh:
-                if (currentMinutes < shiftStart) {
-                     // This usually won't trigger because date changes, but logical safe guard:
-                     // adjustedCurrent += 1440; 
+            }
+            if (isContinuationFromYesterday) {
+                 // لا نعدل adjustedCurrent لأننا في يوم جديد، لكن adjustedEnd يجب أن يكون طبيعياً
+                 // إذا كنا في حالة استمرار، فإن adjustedEnd هو وقت اليوم (مثلاً 04:00 = 240 دقيقة)
+                 // والوقت الحالي هو وقت اليوم (مثلاً 05:30 = 330 دقيقة)
+                 // في هذه الحالة adjustedEnd لا يحتاج لـ +1440
+                 if (shiftEnd < shiftStart) adjustedEnd -= 1440; // إعادة للقيمة الطبيعية للمقارنة في الصباح
+            } else {
+                // الحالة العادية (نفس اليوم أو امتداد بعد منتصف الليل قبل تغيير التاريخ)
+                if (shiftEnd < shiftStart && currentMinutes < 720) {
+                    adjustedCurrent += 1440;
                 }
             }
 
-            const windowOpen = adjustedEnd - 15;
+            // ============================================================
+            // 🛑 التعديل الجديد: إغلاق الجلسة تلقائياً بعد ساعة من نهاية الدوام
+            // ============================================================
+            const GRACE_PERIOD_MINUTES = 60; // مدة السماحية (ساعة)
+            const autoCloseTime = adjustedEnd + GRACE_PERIOD_MINUTES;
 
-            // If we have wrapped around (adjustedEnd > 1440), we need to check if currentMinutes is actually late night
-            // The problem is 'currentMinutes' resets to 0 at midnight.
-            // But 'adjustedEnd' might be 1500 (1AM).
-            // This component reloads on date change, so for the "Next Day", 
-            // the user should technically see a "Continuation" or we handle punch out on the previous day's log?
-            // Current system: Punch out is associated with the date of punch IN.
-            
-            // NOTE: If the shift crosses midnight, the user punches OUT on the next day. 
-            // The 'date' in logs will be 'Today' (the start date).
-            // But 'currentMinutes' will be small (e.g. 30 for 00:30).
-            // So we need to handle the comparison.
-            
-            if (adjustedEnd > 1440) {
-               // Shift ends tomorrow.
-               // If current time is < 12:00 PM, assume it's "tomorrow" relative to start
-               if (currentMinutes < 720) {
-                   adjustedCurrent += 1440;
-               }
+            if (!hasOverride && adjustedCurrent > autoCloseTime) {
+                return { 
+                    state: 'COMPLETED', // ننهي الجلسة في الواجهة
+                    message: 'CLOSED',    // الرسالة الظاهرة
+                    sub: 'Checkout time expired', // السبب
+                    canPunch: false       // منع بصمة الخروج
+                };
             }
+
+            const windowOpen = adjustedEnd - 15;
 
             if (hasOverride || adjustedCurrent >= windowOpen) {
                 return { state: 'READY_OUT', message: 'END', sub: `Shift ${currentShiftIndex}`, canPunch: true, shiftIdx: currentShiftIndex };
@@ -401,77 +471,56 @@ const AttendancePage: React.FC = () => {
             }
         }
 
-        // --- PHASE 2: TWO LOGS (Usually IN 1 -> OUT 1, or IN 2 -> OUT 2 if missed S1) ---
+        // --- PHASE 2: TWO LOGS ---
         if (logsCount === 2) {
+            // (نفس الكود السابق، فقط تأكد من التعامل مع الحالة العادية)
             const lastLogIdx = lastLog?.shiftIndex || 1;
-
-            // If we just finished Shift 2 (because we skipped S1), we are done.
-            if (lastLogIdx === 2) {
-                return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete (S1 Missed)', canPunch: false };
-            }
-
-            // Otherwise, we finished Shift 1. Wait for Shift 2.
-            if (todayShifts.length < 2) {
-                return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
-            }
+            if (lastLogIdx === 2) return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
+            if (todayShifts.length < 2) return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
             
-            let s1End = toMins(todayShifts[0].end);
-            let s1Start = toMins(todayShifts[0].start);
-            if (s1End < s1Start) s1End += 1440;
-
             let s2Start = toMins(todayShifts[1].start);
-            
-            // Logic to determine if S2 is next day or just later today
-            // Usually S2 is later today.
-            // If S1 ended next day (e.g. 8am), S2 might be 5pm (which is technically < 8am+24h).
-            // Standard check:
-            if (s2Start < s1End - 1440) { 
-                // S2 is earlier in the day than S1 end? Impossible unless S1 wrapped.
-                // Assuming standard same-day shifts or sequential.
-            }
-            // Simple PM correction if needed
-            if (s2Start < (s1End % 1440)) s2Start += 720; 
+            // تصحيح بسيط لوقت الظهيرة
+            let s1End = toMins(todayShifts[0].end);
+            if(s1End > s2Start) s2Start += 1440; // مجرد حماية
 
             const windowOpen = s2Start - 15;
-
-            if (hasOverride) {
-                return { state: 'READY_IN', message: 'START', sub: 'Shift 2 (Override)', canPunch: true, shiftIdx: 2 };
-            }
-
-            if (currentMinutes >= windowOpen) {
+            if (hasOverride || currentMinutes >= windowOpen) {
                 return { state: 'READY_IN', message: 'START', sub: 'Shift 2', canPunch: true, shiftIdx: 2 };
             } else {
-                let diff = windowOpen - currentMinutes;
-                const h = Math.floor(diff / 60);
-                const m = diff % 60;
-                const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
-
-                return { 
-                    state: 'DISABLED', 
-                    message: 'BREAK', 
-                    sub: `Next shift in ${timeStr}`, 
-                    timeRemaining: timeStr,
-                    canPunch: false,
-                    isBreak: true
-                };
+                 let diff = windowOpen - currentMinutes;
+                 if(diff < 0) diff += 1440; // تصحيح
+                 const h = Math.floor(diff / 60);
+                 const m = diff % 60;
+                 return { state: 'DISABLED', message: 'BREAK', sub: `Next shift in ${h}h ${m}m`, timeRemaining: `${h}:${m}`, canPunch: false, isBreak: true };
             }
         }
 
-        // --- PHASE 3: THREE LOGS (IN 1 -> OUT 1 -> IN 2) ---
+        // --- PHASE 3: THREE LOGS ---
         if (logsCount === 3) {
             let s2End = toMins(todayShifts[1].end);
             let s2Start = toMins(todayShifts[1].start);
-            
-            // Check wrap
             if (s2End < s2Start) s2End += 1440;
 
-            const windowOpen = s2End - 15;
             let adjustedCurrent = currentMinutes;
-            
-            // Handle midnight wrap for current time comparison
-            if (s2End > 1440 && currentMinutes < 720) {
-                adjustedCurrent += 1440;
+            if (s2End > 1440 && currentMinutes < 720) adjustedCurrent += 1440;
+
+            // ============================================================
+            // 🛑 التعديل الجديد للوردية الثانية
+            // ============================================================
+            const GRACE_PERIOD_MINUTES = 60;
+            const autoCloseTime = s2End + GRACE_PERIOD_MINUTES;
+
+            if (!hasOverride && adjustedCurrent > autoCloseTime) {
+                return { 
+                    state: 'COMPLETED', 
+                    message: 'CLOSED', 
+                    sub: 'S2 Timeout', 
+                    canPunch: false 
+                };
             }
+            // ============================================================
+
+            const windowOpen = s2End - 15;
 
             if (hasOverride || adjustedCurrent >= windowOpen) {
                 return { state: 'READY_OUT', message: 'END', sub: 'Shift 2', canPunch: true, shiftIdx: 2 };
@@ -482,7 +531,9 @@ const AttendancePage: React.FC = () => {
 
         return { state: 'COMPLETED', message: 'DONE', sub: 'See you tomorrow!', canPunch: false };
 
-    }, [todayLogs, todayShifts, hasOverride, logicTicker, currentTime]);
+    }, [todayLogs, yesterdayLogs, todayShifts, hasOverride, logicTicker, currentTime]);
+
+
 
     // --- ACTIONS ---
     const playSound = (type: 'success' | 'error' | 'click') => {
@@ -753,6 +804,28 @@ const AttendancePage: React.FC = () => {
                 </div>
             </div>
 
+                {/* ✅ ضع الكود هنا بالظبط (تحت الهيدر مباشرة) ✅ */}
+          {hasOverride && timeLeft !== null && (
+    <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 w-full max-w-[280px] transition-all duration-500 ${timeLeft <= 10 ? 'scale-110' : 'scale-100'}`}>
+        <div className={`
+            flex items-center justify-center gap-3 px-6 py-3 rounded-2xl shadow-2xl border backdrop-blur-xl transition-colors duration-300
+            ${timeLeft <= 10 
+                ? 'bg-red-600/90 border-red-400 animate-shake' // تأثير الاهتزاز في آخر 5 ثواني
+                : 'bg-orange-600/80 border-white/20 animate-bounce'
+            } text-white`}
+        >
+            <i className={`fas ${timeLeft <= 10 ? 'fa-triangle-exclamation' : 'fa-clock-rotate-left'} text-xl`}></i>
+            <div className="flex flex-col">
+                <span className="text-[10px] uppercase font-black tracking-widest opacity-80 leading-none">
+                    {timeLeft <= 10 ? 'Hurry Up!' : 'Access Window'}
+                </span>
+                <span className="text-lg font-black tabular-nums leading-none mt-1">
+                    Closing in: <span className="underline decoration-2 underline-offset-4">{timeLeft}s</span>
+                </span>
+            </div>
+        </div>
+    </div>
+)}
             {/* --- Main Content --- */}
             <div className="flex-1 flex flex-col items-center justify-center relative z-20 px-4 pb-24">
                 
@@ -842,36 +915,66 @@ const AttendancePage: React.FC = () => {
                 </div>
 
                 {/* Shift HUD */}
-                {todayShifts.length > 0 && (
-                    <div className="mt-16 w-full max-w-sm grid grid-cols-2 gap-3">
-                        {todayShifts.map((s, i) => {
-                            const isCurrent = (shiftLogic as any).shiftIdx === (i + 1);
-                            const isMissed = (shiftLogic as any).shiftIdx > (i+1) && todayLogs.length < (i+1)*2; // Primitive logic for visual only
-                            
-                            let borderColor = 'border-transparent';
-                            let bgColor = 'bg-white/5';
-                            let textColor = 'text-slate-400';
+{todayShifts.length > 0 && (
+    <div className="mt-10 w-full max-w-2xl flex flex-col gap-6 px-4">
+        {todayShifts.map((s, i) => {
+            const isCurrent = (shiftLogic as any).shiftIdx === (i + 1);
+            const isMissed = (shiftLogic as any).shiftIdx > (i + 1) && todayLogs.length < (i + 1) * 2;
 
-                            if (isCurrent) {
-                                borderColor = 'border-white/20';
-                                bgColor = 'bg-white/10';
-                                textColor = 'text-cyan-300 neon-text-glow';
-                            } else if (isMissed) {
-                                textColor = 'text-red-400 line-through';
-                            }
+            let borderColor = 'border-white/10';
+            let bgColor = 'bg-white/5';
+            let textColor = 'text-white/90';
 
-                            return (
-                                <div key={i} className={`glass-panel p-4 rounded-2xl flex flex-col items-center justify-center transition-all duration-500 border ${borderColor} ${bgColor} ${isCurrent ? 'shadow-lg scale-105' : 'opacity-60'}`}>
-                                    <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest mb-1">Shift {i+1}</span>
-                                    <span className={`font-mono font-bold text-sm ${textColor}`}>
-                                        {s.start} <span className="mx-1 opacity-50">-</span> {s.end}
-                                    </span>
-                                </div>
-                            )
-                        })}
+            if (isCurrent) {
+                borderColor = 'border-cyan-500/40';
+                bgColor = 'bg-cyan-500/10';
+                textColor = 'text-cyan-300 neon-text-glow';
+            } else if (isMissed) {
+                textColor = 'text-red-400/50 line-through';
+            }
+
+            return (
+                <div 
+                    key={i} 
+                    className={`glass-panel p-6 rounded-3xl flex flex-col gap-4 transition-all duration-500 border-2 ${borderColor} ${bgColor} ${isCurrent ? 'shadow-2xl scale-[1.03]' : 'opacity-70'}`}
+                >
+                    {/* العنوان العلوي */}
+                    <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                        <span className="text-xs font-black text-white/30 uppercase tracking-[0.3em]">
+                            Shift {i + 1}
+                        </span>
+                        {isCurrent && (
+                            <span className="flex items-center gap-2 text-[10px] bg-cyan-500 text-black px-3 py-1 rounded-full font-bold">
+                                <span className="w-1.5 h-1.5 bg-black rounded-full animate-ping" />
+                                ACTIVE NOW
+                            </span>
+                        )}
                     </div>
-                )}
 
+                    {/* عرض الوقت: واحد في الأول وواحد في الآخر */}
+                    <div className={`flex justify-between items-center ${textColor}`}>
+                        <div className="flex flex-col">
+                            <span className="text-[10px] text-white/20 mb-1 uppercase">Start</span>
+                            <span className="text-3xl md:text-4xl font-black font-mono tracking-tighter">
+                                {s.start}
+                            </span>
+                        </div>
+
+                        {/* خط واصل جمالي في المنتصف */}
+                        <div className="flex-grow mx-8 h-[2px] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+
+                        <div className="flex flex-col items-end">
+                            <span className="text-[10px] text-white/20 mb-1 uppercase">End</span>
+                            <span className="text-3xl md:text-4xl font-black font-mono tracking-tighter">
+                                {s.end}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            )
+        })}
+    </div>
+)}
             </div>
 
             {/* --- History Drawer (Bottom Sheet) --- */}

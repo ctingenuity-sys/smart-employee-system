@@ -12,13 +12,11 @@ const Toast: React.FC<ToastProps> = ({ message, type, duration = 4000, onClose }
   useEffect(() => {
     // Sound Logic - استخدام نفس المكتبة الصوتية لتوحيد التجربة
     const playSound = () => {
-         let audioSrc = '';
-    let startTime = 0;
+        let audioSrc = '';
         switch (type) {
             case 'success':
                 // Success Chime
-                audioSrc = 'https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3'; 
-
+                audioSrc = 'https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3'; 
                 break;
             case 'error':
                 // Error Alert

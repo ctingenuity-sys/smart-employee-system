@@ -73,72 +73,50 @@ const TechSupportPage: React.FC = () => {
         - **Disclaimer**: Always end with "This is an AI suggestion. Clinical correlation required."
     `;
 
-    const handleTechAsk = async () => {
+    const handleAIRequest = async (prompt: string, setResponse: (val: string) => void, setLoading: (val: boolean) => void) => {
+        setLoading(true);
+        setResponse("");
+        try {
+            const apiKey = (process.env.API_KEY || '').trim();
+            if (!apiKey) {
+                throw new Error("Missing API Key. Please add GEMINI_API_KEY to your .env file.");
+            }
+            
+            const ai = new GoogleGenAI({ apiKey });
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt
+            });
+            setResponse(response.text || "No response generated.");
+        } catch(e: any) { 
+            console.error("AI Error:", e);
+            let msg = e.message;
+            if (msg.includes('400') || msg.includes('API key')) {
+                msg = "Invalid API Key. Please check your .env file configuration.";
+            }
+            setResponse(`⚠️ Error: ${msg}`);
+            setToast({ msg: msg, type: 'error' });
+        } finally { 
+            setLoading(false); 
+        }
+    };
+
+    const handleTechAsk = () => {
         if(!techQuery) return;
-        setIsTechThinking(true);
-        setTechResponse(""); 
-        try {
-            const apiKey = (process.env.API_KEY || '').trim();
-            if (!apiKey) throw new Error("API Key configuration missing.");
-            
-            const ai = new GoogleGenAI({ apiKey });
-            const prompt = `${knowledgeBaseTech}\nUser Query: "${techQuery}"\nProvide a solution:`;
-            
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: prompt
-            });
-            setTechResponse(response.text || "No specific solution found.");
-        } catch(e: any) { 
-            console.error("AI Error:", e);
-            setTechResponse(`Error: ${e.message}`); 
-        }
-        finally { setIsTechThinking(false); }
+        const prompt = `${knowledgeBaseTech}\nUser Query: "${techQuery}"\nProvide a solution:`;
+        handleAIRequest(prompt, setTechResponse, setIsTechThinking);
     };
 
-    const handleMedicalAsk = async () => {
+    const handleMedicalAsk = () => {
         if(!medQuery) return;
-        setIsMedThinking(true);
-        setMedResponse(""); 
-        try {
-            const apiKey = (process.env.API_KEY || '').trim();
-            if (!apiKey) throw new Error("API Key configuration missing.");
-            
-            const ai = new GoogleGenAI({ apiKey });
-            const prompt = `${knowledgeBaseMedical}\nMedical Query: "${medQuery}"\nProvide clinical guidance:`;
-            
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: prompt
-            });
-            setMedResponse(response.text || "I cannot provide a medical suggestion for this query.");
-        } catch(e: any) { 
-            console.error("AI Error:", e);
-            setMedResponse(`Error: ${e.message}`); 
-        }
-        finally { setIsMedThinking(false); }
+        const prompt = `${knowledgeBaseMedical}\nMedical Query: "${medQuery}"\nProvide clinical guidance:`;
+        handleAIRequest(prompt, setMedResponse, setIsMedThinking);
     };
 
-    const handleGenerateSbar = async () => {
+    const handleGenerateSbar = () => {
         if(!sbarInput) return;
-        setIsGeneratingSbar(true);
-        try {
-            const apiKey = (process.env.API_KEY || '').trim();
-            if (!apiKey) throw new Error("API Key missing");
-            
-            const ai = new GoogleGenAI({ apiKey });
-            const prompt = `Convert this informal note to SBAR format.\nInput: "${sbarInput}"`;
-            
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: prompt
-            });
-            setSbarResult(response.text || "Failed to generate.");
-        } catch(e: any) {
-            setSbarResult("Error contacting AI.");
-        } finally {
-            setIsGeneratingSbar(false);
-        }
+        const prompt = `Convert this informal note to SBAR format.\nInput: "${sbarInput}"`;
+        handleAIRequest(prompt, setSbarResult, setIsGeneratingSbar);
     };
 
     const handleSaveSbar = async () => {
@@ -156,7 +134,7 @@ const TechSupportPage: React.FC = () => {
             });
             setToast({ msg: t('save'), type: 'success' });
             setSbarInput(''); setSbarResult('');
-        } catch(e) { setToast({msg: 'Error', type: 'error'}); }
+        } catch(e) { setToast({msg: 'Error saving log', type: 'error'}); }
     };
 
     return (

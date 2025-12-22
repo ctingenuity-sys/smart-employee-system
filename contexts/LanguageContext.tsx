@@ -45,7 +45,7 @@ const translations: Record<string, { ar: string; en: string }> = {
   'role.doctor': { ar: 'طبيب', en: 'Doctor' },
 
   // --- Doctor Station (Radiology) ---
-  'doc.station': { ar: ' طبيب الأشعة', en: 'Radiologist Station' },
+  'doc.station': { ar: 'محطة طبيب الأشعة', en: 'Radiologist Station' },
   'doc.subtitle': { ar: 'أدواتك الذكية وجدول مناوباتك', en: 'Your Smart Tools & Roster' },
   'doc.ai.title': { ar: 'المساعد الإشعاعي الذكي', en: 'AI Radiology Copilot' },
   'doc.ai.explain': { ar: 'شرح للمريض', en: 'Patient Explainer' },
@@ -132,14 +132,13 @@ const translations: Record<string, { ar: string; en: string }> = {
   'user.hero.nextShift': { ar: 'الوردية القادمة', en: 'Next Shift' },
   'user.hero.noShift': { ar: 'لا توجد ورديات مسجلة لهذا الشهر', en: 'No shifts scheduled this month' },
   
-  'user.tab.schedule': { ar: 'التذاكر', en: 'My Tickets' },
+  'user.tab.schedule': { ar: 'التذاكر (الجدول)', en: 'My Tickets' },
   'user.tab.market': { ar: 'تغطية وردية', en: 'Cover Shift' },
   'user.tab.requests': { ar: 'الطلبات', en: 'Requests' },
   'user.tab.incoming': { ar: 'الوارد', en: 'Incoming' },
   'user.tab.history': { ar: 'السجل', en: 'History' },
   'user.tab.assistant': { ar: 'المساعد الذكي', en: 'AI Assistant' },
   'user.tab.profile': { ar: 'ملفي وأدائي', en: 'My Profile & Stats' },
-  
 
   'user.req.swap': { ar: 'طلب تبديل', en: 'Swap Request' },
   'user.req.swapDesc': { ar: 'تبديل وردية أو شهر كامل مع زميل', en: 'Swap a shift or month with a colleague' },
@@ -152,13 +151,13 @@ const translations: Record<string, { ar: string; en: string }> = {
   'user.req.suggestTitle': { ar: 'الزملاء المتاحين', en: 'Available Colleagues' },
 
   'user.req.leave': { ar: 'طلب إجازة', en: 'Leave Request' },
-  'user.req.leaveDesc': { ar: 'تقديم طلب إجازة   ', en: 'Apply for  leave request' },
+  'user.req.leaveDesc': { ar: 'تقديم طلب إجازة اعتيادية أو عارضة', en: 'Apply for annual or sick leave' },
   'user.req.from': { ar: 'من', en: 'From' },
   'user.req.to': { ar: 'إلى', en: 'To' },
   'user.req.reason': { ar: 'السبب', en: 'Reason' },
   'user.req.apply': { ar: 'تقديم الطلب', en: 'Apply' },
 
-  'user.market.title': { ar: ' الورديات المتاحة', en: 'Open Shift Marketplace' },
+  'user.market.title': { ar: 'سوق الورديات المتاحة', en: 'Open Shift Marketplace' },
   'user.market.desc': { ar: 'يمكنك هنا استعراض الورديات الشاغرة وطلب تغطيتها لزيادة رصيدك.', en: 'Browse and claim open shifts to earn extra points.' },
   'user.market.empty': { ar: 'لا توجد ورديات شاغرة حالياً', en: 'No open shifts available currently' },
   'user.market.claim': { ar: 'حجز الوردية', en: 'Claim Shift' },

@@ -413,6 +413,11 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName }) => {
           <div className="pt-4 mt-4 border-t border-slate-700">
              <p className="px-4 text-xs font-bold text-slate-500 mb-2">{t('nav.sharedTools')}</p>
              
+             <Link to="/appointments" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/appointments')}`}>
+                <i className="fas fa-calendar-check w-6 text-indigo-400"></i>
+                <span className="font-medium">{t('nav.appointments')}</span>
+             </Link>
+
              <Link to="/communications" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/communications')}`}>
                 <i className="fas fa-comments w-6 text-blue-400"></i>
                 <span className="font-medium">{t('nav.communications')}</span>

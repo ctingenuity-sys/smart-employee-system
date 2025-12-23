@@ -57,6 +57,7 @@ const SupervisorDashboard: React.FC = () => {
   const [swapRequestsCount, setSwapRequestsCount] = useState(0);
   const [leaveRequestsCount, setLeaveRequestsCount] = useState(0);
   const [openShiftsCount, setOpenShiftsCount] = useState(0);
+  const [todayApptCount, setTodayApptCount] = useState(0);
   const [todayLogs, setTodayLogs] = useState<AttendanceLog[]>([]);
   const [allTodayLogs, setAllTodayLogs] = useState<AttendanceLog[]>([]); // For logic calculation
   
@@ -92,10 +93,13 @@ const SupervisorDashboard: React.FC = () => {
       const qMarket = query(collection(db, 'openShifts'), where('status', '==', 'claimed'));
       const unsubMarket = onSnapshot(qMarket, snap => setOpenShiftsCount(snap.size));
 
-      // 3. Live Logs (Fetch ALL for today to calculate presence)
-      const now = new Date();
-      const todayStr = now.toISOString().split('T')[0];
-      const qLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayStr)); 
+      // 3. Today's Appointments
+      const todayDate = new Date().toISOString().split('T')[0];
+      const qAppt = query(collection(db, 'appointments'), where('date', '==', todayDate));
+      const unsubAppt = onSnapshot(qAppt, snap => setTodayApptCount(snap.size));
+
+      // 4. Live Logs (Fetch ALL for today to calculate presence)
+      const qLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayDate)); 
       const unsubLogs = onSnapshot(qLogs, snap => {
           const logs = snap.docs.map(d => d.data() as AttendanceLog);
           // Sort for the feed
@@ -104,14 +108,15 @@ const SupervisorDashboard: React.FC = () => {
           setAllTodayLogs(logs); // Keep all for logic
       });
 
-      // 4. Schedules for "Who is on shift"
+      // 5. Schedules for "Who is on shift"
+      const now = new Date();
       const currentMonth = now.toISOString().slice(0, 7);
       const qSch = query(collection(db, 'schedules'), where('month', '==', currentMonth));
       getDocs(qSch).then(snap => {
           setSchedules(snap.docs.map(d => d.data() as Schedule));
       });
 
-      return () => { unsubSwaps(); unsubLeaves(); unsubMarket(); unsubLogs(); };
+      return () => { unsubSwaps(); unsubLeaves(); unsubMarket(); unsubAppt(); unsubLogs(); };
   }, []);
 
   // --- On Shift Logic (Updated for Presence) ---
@@ -259,6 +264,7 @@ const SupervisorDashboard: React.FC = () => {
 
   const menuItems = [
       { id: 'attendance', title: 'Smart Analyzer', icon: 'fa-chart-pie', path: '/supervisor/attendance', color: 'bg-indigo-600' },
+      { id: 'appointments', title: t('nav.appointments'), icon: 'fa-calendar-check', path: '/appointments', badge: todayApptCount, color: 'bg-cyan-600' },
       { id: 'employees', title: t('sup.tab.users'), icon: 'fa-users', path: '/supervisor/employees', color: 'bg-blue-600' },
       { id: 'swaps', title: t('sup.tab.swaps'), icon: 'fa-exchange-alt', path: '/supervisor/swaps', badge: swapRequestsCount, color: 'bg-purple-600' },
       { id: 'leaves', title: t('sup.tab.leaves'), icon: 'fa-umbrella-beach', path: '/supervisor/leaves', badge: leaveRequestsCount, color: 'bg-rose-600' },
@@ -285,7 +291,7 @@ const SupervisorDashboard: React.FC = () => {
         <div className="max-w-6xl mx-auto px-4 md:px-8 animate-fade-in relative">
             
             {/* 1. Hero Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <div className="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-[2rem] p-6 text-white shadow-xl shadow-indigo-200 relative overflow-hidden group hover:scale-[1.02] transition-transform">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full -mr-10 -mt-10 blur-xl"></div>
                     <div className="flex justify-between items-start relative z-10">
@@ -308,6 +314,19 @@ const SupervisorDashboard: React.FC = () => {
                         </div>
                         <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-2xl backdrop-blur-md animate-pulse">
                             <i className="fas fa-bell"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-cyan-500 to-blue-500 rounded-[2rem] p-6 text-white shadow-xl shadow-cyan-200 relative overflow-hidden group hover:scale-[1.02] transition-transform">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full -mr-10 -mt-10 blur-xl"></div>
+                    <div className="flex justify-between items-start relative z-10">
+                        <div>
+                            <p className="text-cyan-100 font-bold text-xs uppercase tracking-widest mb-1">{t('nav.appointments')}</p>
+                            <h3 className="text-4xl font-black">{todayApptCount}</h3>
+                        </div>
+                        <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-2xl backdrop-blur-md">
+                            <i className="fas fa-calendar-check"></i>
                         </div>
                     </div>
                 </div>

@@ -65,6 +65,18 @@ const translations: Record<string, { ar: string; en: string }> = {
   'nav.inventory': { ar: 'نظام المخزون', en: 'Inventory System' },
   'nav.tasks': { ar: 'لوحة المهام', en: 'Task Board' },
   'nav.techSupport': { ar: 'الدعم الفني الذكي', en: 'AI Tech Support' },
+  'nav.appointments': { ar: 'المواعيد', en: 'Appointments' },
+  
+  // --- Appointments ---
+  'appt.title': { ar: 'إدارة المواعيد', en: 'Appointment Management' },
+  'appt.new': { ar: 'حجز موعد جديد', en: 'Book New Appointment' },
+  'appt.patient': { ar: 'اسم المريض', en: 'Patient Name' },
+  'appt.exam': { ar: 'الفحص المطلوب', en: 'Examination Type' },
+  'appt.voice': { ar: 'إدخال صوتي', en: 'Voice Input' },
+  'appt.list': { ar: 'قائمة المواعيد', en: 'Appointments List' },
+  'appt.pending': { ar: 'قيد الانتظار', en: 'Pending' },
+  'appt.done': { ar: 'تم الفحص', en: 'Completed' },
+  'appt.by': { ar: 'بواسطة', en: 'By' },
   
   // --- Login ---
   'login.title': { ar: 'تسجيل الدخول', en: 'Login' },

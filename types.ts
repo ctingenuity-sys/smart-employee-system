@@ -154,6 +154,20 @@ export interface AttendanceLog {
   violationType?: string; // NEW: Description of the violation (Time/Location)
 }
 
+// --- NEW: Appointments ---
+export interface Appointment {
+  id: string;
+  patientName: string;
+  examType: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:mm
+  notes?: string;
+  status: 'pending' | 'done' | 'cancelled';
+  createdBy: string; // User ID
+  createdByName: string;
+  createdAt: any;
+}
+
 // --- Visual Schedule Types ---
 
 export interface VisualStaff {

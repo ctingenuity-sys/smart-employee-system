@@ -39,6 +39,7 @@ const TechSupportPage = React.lazy(() => import('./pages/TechSupportPage'));
 const HRAssistantPage = React.lazy(() => import('./pages/HRAssistantPage'));
 const DoctorDashboard = React.lazy(() => import('./pages/DoctorDashboard'));
 const AttendancePage = React.lazy(() => import('./pages/AttendancePage'));
+const AppointmentsPage = React.lazy(() => import('./pages/AppointmentsPage'));
 
 // --- Auth Context ---
 interface AuthContextType {
@@ -118,7 +119,12 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 };
 
 // --- Protected Route Component ---
-const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+  allowedRoles?: any[]; // Use any[] to allow string[] or UserRole[] without strict type issues
+}
+
+const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
     const { user, role, userName } = useAuth();
 
     if (!user) return <Navigate to="/login" replace />;
@@ -194,6 +200,7 @@ const AppRoutes: React.FC = () => {
         <Route path="/tasks" element={<ProtectedRoute><TasksPage /></ProtectedRoute>} />
         <Route path="/tech-support" element={<ProtectedRoute><TechSupportPage /></ProtectedRoute>} />
         <Route path="/hr-assistant" element={<ProtectedRoute><HRAssistantPage /></ProtectedRoute>} />
+        <Route path="/appointments" element={<ProtectedRoute><AppointmentsPage /></ProtectedRoute>} />
 
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

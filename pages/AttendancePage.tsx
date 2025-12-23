@@ -138,7 +138,7 @@ const DigitalClock = memo(({ date }: { date: Date }) => {
         </div>
     );
 });
-
+const PUNCH_COOLDOWN_MINUTES = 15; // الموظف لا يمكنه البصمة مرتين في أقل من 5 دقائق
 const AttendancePage: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
@@ -359,6 +359,23 @@ const shiftLogic = useMemo(() => {
 
 const logsCount = effectiveLogs.length;
 const lastLog = logsCount > 0 ? effectiveLogs[logsCount - 1] : null;
+
+if (lastLog && lastLog.timestamp) {
+    // نفترض أن timestamp بصيغة Date أو Unix timestamp بالملي ثانية
+    const lastLogTime = new Date(lastLog.timestamp).getTime();
+    const nowTime = currentTime.getTime();
+    const minutesSinceLastPunch = (nowTime - lastLogTime) / (1000 * 60);
+
+    if (minutesSinceLastPunch < PUNCH_COOLDOWN_MINUTES) {
+        const remainingSeconds = Math.ceil((PUNCH_COOLDOWN_MINUTES - minutesSinceLastPunch) * 60);
+        return { 
+            state: 'COOLDOWN', 
+            message: 'WAIT', 
+            sub: `Retry in ${remainingSeconds}s`, 
+            canPunch: false 
+        };
+    }
+}
 
 // ============================================================
 // 🛑 المرحلة 0: لا توجد سجلات (بداية يوم جديد أو بعد انتهاء وردية الأمس)

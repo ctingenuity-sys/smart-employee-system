@@ -823,86 +823,61 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
                 {currentTime && <DigitalClock date={currentTime} />}
 
                 {/* --- THE REACTOR BUTTON --- */}
-                <div className="relative group scale-90 md:scale-100 transition-transform duration-500">
-                    
-                    {/* Rotating Dashed Ring (Decorative) */}
-                    <div className="absolute inset-[-40px] border border-dashed border-white/10 rounded-full animate-rotate-slow pointer-events-none"></div>
-                    
-                    {/* Dynamic Glow Ring */}
-                    <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[340px] h-[340px] rounded-full border-2 ${visualState.ringClass} transition-all duration-700 pointer-events-none`}></div>
-                    
-                    {/* SVG Progress Ring */}
-                    <svg className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[340px] h-[340px] -rotate-90 pointer-events-none z-10">
-                        <circle cx="170" cy="170" r={radius} stroke="currentColor" strokeWidth="1" fill="transparent" className="text-white/5" />
-                        <circle
-                            cx="170" cy="170" r={radius}
-                            stroke="currentColor" strokeWidth="3" fill="transparent"
-                            strokeDasharray={circumference}
-                            strokeDashoffset={strokeDashoffset}
-                            strokeLinecap="round"
-                            className={`transition-all duration-1000 ease-linear ${visualState.theme === 'cyan' ? 'text-cyan-400' : visualState.theme === 'rose' ? 'text-rose-500' : visualState.theme === 'amber' ? 'text-amber-500' : 'text-slate-600'}`}
-                        />
-                    </svg>
+<div className="relative group scale-90 md:scale-100 transition-transform duration-500 flex items-center justify-center">
+    
+    {/* 1. الخلفية: حلقات الزينة (Dashed & Glow) */}
+    <div className="absolute inset-[-40px] border border-dashed border-white/10 rounded-full animate-rotate-slow pointer-events-none"></div>
+    <div className={`absolute w-[340px] h-[340px] rounded-full border-2 ${visualState.ringClass} transition-all duration-700 pointer-events-none`}></div>
+    
+    {/* 2. الطبقة الوسطى: الخط الدائري المتحرك (SVG) */}
+    {/* نضع z-10 ليكون فوق الخلفية وتحت محتوى الزر */}
+    <svg 
+        viewBox="0 0 340 340" 
+        className="absolute w-[340px] h-[340px] -rotate-90 pointer-events-none z-10 overflow-visible"
+        xmlns="http://www.w3.org/2000/svg"
+    >
+        <circle
+            cx="170"
+            cy="170"
+            r={radius}
+            stroke="currentColor"
+            strokeWidth="3"
+            fill="transparent"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+            className={`transition-all duration-1000 ease-linear ${
+                visualState.theme === 'cyan' ? 'text-cyan-400' : 
+                visualState.theme === 'rose' ? 'text-rose-500' : 
+                visualState.theme === 'amber' ? 'text-amber-500' : 'text-slate-600'
+            }`}
+        />
+    </svg>
 
-                    {/* The Interactive Button */}
-                    <button 
-                        onClick={handlePunch}
-                        disabled={status !== 'IDLE' && status !== 'ERROR'}
-                        className={`relative w-72 h-72 rounded-full flex flex-col items-center justify-center backdrop-blur-md transition-all duration-300 z-20 overflow-hidden
-                            ${shiftLogic.canPunch ? 'hover:scale-105 active:scale-95 shadow-2xl' : 'cursor-not-allowed'}
-                            ${visualState.theme === 'cyan' ? 'shadow-cyan-500/20' : visualState.theme === 'rose' ? 'shadow-rose-500/20' : ''}
-                        `}
-                    >
-                        {/* Background Layer inside button */}
-                        <div className={`absolute inset-0 opacity-20 ${visualState.theme === 'cyan' ? 'bg-cyan-500' : visualState.theme === 'rose' ? 'bg-rose-600' : visualState.theme === 'amber' ? 'bg-amber-500' : 'bg-slate-700'}`}></div>
-                        
-                        {/* Status Content */}
-                        {status === 'AUTH_DEVICE' ? (
-                            <div className="flex flex-col items-center animate-pulse z-10">
-                                <i className="fas fa-fingerprint text-6xl text-cyan-400 mb-4 filter drop-shadow-[0_0_15px_rgba(6,182,212,0.8)]"></i>
-                                <span className="text-xs font-bold text-cyan-100 tracking-[0.3em] uppercase">Authenticating</span>
-                            </div>
-                        ) : status === 'SCANNING_LOC' ? (
-                            <div className="flex flex-col items-center animate-pulse z-10">
-                                <i className="fas fa-satellite-dish text-5xl text-cyan-400 mb-4"></i>
-                                <span className="text-xs font-bold text-cyan-100 tracking-[0.3em] uppercase">Acquiring GPS</span>
-                            </div>
-                        ) : status === 'PROCESSING' ? (
-                            <div className="relative z-10">
-                                <div className="w-20 h-20 border-4 border-white/10 border-t-white rounded-full animate-spin"></div>
-                            </div>
-                        ) : status === 'SUCCESS' ? (
-                            <div className="flex flex-col items-center animate-bounce-in z-10">
-                                <div className="w-24 h-24 bg-emerald-500 rounded-full flex items-center justify-center shadow-[0_0_50px_#10b981] mb-4 text-white">
-                                    <i className="fas fa-check text-5xl"></i>
-                                </div>
-                                <span className="font-bold text-white tracking-[0.3em] text-lg">SUCCESS</span>
-                            </div>
-                        ) : status === 'ERROR' ? (
-                            <div className="flex flex-col items-center animate-shake px-4 text-center z-10">
-                                <i className="fas fa-exclamation-triangle text-4xl text-red-500 mb-4 drop-shadow-[0_0_10px_rgba(220,38,38,0.5)]"></i>
-                                <span className="text-sm font-bold text-red-100 uppercase tracking-wide">{errorDetails.title}</span>
-                                <span className="text-[10px] text-red-200/60 mt-2 max-w-[200px] leading-tight">{errorDetails.msg}</span>
-                                <span className="text-[10px] bg-white/10 border border-white/10 px-4 py-1.5 rounded-full mt-6 text-white/70 hover:bg-white/20 transition-colors uppercase tracking-widest cursor-pointer">Retry</span>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center z-10">
-                                <i className={`fas ${visualState.icon} text-4xl mb-3 opacity-80 ${visualState.theme === 'cyan' ? 'text-cyan-300' : visualState.theme === 'rose' ? 'text-rose-300' : visualState.theme === 'amber' ? 'text-amber-400' : 'text-slate-500'}`}></i>
-                                <span className={`text-5xl font-black tracking-tighter leading-none ${visualState.theme === 'cyan' ? 'text-white neon-text-glow' : visualState.theme === 'rose' ? 'text-white neon-text-glow' : visualState.theme === 'amber' ? 'text-amber-400' : 'text-slate-500'}`}>
-                                    {visualState.mainText}
-                                </span>
-                                <span className={`text-[10px] font-bold uppercase tracking-[0.3em] mt-2 opacity-70 ${visualState.theme === 'cyan' ? 'text-cyan-100' : visualState.theme === 'rose' ? 'text-rose-100' : visualState.theme === 'amber' ? 'text-amber-200' : 'text-slate-500'}`}>
-                                    {visualState.subText}
-                                </span>
-                                {(visualState as any).extraText && (
-                                    <div className="mt-3 px-3 py-1 bg-black/30 rounded-lg border border-white/5">
-                                        <span className="text-sm font-mono font-bold text-amber-400">{(visualState as any).extraText}</span>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </button>
-                </div>
+    {/* 3. الطبقة العليا: الزر الفعلي (الذي يحتوي على النص والأيقونة) */}
+    {/* نضع z-20 لضمان أن النص فوق الخط تماماً ولا يتم تغطيته */}
+    <div className="relative z-20">
+        <button
+            onClick={handlePunch}
+            disabled={status !== 'IDLE' || !shiftLogic.canPunch}
+            className={`
+                relative w-64 h-64 rounded-full flex flex-col items-center justify-center 
+                transition-all duration-500 transform active:scale-95 
+                ${visualState.btnClass} glass-panel border-4 border-white/5 shadow-2xl
+                ${status !== 'IDLE' ? 'opacity-50 cursor-not-allowed' : ''}
+            `}
+        >
+            {/* محتوى الزر (أيقونة، نص رئيسي، نص فرعي) */}
+            <i className={`fas ${visualState.icon} text-5xl mb-4 neon-text-glow`}></i>
+            <span className="text-3xl font-black tracking-tighter uppercase leading-none">
+                {status === 'IDLE' ? visualState.mainText : status}
+            </span>
+            <span className="text-[10px] mt-2 font-bold tracking-[0.3em] opacity-40 uppercase">
+                {visualState.subText}
+            </span>
+        </button>
+    </div>
+</div>
 
                 {/* Shift HUD */}
 {todayShifts.length > 0 && (

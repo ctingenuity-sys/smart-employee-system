@@ -138,7 +138,7 @@ const DigitalClock = memo(({ date }: { date: Date }) => {
         </div>
     );
 });
-const PUNCH_COOLDOWN_MINUTES = 15; // الموظف لا يمكنه البصمة مرتين في أقل من 5 دقائق
+
 const AttendancePage: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
@@ -360,23 +360,6 @@ const shiftLogic = useMemo(() => {
 const logsCount = effectiveLogs.length;
 const lastLog = logsCount > 0 ? effectiveLogs[logsCount - 1] : null;
 
-if (lastLog && lastLog.timestamp) {
-    // نفترض أن timestamp بصيغة Date أو Unix timestamp بالملي ثانية
-    const lastLogTime = new Date(lastLog.timestamp).getTime();
-    const nowTime = currentTime.getTime();
-    const minutesSinceLastPunch = (nowTime - lastLogTime) / (1000 * 60);
-
-    if (minutesSinceLastPunch < PUNCH_COOLDOWN_MINUTES) {
-        const remainingSeconds = Math.ceil((PUNCH_COOLDOWN_MINUTES - minutesSinceLastPunch) * 60);
-        return { 
-            state: 'COOLDOWN', 
-            message: 'WAIT', 
-            sub: `Retry in ${remainingSeconds}s`, 
-            canPunch: false 
-        };
-    }
-}
-
 // ============================================================
 // 🛑 المرحلة 0: لا توجد سجلات (بداية يوم جديد أو بعد انتهاء وردية الأمس)
 // ============================================================
@@ -384,36 +367,52 @@ if (logsCount === 0) {
     if (todayShifts.length > 0) {
         const firstShift = todayShifts[0];
         const sStart = toMins(firstShift.start);
+        let sEnd = toMins(firstShift.end);
         
         // حساب متى نفتح نافذة الدخول (مثلاً قبل الموعد بـ 60 دقيقة)
-        const windowOpen = sStart - 60; 
+        const windowOpen = sStart - 15; 
         
-        // إذا كانت الوردية ليلية (تبدأ 8 مساءً)، نحتاج لمعالجة الوقت
         let adjustedCurrent = currentMinutes;
-        // إذا كنا بعد منتصف الليل والوردية تبدأ بالليل، قد نحتاج لتعديلات (حسب نظامك)
         
-        if (hasOverride || currentMinutes >= windowOpen) {
-            return { 
-                state: 'READY_IN', 
-                message: 'START', 
-                sub: 'Shift 1', 
-                canPunch: true, 
-                shiftIdx: 1 
-            };
-        } else {
-            // الموظف دخل النظام مبكراً جداً قبل موعد ورديته
-            return { 
-                state: 'LOCKED', 
-                message: 'TOO EARLY', 
-                sub: `Starts at ${firstShift.start}`, 
-                canPunch: false 
-            };
-        }
-    } else {
-        return { state: 'ERROR', message: 'NO SHIFT', sub: 'Contact Admin', canPunch: false };
-    }
-}
+        // Handle midnight crossover for end time logic
+        if (sEnd < sStart) sEnd += 1440;
+        if (sEnd > 1440 && currentMinutes < 720) adjustedCurrent += 1440;
 
+
+ const missedWindowEnd = sEnd + 75; 
+
+                if (!hasOverride && adjustedCurrent > sEnd && adjustedCurrent <= missedWindowEnd) {
+                     return { state: 'MISSED', message: 'MISSED', sub: 'Shift Expired', canPunch: false };
+                }
+
+                // Transition to next shift or break after the 60 min "Missed" window
+                if (!hasOverride && adjustedCurrent > missedWindowEnd) {
+                    if (todayShifts.length > 1) {
+                        let s2Start = toMins(todayShifts[1].start);
+                        const s2Window = s2Start - 15;
+                        if (currentMinutes >= s2Window) {
+                            return { state: 'READY_IN', message: 'START', sub: 'Shift 2', canPunch: true, shiftIdx: 2 };
+                        } else {
+                            let diff = s2Window - currentMinutes;
+                            if(diff < 0) diff += 1440;
+                            const h = Math.floor(diff / 60);
+                            const m = diff % 60;
+                            return { state: 'DISABLED', message: 'BREAK', sub: `Next shift in ${h}h ${m}m`, canPunch: false, isBreak: true };
+                        }
+                    } else {
+                        return { state: 'COMPLETED', message: 'DONE', sub: 'Shift Missed', canPunch: false };
+                    }
+                }
+
+                if (hasOverride || currentMinutes >= windowOpen) {
+                    return { state: 'READY_IN', message: 'START', sub: 'Shift 1', canPunch: true, shiftIdx: 1 };
+                } else {
+                    return { state: 'LOCKED', message: 'TOO EARLY', sub: `Starts at ${firstShift.start}`, canPunch: false };
+                }
+            } else {
+                return { state: 'ERROR', message: 'NO SHIFT', sub: 'Contact Admin', canPunch: false };
+            }
+        }
 // --- PHASE 1: LOGGED IN ONCE (كودك الحالي سيكمل من هنا) ---
 if (logsCount === 1 && lastLog?.type === 'IN') {
             const currentShiftIndex = lastLog.shiftIndex || 1;
@@ -436,10 +435,7 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
                 adjustedEnd += 1440;
             }
             if (isContinuationFromYesterday) {
-                 // لا نعدل adjustedCurrent لأننا في يوم جديد، لكن adjustedEnd يجب أن يكون طبيعياً
-                 // إذا كنا في حالة استمرار، فإن adjustedEnd هو وقت اليوم (مثلاً 04:00 = 240 دقيقة)
-                 // والوقت الحالي هو وقت اليوم (مثلاً 05:30 = 330 دقيقة)
-                 // في هذه الحالة adjustedEnd لا يحتاج لـ +1440
+
                  if (shiftEnd < shiftStart) adjustedEnd -= 1440; // إعادة للقيمة الطبيعية للمقارنة في الصباح
             } else {
                 // الحالة العادية (نفس اليوم أو امتداد بعد منتصف الليل قبل تغيير التاريخ)
@@ -448,9 +444,6 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
                 }
             }
 
-            // ============================================================
-            // 🛑 التعديل الجديد: إغلاق الجلسة تلقائياً بعد ساعة من نهاية الدوام
-            // ============================================================
             const GRACE_PERIOD_MINUTES = 60; // مدة السماحية (ساعة)
             const autoCloseTime = adjustedEnd + GRACE_PERIOD_MINUTES;
 
@@ -633,24 +626,9 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
                         }
                     }
 
-                    // 2. Time Tampering Check
-                    // We rely on `timeOffset` calculated at startup.
-                    // If device time is significantly different from server time (e.g. > 2 mins)
                     const deviceTime = Date.now();
                     const estimatedServerTime = deviceTime + timeOffset;
-                    // Note: 'timeOffset' is static after init. If user changes time mid-session, 'Date.now()' changes.
-                    // We re-check sync? No, assume `timeOffset` captured difference at load.
-                    // If user changed time AFTER load, `Date.now() + timeOffset` will be WRONG (it will follow device time).
-                    // Correct approach: We use `serverTimestamp()` in Firestore which is truth.
-                    // But to detect *device* tampering locally:
-                    // If we stored a robust reference point... actually, `serverTimestamp` is the only safe bet for DB.
-                    // But we can flag based on discrepancy if we had a trusted time source now.
-                    // Let's assume we allow the punch, but the DB record uses `serverTimestamp`.
-                    // We can flag if client time is way off.
-                    
-                    // Simple heuristic: If accuracy is super high (GPS spoofers often behave perfectly), or speed is impossible.
-                    // For now, let's flag distance violations that were overridden or edge cases.
-
+ 
                     setStatus('PROCESSING');
                     
                     if (!currentTime) throw new Error("Time sync lost");
@@ -711,6 +689,17 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
         const isBreak = (shiftLogic as any).isBreak;
         
         if (!shiftLogic.canPunch) {
+            if (shiftLogic.state === 'MISSED') {
+                return {
+                    theme: 'rose', // Red Theme for missed
+                    mainText: 'MISSED',
+                    subText: 'Shift Expired',
+                    icon: 'fa-user-slash',
+                    ringClass: 'border-rose-500/20 shadow-[0_0_50px_rgba(244,63,94,0.1)]',
+                    btnClass: 'bg-rose-900/10 text-rose-500',
+                    pulse: false
+                };
+            }
             if (shiftLogic.state === 'COMPLETED') {
                 return {
                     theme: 'emerald',

@@ -120,7 +120,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
 // --- Protected Route Component ---
 interface ProtectedRouteProps {
-  children: React.ReactNode;
+  children?: React.ReactNode; // Made optional to fix TS error: Property 'children' is missing...
   allowedRoles?: any[]; // Use any[] to allow string[] or UserRole[] without strict type issues
 }
 

@@ -158,6 +158,7 @@ export interface AttendanceLog {
 export interface Appointment {
   id: string;
   patientName: string;
+  fileNumber?: string; // NEW: Patient File Number
   examType: string;
   date: string; // YYYY-MM-DD
   time: string; // HH:mm
@@ -165,6 +166,8 @@ export interface Appointment {
   status: 'pending' | 'done' | 'cancelled';
   createdBy: string; // User ID
   createdByName: string;
+  performedBy?: string; // NEW: User ID who did the exam
+  performedByName?: string; // NEW: Name of user who did the exam
   createdAt: any;
 }
 

@@ -37,12 +37,15 @@ const AppointmentsPage: React.FC = () => {
 
     // Form State
     const [patientName, setPatientName] = useState('');
+    const [fileNumber, setFileNumber] = useState(''); // NEW: File Number State
     const [examType, setExamType] = useState('MRI');
     const [apptTime, setApptTime] = useState('');
     const [notes, setNotes] = useState('');
 
     const currentUserId = auth.currentUser?.uid;
     const currentUserName = localStorage.getItem('username') || 'User';
+    const storedRole = localStorage.getItem('role') || 'user';
+    const isSupervisor = storedRole === 'admin' || storedRole === 'supervisor';
 
     useEffect(() => {
         setLoading(true);
@@ -87,6 +90,7 @@ const AppointmentsPage: React.FC = () => {
         try {
             await addDoc(collection(db, 'appointments'), {
                 patientName,
+                fileNumber: fileNumber || '', // Save File Number
                 examType,
                 date: selectedDate,
                 time: apptTime,
@@ -99,6 +103,7 @@ const AppointmentsPage: React.FC = () => {
             setToast({ msg: t('save'), type: 'success' });
             setIsAddModalOpen(false);
             setPatientName(''); 
+            setFileNumber('');
             setApptTime(''); 
             setNotes('');
             // Keep exam type for faster entry
@@ -118,7 +123,18 @@ const AppointmentsPage: React.FC = () => {
     const handleStatusToggle = async (appt: Appointment) => {
         try {
             const newStatus = appt.status === 'done' ? 'pending' : 'done';
-            await updateDoc(doc(db, 'appointments', appt.id), { status: newStatus });
+            const updateData: any = { status: newStatus };
+
+            // Logic to track who performed the exam
+            if (newStatus === 'done') {
+                updateData.performedBy = currentUserId;
+                updateData.performedByName = currentUserName;
+            } else {
+                updateData.performedBy = null;
+                updateData.performedByName = null;
+            }
+
+            await updateDoc(doc(db, 'appointments', appt.id), updateData);
         } catch(e) { console.error(e); }
     };
 
@@ -192,34 +208,46 @@ const AppointmentsPage: React.FC = () => {
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-2 mb-1">
                                                         <h4 className="font-bold text-slate-800 text-lg">{appt.patientName}</h4>
+                                                        {appt.fileNumber && (
+                                                            <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                                                                File: {appt.fileNumber}
+                                                            </span>
+                                                        )}
                                                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded border flex items-center gap-1 ${modInfo.color}`}>
                                                             <i className={`fas ${modInfo.icon}`}></i> {modInfo.label}
                                                         </span>
                                                     </div>
                                                     {appt.notes && (
-                                                        <p className="text-xs text-slate-500 bg-slate-50 px-2 py-1 rounded inline-block max-w-full truncate">
+                                                        <p className="text-xs text-slate-500 bg-slate-50 px-2 py-1 rounded inline-block max-w-full truncate mb-1">
                                                             <i className="fas fa-microphone-alt mr-1 opacity-50"></i> {appt.notes}
                                                         </p>
                                                     )}
+                                                    {/* Display Who Performed & Who Booked */}
+                                                    <div className="text-[10px] text-slate-400 mt-1 flex flex-wrap gap-3">
+                                                        <span><i className="fas fa-edit"></i> Booked by: <strong className="text-slate-600">{appt.createdByName}</strong></span>
+                                                        {appt.status === 'done' && appt.performedByName && (
+                                                            <span className="text-emerald-600 bg-emerald-50 px-1 rounded"><i className="fas fa-check-double"></i> Exam by: <strong>{appt.performedByName}</strong></span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
 
                                             <div className="flex items-center gap-3 w-full md:w-auto justify-end pl-3">
-                                                <div className="text-right hidden lg:block mr-4">
-                                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{t('appt.by')}</p>
-                                                    <p className="text-xs text-slate-600 font-medium">{appt.createdByName}</p>
-                                                </div>
                                                 
                                                 <button 
                                                     onClick={() => handleStatusToggle(appt)}
                                                     className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${appt.status === 'done' ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200' : 'bg-slate-100 text-slate-400 hover:bg-emerald-500 hover:text-white'}`}
-                                                    title="Toggle Status"
+                                                    title={appt.status === 'done' ? "Mark Pending" : "Mark Done"}
                                                 >
                                                     <i className="fas fa-check"></i>
                                                 </button>
-                                                <button onClick={() => handleDelete(appt.id)} className="w-10 h-10 rounded-xl bg-slate-50 text-slate-400 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition-colors">
-                                                    <i className="fas fa-trash"></i>
-                                                </button>
+                                                
+                                                {/* Delete Button - Only for Supervisors */}
+                                                {isSupervisor && (
+                                                    <button onClick={() => handleDelete(appt.id)} className="w-10 h-10 rounded-xl bg-slate-50 text-slate-400 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition-colors">
+                                                        <i className="fas fa-trash"></i>
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                     );
@@ -312,9 +340,21 @@ const AppointmentsPage: React.FC = () => {
             {/* Add Modal */}
             <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title={t('appt.new')}>
                 <form onSubmit={handleSubmit} className="space-y-5">
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">{t('appt.patient')}</label>
-                        <VoiceInput value={patientName} onChange={setPatientName} onTranscript={setPatientName} placeholder="Full Name" />
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="col-span-2 md:col-span-1">
+                            <label className="block text-xs font-bold text-slate-500 mb-1">{t('appt.patient')}</label>
+                            <VoiceInput value={patientName} onChange={setPatientName} onTranscript={setPatientName} placeholder="Full Name" />
+                        </div>
+                        <div className="col-span-2 md:col-span-1">
+                            <label className="block text-xs font-bold text-slate-500 mb-1">File Number</label>
+                            <input 
+                                type="text"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-cyan-100 font-bold"
+                                value={fileNumber}
+                                onChange={e => setFileNumber(e.target.value)}
+                                placeholder="e.g. 12345"
+                            />
+                        </div>
                     </div>
                     
                     <div className="grid grid-cols-2 gap-4">

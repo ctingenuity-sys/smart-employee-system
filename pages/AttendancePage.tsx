@@ -375,7 +375,7 @@ if (logsCount === 0) {
         const sStart = toMins(firstShift.start);
         let sEnd = toMins(firstShift.end);
         
-        // حساب متى نفتح نافذة الدخول (مثلاً قبل الموعد بـ 15 دقيقة)
+        // حساب متى نفتح نافذة الدخول (مثلاً قبل الموعد بـ 60 دقيقة)
         const windowOpen = sStart - 15; 
         
         let adjustedCurrent = currentMinutes;
@@ -425,12 +425,7 @@ if (logsCount === 0) {
                             return { state: 'DISABLED', message: 'BREAK', sub: `Next shift in ${h}h ${m}m`, canPunch: false, isBreak: true };
                         }
                     } else {
-                            return {
-                                    state: 'COMPLETED',
-                                    message: 'DONE',
-                                    sub: 'Day Complete',
-                                    canPunch: false
-                                };
+                        return { state: 'COMPLETED', message: 'DONE', sub: 'Shift Missed', canPunch: false };
                     }
                 }
 
@@ -476,39 +471,15 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
 
             const GRACE_PERIOD_MINUTES = 60; // مدة السماحية (ساعة)
             const autoCloseTime = adjustedEnd + GRACE_PERIOD_MINUTES;
-            const hasSecondShift = todayShifts.length > currentShiftIndex;
 
             if (!hasOverride && adjustedCurrent > autoCloseTime) {
-
-    // ✔ يوجد دوام ثاني → ننتقل إلى BREAK
-                if (hasSecondShift) {
-                    let s2Start = toMins(todayShifts[1].start);
-                    const s2Window = s2Start - 15;
-
-                    let diff = s2Window - currentMinutes;
-                    if (diff < 0) diff += 1440;
-
-                    const h = Math.floor(diff / 60);
-                    const m = diff % 60;
-
-                    return {
-                        state: 'DISABLED',
-                        message: 'BREAK',
-                        sub: `Next shift in ${h}h ${m}m`,
-                        canPunch: false,
-                        isBreak: true
-                    };
-                }
-
-                // ❌ لا يوجد دوام ثاني → نغلق اليوم
-                return {
-                    state: 'COMPLETED',
-                    message: 'CLOSED',
-                    sub: 'Checkout time expired',
-                    canPunch: false
+                return { 
+                    state: 'COMPLETED', // ننهي الجلسة في الواجهة
+                    message: 'CLOSED',    // الرسالة الظاهرة
+                    sub: 'Checkout time expired', // السبب
+                    canPunch: false       // منع بصمة الخروج
                 };
             }
-
 
             const windowOpen = adjustedEnd - 15;
 

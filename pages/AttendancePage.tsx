@@ -178,21 +178,22 @@ function toMins(time: string): number {
 }
 
 
-const hasNightInFromYesterday = useMemo(() => {
-    if (yesterdayLogs.length === 0 || todayShifts.length === 0) return false;
+   const hasNightInFromYesterday = (() => {
+        if (yesterdayLogs.length === 0 || todayShifts.length === 0) return false;
 
-    const last = yesterdayLogs[yesterdayLogs.length - 1];
-    if (last.type !== 'IN') return false;
+        const last = yesterdayLogs[yesterdayLogs.length - 1];
+        if (last.type !== 'IN') return false;
 
-    const shiftIdx = last.shiftIndex || 1;
-    const shift = todayShifts[shiftIdx - 1];
-    if (!shift) return false;
+        const shiftIdx = last.shiftIndex || 1;
+        const shift = todayShifts[shiftIdx - 1];
+        if (!shift) return false;
 
-    const s = toMins(shift.start);
-    const e = toMins(shift.end);
+        const s = toMins(shift.start);
+        const e = toMins(shift.end);
 
-    return e < s; // وردية ليلية فقط
-}, [yesterdayLogs, todayShifts]);
+        // وردية ليلية فقط
+        return e < s;
+    })();
 
 
     
@@ -221,7 +222,6 @@ const hasNightInFromYesterday = useMemo(() => {
         syncServerTime();
     }, []);
 
-    
     // 2. Clock Logic
 useEffect(() => {
     if (!isTimeSynced) return;

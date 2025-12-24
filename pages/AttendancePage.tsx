@@ -410,7 +410,7 @@ if (logsCount === 0) {
                     return { state: 'LOCKED', message: 'TOO EARLY', sub: `Starts at ${firstShift.start}`, canPunch: false };
                 }
             } else {
-                return { state: 'ERROR', message: 'NO SHIFT', sub: 'Contact Admin', canPunch: false };
+                return { state: 'WRONG DEVICE', message: 'NO SHIFT', sub: 'Contact Admin', canPunch: false };
             }
         }
 // --- PHASE 1: LOGGED IN ONCE (كودك الحالي سيكمل من هنا) ---
@@ -563,6 +563,18 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
     };
 
     const handlePunch = async () => {
+        if (todayLogs.length > 0) {
+        const lastLogItem = todayLogs[todayLogs.length - 1];
+        const lastLogTime = lastLogItem.clientTimestamp ? lastLogItem.clientTimestamp.toMillis() : 0;
+        const nowTime = Date.now();
+        
+        // لو عدى أقل من 3 دقايق (180000 ملي ثانية) على آخر بصمة، امنع البصمة الجديدة
+        if ((nowTime - lastLogTime) < 180000) { 
+             setStatus('ERROR');
+             setErrorDetails({ title: 'Please Wait', msg: 'تم تسجيل البصمة بالفعل، انتظر قليلاً.' });
+             return; // وقف الكود هنا
+        }
+    }
         if (!shiftLogic.canPunch) {
             if (navigator.vibrate) navigator.vibrate(200);
             return;

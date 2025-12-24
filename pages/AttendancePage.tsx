@@ -290,16 +290,14 @@ const unsubOver = onSnapshot(qOverride, (snap) => {
         .map(d => d.data().validUntil?.toDate())
         .filter(date => date != null);
     
-    setOverrideExpiries(
-  expiries.sort((a, b) => a.getTime() - b.getTime())
-);
+    setOverrideExpiries(expiries); // تخزين التواريخ في المصفوفة
 });
         const currentMonth = currentTime.toISOString().slice(0, 7);
         const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', '==', currentMonth));
         const unsubSch = onSnapshot(qSch, (snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
 
         return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); };
-    }, [currentUserId, isTimeSynced, currentTime?.toDateString()]);
+    }, [currentUserId, isTimeSynced, currentTime ? currentTime.getDate() : 0]);
 
 
 
@@ -340,6 +338,11 @@ const shiftLogic = useMemo(() => {
 
         const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
 
+        const toMins = (t: string) => {
+            if (!t) return 0;
+            const [h, m] = t.split(':').map(Number);
+            return h * 60 + (m || 0);
+        };
 
 
         
@@ -443,11 +446,11 @@ if (logsCount === 0) {
                             const h = Math.floor(diff / 60);
                             const m = diff % 60;
                             return { 
-                                    state: 'WAITING',
-                                    message: 'WAITING',
-                                    sub: `Next shift in ${h}h ${m}m`,
-                                    canPunch: false
-                                };
+                                state: 'WAITING',
+                                message: 'WAITING',
+                                sub: `Next shift in ${h}h ${m}m`,
+                                canPunch: false
+                            };
                         }
                     } else {
                             return {

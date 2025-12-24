@@ -169,32 +169,9 @@ const AttendancePage: React.FC = () => {
     const localDeviceId = getUniqueDeviceId();
 
 
-
-function toMins(time: string): number {
-    if (!time) return 0;
-
-    const [h, m] = time.split(':').map(Number);
-    return (h * 60) + (m || 0);
-}
-
-
-   const hasNightInFromYesterday = (() => {
-        if (yesterdayLogs.length === 0 || todayShifts.length === 0) return false;
-
-        const last = yesterdayLogs[yesterdayLogs.length - 1];
-        if (last.type !== 'IN') return false;
-
-        const shiftIdx = last.shiftIndex || 1;
-        const shift = todayShifts[shiftIdx - 1];
-        if (!shift) return false;
-
-        const s = toMins(shift.start);
-        const e = toMins(shift.end);
-
-        // وردية ليلية فقط
-        return e < s;
-    })();
-
+    const hasNightInFromYesterday =
+    yesterdayLogs.length > 0 &&
+    yesterdayLogs[yesterdayLogs.length - 1].type === 'IN';
 
     
     // 1. SYNC SERVER TIME
@@ -445,12 +422,7 @@ if (logsCount === 0) {
                             if(diff < 0) diff += 1440;
                             const h = Math.floor(diff / 60);
                             const m = diff % 60;
-                            return { 
-                                state: 'WAITING',
-                                message: 'WAITING',
-                                sub: `Next shift in ${h}h ${m}m`,
-                                canPunch: false
-                            };
+                            return { state: 'DISABLED', message: 'BREAK', sub: `Next shift in ${h}h ${m}m`, canPunch: false, isBreak: true };
                         }
                     } else {
                             return {
@@ -504,9 +476,7 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
 
             const GRACE_PERIOD_MINUTES = 60; // مدة السماحية (ساعة)
             const autoCloseTime = adjustedEnd + GRACE_PERIOD_MINUTES;
-            const hasSecondShift =
-                    todayShifts.length > currentShiftIndex &&
-                    todayShifts[currentShiftIndex]; // تأكيد وجود التعريف
+            const hasSecondShift = todayShifts.length > currentShiftIndex;
 
             if (!hasOverride && adjustedCurrent > autoCloseTime) {
 
@@ -553,9 +523,7 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
         if (logsCount === 2) {
             // (نفس الكود السابق، فقط تأكد من التعامل مع الحالة العادية)
             const lastLogIdx = lastLog?.shiftIndex || 1;
-            if (lastLogIdx >= todayShifts.length) {
-                return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
-            }
+            if (lastLogIdx === 2) return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
             if (todayShifts.length < 2) return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
             
             let s2Start = toMins(todayShifts[1].start);

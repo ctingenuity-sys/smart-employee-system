@@ -169,9 +169,31 @@ const AttendancePage: React.FC = () => {
     const localDeviceId = getUniqueDeviceId();
 
 
-    const hasNightInFromYesterday =
-    yesterdayLogs.length > 0 &&
-    yesterdayLogs[yesterdayLogs.length - 1].type === 'IN';
+
+function toMins(time: string): number {
+    if (!time) return 0;
+
+    const [h, m] = time.split(':').map(Number);
+    return (h * 60) + (m || 0);
+}
+
+
+const hasNightInFromYesterday = useMemo(() => {
+    if (yesterdayLogs.length === 0 || todayShifts.length === 0) return false;
+
+    const last = yesterdayLogs[yesterdayLogs.length - 1];
+    if (last.type !== 'IN') return false;
+
+    const shiftIdx = last.shiftIndex || 1;
+    const shift = todayShifts[shiftIdx - 1];
+    if (!shift) return false;
+
+    const s = toMins(shift.start);
+    const e = toMins(shift.end);
+
+    return e < s; // وردية ليلية فقط
+}, [yesterdayLogs, todayShifts]);
+
 
     
     // 1. SYNC SERVER TIME
@@ -199,6 +221,7 @@ const AttendancePage: React.FC = () => {
         syncServerTime();
     }, []);
 
+    
     // 2. Clock Logic
 useEffect(() => {
     if (!isTimeSynced) return;
@@ -267,14 +290,16 @@ const unsubOver = onSnapshot(qOverride, (snap) => {
         .map(d => d.data().validUntil?.toDate())
         .filter(date => date != null);
     
-    setOverrideExpiries(expiries); // تخزين التواريخ في المصفوفة
+    setOverrideExpiries(
+  expiries.sort((a, b) => a.getTime() - b.getTime())
+);
 });
         const currentMonth = currentTime.toISOString().slice(0, 7);
         const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', '==', currentMonth));
         const unsubSch = onSnapshot(qSch, (snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
 
         return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); };
-    }, [currentUserId, isTimeSynced, currentTime ? currentTime.getDate() : 0]);
+    }, [currentUserId, isTimeSynced, currentTime?.toDateString()]);
 
 
 
@@ -315,11 +340,6 @@ const shiftLogic = useMemo(() => {
 
         const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
 
-        const toMins = (t: string) => {
-            if (!t) return 0;
-            const [h, m] = t.split(':').map(Number);
-            return h * 60 + (m || 0);
-        };
 
 
         
@@ -375,7 +395,7 @@ if (logsCount === 0) {
         const sStart = toMins(firstShift.start);
         let sEnd = toMins(firstShift.end);
         
-        // حساب متى نفتح نافذة الدخول (مثلاً قبل الموعد بـ 60 دقيقة)
+        // حساب متى نفتح نافذة الدخول (مثلاً قبل الموعد بـ 15 دقيقة)
         const windowOpen = sStart - 15; 
         
         let adjustedCurrent = currentMinutes;
@@ -422,10 +442,20 @@ if (logsCount === 0) {
                             if(diff < 0) diff += 1440;
                             const h = Math.floor(diff / 60);
                             const m = diff % 60;
-                            return { state: 'DISABLED', message: 'BREAK', sub: `Next shift in ${h}h ${m}m`, canPunch: false, isBreak: true };
+                            return { 
+                                    state: 'WAITING',
+                                    message: 'WAITING',
+                                    sub: `Next shift in ${h}h ${m}m`,
+                                    canPunch: false
+                                };
                         }
                     } else {
-                        return { state: 'COMPLETED', message: 'DONE', sub: 'Shift Missed', canPunch: false };
+                            return {
+                                    state: 'COMPLETED',
+                                    message: 'DONE',
+                                    sub: 'Day Complete',
+                                    canPunch: false
+                                };
                     }
                 }
 
@@ -471,15 +501,62 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
 
             const GRACE_PERIOD_MINUTES = 60; // مدة السماحية (ساعة)
             const autoCloseTime = adjustedEnd + GRACE_PERIOD_MINUTES;
+            const hasSecondShift =
+                    todayShifts.length > currentShiftIndex &&
+                    todayShifts[currentShiftIndex]; // تأكيد وجود التعريف
 
             if (!hasOverride && adjustedCurrent > autoCloseTime) {
-                return { 
-                    state: 'COMPLETED', // ننهي الجلسة في الواجهة
-                    message: 'CLOSED',    // الرسالة الظاهرة
-                    sub: 'Checkout time expired', // السبب
-                    canPunch: false       // منع بصمة الخروج
-                };
-            }
+
+    // ✔ يوجد دوام ثاني
+    if (hasSecondShift) {
+        let s2Start = toMins(todayShifts[1].start);
+        
+        // التعامل مع منتصف الليل (إذا كان الدوام الثاني يبدأ في يوم جديد)
+        let adjustedS2Window = s2Start - 15;
+        let adjustedCurrentForS2 = currentMinutes;
+
+        // تصحيح القيم للمقارنة إذا كان الدوام الثاني بعد منتصف الليل
+        // إذا كان وقت النافذة أقل من وقتنا الحالي بكثير (بسبب التفاف اليوم)، نقوم بمعالجته
+        if (adjustedS2Window < adjustedCurrentForS2 && (adjustedCurrentForS2 - adjustedS2Window) > 720) {
+             adjustedS2Window += 1440;
+        }
+        
+        // 🛑 التعديل هنا:
+        // إذا تجاوزنا وقت فتح النافذة (قبل الموعد بـ 15 دقيقة) -> اسمح بالدخول للوردية الثانية
+        if (adjustedCurrentForS2 >= adjustedS2Window) {
+             return { 
+                state: 'READY_IN', 
+                message: 'START', 
+                sub: 'Shift 2', 
+                canPunch: true, 
+                shiftIdx: 2 
+            };
+        }
+
+        // إذا لم يحن الوقت بعد -> اعرض شاشة البريك
+        let diff = adjustedS2Window - adjustedCurrentForS2;
+        if (diff < 0) diff += 1440;
+
+        const h = Math.floor(diff / 60);
+        const m = diff % 60;
+
+        return {
+            state: 'DISABLED',
+            message: 'BREAK',
+            sub: `Next shift in ${h}h ${m}m`,
+            canPunch: false,
+            isBreak: true
+        };
+    }
+
+    // ❌ لا يوجد دوام ثاني -> نغلق اليوم
+    return {
+        state: 'COMPLETED',
+        message: 'CLOSED',
+        sub: 'Checkout time expired',
+        canPunch: false
+    };
+}
 
             const windowOpen = adjustedEnd - 15;
 
@@ -494,7 +571,9 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
         if (logsCount === 2) {
             // (نفس الكود السابق، فقط تأكد من التعامل مع الحالة العادية)
             const lastLogIdx = lastLog?.shiftIndex || 1;
-            if (lastLogIdx === 2) return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
+            if (lastLogIdx >= todayShifts.length) {
+                return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
+            }
             if (todayShifts.length < 2) return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
             
             let s2Start = toMins(todayShifts[1].start);
@@ -694,10 +773,11 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
                     
                     setTimeout(() => setStatus('IDLE'), 2000);
                 },
-                (err) => {
+               (err) => {
                     setStatus('ERROR');
                     setErrorDetails({ title: 'GPS Failed', msg: err.message });
                     playSound('error');
+                    setTimeout(() => setStatus('IDLE'), 3000); // إضافة إعادة التعيين
                 },
                 { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
             );

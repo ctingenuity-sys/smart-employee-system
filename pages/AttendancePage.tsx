@@ -168,6 +168,12 @@ const AttendancePage: React.FC = () => {
     const currentUserName = localStorage.getItem('username') || 'User';
     const localDeviceId = getUniqueDeviceId();
 
+
+    const hasNightInFromYesterday =
+    yesterdayLogs.length > 0 &&
+    yesterdayLogs[yesterdayLogs.length - 1].type === 'IN';
+
+    
     // 1. SYNC SERVER TIME
     useEffect(() => {
         const syncServerTime = async () => {
@@ -381,9 +387,28 @@ if (logsCount === 0) {
 
  const missedWindowEnd = sEnd + 75; 
 
-                if (!hasOverride && adjustedCurrent > sEnd && adjustedCurrent <= missedWindowEnd) {
-                     return { state: 'MISSED', message: 'MISSED', sub: 'Shift Expired', canPunch: false };
-                }
+
+ if (!hasOverride && adjustedCurrent > sEnd && adjustedCurrent <= missedWindowEnd) {
+
+    // ✔ يوجد بصمة واحدة (وردية ليلية مكتملة)
+    if (hasNightInFromYesterday) {
+        return {
+            state: 'COMPLETED',
+            message: 'COMPLETED DAY',
+            sub: 'Night shift completed',
+            canPunch: false
+        };
+    }
+
+    // ❌ لا توجد أي بصمة
+    return {
+        state: 'MISSED',
+        message: 'MISSED',
+        sub: 'No attendance recorded',
+        canPunch: false
+    };
+}
+
 
                 // Transition to next shift or break after the 60 min "Missed" window
                 if (!hasOverride && adjustedCurrent > missedWindowEnd) {
@@ -410,7 +435,7 @@ if (logsCount === 0) {
                     return { state: 'LOCKED', message: 'TOO EARLY', sub: `Starts at ${firstShift.start}`, canPunch: false };
                 }
             } else {
-                return { state: 'WRONG DEVICE', message: 'NO SHIFT', sub: 'Contact Admin', canPunch: false };
+                return { state: 'ERROR', message: 'NO SHIFT', sub: 'Contact Admin', canPunch: false };
             }
         }
 // --- PHASE 1: LOGGED IN ONCE (كودك الحالي سيكمل من هنا) ---
@@ -563,18 +588,6 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
     };
 
     const handlePunch = async () => {
-        if (todayLogs.length > 0) {
-        const lastLogItem = todayLogs[todayLogs.length - 1];
-        const lastLogTime = lastLogItem.clientTimestamp ? lastLogItem.clientTimestamp.toMillis() : 0;
-        const nowTime = Date.now();
-        
-        // لو عدى أقل من 3 دقايق (180000 ملي ثانية) على آخر بصمة، امنع البصمة الجديدة
-        if ((nowTime - lastLogTime) < 180000) { 
-             setStatus('ERROR');
-             setErrorDetails({ title: 'Please Wait', msg: 'تم تسجيل البصمة بالفعل، انتظر قليلاً.' });
-             return; // وقف الكود هنا
-        }
-    }
         if (!shiftLogic.canPunch) {
             if (navigator.vibrate) navigator.vibrate(200);
             return;

@@ -167,7 +167,7 @@ const AttendancePage: React.FC = () => {
     const currentUserId = auth.currentUser?.uid;
     const currentUserName = localStorage.getItem('username') || 'User';
     const localDeviceId = getUniqueDeviceId();
-
+    const isProcessingRef = useRef(false);
 
 
 function toMins(time: string): number {
@@ -468,105 +468,116 @@ if (logsCount === 0) {
                 return { state: 'ERROR', message: 'NO SHIFT', sub: 'Contact Admin', canPunch: false };
             }
         }
-// --- PHASE 1: LOGGED IN ONCE (كودك الحالي سيكمل من هنا) ---
+// --- PHASE 1: LOGGED IN ONCE ---
 if (logsCount === 1 && lastLog?.type === 'IN') {
-            const currentShiftIndex = lastLog.shiftIndex || 1;
-            let shiftDef = todayShifts[currentShiftIndex - 1];
-            
-            // (نفس كود معالجة الوردية الليلية السابق...)
-            if (!shiftDef && isContinuationFromYesterday) {
-                 return { state: 'READY_OUT', message: 'END', sub: 'Overnight Shift', canPunch: true, shiftIdx: currentShiftIndex };
-            }
-            if (!shiftDef) return { state: 'ERROR', message: 'ERR', sub: 'Invalid Shift', canPunch: false };
+    const currentShiftIndex = lastLog.shiftIndex || 1;
+    let shiftDef = todayShifts[currentShiftIndex - 1];
+    
+    // معالجة حالة الاستمرار من الأمس (Night Shift Continuation)
+    if (!shiftDef && isContinuationFromYesterday) {
+         shiftDef = todayShifts[0]; // محاولة الحصول على تعريف الوردية الأولى
+    }
+    
+    if (!shiftDef) return { state: 'ERROR', message: 'ERR', sub: 'Invalid Shift', canPunch: false };
 
-            const shiftStart = toMins(shiftDef.start);
-            let shiftEnd = toMins(shiftDef.end);
-            
-            let adjustedEnd = shiftEnd;
-            let adjustedCurrent = currentMinutes;
-            
-            // معالجة الدوام الليلي وتعديل التوقيت
-            if (shiftEnd < shiftStart) {
-                adjustedEnd += 1440;
-            }
-            if (isContinuationFromYesterday) {
+    const shiftStart = toMins(shiftDef.start);
+    let shiftEnd = toMins(shiftDef.end);
+    
+    let adjustedEnd = shiftEnd;
+    let adjustedCurrent = currentMinutes;
+    
+    // --- منطق معالجة الدوام الليلي (المطور) ---
+    const isOvernight = shiftEnd < shiftStart;
 
-                 if (shiftEnd < shiftStart) adjustedEnd -= 1440; // إعادة للقيمة الطبيعية للمقارنة في الصباح
-            } else {
-                // الحالة العادية (نفس اليوم أو امتداد بعد منتصف الليل قبل تغيير التاريخ)
-                if (shiftEnd < shiftStart && currentMinutes < 720) {
-                    adjustedCurrent += 1440;
-                }
-            }
-
-            const GRACE_PERIOD_MINUTES = 60; // مدة السماحية (ساعة)
-            const autoCloseTime = adjustedEnd + GRACE_PERIOD_MINUTES;
-            const hasSecondShift =
-                    todayShifts.length > currentShiftIndex &&
-                    todayShifts[currentShiftIndex]; // تأكيد وجود التعريف
-
-            if (!hasOverride && adjustedCurrent > autoCloseTime) {
-
-    // ✔ يوجد دوام ثاني
-    if (hasSecondShift) {
-        let s2Start = toMins(todayShifts[1].start);
-        
-        // التعامل مع منتصف الليل (إذا كان الدوام الثاني يبدأ في يوم جديد)
-        let adjustedS2Window = s2Start - 15;
-        let adjustedCurrentForS2 = currentMinutes;
-
-        // تصحيح القيم للمقارنة إذا كان الدوام الثاني بعد منتصف الليل
-        // إذا كان وقت النافذة أقل من وقتنا الحالي بكثير (بسبب التفاف اليوم)، نقوم بمعالجته
-        if (adjustedS2Window < adjustedCurrentForS2 && (adjustedCurrentForS2 - adjustedS2Window) > 720) {
-             adjustedS2Window += 1440;
+    if (isOvernight) {
+        // إذا كان الدوام ليللي ونحن الآن في ساعات الصباح (حتى الظهر 720 دقيقة)
+        // نعتبر الوقت الحالي ممتداً من اليوم السابق (+1440)
+        if (currentMinutes < 720) {
+            adjustedCurrent += 1440;
         }
-        
-        // 🛑 التعديل هنا:
-        // إذا تجاوزنا وقت فتح النافذة (قبل الموعد بـ 15 دقيقة) -> اسمح بالدخول للوردية الثانية
-        if (adjustedCurrentForS2 >= adjustedS2Window) {
-             return { 
-                state: 'READY_IN', 
-                message: 'START', 
-                sub: 'Shift 2', 
-                canPunch: true, 
-                shiftIdx: 2 
+        adjustedEnd += 1440;
+    }
+
+    // تصحيح إضافي في حالة الاستمرار من الأمس لضمان دقة المقارنة
+    if (isContinuationFromYesterday && !isOvernight) {
+        // إذا لم يكن لولياً ولكنه قادم من الأمس (نادر الحدوث برمجياً لكن للاحتياط)
+        adjustedCurrent += 1440;
+    }
+
+    const GRACE_PERIOD_MINUTES = 60; // ساعة سماحية بعد انتهاء الدوام
+    const autoCloseTime = adjustedEnd + GRACE_PERIOD_MINUTES;
+    
+    const hasSecondShift = todayShifts.length > currentShiftIndex;
+
+    // --- سيناريو انتهاء وقت الخروج (Auto-Close or Next Shift Transition) ---
+    if (!hasOverride && adjustedCurrent > autoCloseTime) {
+        // التحقق من وجود وردية ثانية للانتقال إليها
+        if (hasSecondShift) {
+            let s2Start = toMins(todayShifts[currentShiftIndex].start); // الوردية التالية
+            let adjustedS2Window = s2Start - 15;
+            let adjustedCurrentForS2 = currentMinutes;
+
+            // معالجة التفاف الوقت للوردية الثانية
+            if (adjustedS2Window < adjustedCurrentForS2 && (adjustedCurrentForS2 - adjustedS2Window) > 720) {
+                 adjustedS2Window += 1440;
+            }
+            
+            // إذا حان وقت الوردية الثانية
+            if (adjustedCurrentForS2 >= adjustedS2Window) {
+                 return { 
+                    state: 'READY_IN', 
+                    message: 'START', 
+                    sub: `Shift ${currentShiftIndex + 1}`, 
+                    canPunch: true, 
+                    shiftIdx: currentShiftIndex + 1 
+                };
+            }
+
+            // إذا كنا في وقت الاستراحة بين الورديتين
+            let diff = adjustedS2Window - adjustedCurrentForS2;
+            if (diff < 0) diff += 1440;
+            const h = Math.floor(diff / 60);
+            const m = diff % 60;
+
+            return {
+                state: 'DISABLED',
+                message: 'BREAK',
+                sub: `Next shift in ${h}h ${m}m`,
+                canPunch: false,
+                isBreak: true
             };
         }
 
-        // إذا لم يحن الوقت بعد -> اعرض شاشة البريك
-        let diff = adjustedS2Window - adjustedCurrentForS2;
-        if (diff < 0) diff += 1440;
-
-        const h = Math.floor(diff / 60);
-        const m = diff % 60;
-
+        // لا توجد وردية ثانية والوقت انتهى
         return {
-            state: 'DISABLED',
-            message: 'BREAK',
-            sub: `Next shift in ${h}h ${m}m`,
-            canPunch: false,
-            isBreak: true
+            state: 'COMPLETED',
+            message: 'CLOSED',
+            sub: 'Checkout time expired',
+            canPunch: false
         };
     }
 
-    // ❌ لا يوجد دوام ثاني -> نغلق اليوم
-    return {
-        state: 'COMPLETED',
-        message: 'CLOSED',
-        sub: 'Checkout time expired',
-        canPunch: false
-    };
+    // --- سيناريو نافذة الخروج العادية ---
+    const windowOpen = adjustedEnd - 15; // تفتح قبل نهاية الدوام بـ 15 دقيقة
+
+    if (hasOverride || adjustedCurrent >= windowOpen) {
+        return { 
+            state: 'READY_OUT', 
+            message: 'END', 
+            sub: `Shift ${currentShiftIndex}`, 
+            canPunch: true, 
+            shiftIdx: currentShiftIndex 
+        };
+    } else {
+        // الموظف لا يزال داخل وقت الدوام
+        return { 
+            state: 'LOCKED', 
+            message: 'ON DUTY', 
+            sub: `Ends at ${shiftDef.end}`, 
+            canPunch: false 
+        };
+    }
 }
-
-            const windowOpen = adjustedEnd - 15;
-
-            if (hasOverride || adjustedCurrent >= windowOpen) {
-                return { state: 'READY_OUT', message: 'END', sub: `Shift ${currentShiftIndex}`, canPunch: true, shiftIdx: currentShiftIndex };
-            } else {
-                return { state: 'LOCKED', message: 'ON DUTY', sub: `Ends at ${shiftDef.end}`, canPunch: false };
-            }
-        }
-
         // --- PHASE 2: TWO LOGS ---
         if (logsCount === 2) {
             // (نفس الكود السابق، فقط تأكد من التعامل مع الحالة العادية)
@@ -667,85 +678,97 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
     };
 
     const handlePunch = async () => {
-        if (!shiftLogic.canPunch) {
-            if (navigator.vibrate) navigator.vibrate(200);
-            return;
-        }
-        
-        playSound('click');
-        setErrorDetails({title:'', msg:''});
+    // 1. المنع الفوري إذا كانت العملية قيد التنفيذ أو البصمة غير مسموحة
+    if (isProcessingRef.current || !shiftLogic.canPunch) return;
 
-        if (!navigator.onLine) {
+    isProcessingRef.current = true; // قفل العملية فوراً
+    
+    playSound('click');
+    setErrorDetails({title:'', msg:''});
+
+    // دالة مساعدة لفتح القفل بعد وقت معين (لتجنب النقرات السريعة جداً)
+    const releaseLock = (delay = 2000) => {
+        setTimeout(() => {
+            isProcessingRef.current = false;
+        }, delay);
+    };
+
+    if (!navigator.onLine) {
+        setStatus('ERROR');
+        setErrorDetails({ title: 'No Internet', msg: 'Check connection.' });
+        playSound('error');
+        releaseLock(); // فتح القفل للمحاولة لاحقاً
+        return;
+    }
+
+    if (!hasOverride) {
+        if (userProfile?.biometricId && userProfile.biometricId !== localDeviceId) {
             setStatus('ERROR');
-            setErrorDetails({ title: 'No Internet', msg: 'Check connection.' });
+            setErrorDetails({ title: 'Invalid Device', msg: 'Use registered device.' });
             playSound('error');
+            releaseLock();
             return;
         }
+    }
 
-        if (!hasOverride) {
-            if (userProfile?.biometricId && userProfile.biometricId !== localDeviceId) {
-                setStatus('ERROR');
-                setErrorDetails({ title: 'Invalid Device', msg: 'Use registered device.' });
-                playSound('error');
-                return;
-            }
+    try {
+        await authenticateUser();
+        setStatus('SCANNING_LOC');
+
+        if (!navigator.geolocation) {
+            throw new Error('GPS not supported');
         }
 
-        try {
-            await authenticateUser();
-
-            setStatus('SCANNING_LOC');
-            if (!navigator.geolocation) throw new Error('GPS not supported');
-
-            navigator.geolocation.getCurrentPosition(
-                async (pos) => {
+        navigator.geolocation.getCurrentPosition(
+            async (pos) => {
+                try {
                     const { latitude, longitude, accuracy } = pos.coords;
-                    const dist = getDistanceFromLatLonInKm(latitude, longitude, HOSPITAL_LAT, HOSPITAL_LNG);
+                    // @ts-ignore (لفحص ميزة mocked إذا كانت متاحة في المتصفح)
+                    const isMocked = pos.coords.mocked || false; 
 
-                    if (accuracy > MAX_GPS_ACCURACY_METERS) {
-                        setStatus('ERROR');
-                        setErrorDetails({ title: 'Weak GPS', msg: `Accuracy ${accuracy.toFixed(0)}m too low.` });
-                        playSound('error');
-                        return;
-                    }
-
-                    // --- FRAUD DETECTION LOGIC ---
+                    // 1. فحص التلاعب بالوقت (الفرق بين وقت الجهاز ووقت السيرفر المزامَن)
+                    const deviceTime = Date.now();
+                    const serverTimeFromOffset = deviceTime + timeOffset;
+                    const timeDiffMinutes = Math.abs(deviceTime - serverTimeFromOffset) / (1000 * 60);
+                    
                     let isSuspicious = false;
                     let violationType = '';
 
-                    // 1. Location Check
-                    if (dist > ALLOWED_RADIUS_KM && !hasOverride) {
-                        // Instead of blocking, we might allow it but flag it
+                    // كشف تغيير وقت الجهاز يدوياً
+                    if (timeDiffMinutes > 5) { 
                         isSuspicious = true;
-                        violationType = 'Location Mismatch';
-                        // Keep current logic: Block unless overridden? Or block completely?
-                        // User request implies "notification", so allow but flag?
-                        // Current code BLOCKS it below. Let's keep blocking for user UX, but if override used, allow.
-                        
-                        if (!hasOverride) {
-                             setStatus('ERROR');
-                             setErrorDetails({ title: 'Out of Range', msg: `You are ${(dist * 1000).toFixed(0)}m away.` });
-                             playSound('error');
-                             return;
-                        }
+                        violationType = 'MANUAL_TIME_CHANGE';
                     }
 
-                    const deviceTime = Date.now();
-                    const estimatedServerTime = deviceTime + timeOffset;
- 
+                    // كشف المواقع الوهمية (Mock Location)
+                    if (isMocked) {
+                        isSuspicious = true;
+                        violationType = 'MOCK_LOCATION_DETECTED';
+                    }
+
+                    const dist = getDistanceFromLatLonInKm(latitude, longitude, HOSPITAL_LAT, HOSPITAL_LNG);
+
+                    // المنع الفوري إذا كان الموقع خارج النطاق وبدون إذن (Override)
+                    if (dist > ALLOWED_RADIUS_KM && !hasOverride) {
+                        setStatus('ERROR');
+                        setErrorDetails({ title: 'Out of Range', msg: `You are ${(dist * 1000).toFixed(0)}m away.` });
+                        playSound('error');
+                        releaseLock();
+                        return;
+                    }
+
                     setStatus('PROCESSING');
                     
-                    if (!currentTime) throw new Error("Time sync lost");
-
-                    const localDateStr = getLocalDateKey(currentTime);
+                    const localDateStr = getLocalDateKey(currentTime!);
                     const nextType = shiftLogic.state === 'READY_IN' ? 'IN' : 'OUT';
                     
+                    // إرسال البيانات مع علامات التحذير للمشرف
                     await addDoc(collection(db, 'attendance_logs'), {
                         userId: currentUserId,
                         userName: currentUserName,
                         type: nextType,
-                        timestamp: serverTimestamp(), // Secure Server Time
-                        clientTimestamp: Timestamp.now(), // Device Time
+                        timestamp: serverTimestamp(),
+                        clientTimestamp: Timestamp.now(),
                         date: localDateStr,
                         locationLat: latitude,
                         locationLng: longitude,
@@ -753,11 +776,10 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
                         accuracy: accuracy,
                         deviceInfo: navigator.userAgent,
                         deviceId: localDeviceId,
-                        status: 'verified',
+                        status: isSuspicious ? 'flagged' : 'verified', // تعليم السجل للمشرف
                         shiftIndex: (shiftLogic as any).shiftIdx || 1,
-                        // NEW FLAGS
-                        isSuspicious: isSuspicious,
-                        violationType: violationType
+                        isSuspicious: isSuspicious, // سيظهر عند المشرف باللون الأحمر
+                        violationType: violationType // نوع المخالفة (وقت أم موقع)
                     });
 
                     if (!userProfile?.biometricId) {
@@ -771,24 +793,34 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
                     playSound('success');
                     if (navigator.vibrate) navigator.vibrate([100]);
                     
+                    // في حالة النجاح ننتظر قليلاً قبل السماح ببصمة أخرى
                     setTimeout(() => setStatus('IDLE'), 2000);
-                },
-               (err) => {
+                    releaseLock(3000); // تأخير إضافي بعد النجاح للأمان
+
+                } catch (innerError: any) {
+                    console.error(innerError);
                     setStatus('ERROR');
-                    setErrorDetails({ title: 'GPS Failed', msg: err.message });
-                    playSound('error');
-                    setTimeout(() => setStatus('IDLE'), 3000); // إضافة إعادة التعيين
-                },
-                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-            );
+                    setErrorDetails({ title: 'Process Error', msg: innerError.message });
+                    releaseLock();
+                }
+            },
+            (err) => {
+                setStatus('ERROR');
+                setErrorDetails({ title: 'GPS Failed', msg: err.message });
+                playSound('error');
+                setTimeout(() => setStatus('IDLE'), 3000);
+                releaseLock();
+            },
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        );
 
-        } catch (e: any) {
-            setStatus('ERROR');
-            setErrorDetails({ title: 'Auth Failed', msg: e.message || "Unknown error" });
-            playSound('error');
-        }
-    };
-
+    } catch (e: any) {
+        setStatus('ERROR');
+        setErrorDetails({ title: 'Auth Failed', msg: e.message || "Unknown error" });
+        playSound('error');
+        releaseLock();
+    }
+};
     // --- VISUAL CONFIGURATION (Cyberpunk/Glassmorphism) ---
     const visualState = useMemo(() => {
         const isBreak = (shiftLogic as any).isBreak;
@@ -962,25 +994,30 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
     {/* 3. الطبقة العليا: الزر الفعلي (الذي يحتوي على النص والأيقونة) */}
     {/* نضع z-20 لضمان أن النص فوق الخط تماماً ولا يتم تغطيته */}
     <div className="relative z-20">
-        <button
-            onClick={handlePunch}
-            disabled={status !== 'IDLE' || !shiftLogic.canPunch}
-            className={`
-                relative w-64 h-64 rounded-full flex flex-col items-center justify-center 
-                transition-all duration-500 transform active:scale-95 
-                ${visualState.btnClass} glass-panel border-4 border-white/5 shadow-2xl
-                ${status !== 'IDLE' ? 'opacity-50 cursor-not-allowed' : ''}
-            `}
-        >
-            {/* محتوى الزر (أيقونة، نص رئيسي، نص فرعي) */}
-            <i className={`fas ${visualState.icon} text-5xl mb-4 neon-text-glow`}></i>
-            <span className="text-3xl font-black tracking-tighter uppercase leading-none">
-                {status === 'IDLE' ? visualState.mainText : status}
-            </span>
-            <span className="text-[10px] mt-2 font-bold tracking-[0.3em] opacity-40 uppercase">
-                {visualState.subText}
-            </span>
-        </button>
+       <button
+    onClick={handlePunch}
+    disabled={status !== 'IDLE' && status !== 'ERROR' || !shiftLogic.canPunch} // السماح بالضغط حتى لو كان هناك خطأ سابق للمحاولة مرة أخرى
+    className={`
+        relative w-64 h-64 rounded-full flex flex-col items-center justify-center 
+        transition-all duration-500 transform active:scale-95 
+        ${visualState.theme === 'rose' && status === 'ERROR' ? 'bg-red-900/40 text-red-500 border-red-500/50' : visualState.btnClass} 
+        glass-panel border-4 border-white/5 shadow-2xl
+        ${(status !== 'IDLE' && status !== 'ERROR') ? 'opacity-50 cursor-not-allowed' : ''}
+    `}
+>
+    {/* محتوى الزر (أيقونة، نص رئيسي، نص فرعي) */}
+    <i className={`fas ${status === 'ERROR' ? 'fa-exclamation-triangle' : visualState.icon} text-5xl mb-4 neon-text-glow`}></i>
+    
+    <span className="text-2xl font-black tracking-tighter uppercase leading-none text-center px-4">
+        {status === 'IDLE' ? visualState.mainText : 
+         status === 'ERROR' ? errorDetails.title : // هنا يظهر عنوان الخطأ بدلاً من كلمة ERROR
+         status} 
+    </span>
+
+    <span className="text-[10px] mt-2 font-bold tracking-[0.2em] opacity-60 uppercase text-center px-4">
+        {status === 'ERROR' ? errorDetails.msg : visualState.subText}
+    </span>
+</button>
     </div>
 </div>
 

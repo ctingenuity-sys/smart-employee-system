@@ -375,25 +375,58 @@ const AttendanceAnalyzer: React.FC = () => {
         return a.employeeName.localeCompare(b.employeeName);
     });
 
-    // 3. Midnight Fix Logic (1 AM / 2 AM Rule)
+    // --- SMART LOOK-AHEAD LOGIC FOR MIDNIGHT SHIFTS ---
     for (let i = 0; i < records.length; i++) {
-        const current = records[i];
+        const curr = records[i];
         
-        // Only check Clock In for the midnight logic
-        if (current.clockIn) {
-            const h = parseInt(current.clockIn.split(':')[0]);
-            // If Clock In is between 00:00 and 04:00 (Early Morning)
-            if (h >= 0 && h <= 4) {
-                // Check if previous record exists for same employee
-                const prev = records[i-1];
-                if (prev && prev.employeeName === current.employeeName) {
-                    prev.clockOut = current.clockIn;
-                    prev.isModified = true;
+        // Safety check
+        if (!curr || curr.ignore) continue;
 
-                    if (!current.breakOut && !current.breakIn && !current.clockOut) {
-                        current.ignore = true;
-                    } else {
-                        current.clockIn = null; // Removed from today
+        // Check against next record
+        if (i + 1 < records.length) {
+            const next = records[i+1];
+            
+            // Only compare if same employee
+            if (next.employeeName === curr.employeeName) {
+                const currDate = new Date(curr.date);
+                const nextDate = new Date(next.date);
+                const diffTime = Math.abs(nextDate.getTime() - currDate.getTime());
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+
+                // Is it the next day?
+                if (diffDays === 1) {
+                    
+                    // Case 1: Straight Shift Night (e.g., 5pm IN -> 1am OUT)
+                    // Logic: If current has IN but no OUT, and next has Early Morning IN (which is actually the OUT)
+                    if (curr.clockIn && !curr.clockOut) {
+                        // Check if Next Day's "Clock In" is essentially the "Clock Out" for today
+                        // Threshold: Punch is before 7 AM
+                        const potentialOut = next.clockIn || next.breakOut;
+                        if (potentialOut && parseInt(potentialOut.split(':')[0]) < 7) {
+                            curr.clockOut = potentialOut; // Steal the punch
+                            curr.isModified = true;
+                            
+                            // Clear it from next day so it doesn't count as a new shift start
+                            next.clockIn = null;
+                            // If next day is now empty of meaningful punches, ignore it entirely
+                            if (!next.clockOut && !next.breakIn && !next.breakOut) {
+                                next.ignore = true;
+                            }
+                        }
+                    }
+
+                    // Case 2: Broken Shift Night (e.g., Shift 2 is 5pm to 1am)
+                    // Logic: If current has BreakIN (Shift 2 Start) but no ClockOut (Shift 2 End)
+                    if (curr.breakIn && !curr.clockOut) {
+                        const potentialOut = next.clockIn || next.breakOut;
+                        if (potentialOut && parseInt(potentialOut.split(':')[0]) < 7) {
+                            curr.clockOut = potentialOut;
+                            curr.isModified = true;
+                            next.clockIn = null;
+                            if (!next.clockOut && !next.breakIn && !next.breakOut) {
+                                next.ignore = true;
+                            }
+                        }
                     }
                 }
             }
@@ -401,7 +434,6 @@ const AttendanceAnalyzer: React.FC = () => {
     }
 
     const summaryMap = new Map<string, EmployeeSummary>();
-    // Track dates present for each employee to calculate absences later
     const empWorkedDates = new Map<string, Set<string>>();
 
     records.forEach(record => {
@@ -439,6 +471,7 @@ const AttendanceAnalyzer: React.FC = () => {
         // -- Calculation Logic --
         
         // Shift 1: Clock In -> Break Out (or Clock Out if single)
+        // Only calculate if BOTH In and Out exist to prevent "time calculated between them" error
         if (record.clockIn) {
             const start = timeToHours(record.clockIn);
             let end = 0;
@@ -473,11 +506,12 @@ const AttendanceAnalyzer: React.FC = () => {
             shift2 = dur;
             
             displayTimestamps.push(`Shift 2: ${formatTime(record.breakIn)} \u2192 ${formatTime(record.clockOut)}`);
+        } else if (record.breakIn && !record.clockOut) {
+             displayTimestamps.push(`Shift 2: ${formatTime(record.breakIn)} \u2192 ???`);
         }
 
-        // If strict single shift logic failing but data exists in G & H
+        // Fallback: If strict single shift logic failing but data exists in G & H only
         if (shift1 === 0 && shift2 === 0 && record.clockIn && record.clockOut && !record.breakOut && !record.breakIn) {
-             // Fallback for simple In -> Out
              let dur = timeToHours(record.clockOut) - timeToHours(record.clockIn);
              if (dur < 0) dur += 24;
              shift1 = dur;
@@ -490,11 +524,9 @@ const AttendanceAnalyzer: React.FC = () => {
         let overtime = 0;
         let shortfall = 0;
 
-        // Overtime > 9 Hours
         if (dailyHours > OVERTIME_THRESHOLD) {
             overtime = dailyHours - OVERTIME_THRESHOLD;
         } else if (dailyHours > 0 && dailyHours < 8) {
-            // Assume 8 hours is standard min
             shortfall = 8 - dailyHours;
         }
 
@@ -508,8 +540,6 @@ const AttendanceAnalyzer: React.FC = () => {
             empSummary.totalOvertimeHours += overtime;
             empSummary.totalShortfallHours += shortfall;
             empSummary.totalLatenessMinutes += Math.round(lateness);
-            
-            // Mark this date as present for this employee
             empWorkedDates.get(name)!.add(record.date);
         }
 
@@ -544,16 +574,13 @@ const AttendanceAnalyzer: React.FC = () => {
         const workedDates = empWorkedDates.get(empName) || new Set();
         const loopDate = new Date(startDate);
 
-        // Iterate through every day in the range
         while (loopDate <= endDate) {
             const dateStr = loopDate.toISOString().split('T')[0];
-            const dayOfWeek = loopDate.getDay(); // 0=Sun, 5=Fri
+            const dayOfWeek = loopDate.getDay(); 
 
-            // If it's NOT Friday (5) AND user didn't work this date
             if (dayOfWeek !== 5 && !workedDates.has(dateStr)) {
                 summary.absentDays++;
                 
-                // Add a "Missing" record for clarity
                 summary.records.push({
                     id: Math.random().toString(),
                     employeeName: empName,
@@ -563,17 +590,13 @@ const AttendanceAnalyzer: React.FC = () => {
                     status: 'Absent',
                     totalHours: 0,
                     overtimeHours: 0,
-                    shortfallHours: 8, // Assuming they missed a standard 8hr shift
+                    shortfallHours: 8, 
                     latenessMinutes: 0,
                     earlyDepartureMinutes: 0
                 });
             }
-            
-            // Increment date
             loopDate.setDate(loopDate.getDate() + 1);
         }
-
-        // Re-sort records by date so the new absence rows are in correct order
         summary.records.sort((a, b) => a.date.localeCompare(b.date));
     });
 
@@ -620,7 +643,6 @@ const AttendanceAnalyzer: React.FC = () => {
           });
       });
 
-      // Fix: Ensure detailData is not empty before creating sheet, otherwise headers might be missing
       if (detailData.length === 0) {
           detailData.push({ "Employee": "No records", "Date": "-", "Day": "-", "Time In/Out": "-", "Total Hours": 0, "Overtime": 0, "Lateness": 0, "Status": "-" });
       }

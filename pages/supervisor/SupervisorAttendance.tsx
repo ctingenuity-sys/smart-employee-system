@@ -36,6 +36,7 @@ const convertTo24Hour = (timeStr: string): string | null => {
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 };
 
+
 const parseMultiShifts = (text: string) => {
     if (!text) return [];
     const segments = text.trim().split(/[\/,]|\s+and\s+|&/i);
@@ -78,6 +79,9 @@ interface DailyDetail {
     out2Lat?: number;
     out2Lng?: number;
 
+    serverTimestamp?: any;
+    clientTimestamp?: any;
+
     lateMinutes: number;
     earlyMinutes: number;
     dailyWorkMinutes: number;
@@ -110,6 +114,7 @@ const SupervisorAttendance: React.FC = () => {
     const [isCalculatingAtt, setIsCalculatingAtt] = useState(false);
     const [expandedUser, setExpandedUser] = useState<string | null>(null);
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'} | null>(null);
+    const [showOnlySuspicious, setShowOnlySuspicious] = useState(false);
 
     // Map Modal
     const [mapModal, setMapModal] = useState<{isOpen: boolean, lat: number, lng: number, title: string}>({ isOpen: false, lat: 0, lng: 0, title: '' });
@@ -283,6 +288,8 @@ const SupervisorAttendance: React.FC = () => {
                     in2Lat: in2?.locationLat, in2Lng: in2?.locationLng,
                     out2Lat: out2?.locationLat, out2Lng: out2?.locationLng,
                     lateMinutes: lateMins, 
+                    serverTimestamp: in1?.timestamp,
+                    clientTimestamp: in1?.clientTimestamp,
                     earlyMinutes: 0,
                     dailyWorkMinutes: workMinutes, 
                     overtimeMinutes: workMinutes > 540 ? workMinutes - 540 : 0, 
@@ -393,6 +400,14 @@ const SupervisorAttendance: React.FC = () => {
                         <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-700 transition-all flex items-center gap-2">
                             <i className="fas fa-print"></i> Print
                         </button>
+                        <button
+                            onClick={() => setShowOnlySuspicious(!showOnlySuspicious)}
+                            className={`px-3 py-2 rounded-lg text-xs font-bold ${
+                                showOnlySuspicious ? 'bg-red-600 text-white' : 'bg-slate-200 text-slate-700'
+                            }`}
+                        >
+                            Suspicious Only
+                        </button>
                     </div>
                 </div>
 
@@ -490,7 +505,9 @@ const SupervisorAttendance: React.FC = () => {
                                                                             </tr>
                                                                         </thead>
                                                                         <tbody className="divide-y divide-slate-100 bg-white">
-                                                                            {summary.details.map((detail, idx) => (
+                                                                            {summary.details
+                                                                                        .filter(d => showOnlySuspicious ? d.riskFlags.length > 0 : true)
+                                                                                        .map((detail, idx) => (
                                                                                 <tr key={idx}>
                                                                                     <td className="p-2">{detail.date}</td>
                                                                                     <td className="p-2">{detail.day}</td>
@@ -521,10 +538,34 @@ const SupervisorAttendance: React.FC = () => {
                                                                                     </td>
                                                                                     <td className="p-2 text-center">
                                                                                         {detail.riskFlags.length > 0 ? (
-                                                                                            <span className="text-[9px] font-bold text-red-600 bg-red-50 px-1 rounded border border-red-100">!</span>
-                                                                                        ) : <span className="text-green-400"><i className="fas fa-check"></i></span>}
+                                                                                            <div className="flex flex-col items-center">
+                                                                                                <span className="px-2 text-[9px] font-bold rounded-full bg-red-100 text-red-800">
+                                                                                                    Flagged
+                                                                                                </span>
+                                                                                                <span className="text-[9px] text-red-600 font-bold mt-1">
+                                                                                                    Suspicious
+                                                                                                </span>
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <span className="px-2 text-[9px] font-bold rounded-full bg-green-100 text-green-800">
+                                                                                                Verified
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </td>
+                                                                                    <td className="p-2 text-left text-gray-500">
+                                                                                        <div>Server: {detail.serverTimestamp?.toDate().toLocaleTimeString()}</div>
+                                                                                        {detail.clientTimestamp && (
+                                                                                            <div className={`text-[9px] ${
+                                                                                                Math.abs(detail.serverTimestamp.seconds - detail.clientTimestamp.seconds) > 300
+                                                                                                    ? 'text-red-600 font-bold'
+                                                                                                    : 'text-gray-400'
+                                                                                            }`}>
+                                                                                                Device: {detail.clientTimestamp.toDate().toLocaleTimeString()}
+                                                                                            </div>
+                                                                                        )}
                                                                                     </td>
                                                                                 </tr>
+                                                                                
                                                                             ))}
                                                                         </tbody>
                                                                     </table>

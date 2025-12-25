@@ -8,7 +8,7 @@ interface ToastProps {
   onClose: () => void;
 }
 
-const Toast: React.FC<ToastProps> = ({ message, type, duration = 4000, onClose }) => {
+const Toast: React.FC<ToastProps> = ({ message, type, duration = 1000, onClose }) => {
   useEffect(() => {
     // Sound Logic - استخدام نفس المكتبة الصوتية لتوحيد التجربة
     const playSound = () => {
@@ -16,7 +16,7 @@ const Toast: React.FC<ToastProps> = ({ message, type, duration = 4000, onClose }
         switch (type) {
             case 'success':
                 // Success Chime
-                audioSrc = 'https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3'; 
+                audioSrc = 'https://assets.mixkit.co/active_storage/sfx/3005/3005-preview.mp3'; 
                 break;
             case 'error':
                 // Error Alert

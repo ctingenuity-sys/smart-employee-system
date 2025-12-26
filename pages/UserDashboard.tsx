@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 import { db, auth } from '../firebase';
@@ -8,83 +8,14 @@ import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestor
 import { useLanguage } from '../contexts/LanguageContext';
 import { Schedule, Announcement, SwapRequest, OpenShift, User, AttendanceLog } from '../types';
 
-// --- Helpers ---
-const getLocalDateStr = (d: Date) => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-};
+import {
+  getLocalDateStr,
+  parseMultiShifts,
+  formatTime12,
+  constructDateTime
+} from '../utils/timeUtils';
 
-const convertTo24Hour = (timeStr: string): string | null => {
-    if (!timeStr) return null;
-    let s = timeStr.toLowerCase().trim();
-    if (/^\d{1,2}$/.test(s)) {
-        const h = parseInt(s, 10);
-        if (h >= 0 && h <= 24) return `${h.toString().padStart(2, '0')}:00`;
-    }
-    s = s.replace(/(\d+)\.(\d+)/, '$1:$2');
-    if (s.match(/\b12\s*:?\s*0{0,2}\s*mn\b/) || s.includes('midnight') || s.includes('12mn')) return '24:00';
-    if (s.match(/\b12\s*:?\s*0{0,2}\s*n\b/) || s.includes('noon')) return '12:00';
-    let modifier = null;
-    if (s.includes('pm') || s.includes('p.m') || s.includes('م') || s.includes('مساء')) modifier = 'pm';
-    else if (s.includes('am') || s.includes('a.m') || s.includes('ص') || s.includes('صباح')) modifier = 'am';
-    const cleanTime = s.replace(/[^\d:]/g, ''); 
-    const parts = cleanTime.split(':');
-    if (parts.length === 0 || parts[0] === '') return null;
-    let h = parseInt(parts[0], 10);
-    let m = parts[1] ? parseInt(parts[1], 10) : 0;
-    if (modifier) {
-        if (modifier === 'pm' && h < 12) h += 12;
-        if (modifier === 'am' && h === 12) h = 0;
-    }
-    if (h === 24) return '24:00';
-    if (h > 24) return null;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-};
-
-const parseMultiShifts = (text: string) => {
-    if (!text) return [];
-    let cleanText = text.trim();
-    const segments = cleanText.split(/[\/,]|\s+and\s+|&|\s+(?=\d{1,2}(?::\d{2})?\s*(?:am|pm|mn|noon))/i);
-    const shifts: { start: string, end: string }[] = [];
-    segments.forEach(seg => {
-        const trimmed = seg.trim();
-        if(!trimmed) return;
-        const rangeParts = trimmed.replace(/[()]/g, '').split(/\s*(?:[-–—]|\bto\b)\s*/i);
-        if (rangeParts.length >= 2) {
-            const startStr = rangeParts[0].trim();
-            const endStr = rangeParts[rangeParts.length - 1].trim(); 
-            const s = convertTo24Hour(startStr);
-            const e = convertTo24Hour(endStr);
-            if (s && e) {
-                shifts.push({ start: s, end: e });
-            }
-        }
-    });
-    return shifts;
-};
-
-const formatTime12 = (time24: string) => {
-  if (!time24) return '--:--';
-  const [h, m] = time24.split(':');
-  let hour = parseInt(h);
-  const ampm = hour >= 12 ? 'PM' : 'AM';
-  hour = hour % 12 || 12;
-  return `${hour}:${m} ${ampm}`;
-};
-
-const constructDateTime = (dateStr: string, timeStr: string, defaultTime: string = '00:00'): Date => {
-    let t = timeStr;
-    if (!t || t.length < 5) t = defaultTime;
-    if (t === '24:00') {
-        const d = new Date(`${dateStr}T00:00:00`);
-        d.setDate(d.getDate() + 1);
-        return d;
-    }
-    return new Date(`${dateStr}T${t}`);
-};
-
+// --- Helpers --
 const UserDashboard: React.FC = () => {
   const { t, dir } = useLanguage();
   const navigate = useNavigate();
@@ -367,7 +298,14 @@ const UserDashboard: React.FC = () => {
     return { mode: 'off', title: t('user.hero.noShift'), subtitle: 'Enjoy your time', location: 'Off Duty' };
   };
 
-  const heroInfo = getHeroInfo();
+const heroInfo = useMemo(() => {
+  return getHeroInfo();
+}, [
+  currentSchedules,
+  todayLogs,
+  currentUserId,
+  t
+]);
 
   // --- MENU ITEMS WITH GRADIENTS ---
   const menuItems = [

@@ -336,147 +336,105 @@ const unsubOver = onSnapshot(qOverride, (snap) => {
 
     // --- 5. THE ULTIMATE SHIFT LOGIC (GENIUS EDITION V5.0 - AUTO SKIP & RELATIVE GATING) ---
 const shiftLogic = useMemo(() => {
-        if (!currentTime) return { state: 'LOADING', message: 'SYNCING', sub: 'Server Time', canPunch: false };
+    if (!currentTime) return { state: 'LOADING', message: 'SYNCING', sub: 'Server Time', canPunch: false };
 
-        const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+    const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+    let effectiveLogs = [...todayLogs];
+    let isContinuationFromYesterday = false;
 
-
-
+    // --- 1. المنطق الذكي لمعالجة خروج الوردية الليلية ---
+    if (
+        todayLogs.length === 1 &&
+        todayLogs[0]?.type === 'OUT' &&
+        yesterdayLogs.length > 0 &&
+        yesterdayLogs[yesterdayLogs.length - 1]?.type === 'IN'
+    ) {
+        const outMinutes = toMins(todayLogs[0].time);
         
-        // --- 1. تجهيز السجلات (المنطق الذكي الجديد) ---
-        let effectiveLogs = [...todayLogs];
-        // هذا يسمح للمنطق برؤية اليوم كأنه "فارغ" في المساء، فيفتح زر START لليلة الثانية
-       if (
-    todayLogs.length === 1 &&
-    todayLogs[0]?.type === 'OUT' &&
-    yesterdayLogs.length > 0 &&
-    yesterdayLogs[yesterdayLogs.length - 1]?.type === 'IN'
-) {
-    return {
-        state: 'COMPLETED',
-        message: 'DONE',
-        sub: 'Night shift completed',
-        canPunch: false
-    };
-}
-        let isContinuationFromYesterday = false;
-        
-        // التحقق من سجلات الأمس (استخدام effectiveLogs هنا بدلاً من todayLogs)
-        if (effectiveLogs.length === 0 && yesterdayLogs.length > 0) {
-            const lastYesterday = yesterdayLogs[yesterdayLogs.length - 1];
-            
-            if (lastYesterday.type === 'IN') {
-                const yShiftIdx = lastYesterday.shiftIndex || 1;
-                const yShiftDef = todayShifts[yShiftIdx - 1] || todayShifts[0];
-
-                if (yShiftDef) {
-                    const yEnd = toMins(yShiftDef.end);
-                    const yStart = toMins(yShiftDef.start);
-                    let isExpired = false;
-                    
-                    if (yEnd < yStart) { 
-                        // وردية ليلية ممتدة للصباح
-                        if (currentMinutes > (yEnd + 60)) {
-                            isExpired = true; 
-                        }
-                    } else {
-                        // وردية نهارية عادية انتهت أمس
-                        isExpired = true;
-                    }
-
-                    if (!isExpired) {
-                        effectiveLogs = [lastYesterday];
-                        isContinuationFromYesterday = true;
-                    } 
-                }
-            }
+        // إظهار رسالة الإتمام لمدة ساعتين فقط (120 دقيقة)
+        if (currentMinutes >= outMinutes && currentMinutes < outMinutes + 120) {
+            return {
+                state: 'COMPLETED',
+                message: 'DONE',
+                sub: 'Night shift completed',
+                canPunch: false
+            };
         }
-
-const logsCount = effectiveLogs.length;
-const lastLog = logsCount > 0 ? effectiveLogs[logsCount - 1] : null;
-
-// ============================================================
-// 🛑 المرحلة 0: لا توجد سجلات (بداية يوم جديد أو بعد انتهاء وردية الأمس)
-// ============================================================
-if (logsCount === 0) {
-    if (todayShifts.length > 0) {
-        const firstShift = todayShifts[0];
-        const sStart = toMins(firstShift.start);
-        let sEnd = toMins(firstShift.end);
-        
-        // حساب متى نفتح نافذة الدخول (مثلاً قبل الموعد بـ 15 دقيقة)
-        const windowOpen = sStart - 15; 
-        
-        let adjustedCurrent = currentMinutes;
-        
-        // Handle midnight crossover for end time logic
-        if (sEnd < sStart) sEnd += 1440;
-        if (sEnd > 1440 && currentMinutes < 720) adjustedCurrent += 1440;
-
-
- const missedWindowEnd = sEnd + 75; 
-
-
- if (!hasOverride && adjustedCurrent > sEnd && adjustedCurrent <= missedWindowEnd) {
-
-    // ✔ يوجد بصمة واحدة (وردية ليلية مكتملة)
-    if (hasNightInFromYesterday) {
-        return {
-            state: 'COMPLETED',
-            message: 'COMPLETED DAY',
-            sub: 'Night shift completed',
-            canPunch: false
-        };
+        // بعد ساعتين، نعتبر السجلات "فارغة" لنسمح بظهور الوردية القادمة (TOO EARLY)
+        effectiveLogs = []; 
     }
 
-    // ❌ لا توجد أي بصمة
-    return {
-        state: 'MISSED',
-        message: 'MISSED',
-        sub: 'No attendance recorded',
-        canPunch: false
-    };
-}
+    // --- 2. التحقق من استمرارية وردية الأمس (إذا لم يبصم خروج بعد) ---
+    if (effectiveLogs.length === 0 && yesterdayLogs.length > 0) {
+        const lastYesterday = yesterdayLogs[yesterdayLogs.length - 1];
+        if (lastYesterday.type === 'IN') {
+            const yShiftIdx = lastYesterday.shiftIndex || 1;
+            const yShiftDef = todayShifts[yShiftIdx - 1] || todayShifts[0];
 
-
-                // Transition to next shift or break after the 60 min "Missed" window
-                if (!hasOverride && adjustedCurrent > missedWindowEnd) {
-                    if (todayShifts.length > 1) {
-                        let s2Start = toMins(todayShifts[1].start);
-                        const s2Window = s2Start - 15;
-                        if (currentMinutes >= s2Window) {
-                            return { state: 'READY_IN', message: 'START', sub: 'Shift 2', canPunch: true, shiftIdx: 2 };
-                        } else {
-                            let diff = s2Window - currentMinutes;
-                            if(diff < 0) diff += 1440;
-                            const h = Math.floor(diff / 60);
-                            const m = diff % 60;
-                            return { 
-                                    state: 'WAITING',
-                                    message: 'WAITING',
-                                    sub: `Next shift in ${h}h ${m}m`,
-                                    canPunch: false
-                                };
-                        }
-                    } else {
-                            return {
-                                    state: 'COMPLETED',
-                                    message: 'DONE',
-                                    sub: 'Day Complete',
-                                    canPunch: false
-                                };
-                    }
+            if (yShiftDef) {
+                const yEnd = toMins(yShiftDef.end);
+                const yStart = toMins(yShiftDef.start);
+                let isExpired = false;
+                
+                if (yEnd < yStart) { // وردية ليلية
+                    if (currentMinutes > (yEnd + 60)) isExpired = true; 
+                } else { // وردية نهارية
+                    isExpired = true;
                 }
 
-                if (hasOverride || currentMinutes >= windowOpen) {
-                    return { state: 'READY_IN', message: 'START', sub: 'Shift 1', canPunch: true, shiftIdx: 1 };
-                } else {
-                    return { state: 'LOCKED', message: 'TOO EARLY', sub: `Starts at ${firstShift.start}`, canPunch: false };
-                }
-            } else {
-                return { state: 'ERROR', message: 'NO SHIFT', sub: 'Contact Admin', canPunch: false };
+                if (!isExpired) {
+                    effectiveLogs = [lastYesterday];
+                    isContinuationFromYesterday = true;
+                } 
             }
         }
+    }
+
+    const logsCount = effectiveLogs.length;
+    const lastLog = logsCount > 0 ? effectiveLogs[logsCount - 1] : null;
+
+    // --- المرحلة 0: لا توجد سجلات (انتظار الوردية القادمة) ---
+    if (logsCount === 0) {
+        if (todayShifts.length > 0) {
+            const firstShift = todayShifts[0];
+            const sStart = toMins(firstShift.start);
+            let sEnd = toMins(firstShift.end);
+            if (sEnd < sStart) sEnd += 1440;
+
+            let adjustedCurrent = currentMinutes;
+            // إذا كانت الوردية ليلية ونحن في الصباح الباكر، نعدل الوقت الحالي للمقارنة
+            if (sStart > 720 && currentMinutes < 720) adjustedCurrent += 1440;
+
+            const windowOpen = sStart - 15;
+            const missedWindowEnd = sEnd + 75;
+
+            // إذا فات موعد الوردية تماماً
+            if (!hasOverride && adjustedCurrent > missedWindowEnd) {
+                // ملاحظة: هنا حذفنا المتغير غير المعرف واستبدلناه بالمنطق الافتراضي
+                return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
+            }
+
+            // وقت الدخول (START)
+            if (hasOverride || currentMinutes >= windowOpen) {
+                 // إضافة شرط: لا تفتح START إذا كنا لسه في وقت الصباح الباكر جداً لوردية بالليل
+                 // هذا يمنع تداخل الـ 10 مساءً مع الـ 10 صباحاً
+                 return { state: 'READY_IN', message: 'START', sub: 'Shift 1', canPunch: true, shiftIdx: 1 };
+            } 
+            
+            // حالة TOO EARLY
+            let diff = windowOpen - currentMinutes;
+            if (diff < 0) diff += 1440;
+            const h = Math.floor(diff / 60);
+            const m = diff % 60;
+
+            return { 
+                state: 'LOCKED', 
+                message: 'TOO EARLY', 
+                sub: h > 0 ? `Starts in ${h}h ${m}m` : `Starts in ${m}m`, 
+                canPunch: false 
+            };
+        }
+    }
 // --- PHASE 1: LOGGED IN ONCE ---
 if (logsCount === 1 && lastLog?.type === 'IN') {
     const currentShiftIndex = lastLog.shiftIndex || 1;

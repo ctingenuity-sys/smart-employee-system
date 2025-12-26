@@ -490,6 +490,15 @@ const heroInfo = useMemo(() => {
                             <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/50 to-transparent -translate-x-full group-hover:animate-shine"></span>
                             <i className="fas fa-desktop text-blue-600"></i> Open IHMS
                         </a>
+                        <a 
+                            href="https://chat.whatsapp.com/HO07MVE2Y1c9d9pSFBa8ly" // ضع رابط المجموعة هنا
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="group relative px-6 py-3 rounded-2xl bg-emerald-500 text-white font-bold text-sm shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] transition-all overflow-hidden flex items-center gap-2"
+                        >
+                            <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-shine"></span>
+                            <i className="fab fa-whatsapp text-xl"></i> {t('X-RAY GROUP') || 'مجموعة الواتساب'}
+                        </a>
                     </div>
                 </div>
 

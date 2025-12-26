@@ -99,23 +99,12 @@ const UserDashboard: React.FC = () => {
   const [todayLogs, setTodayLogs] = useState<any[]>([]);
   const [allTodayLogs, setAllTodayLogs] = useState<AttendanceLog[]>([]); // For "Who's on shift" accuracy
   const [hasAttendanceOverride, setHasAttendanceOverride] = useState(false);
-  const [shiftTimer, setShiftTimer] = useState('');
-
+  
   // Who's on Shift State
   const [onShiftNow, setOnShiftNow] = useState<{name: string, location: string, time: string, role?: string, phone?: string, isPresent: boolean}[]>([]);
   const [isShiftWidgetOpen, setIsShiftWidgetOpen] = useState(false);
-  const [tilt, setTilt] = useState({ x: 0, y: 0 });
-
   const [shiftFilterMode, setShiftFilterMode] = useState<'present' | 'all'>('present');
   const [allUsers, setAllUsers] = useState<User[]>([]);
-
-  const heroCopy: Record<string, string> = {
-  active: 'Stay sharp. You’re making impact.',
-  late: 'Every minute counts. Clock in now.',
-  upcoming: 'Prepare. Excellence starts early.',
-  off: 'Recharge. Tomorrow needs you.'
-};
-
 
   // --- Data Loading ---
   useEffect(() => {
@@ -380,16 +369,7 @@ const UserDashboard: React.FC = () => {
 
   const heroInfo = getHeroInfo();
 
-useEffect(() => {
-  if (heroInfo.mode !== 'active') return;
-  const i = setInterval(() => {
-    setShiftTimer(new Date().toLocaleTimeString());
-  }, 1000);
-  return () => clearInterval(i);
-}, [heroInfo.mode]);
-
   // --- MENU ITEMS WITH GRADIENTS ---
-
   const menuItems = [
       { 
           id: 'attendance', 
@@ -490,24 +470,7 @@ useEffect(() => {
         border: 1px solid rgba(255, 255, 255, 0.1);
         box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
     }
-        @keyframes heroEnter {
-  0% {
-    opacity: 0;
-    transform: translateY(40px) scale(0.98);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
   `;
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-  const rect = e.currentTarget.getBoundingClientRect();
-  const x = (e.clientX - rect.left) / rect.width - 0.5;
-  const y = (e.clientY - rect.top) / rect.height - 0.5;
-  setTilt({ x: x * 10, y: y * -10 });
-};
-
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans" dir={dir}>
@@ -531,25 +494,9 @@ useEffect(() => {
         )}
 
         {/* --- MAGICAL HERO SECTION --- */}
-                            <div
-                    className="relative overflow-hidden mb-12 rounded-b-[40px] shadow-2xl
-                    min-h-[420px] flex items-center
-                    animate-[heroEnter_1.2s_ease-out_forwards]
-                    opacity-0 translate-y-10"
-                    >
-
-
+        <div className="relative overflow-hidden mb-12 rounded-b-[40px] shadow-2xl transition-all duration-1000 min-h-[420px] flex items-center">
+            
             {/* Dynamic Animated Background */}
-                                    <div
-                        className={`absolute inset-0 blur-3xl
-                        ${heroInfo.mode === 'active'
-                            ? 'bg-emerald-500 glow-active'
-                            : heroInfo.mode === 'late'
-                            ? 'bg-red-500 glow-active'
-                            : 'bg-blue-500 opacity-20'
-                        }`}
-                        ></div>
-
             <div className={`absolute inset-0 transition-colors duration-1000 animate-aurora
                 ${themeColor === 'red' ? 'bg-gradient-to-br from-red-900 via-rose-800 to-slate-900' :
                   themeColor === 'emerald' ? 'bg-gradient-to-br from-emerald-900 via-teal-800 to-slate-900' :
@@ -616,16 +563,8 @@ useEffect(() => {
                             ${themeColor === 'red' ? 'from-red-500 to-orange-500' : themeColor === 'emerald' ? 'from-emerald-500 to-cyan-500' : 'from-blue-500 to-purple-500'}
                         `}></div>
 
-                                    <div
-                                    onMouseMove={handleMouseMove}
-                                    onMouseLeave={() => setTilt({ x: 0, y: 0 })}
-                                    style={{
-                                        transform: `rotateX(${tilt.y}deg) rotateY(${tilt.x}deg)`
-                                    }}
-                                    className="glass-card w-full md:w-[380px] p-6 rounded-[32px]
-                                    relative z-10 transition-transform duration-300"
-                                    >
-                                                                
+                        <div className="glass-card w-full md:w-[380px] p-6 rounded-[32px] relative z-10 transition-transform duration-500 hover:rotate-y-2 hover:rotate-x-2">
+                            
                             {/* Top Row: Icon & Status Label */}
                             <div className="flex justify-between items-start mb-8">
                                 <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-3xl shadow-lg animate-float-icon
@@ -652,27 +591,11 @@ useEffect(() => {
 
                             {/* Middle: Big Title */}
                             <div className="mb-6">
-                                    <h3 className="text-3xl font-black text-white leading-tight mb-1">
-                                        {heroInfo.title}
-                                    </h3>
-
-                                    <p className="text-sm font-bold uppercase tracking-wide opacity-80">
-                                        {heroInfo.subtitle}
-                                    </p>
-
-                                    {heroInfo.mode === 'active' && (
-                                        <div className="mt-2 inline-flex items-center gap-2
-                                        text-xs text-emerald-300 font-mono tracking-widest
-                                        bg-emerald-500/10 px-3 py-1 rounded-full
-                                        border border-emerald-400/30">
-                                        <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>
-                                        LIVE • {shiftTimer}
-                                        </div>
-                                    )}
-                                    </div>
-<p className="text-xs text-white/50 italic mt-2">
-  {heroCopy[heroInfo.mode]}
-</p>
+                                <h3 className="text-3xl font-black text-white leading-tight mb-1">{heroInfo.title}</h3>
+                                <p className={`text-sm font-bold uppercase tracking-wide opacity-80 ${themeColor === 'red' ? 'text-red-200' : themeColor === 'emerald' ? 'text-emerald-200' : 'text-blue-200'}`}>
+                                    {heroInfo.subtitle}
+                                </p>
+                            </div>
 
                             {/* Bottom: Location & Action */}
                             <div className="flex items-center justify-between pt-6 border-t border-white/10">
@@ -690,7 +613,6 @@ useEffect(() => {
                                         <i className="fas fa-check text-white/40"></i>
                                     </div>
                                 )}
-                                
                             </div>
 
                         </div>

@@ -346,10 +346,19 @@ const shiftLogic = useMemo(() => {
         // --- 1. تجهيز السجلات (المنطق الذكي الجديد) ---
         let effectiveLogs = [...todayLogs];
         // هذا يسمح للمنطق برؤية اليوم كأنه "فارغ" في المساء، فيفتح زر START لليلة الثانية
-        if (effectiveLogs.length > 0 && effectiveLogs[0].type === 'OUT') {
-            effectiveLogs = effectiveLogs.slice(1);
-        }
-
+       if (
+    todayLogs.length === 1 &&
+    todayLogs[0]?.type === 'OUT' &&
+    yesterdayLogs.length > 0 &&
+    yesterdayLogs[yesterdayLogs.length - 1]?.type === 'IN'
+) {
+    return {
+        state: 'COMPLETED',
+        message: 'DONE',
+        sub: 'Night shift completed',
+        canPunch: false
+    };
+}
         let isContinuationFromYesterday = false;
         
         // التحقق من سجلات الأمس (استخدام effectiveLogs هنا بدلاً من todayLogs)
@@ -578,31 +587,88 @@ if (logsCount === 1 && lastLog?.type === 'IN') {
         };
     }
 }
-        // --- PHASE 2: TWO LOGS ---
-        if (logsCount === 2) {
-            // (نفس الكود السابق، فقط تأكد من التعامل مع الحالة العادية)
-            const lastLogIdx = lastLog?.shiftIndex || 1;
-            if (lastLogIdx >= todayShifts.length) {
-                return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
-            }
-            if (todayShifts.length < 2) return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
-            
-            let s2Start = toMins(todayShifts[1].start);
-            // تصحيح بسيط لوقت الظهيرة
-            let s1End = toMins(todayShifts[0].end);
-            if(s1End > s2Start) s2Start += 1440; // مجرد حماية
+// --- PHASE 2: TWO LOGS ---
+if (logsCount === 2) {
 
-            const windowOpen = s2Start - 15;
-            if (hasOverride || currentMinutes >= windowOpen) {
-                return { state: 'READY_IN', message: 'START', sub: 'Shift 2', canPunch: true, shiftIdx: 2 };
-            } else {
-                 let diff = windowOpen - currentMinutes;
-                 if(diff < 0) diff += 1440; // تصحيح
-                 const h = Math.floor(diff / 60);
-                 const m = diff % 60;
-                 return { state: 'DISABLED', message: 'BREAK', sub: `Next shift in ${h}h ${m}m`, timeRemaining: `${h}:${m}`, canPunch: false, isBreak: true };
-            }
-        }
+    if (!todayShifts || todayShifts.length < 2) {
+        return {
+            state: 'COMPLETED',
+            message: 'DONE',
+            sub: 'Day Complete',
+            canPunch: false
+        };
+    }
+    // 🔒 AUTO-CLOSE SHIFT 2 IF MISSED
+    const s2Def = todayShifts[1];
+    const s2Start = toMins(s2Def.start);
+    let s2End = toMins(s2Def.end);
+
+    // Handle overnight shift
+    if (s2End < s2Start) s2End += 1440;
+
+    let adjustedCurrent = currentMinutes;
+    if (s2End > 1440 && currentMinutes < 720) {
+        adjustedCurrent += 1440;
+    }
+
+    const GRACE_MINUTES = 60;
+    const autoCloseTime = s2End + GRACE_MINUTES;
+
+    // ❌ لم يحدث IN للوردية الثانية وانتهى وقتها
+    if (!hasOverride && adjustedCurrent > autoCloseTime) {
+        return {
+            state: 'COMPLETED',
+            message: 'DONE',
+            sub: 'Shift 2 missed',
+            canPunch: false
+        };
+    }
+
+    // ================================
+    // المنطق الطبيعي بعد ذلك
+    // ================================
+
+    const lastLogIdx = lastLog?.shiftIndex || 1;
+    if (lastLogIdx >= todayShifts.length) {
+        return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
+    }
+
+    if (todayShifts.length < 2) {
+        return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
+    }
+
+    let normalizedS2Start = s2Start;
+    let s1End = toMins(todayShifts[0].end);
+    if (s1End > normalizedS2Start) normalizedS2Start += 1440;
+
+    const windowOpen = normalizedS2Start - 15;
+
+    if (hasOverride || currentMinutes >= windowOpen) {
+        return {
+            state: 'READY_IN',
+            message: 'START',
+            sub: 'Shift 2',
+            canPunch: true,
+            shiftIdx: 2
+        };
+    } else {
+        let diff = windowOpen - currentMinutes;
+        if (diff < 0) diff += 1440;
+
+        const h = Math.floor(diff / 60);
+        const m = diff % 60;
+
+        return {
+            state: 'DISABLED',
+            message: 'BREAK',
+            sub: `Next shift in ${h}h ${m}m`,
+            timeRemaining: `${h}:${m}`,
+            canPunch: false,
+            isBreak: true
+        };
+    }
+}
+
 
         // --- PHASE 3: THREE LOGS ---
         if (logsCount === 3) {

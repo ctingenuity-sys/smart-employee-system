@@ -217,28 +217,44 @@ const AttendancePage: React.FC = () => {
     }, []);
 
     // 2. Clock Logic
-    useEffect(() => {
-        const timer = setInterval(() => {
-            const now = new Date(Date.now() + timeOffset);
-            setCurrentTime(now);
+// 2. Clock Logic
+useEffect(() => {
+    const timer = setInterval(() => {
+        const now = new Date(Date.now() + timeOffset);
+        setCurrentTime(now);
 
-            // --- Override Countdown ---
-            const activeExpiry = overrideExpiries.find(expiry => expiry > now);
-            if (activeExpiry) {
-                setHasOverride(true);
-                const seconds = Math.max(0, Math.round((activeExpiry.getTime() - now.getTime()) / 1000));
-                setTimeLeft(seconds);
-            } else {
+        // --- Override Countdown (30 Seconds Logic) ---
+        const activeExpiry = overrideExpiries.find(expiry => expiry > now);
+        
+        if (activeExpiry) {
+            setHasOverride(true);
+            
+            // حساب الفرق بالثواني
+            const diffSeconds = Math.round((activeExpiry.getTime() - now.getTime()) / 1000);
+            
+            // تحديد الحد الأقصى بـ 30 ثانية فقط حتى لو كان الإذن في قاعدة البيانات أطول
+            // وإذا كان الوقت المتبقي أصلاً أقل من 30، يظهر الوقت الحقيقي
+            const displayedSeconds = Math.min(30, Math.max(0, diffSeconds));
+            
+            // إذا انتهت الـ 30 ثانية (حتى لو لم ينتهِ وقت الـ Firebase) نلغي التفعيل ظاهرياً
+            if (displayedSeconds <= 0) {
                 setHasOverride(false);
                 setTimeLeft(null);
+            } else {
+                setTimeLeft(displayedSeconds);
             }
+        } else {
+            setHasOverride(false);
+            setTimeLeft(null);
+        }
 
-            if (now.getSeconds() === 0) {
-                setLogicTicker(prev => prev + 1);
-            }
-        }, 1000);
-        return () => clearInterval(timer);
-    }, [isTimeSynced, timeOffset, overrideExpiries]);
+        if (now.getSeconds() === 0) {
+            setLogicTicker(prev => prev + 1);
+        }
+    }, 1000);
+    return () => clearInterval(timer);
+}, [isTimeSynced, timeOffset, overrideExpiries]);
+
 
     // 3. Data Subscriptions
     useEffect(() => {
@@ -534,7 +550,8 @@ const AttendancePage: React.FC = () => {
                         const localClean = (localDeviceId || '').trim();
 
                         // If device is registered and DOES NOT match current device
-                        if (regClean && regClean !== localClean) {
+                        // UPDATED: Check for override permissions first!
+                        if (regClean && regClean !== localClean && !hasOverride) {
                             // Auto-reject and do NOT show modal
                             await updateDoc(doc(db, 'location_checks', req.id), {
                                 status: 'rejected',
@@ -560,7 +577,7 @@ const AttendancePage: React.FC = () => {
         });
 
         return () => unsubLiveCheck();
-    }, [realUserId, localDeviceId]); // Depend on localDeviceId to ensure we compare against current
+    }, [realUserId, localDeviceId, hasOverride]); // Depend on hasOverride to allow check if perm granted
 
     // --- LIVE CHECK HANDLER ---
     const handleLiveCheck = async () => {

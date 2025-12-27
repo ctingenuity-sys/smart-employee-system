@@ -3,18 +3,18 @@ import React, { useState, useEffect, useMemo, useRef, memo } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
 import { collection, addDoc, onSnapshot, query, where, Timestamp, serverTimestamp, doc, updateDoc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
-import { AttendanceLog, Schedule } from '../types';
+import { AttendanceLog, Schedule, LocationCheckRequest } from '../types';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
+import { calculateShiftStatus } from '../utils/attendanceLogic';
 
 const HOSPITAL_LAT = 21.584135549676002;
 const HOSPITAL_LNG = 39.208052479784165; 
 const ALLOWED_RADIUS_KM = 0.08; 
-const MAX_GPS_ACCURACY_METERS = 80; 
 
-// --- Helpers (Pure Functions) ---
+// --- Helpers ---
 const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
   var R = 6371; 
   var dLat = deg2rad(lat2-lat1); 
@@ -80,7 +80,7 @@ const getLocalDateKey = (dateObj: Date) => {
     return `${year}-${month}-${day}`;
 };
 
-// --- STYLES INJECTION (For Advanced Animations) ---
+// --- STYLES INJECTION ---
 const styles = `
 @keyframes float {
     0% { transform: translateY(0px); }
@@ -155,47 +155,22 @@ const AttendancePage: React.FC = () => {
     const [showHistory, setShowHistory] = useState(false);
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
  
-// Data State
+    // Data State
     const [todayLogs, setTodayLogs] = useState<AttendanceLog[]>([]);
-    const [yesterdayLogs, setYesterdayLogs] = useState<AttendanceLog[]>([]); // <--- إضافة جديدة
+    const [yesterdayLogs, setYesterdayLogs] = useState<AttendanceLog[]>([]);
     const [todayShifts, setTodayShifts] = useState<{ start: string, end: string }[]>([]);
     const [overrideExpiries, setOverrideExpiries] = useState<Date[]>([]);
     const [hasOverride, setHasOverride] = useState(false);
     const [userProfile, setUserProfile] = useState<any>(null);
     const [schedules, setSchedules] = useState<Schedule[]>([]);
+    const [activeLiveCheck, setActiveLiveCheck] = useState<LocationCheckRequest | null>(null);
+    const [isLiveCheckProcessing, setIsLiveCheckProcessing] = useState(false);
     
     const currentUserId = auth.currentUser?.uid;
     const currentUserName = localStorage.getItem('username') || 'User';
     const localDeviceId = getUniqueDeviceId();
     const isProcessingRef = useRef(false);
 
-
-function toMins(time: string): number {
-    if (!time) return 0;
-
-    const [h, m] = time.split(':').map(Number);
-    return (h * 60) + (m || 0);
-}
-
-
-const hasNightInFromYesterday = useMemo(() => {
-    if (yesterdayLogs.length === 0 || todayShifts.length === 0) return false;
-
-    const last = yesterdayLogs[yesterdayLogs.length - 1];
-    if (last.type !== 'IN') return false;
-
-    const shiftIdx = last.shiftIndex || 1;
-    const shift = todayShifts[shiftIdx - 1];
-    if (!shift) return false;
-
-    const s = toMins(shift.start);
-    const e = toMins(shift.end);
-
-    return e < s; // وردية ليلية فقط
-}, [yesterdayLogs, todayShifts]);
-
-
-    
     // 1. SYNC SERVER TIME
     useEffect(() => {
         const syncServerTime = async () => {
@@ -221,46 +196,38 @@ const hasNightInFromYesterday = useMemo(() => {
         syncServerTime();
     }, []);
 
-    
     // 2. Clock Logic
-useEffect(() => {
-    if (!isTimeSynced) return;
-    const timer = setInterval(() => {
-        const now = new Date(Date.now() + timeOffset);
-        setCurrentTime(now);
+    useEffect(() => {
+        const timer = setInterval(() => {
+            const now = new Date(Date.now() + timeOffset);
+            setCurrentTime(now);
 
-        // --- حساب العداد التنازلي ---
-        // نبحث عن أقرب وقت انتهاء مستقبلي
-        const activeExpiry = overrideExpiries.find(expiry => expiry > now);
-        
-        if (activeExpiry) {
-            setHasOverride(true);
-            // حساب الفرق بالثواني
-            const seconds = Math.max(0, Math.round((activeExpiry.getTime() - now.getTime()) / 1000));
-            setTimeLeft(seconds);
-        } else {
-            setHasOverride(false);
-            setTimeLeft(null);
-        }
+            // --- Override Countdown ---
+            const activeExpiry = overrideExpiries.find(expiry => expiry > now);
+            if (activeExpiry) {
+                setHasOverride(true);
+                const seconds = Math.max(0, Math.round((activeExpiry.getTime() - now.getTime()) / 1000));
+                setTimeLeft(seconds);
+            } else {
+                setHasOverride(false);
+                setTimeLeft(null);
+            }
 
-        if (now.getSeconds() === 0) {
-            setLogicTicker(prev => prev + 1);
-        }
-    }, 1000);
-    return () => clearInterval(timer);
-}, [isTimeSynced, timeOffset, overrideExpiries]);
+            if (now.getSeconds() === 0) {
+                setLogicTicker(prev => prev + 1);
+            }
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [isTimeSynced, timeOffset, overrideExpiries]);
 
-
-    // 3. Data Subscriptions (MODIFIED FOR NIGHT SHIFT)
-
-useEffect(() => {
+    // 3. Data Subscriptions
+    useEffect(() => {
         if (!currentUserId || !currentTime) return;
 
         const unsubUser = onSnapshot(doc(db, 'users', currentUserId), (docSnap) => {
             if(docSnap.exists()) setUserProfile(docSnap.data());
         });
 
-        // جلب سجلات اليوم
         const todayStr = getLocalDateKey(currentTime);
         const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', todayStr));
         const unsubLogs = onSnapshot(qLogs, (snap) => {
@@ -269,7 +236,6 @@ useEffect(() => {
             setTodayLogs(logs);
         });
 
-        // --- إضافة جديدة: جلب سجلات الأمس لمعالجة الدوام الليلي ---
         const yesterdayDate = new Date(currentTime);
         yesterdayDate.setDate(yesterdayDate.getDate() - 1);
         const yesterdayStr = getLocalDateKey(yesterdayDate);
@@ -280,28 +246,53 @@ useEffect(() => {
             logs.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
             setYesterdayLogs(logs);
         });
-        // -------------------------------------------------------
 
-// داخل الـ useEffect الثالث الخاص بالبيانات
-const qOverride = query(collection(db, 'attendance_overrides'), where('userId', '==', currentUserId));
-const unsubOver = onSnapshot(qOverride, (snap) => {
-    // جلب كل التواريخ المتاحة للأذونات
-    const expiries = snap.docs
-        .map(d => d.data().validUntil?.toDate())
-        .filter(date => date != null);
-    
-    setOverrideExpiries(
-  expiries.sort((a, b) => a.getTime() - b.getTime())
-);
-});
+        const qOverride = query(collection(db, 'attendance_overrides'), where('userId', '==', currentUserId));
+        const unsubOver = onSnapshot(qOverride, (snap) => {
+            const expiries = snap.docs
+                .map(d => d.data().validUntil?.toDate())
+                .filter(date => date != null);
+            setOverrideExpiries(expiries.sort((a, b) => a.getTime() - b.getTime()));
+        });
+
         const currentMonth = currentTime.toISOString().slice(0, 7);
         const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', '==', currentMonth));
         const unsubSch = onSnapshot(qSch, (snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
 
-        return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); };
+        // --- LISTEN FOR LIVE CHECKS ---
+        const qLiveCheck = query(
+            collection(db, 'location_checks'), 
+            where('targetUserId', '==', currentUserId), 
+            where('status', '==', 'pending')
+        );
+        
+        const unsubLiveCheck = onSnapshot(qLiveCheck, (snap) => {
+            if (!snap.empty) {
+                const docData = snap.docs[0].data();
+                const req = { id: snap.docs[0].id, ...docData } as LocationCheckRequest;
+                
+                // التحقق من الوقت: هل انتهت الدقيقة؟
+                const now = Date.now();
+                const expiresAt = req.expiresAt?.toDate().getTime() || (now + 60000); // fallback
+                
+                if (now < expiresAt) {
+                    setActiveLiveCheck(req);
+                    // تشغيل الصوت فقط إذا لم يكن معروضاً بالفعل
+                    if (!activeLiveCheck) {
+                        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2868/2868-preview.mp3');
+                        audio.play().catch(()=>{});
+                    }
+                } else {
+                    // إذا وصل الطلب وهو منتهي الصلاحية بالفعل
+                    setActiveLiveCheck(null);
+                }
+            } else {
+                setActiveLiveCheck(null);
+            }
+        });
+
+        return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); unsubLiveCheck(); };
     }, [currentUserId, isTimeSynced, currentTime?.toDateString()]);
-
-
 
     // 4. Calculate Shifts (Data layer)
     useEffect(() => {
@@ -334,339 +325,10 @@ const unsubOver = onSnapshot(qOverride, (snap) => {
         setTodayShifts(myShifts);
     }, [schedules, currentTime]);
 
-    // --- 5. THE ULTIMATE SHIFT LOGIC (GENIUS EDITION V5.0 - AUTO SKIP & RELATIVE GATING) ---
-const shiftLogic = useMemo(() => {
-    if (!currentTime) return { state: 'LOADING', message: 'SYNCING', sub: 'Server Time', canPunch: false };
-
-    const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
-    let effectiveLogs = [...todayLogs];
-    let isContinuationFromYesterday = false;
-
-    // --- 1. المنطق الذكي لمعالجة خروج الوردية الليلية ---
-    if (
-        todayLogs.length === 1 &&
-        todayLogs[0]?.type === 'OUT' &&
-        yesterdayLogs.length > 0 &&
-        yesterdayLogs[yesterdayLogs.length - 1]?.type === 'IN'
-    ) {
-        const outMinutes = toMins(todayLogs[0].time);
-        
-        // إظهار رسالة الإتمام لمدة ساعتين فقط (120 دقيقة)
-        if (currentMinutes >= outMinutes && currentMinutes < outMinutes + 120) {
-            return {
-                state: 'COMPLETED',
-                message: 'DONE',
-                sub: 'Night shift completed',
-                canPunch: false
-            };
-        }
-        // بعد ساعتين، نعتبر السجلات "فارغة" لنسمح بظهور الوردية القادمة (TOO EARLY)
-        effectiveLogs = []; 
-    }
-
-    // --- 2. التحقق من استمرارية وردية الأمس (إذا لم يبصم خروج بعد) ---
-    if (effectiveLogs.length === 0 && yesterdayLogs.length > 0) {
-        const lastYesterday = yesterdayLogs[yesterdayLogs.length - 1];
-        if (lastYesterday.type === 'IN') {
-            const yShiftIdx = lastYesterday.shiftIndex || 1;
-            const yShiftDef = todayShifts[yShiftIdx - 1] || todayShifts[0];
-
-            if (yShiftDef) {
-                const yEnd = toMins(yShiftDef.end);
-                const yStart = toMins(yShiftDef.start);
-                let isExpired = false;
-                
-                if (yEnd < yStart) { // وردية ليلية
-                    if (currentMinutes > (yEnd + 60)) isExpired = true; 
-                } else { // وردية نهارية
-                    isExpired = true;
-                }
-
-                if (!isExpired) {
-                    effectiveLogs = [lastYesterday];
-                    isContinuationFromYesterday = true;
-                } 
-            }
-        }
-    }
-
-    const logsCount = effectiveLogs.length;
-    const lastLog = logsCount > 0 ? effectiveLogs[logsCount - 1] : null;
-
-    // --- المرحلة 0: لا توجد سجلات (انتظار الوردية القادمة) ---
-    if (logsCount === 0) {
-        if (todayShifts.length > 0) {
-            const firstShift = todayShifts[0];
-            const sStart = toMins(firstShift.start);
-            let sEnd = toMins(firstShift.end);
-            if (sEnd < sStart) sEnd += 1440;
-
-            let adjustedCurrent = currentMinutes;
-            // إذا كانت الوردية ليلية ونحن في الصباح الباكر، نعدل الوقت الحالي للمقارنة
-            if (sStart > 720 && currentMinutes < 720) adjustedCurrent += 1440;
-
-            const windowOpen = sStart - 15;
-            const missedWindowEnd = sEnd + 75;
-
-            // إذا فات موعد الوردية تماماً
-            if (!hasOverride && adjustedCurrent > missedWindowEnd) {
-                // ملاحظة: هنا حذفنا المتغير غير المعرف واستبدلناه بالمنطق الافتراضي
-                return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
-            }
-
-            // وقت الدخول (START)
-            if (hasOverride || currentMinutes >= windowOpen) {
-                 // إضافة شرط: لا تفتح START إذا كنا لسه في وقت الصباح الباكر جداً لوردية بالليل
-                 // هذا يمنع تداخل الـ 10 مساءً مع الـ 10 صباحاً
-                 return { state: 'READY_IN', message: 'START', sub: 'Shift 1', canPunch: true, shiftIdx: 1 };
-            } 
-            
-            // حالة TOO EARLY
-            let diff = windowOpen - currentMinutes;
-            if (diff < 0) diff += 1440;
-            const h = Math.floor(diff / 60);
-            const m = diff % 60;
-
-            return { 
-                state: 'LOCKED', 
-                message: 'TOO EARLY', 
-                sub: h > 0 ? `Starts in ${h}h ${m}m` : `Starts in ${m}m`, 
-                canPunch: false 
-            };
-        }
-    }
-// --- PHASE 1: LOGGED IN ONCE ---
-if (logsCount === 1 && lastLog?.type === 'IN') {
-    const currentShiftIndex = lastLog.shiftIndex || 1;
-    let shiftDef = todayShifts[currentShiftIndex - 1];
-    
-    // معالجة حالة الاستمرار من الأمس (Night Shift Continuation)
-    if (!shiftDef && isContinuationFromYesterday) {
-         shiftDef = todayShifts[0]; // محاولة الحصول على تعريف الوردية الأولى
-    }
-    
-    if (!shiftDef) return { state: 'ERROR', message: 'ERR', sub: 'Invalid Shift', canPunch: false };
-
-    const shiftStart = toMins(shiftDef.start);
-    let shiftEnd = toMins(shiftDef.end);
-    
-    let adjustedEnd = shiftEnd;
-    let adjustedCurrent = currentMinutes;
-    
-    // --- منطق معالجة الدوام الليلي (المطور) ---
-    const isOvernight = shiftEnd < shiftStart;
-
-    if (isOvernight) {
-        // إذا كان الدوام ليللي ونحن الآن في ساعات الصباح (حتى الظهر 720 دقيقة)
-        // نعتبر الوقت الحالي ممتداً من اليوم السابق (+1440)
-        if (currentMinutes < 720) {
-            adjustedCurrent += 1440;
-        }
-        adjustedEnd += 1440;
-    }
-
-    // تصحيح إضافي في حالة الاستمرار من الأمس لضمان دقة المقارنة
-    if (isContinuationFromYesterday && !isOvernight) {
-        // إذا لم يكن لولياً ولكنه قادم من الأمس (نادر الحدوث برمجياً لكن للاحتياط)
-        adjustedCurrent += 1440;
-    }
-
-    const GRACE_PERIOD_MINUTES = 60; // ساعة سماحية بعد انتهاء الدوام
-    const autoCloseTime = adjustedEnd + GRACE_PERIOD_MINUTES;
-    
-    const hasSecondShift = todayShifts.length > currentShiftIndex;
-
-    // --- سيناريو انتهاء وقت الخروج (Auto-Close or Next Shift Transition) ---
-    if (!hasOverride && adjustedCurrent > autoCloseTime) {
-        // التحقق من وجود وردية ثانية للانتقال إليها
-        if (hasSecondShift) {
-            let s2Start = toMins(todayShifts[currentShiftIndex].start); // الوردية التالية
-            let adjustedS2Window = s2Start - 15;
-            let adjustedCurrentForS2 = currentMinutes;
-
-            // معالجة التفاف الوقت للوردية الثانية
-            if (adjustedS2Window < adjustedCurrentForS2 && (adjustedCurrentForS2 - adjustedS2Window) > 720) {
-                 adjustedS2Window += 1440;
-            }
-            
-            // إذا حان وقت الوردية الثانية
-            if (adjustedCurrentForS2 >= adjustedS2Window) {
-                 return { 
-                    state: 'READY_IN', 
-                    message: 'START', 
-                    sub: `Shift ${currentShiftIndex + 1}`, 
-                    canPunch: true, 
-                    shiftIdx: currentShiftIndex + 1 
-                };
-            }
-
-            // إذا كنا في وقت الاستراحة بين الورديتين
-            let diff = adjustedS2Window - adjustedCurrentForS2;
-            if (diff < 0) diff += 1440;
-            const h = Math.floor(diff / 60);
-            const m = diff % 60;
-
-            return {
-                state: 'DISABLED',
-                message: 'BREAK',
-                sub: `Next shift in ${h}h ${m}m`,
-                canPunch: false,
-                isBreak: true
-            };
-        }
-
-        // لا توجد وردية ثانية والوقت انتهى
-        return {
-            state: 'COMPLETED',
-            message: 'CLOSED',
-            sub: 'Checkout time expired',
-            canPunch: false
-        };
-    }
-
-    // --- سيناريو نافذة الخروج العادية ---
-    const windowOpen = adjustedEnd - 15; // تفتح قبل نهاية الدوام بـ 15 دقيقة
-
-    if (hasOverride || adjustedCurrent >= windowOpen) {
-        return { 
-            state: 'READY_OUT', 
-            message: 'END', 
-            sub: `Shift ${currentShiftIndex}`, 
-            canPunch: true, 
-            shiftIdx: currentShiftIndex 
-        };
-    } else {
-        // الموظف لا يزال داخل وقت الدوام
-        return { 
-            state: 'LOCKED', 
-            message: 'ON DUTY', 
-            sub: `Ends at ${shiftDef.end}`, 
-            canPunch: false 
-        };
-    }
-}
-// --- PHASE 2: TWO LOGS ---
-if (logsCount === 2) {
-
-    if (!todayShifts || todayShifts.length < 2) {
-        return {
-            state: 'COMPLETED',
-            message: 'DONE',
-            sub: 'Day Complete',
-            canPunch: false
-        };
-    }
-    // 🔒 AUTO-CLOSE SHIFT 2 IF MISSED
-    const s2Def = todayShifts[1];
-    const s2Start = toMins(s2Def.start);
-    let s2End = toMins(s2Def.end);
-
-    // Handle overnight shift
-    if (s2End < s2Start) s2End += 1440;
-
-    let adjustedCurrent = currentMinutes;
-    if (s2End > 1440 && currentMinutes < 720) {
-        adjustedCurrent += 1440;
-    }
-
-    const GRACE_MINUTES = 60;
-    const autoCloseTime = s2End + GRACE_MINUTES;
-
-    // ❌ لم يحدث IN للوردية الثانية وانتهى وقتها
-    if (!hasOverride && adjustedCurrent > autoCloseTime) {
-        return {
-            state: 'COMPLETED',
-            message: 'DONE',
-            sub: 'Shift 2 missed',
-            canPunch: false
-        };
-    }
-
-    // ================================
-    // المنطق الطبيعي بعد ذلك
-    // ================================
-
-    const lastLogIdx = lastLog?.shiftIndex || 1;
-    if (lastLogIdx >= todayShifts.length) {
-        return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
-    }
-
-    if (todayShifts.length < 2) {
-        return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
-    }
-
-    let normalizedS2Start = s2Start;
-    let s1End = toMins(todayShifts[0].end);
-    if (s1End > normalizedS2Start) normalizedS2Start += 1440;
-
-    const windowOpen = normalizedS2Start - 15;
-
-    if (hasOverride || currentMinutes >= windowOpen) {
-        return {
-            state: 'READY_IN',
-            message: 'START',
-            sub: 'Shift 2',
-            canPunch: true,
-            shiftIdx: 2
-        };
-    } else {
-        let diff = windowOpen - currentMinutes;
-        if (diff < 0) diff += 1440;
-
-        const h = Math.floor(diff / 60);
-        const m = diff % 60;
-
-        return {
-            state: 'DISABLED',
-            message: 'BREAK',
-            sub: `Next shift in ${h}h ${m}m`,
-            timeRemaining: `${h}:${m}`,
-            canPunch: false,
-            isBreak: true
-        };
-    }
-}
-
-
-        // --- PHASE 3: THREE LOGS ---
-        if (logsCount === 3) {
-            let s2End = toMins(todayShifts[1].end);
-            let s2Start = toMins(todayShifts[1].start);
-            if (s2End < s2Start) s2End += 1440;
-
-            let adjustedCurrent = currentMinutes;
-            if (s2End > 1440 && currentMinutes < 720) adjustedCurrent += 1440;
-
-            // ============================================================
-            // 🛑 التعديل الجديد للوردية الثانية
-            // ============================================================
-            const GRACE_PERIOD_MINUTES = 60;
-            const autoCloseTime = s2End + GRACE_PERIOD_MINUTES;
-
-            if (!hasOverride && adjustedCurrent > autoCloseTime) {
-                return { 
-                    state: 'COMPLETED', 
-                    message: 'CLOSED', 
-                    sub: 'S2 Timeout', 
-                    canPunch: false 
-                };
-            }
-            // ============================================================
-
-            const windowOpen = s2End - 15;
-
-            if (hasOverride || adjustedCurrent >= windowOpen) {
-                return { state: 'READY_OUT', message: 'END', sub: 'Shift 2', canPunch: true, shiftIdx: 2 };
-            } else {
-                return { state: 'LOCKED', message: 'ON DUTY', sub: `Ends at ${todayShifts[1].end}`, canPunch: false };
-            }
-        }
-
-        return { state: 'COMPLETED', message: 'DONE', sub: 'See you tomorrow!', canPunch: false };
-
+    // Use the logic from separate file
+    const shiftLogic = useMemo(() => {
+        return calculateShiftStatus(currentTime, todayLogs, yesterdayLogs, todayShifts, hasOverride);
     }, [todayLogs, yesterdayLogs, todayShifts, hasOverride, logicTicker, currentTime]);
-
-
 
     // --- ACTIONS ---
     const playSound = (type: 'success' | 'error' | 'click') => {
@@ -702,15 +364,12 @@ if (logsCount === 2) {
     };
 
     const handlePunch = async () => {
-    // 1. المنع الفوري إذا كانت العملية قيد التنفيذ أو البصمة غير مسموحة
     if (isProcessingRef.current || !shiftLogic.canPunch) return;
 
-    isProcessingRef.current = true; // قفل العملية فوراً
-    
+    isProcessingRef.current = true; 
     playSound('click');
     setErrorDetails({title:'', msg:''});
 
-    // دالة مساعدة لفتح القفل بعد وقت معين (لتجنب النقرات السريعة جداً)
     const releaseLock = (delay = 2000) => {
         setTimeout(() => {
             isProcessingRef.current = false;
@@ -721,7 +380,7 @@ if (logsCount === 2) {
         setStatus('ERROR');
         setErrorDetails({ title: 'No Internet', msg: 'Check connection.' });
         playSound('error');
-        releaseLock(); // فتح القفل للمحاولة لاحقاً
+        releaseLock(); 
         return;
     }
 
@@ -747,10 +406,9 @@ if (logsCount === 2) {
             async (pos) => {
                 try {
                     const { latitude, longitude, accuracy } = pos.coords;
-                    // @ts-ignore (لفحص ميزة mocked إذا كانت متاحة في المتصفح)
+                    // @ts-ignore
                     const isMocked = pos.coords.mocked || false; 
 
-                    // 1. فحص التلاعب بالوقت (الفرق بين وقت الجهاز ووقت السيرفر المزامَن)
                     const deviceTime = Date.now();
                     const serverTimeFromOffset = deviceTime + timeOffset;
                     const timeDiffMinutes = Math.abs(deviceTime - serverTimeFromOffset) / (1000 * 60);
@@ -758,13 +416,11 @@ if (logsCount === 2) {
                     let isSuspicious = false;
                     let violationType = '';
 
-                    // كشف تغيير وقت الجهاز يدوياً
                     if (timeDiffMinutes > 5) { 
                         isSuspicious = true;
                         violationType = 'MANUAL_TIME_CHANGE';
                     }
 
-                    // كشف المواقع الوهمية (Mock Location)
                     if (isMocked) {
                         isSuspicious = true;
                         violationType = 'MOCK_LOCATION_DETECTED';
@@ -772,7 +428,6 @@ if (logsCount === 2) {
 
                     const dist = getDistanceFromLatLonInKm(latitude, longitude, HOSPITAL_LAT, HOSPITAL_LNG);
 
-                    // المنع الفوري إذا كان الموقع خارج النطاق وبدون إذن (Override)
                     if (dist > ALLOWED_RADIUS_KM && !hasOverride) {
                         setStatus('ERROR');
                         setErrorDetails({ title: 'Out of Range', msg: `You are ${(dist * 1000).toFixed(0)}m away.` });
@@ -786,7 +441,6 @@ if (logsCount === 2) {
                     const localDateStr = getLocalDateKey(currentTime!);
                     const nextType = shiftLogic.state === 'READY_IN' ? 'IN' : 'OUT';
                     
-                    // إرسال البيانات مع علامات التحذير للمشرف
                     await addDoc(collection(db, 'attendance_logs'), {
                         userId: currentUserId,
                         userName: currentUserName,
@@ -800,10 +454,10 @@ if (logsCount === 2) {
                         accuracy: accuracy,
                         deviceInfo: navigator.userAgent,
                         deviceId: localDeviceId,
-                        status: isSuspicious ? 'flagged' : 'verified', // تعليم السجل للمشرف
+                        status: isSuspicious ? 'flagged' : 'verified', 
                         shiftIndex: (shiftLogic as any).shiftIdx || 1,
-                        isSuspicious: isSuspicious, // سيظهر عند المشرف باللون الأحمر
-                        violationType: violationType // نوع المخالفة (وقت أم موقع)
+                        isSuspicious: isSuspicious, 
+                        violationType: violationType 
                     });
 
                     if (!userProfile?.biometricId) {
@@ -817,9 +471,8 @@ if (logsCount === 2) {
                     playSound('success');
                     if (navigator.vibrate) navigator.vibrate([100]);
                     
-                    // في حالة النجاح ننتظر قليلاً قبل السماح ببصمة أخرى
                     setTimeout(() => setStatus('IDLE'), 2000);
-                    releaseLock(3000); // تأخير إضافي بعد النجاح للأمان
+                    releaseLock(3000); 
 
                 } catch (innerError: any) {
                     console.error(innerError);
@@ -844,17 +497,80 @@ if (logsCount === 2) {
         playSound('error');
         releaseLock();
     }
+    };
+
+useEffect(() => {
+    if (!activeLiveCheck) return;
+
+    const interval = setInterval(() => {
+        const now = Date.now();
+        const expiresAt = activeLiveCheck.expiresAt?.toDate().getTime();
+        
+        if (expiresAt && now >= expiresAt) {
+            // انتهى الوقت! إخفاء النافذة فوراً
+            setActiveLiveCheck(null);
+            setToast({msg: 'Check request timed out', type: 'info'});
+        }
+    }, 1000);
+
+    return () => clearInterval(interval);
+}, [activeLiveCheck]);
+
+
+    // --- LIVE CHECK HANDLER ---
+    const handleLiveCheck = () => {
+    if(!activeLiveCheck) return;
+    setIsLiveCheckProcessing(true);
+    
+    if (!navigator.geolocation) {
+        setToast({msg: 'GPS not supported', type: 'error'});
+        setIsLiveCheckProcessing(false);
+        return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+            try {
+                // إرسال البيانات للمشرف
+                await updateDoc(doc(db, 'location_checks', activeLiveCheck.id), {
+                    status: 'completed',
+                    userName: currentUserName, // إرسال الاسم كما طلبت
+                    locationLat: pos.coords.latitude,
+                    locationLng: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy, // دقة الموقع بالمتر
+                    completedAt: Timestamp.now()
+                });
+                setToast({msg: 'Location Sent Successfully!', type: 'success'});
+                setActiveLiveCheck(null); // إخفاء النافذة فوراً بعد النجاح
+            } catch(e) {
+                setToast({msg: 'Failed to send location', type: 'error'});
+            } finally {
+                setIsLiveCheckProcessing(false);
+            }
+        },
+        (err) => {
+            setToast({msg: 'GPS Error: ' + err.message, type: 'error'});
+            setIsLiveCheckProcessing(false);
+        },
+        // إعدادات الدقة العالية جداً
+        { 
+            enableHighAccuracy: true, // تفعيل الـ GPS بدقة عالية
+            timeout: 20000,          // منح الهاتف وقتاً كافياً (20 ثانية) لالتقاط إشارة قوية
+            maximumAge: 0            // عدم قبول موقع مخزن سابقاً
+        }
+    );
 };
-    // --- VISUAL CONFIGURATION (Cyberpunk/Glassmorphism) ---
+
+    // --- VISUAL CONFIGURATION ---
     const visualState = useMemo(() => {
         const isBreak = (shiftLogic as any).isBreak;
         
         if (!shiftLogic.canPunch) {
-            if (shiftLogic.state === 'MISSED') {
+            if (shiftLogic.state === 'MISSED' || shiftLogic.state === 'ABSENT') {
                 return {
-                    theme: 'rose', // Red Theme for missed
-                    mainText: 'MISSED',
-                    subText: 'Shift Expired',
+                    theme: 'rose', 
+                    mainText: shiftLogic.message, // ABSENT or MISSED OUT
+                    subText: shiftLogic.sub,
                     icon: 'fa-user-slash',
                     ringClass: 'border-rose-500/20 shadow-[0_0_50px_rgba(244,63,94,0.1)]',
                     btnClass: 'bg-rose-900/10 text-rose-500',
@@ -863,25 +579,25 @@ if (logsCount === 2) {
             }
             if (shiftLogic.state === 'COMPLETED') {
                 return {
-                    theme: 'emerald',
-                    mainText: 'DONE',
-                    subText: shiftLogic.sub || 'SHIFT COMPLETE',
-                    icon: 'fa-check-circle',
-                    ringClass: 'border-emerald-500/20 shadow-[0_0_50px_rgba(16,185,129,0.1)]',
-                    btnClass: 'bg-emerald-900/10 text-emerald-500',
+                    theme: shiftLogic.message === 'NEXT SHIFT' ? 'slate' : 'emerald',
+                    mainText: shiftLogic.message, // DONE or NEXT SHIFT
+                    subText: shiftLogic.sub,
+                    icon: shiftLogic.message === 'NEXT SHIFT' ? 'fa-moon' : 'fa-check-circle',
+                    ringClass: shiftLogic.message === 'NEXT SHIFT' ? 'border-slate-500/20 shadow-[0_0_50px_rgba(100,116,139,0.1)]' : 'border-emerald-500/20 shadow-[0_0_50px_rgba(16,185,129,0.1)]',
+                    btnClass: shiftLogic.message === 'NEXT SHIFT' ? 'bg-slate-900/10 text-slate-500' : 'bg-emerald-900/10 text-emerald-500',
                     pulse: false
                 };
             }
-            if (isBreak) {
+            if (isBreak || shiftLogic.state === 'WAITING') {
                 return {
                     theme: 'amber',
-                    mainText: 'BREAK',
+                    mainText: shiftLogic.state === 'WAITING' ? 'WAITING' : 'BREAK',
                     subText: shiftLogic.sub,
                     extraText: (shiftLogic as any).timeRemaining,
                     icon: 'fa-coffee',
                     ringClass: 'border-amber-500/20 shadow-[0_0_30px_rgba(245,158,11,0.1)]',
                     btnClass: 'bg-amber-900/10 text-amber-500',
-                    pulse: true // Slow pulse
+                    pulse: true 
                 };
             }
             return {
@@ -911,7 +627,6 @@ if (logsCount === 2) {
         };
     }, [shiftLogic]);
 
-    // Circular Progress for Seconds (Visual Candy)
     const radius = 140;
     const circumference = 2 * Math.PI * radius;
     const displayTime = currentTime || new Date();
@@ -934,6 +649,28 @@ if (logsCount === 2) {
 
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
+            {/* --- LIVE CHECK OVERLAY --- */}
+            {activeLiveCheck && (
+                <div className="fixed inset-0 z-[9999] bg-red-900/90 flex flex-col items-center justify-center animate-bounce-in backdrop-blur-md">
+                    <div className="text-center p-8 bg-black/40 rounded-3xl border-2 border-red-500 shadow-[0_0_50px_rgba(220,38,38,0.5)]">
+                        <i className="fas fa-satellite-dish text-6xl text-red-500 animate-pulse mb-6"></i>
+                        <h2 className="text-3xl font-black text-white mb-2 uppercase tracking-wide">Supervisor Check</h2>
+                        <p className="text-red-200 mb-8 font-bold">Confirm your location immediately!</p>
+                        <button 
+                            onClick={handleLiveCheck}
+                            disabled={isLiveCheckProcessing}
+                            className="bg-red-600 hover:bg-red-500 text-white text-xl font-bold py-6 px-12 rounded-full shadow-lg transition-transform active:scale-95 animate-pulse flex items-center justify-center gap-2"
+                        >
+                            {isLiveCheckProcessing ? (
+                                <><i className="fas fa-spinner fa-spin"></i> Processing...</>
+                            ) : (
+                                `CONFIRM PRESENCE`
+                            )}
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* --- Header --- */}
             <div className="relative z-30 flex justify-between items-center p-6 glass-panel border-b border-white/5">
                 <button onClick={() => navigate('/user')} className="group flex items-center gap-3 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 transition-all backdrop-blur-md">
@@ -955,43 +692,38 @@ if (logsCount === 2) {
                 </div>
             </div>
 
-                {/* ✅ ضع الكود هنا بالظبط (تحت الهيدر مباشرة) ✅ */}
           {hasOverride && timeLeft !== null && (
-    <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 w-full max-w-[280px] transition-all duration-500 ${timeLeft <= 10 ? 'scale-110' : 'scale-100'}`}>
-        <div className={`
-            flex items-center justify-center gap-3 px-6 py-3 rounded-2xl shadow-2xl border backdrop-blur-xl transition-colors duration-300
-            ${timeLeft <= 10 
-                ? 'bg-red-600/90 border-red-400 animate-shake' // تأثير الاهتزاز في آخر 5 ثواني
-                : 'bg-orange-600/80 border-white/20 animate-bounce'
-            } text-white`}
-        >
-            <i className={`fas ${timeLeft <= 10 ? 'fa-triangle-exclamation' : 'fa-clock-rotate-left'} text-xl`}></i>
-            <div className="flex flex-col">
-                <span className="text-[10px] uppercase font-black tracking-widest opacity-80 leading-none">
-                    {timeLeft <= 10 ? 'Hurry Up!' : 'Access Window'}
-                </span>
-                <span className="text-lg font-black tabular-nums leading-none mt-1">
-                    Closing in: <span className="underline decoration-2 underline-offset-4">{timeLeft}s</span>
-                </span>
+            <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 w-full max-w-[280px] transition-all duration-500 ${timeLeft <= 10 ? 'scale-110' : 'scale-100'}`}>
+                <div className={`
+                    flex items-center justify-center gap-3 px-6 py-3 rounded-2xl shadow-2xl border backdrop-blur-xl transition-colors duration-300
+                    ${timeLeft <= 10 
+                        ? 'bg-red-600/90 border-red-400 animate-shake' 
+                        : 'bg-orange-600/80 border-white/20 animate-bounce'
+                    } text-white`}
+                >
+                    <i className={`fas ${timeLeft <= 10 ? 'fa-triangle-exclamation' : 'fa-clock-rotate-left'} text-xl`}></i>
+                    <div className="flex flex-col">
+                        <span className="text-[10px] uppercase font-black tracking-widest opacity-80 leading-none">
+                            {timeLeft <= 10 ? 'Hurry Up!' : 'Access Window'}
+                        </span>
+                        <span className="text-lg font-black tabular-nums leading-none mt-1">
+                            Closing in: <span className="underline decoration-2 underline-offset-4">{timeLeft}s</span>
+                        </span>
+                    </div>
+                </div>
             </div>
-        </div>
-    </div>
-)}
+        )}
             {/* --- Main Content --- */}
             <div className="flex-1 flex flex-col items-center justify-center relative z-20 px-4 pb-24">
                 
-                {/* --- CLOCK --- */}
                 {currentTime && <DigitalClock date={currentTime} />}
 
                 {/* --- THE REACTOR BUTTON --- */}
 <div className="relative group scale-90 md:scale-100 transition-transform duration-500 flex items-center justify-center">
     
-    {/* 1. الخلفية: حلقات الزينة (Dashed & Glow) */}
     <div className="absolute inset-[-40px] border border-dashed border-white/10 rounded-full animate-rotate-slow pointer-events-none"></div>
     <div className={`absolute w-[340px] h-[340px] rounded-full border-2 ${visualState.ringClass} transition-all duration-700 pointer-events-none`}></div>
     
-    {/* 2. الطبقة الوسطى: الخط الدائري المتحرك (SVG) */}
-    {/* نضع z-10 ليكون فوق الخلفية وتحت محتوى الزر */}
     <svg 
         viewBox="0 0 340 340" 
         className="absolute w-[340px] h-[340px] -rotate-90 pointer-events-none z-10 overflow-visible"
@@ -1015,33 +747,30 @@ if (logsCount === 2) {
         />
     </svg>
 
-    {/* 3. الطبقة العليا: الزر الفعلي (الذي يحتوي على النص والأيقونة) */}
-    {/* نضع z-20 لضمان أن النص فوق الخط تماماً ولا يتم تغطيته */}
     <div className="relative z-20">
        <button
-    onClick={handlePunch}
-    disabled={status !== 'IDLE' && status !== 'ERROR' || !shiftLogic.canPunch} // السماح بالضغط حتى لو كان هناك خطأ سابق للمحاولة مرة أخرى
-    className={`
-        relative w-64 h-64 rounded-full flex flex-col items-center justify-center 
-        transition-all duration-500 transform active:scale-95 
-        ${visualState.theme === 'rose' && status === 'ERROR' ? 'bg-red-900/40 text-red-500 border-red-500/50' : visualState.btnClass} 
-        glass-panel border-4 border-white/5 shadow-2xl
-        ${(status !== 'IDLE' && status !== 'ERROR') ? 'opacity-50 cursor-not-allowed' : ''}
-    `}
->
-    {/* محتوى الزر (أيقونة، نص رئيسي، نص فرعي) */}
-    <i className={`fas ${status === 'ERROR' ? 'fa-exclamation-triangle' : visualState.icon} text-5xl mb-4 neon-text-glow`}></i>
-    
-    <span className="text-2xl font-black tracking-tighter uppercase leading-none text-center px-4">
-        {status === 'IDLE' ? visualState.mainText : 
-         status === 'ERROR' ? errorDetails.title : // هنا يظهر عنوان الخطأ بدلاً من كلمة ERROR
-         status} 
-    </span>
+            onClick={handlePunch}
+            disabled={status !== 'IDLE' && status !== 'ERROR' || !shiftLogic.canPunch}
+            className={`
+                relative w-64 h-64 rounded-full flex flex-col items-center justify-center 
+                transition-all duration-500 transform active:scale-95 
+                ${visualState.theme === 'rose' && status === 'ERROR' ? 'bg-red-900/40 text-red-500 border-red-500/50' : visualState.btnClass} 
+                glass-panel border-4 border-white/5 shadow-2xl
+                ${(status !== 'IDLE' && status !== 'ERROR') ? 'opacity-50 cursor-not-allowed' : ''}
+            `}
+        >
+            <i className={`fas ${status === 'ERROR' ? 'fa-exclamation-triangle' : visualState.icon} text-5xl mb-4 neon-text-glow`}></i>
+            
+            <span className="text-2xl font-black tracking-tighter uppercase leading-none text-center px-4">
+                {status === 'IDLE' ? visualState.mainText : 
+                status === 'ERROR' ? errorDetails.title : 
+                status} 
+            </span>
 
-    <span className="text-[10px] mt-2 font-bold tracking-[0.2em] opacity-60 uppercase text-center px-4">
-        {status === 'ERROR' ? errorDetails.msg : visualState.subText}
-    </span>
-</button>
+            <span className="text-[10px] mt-2 font-bold tracking-[0.2em] opacity-60 uppercase text-center px-4">
+                {status === 'ERROR' ? errorDetails.msg : visualState.subText}
+            </span>
+        </button>
     </div>
 </div>
 
@@ -1069,7 +798,6 @@ if (logsCount === 2) {
                     key={i} 
                     className={`glass-panel p-6 rounded-3xl flex flex-col gap-4 transition-all duration-500 border-2 ${borderColor} ${bgColor} ${isCurrent ? 'shadow-2xl scale-[1.03]' : 'opacity-70'}`}
                 >
-                    {/* العنوان العلوي */}
                     <div className="flex justify-between items-center border-b border-white/5 pb-2">
                         <span className="text-xs font-black text-white/30 uppercase tracking-[0.3em]">
                             Shift {i + 1}
@@ -1082,7 +810,6 @@ if (logsCount === 2) {
                         )}
                     </div>
 
-                    {/* عرض الوقت: واحد في الأول وواحد في الآخر */}
                     <div className={`flex justify-between items-center ${textColor}`}>
                         <div className="flex flex-col">
                             <span className="text-[10px] text-white/20 mb-1 uppercase">Start</span>
@@ -1091,7 +818,6 @@ if (logsCount === 2) {
                             </span>
                         </div>
 
-                        {/* خط واصل جمالي في المنتصف */}
                         <div className="flex-grow mx-8 h-[2px] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
 
                         <div className="flex flex-col items-end">
@@ -1108,7 +834,7 @@ if (logsCount === 2) {
 )}
             </div>
 
-            {/* --- History Drawer (Bottom Sheet) --- */}
+            {/* --- History Drawer --- */}
             <div className={`fixed bottom-0 left-0 right-0 glass-panel border-t border-white/10 transition-transform duration-500 z-40 flex flex-col rounded-t-[2.5rem] shadow-[0_-10px_60px_rgba(0,0,0,0.5)] ${showHistory ? 'translate-y-0 h-[75vh]' : 'translate-y-[calc(100%-90px)] h-[75vh]'}`}>
                 <div 
                     onClick={() => setShowHistory(!showHistory)}

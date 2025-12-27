@@ -154,6 +154,21 @@ export interface AttendanceLog {
   violationType?: string; // NEW: Description of the violation (Time/Location)
 }
 
+// --- NEW: Location Check Request (Spot Check) ---
+export interface LocationCheckRequest {
+  id: string;
+  targetUserId: string;
+  targetUserName?: string; // NEW: Added to display name to supervisor
+  supervisorId: string;
+  status: 'pending' | 'completed' | 'expired';
+  createdAt: any; // Timestamp
+  expiresAt: any; // Timestamp (Created + 5 mins)
+  locationLat?: number;
+  locationLng?: number;
+  accuracy?: number;
+  completedAt?: any;
+}
+
 // --- NEW: Appointments ---
 export interface Appointment {
   id: string;

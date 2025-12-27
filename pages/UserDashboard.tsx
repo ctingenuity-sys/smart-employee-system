@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 import { db, auth } from '../firebase';
@@ -8,14 +8,83 @@ import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestor
 import { useLanguage } from '../contexts/LanguageContext';
 import { Schedule, Announcement, SwapRequest, OpenShift, User, AttendanceLog } from '../types';
 
-import {
-  getLocalDateStr,
-  parseMultiShifts,
-  formatTime12,
-  constructDateTime
-} from '../utils/timeUtils';
+// --- Helpers ---
+const getLocalDateStr = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
 
-// --- Helpers --
+const convertTo24Hour = (timeStr: string): string | null => {
+    if (!timeStr) return null;
+    let s = timeStr.toLowerCase().trim();
+    if (/^\d{1,2}$/.test(s)) {
+        const h = parseInt(s, 10);
+        if (h >= 0 && h <= 24) return `${h.toString().padStart(2, '0')}:00`;
+    }
+    s = s.replace(/(\d+)\.(\d+)/, '$1:$2');
+    if (s.match(/\b12\s*:?\s*0{0,2}\s*mn\b/) || s.includes('midnight') || s.includes('12mn')) return '24:00';
+    if (s.match(/\b12\s*:?\s*0{0,2}\s*n\b/) || s.includes('noon')) return '12:00';
+    let modifier = null;
+    if (s.includes('pm') || s.includes('p.m') || s.includes('م') || s.includes('مساء')) modifier = 'pm';
+    else if (s.includes('am') || s.includes('a.m') || s.includes('ص') || s.includes('صباح')) modifier = 'am';
+    const cleanTime = s.replace(/[^\d:]/g, ''); 
+    const parts = cleanTime.split(':');
+    if (parts.length === 0 || parts[0] === '') return null;
+    let h = parseInt(parts[0], 10);
+    let m = parts[1] ? parseInt(parts[1], 10) : 0;
+    if (modifier) {
+        if (modifier === 'pm' && h < 12) h += 12;
+        if (modifier === 'am' && h === 12) h = 0;
+    }
+    if (h === 24) return '24:00';
+    if (h > 24) return null;
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+};
+
+const parseMultiShifts = (text: string) => {
+    if (!text) return [];
+    let cleanText = text.trim();
+    const segments = cleanText.split(/[\/,]|\s+and\s+|&|\s+(?=\d{1,2}(?::\d{2})?\s*(?:am|pm|mn|noon))/i);
+    const shifts: { start: string, end: string }[] = [];
+    segments.forEach(seg => {
+        const trimmed = seg.trim();
+        if(!trimmed) return;
+        const rangeParts = trimmed.replace(/[()]/g, '').split(/\s*(?:[-–—]|\bto\b)\s*/i);
+        if (rangeParts.length >= 2) {
+            const startStr = rangeParts[0].trim();
+            const endStr = rangeParts[rangeParts.length - 1].trim(); 
+            const s = convertTo24Hour(startStr);
+            const e = convertTo24Hour(endStr);
+            if (s && e) {
+                shifts.push({ start: s, end: e });
+            }
+        }
+    });
+    return shifts;
+};
+
+const formatTime12 = (time24: string) => {
+  if (!time24) return '--:--';
+  const [h, m] = time24.split(':');
+  let hour = parseInt(h);
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  hour = hour % 12 || 12;
+  return `${hour}:${m} ${ampm}`;
+};
+
+const constructDateTime = (dateStr: string, timeStr: string, defaultTime: string = '00:00'): Date => {
+    let t = timeStr;
+    if (!t || t.length < 5) t = defaultTime;
+    if (t === '24:00') {
+        const d = new Date(`${dateStr}T00:00:00`);
+        d.setDate(d.getDate() + 1);
+        return d;
+    }
+    return new Date(`${dateStr}T${t}`);
+};
+
 const UserDashboard: React.FC = () => {
   const { t, dir } = useLanguage();
   const navigate = useNavigate();
@@ -37,22 +106,47 @@ const UserDashboard: React.FC = () => {
   const [shiftFilterMode, setShiftFilterMode] = useState<'present' | 'all'>('present');
   const [allUsers, setAllUsers] = useState<User[]>([]);
 
+const [showAnnouncePopup, setShowAnnouncePopup] = useState(true);
+  const [showAnnouncementsModal, setShowAnnouncementsModal] = useState(false);
+
+  // منطق التحقق من الـ 12 ساعة
+  useEffect(() => {
+    if (announcements.length > 0) {
+      const lastDismissed = localStorage.getItem('announcements_dismissed_at');
+      const now = new Date().getTime();
+      
+      // إذا لم يتم الإغلاق مسبقاً أو مر أكثر من 12 ساعة (12 * 60 * 60 * 1000 ملين ثانية)
+      if (!lastDismissed || (now - parseInt(lastDismissed)) > 43200000) {
+        setShowAnnouncementsModal(true);
+      }
+    }
+  }, [announcements]);
+
+  const closeAnnouncements = () => {
+    localStorage.setItem('announcements_dismissed_at', new Date().getTime().toString());
+    setShowAnnouncementsModal(false);
+  };
+
   // --- Data Loading ---
   useEffect(() => {
     if (!currentUserId) return;
 
     // 1. Announcements
-    const qAnnounce = query(collection(db, 'announcements'), where('isActive', '==', true));
-    const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
-        const now = new Date();
-        const cutoffTime = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Announcement)).filter(ann => {
-            if (!ann.createdAt) return false;
-            const createdDate = ann.createdAt.toDate ? ann.createdAt.toDate() : new Date(ann.createdAt);
-            return createdDate >= cutoffTime;
-        });
-        setAnnouncements(list);
+const qAnnounce = query(collection(db, 'announcements'), where('isActive', '==', true));
+const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
+    const now = new Date();
+    // تغيير الحسبة إلى 12 ساعة فقط
+    const cutoffTime = new Date(now.getTime() - 24 * 60 * 60 * 1000); 
+    
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Announcement)).filter(ann => {
+        if (!ann.createdAt) return false;
+        const createdDate = ann.createdAt.toDate ? ann.createdAt.toDate() : new Date(ann.createdAt);
+        
+        // سيظهر التعميم فقط إذا كان عمره أقل من 12 ساعة
+        return createdDate >= cutoffTime; 
     });
+    setAnnouncements(list);
+});
 
     // 2. Counts
     const qOpenShifts = query(collection(db, 'openShifts'), where('status', '==', 'open'));
@@ -298,14 +392,7 @@ const UserDashboard: React.FC = () => {
     return { mode: 'off', title: t('user.hero.noShift'), subtitle: 'Enjoy your time', location: 'Off Duty' };
   };
 
-const heroInfo = useMemo(() => {
-  return getHeroInfo();
-}, [
-  currentSchedules,
-  todayLogs,
-  currentUserId,
-  t
-]);
+  const heroInfo = getHeroInfo();
 
   // --- MENU ITEMS WITH GRADIENTS ---
   const menuItems = [
@@ -415,22 +502,73 @@ const heroInfo = useMemo(() => {
         <style>{styles}</style>
         
         {/* Announcements Banner */}
-        {announcements.length > 0 && (
-            <div className="bg-slate-900 text-white overflow-hidden py-2 relative z-50 shadow-sm border-b border-slate-800">
-                <div className="flex animate-marquee whitespace-nowrap gap-16 px-4">
-                    {announcements.map((ann, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${ann.priority === 'critical' ? 'bg-red-500 animate-pulse' : ann.priority === 'urgent' ? 'bg-amber-500' : 'bg-blue-500'}`}>
-                        {ann.priority}
-                        </span>
-                        <span className="font-bold text-sm">{ann.title}:</span>
-                        <span className="text-sm opacity-90">{ann.content}</span>
+     {showAnnouncePopup && announcements.length > 0 && (
+            <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
+                {/* خلفية معتمة قابلة للنقر للإغلاق */}
+                <div 
+                    className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity"
+                    onClick={() => setShowAnnouncePopup(false)}
+                ></div>
+                
+                {/* محتوى النافذة المنبثقة */}
+                <div className="relative bg-white rounded-[35px] shadow-2xl w-full max-w-md overflow-hidden animate-fade-in-up border border-white/20">
+                    
+                    {/* Header: تدرج لوني جذاب */}
+                    <div className="bg-gradient-to-br from-indigo-600 via-blue-700 to-slate-900 p-6 text-white relative">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-lg shadow-inner">
+                                <i className="fas fa-bell text-xl animate-ring"></i>
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-black tracking-tight leading-none mb-1">تعميمات إدارية</h3>
+                                <p className="text-[10px] text-blue-200 uppercase font-bold tracking-widest opacity-70">Active Announcements</p>
+                            </div>
+                        </div>
+                        {/* زر إغلاق علوي */}
+                        <button 
+                            onClick={() => setShowAnnouncePopup(false)}
+                            className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-full bg-black/20 hover:bg-white hover:text-slate-900 transition-all"
+                        >
+                            <i className="fas fa-times text-sm"></i>
+                        </button>
                     </div>
-                    ))}
+
+                    {/* قائمة التعميمات مع سكرول داخلي إذا كثرت */}
+                    <div className="max-h-[400px] overflow-y-auto p-6 space-y-4 custom-scrollbar">
+                        {announcements.map((ann, i) => (
+                            <div key={i} className="group bg-slate-50 p-5 rounded-[24px] border border-slate-100 hover:border-blue-200 transition-all duration-300">
+                                <div className="flex justify-between items-start mb-2">
+                                    <span className={`text-[9px] font-black px-3 py-1 rounded-full text-white uppercase tracking-tighter ${
+                                        ann.priority === 'critical' ? 'bg-red-500 animate-pulse' : 'bg-blue-600'
+                                    }`}>
+                                        {ann.priority === 'critical' ? 'عاجل جداً' : 'تعميم'}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-bold bg-white px-2 py-1 rounded-lg shadow-sm">
+                                        <i className="far fa-clock mr-1"></i>
+                                        {ann.createdAt?.toDate ? ann.createdAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
+                                    </span>
+                                </div>
+                                <h4 className="font-bold text-slate-800 text-md mb-2 group-hover:text-blue-700 transition-colors">{ann.title}</h4>
+                                <p className="text-sm text-slate-600 leading-relaxed font-medium">{ann.content}</p>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* زر التأكيد السفلي */}
+                    <div className="p-6 bg-slate-50/50 border-t border-slate-100 text-center">
+                        <button 
+                            onClick={() => setShowAnnouncePopup(false)}
+                            className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold text-sm shadow-[0_10px_20px_rgba(0,0,0,0.1)] hover:shadow-[0_15px_25px_rgba(0,0,0,0.2)] active:scale-95 transition-all"
+                        >
+                            حسناً، تم الاطلاع
+                        </button>
+                        <p className="mt-3 text-[10px] text-slate-400 font-medium italic">
+                            ملاحظة: التعميم يختفي تلقائياً بعد مرور 24 ساعة على نشره
+                        </p>
+                    </div>
                 </div>
             </div>
         )}
-
         {/* --- MAGICAL HERO SECTION --- */}
         <div className="relative overflow-hidden mb-12 rounded-b-[40px] shadow-2xl transition-all duration-1000 min-h-[420px] flex items-center">
             
@@ -491,13 +629,14 @@ const heroInfo = useMemo(() => {
                             <i className="fas fa-desktop text-blue-600"></i> Open IHMS
                         </a>
                         <a 
-                            href="https://chat.whatsapp.com/HO07MVE2Y1c9d9pSFBa8ly" // ضع رابط المجموعة هنا
+                            href="https://chat.whatsapp.com/HO07MVE2Y1c9d9pSFBa8ly" 
                             target="_blank" 
                             rel="noopener noreferrer"
-                            className="group relative px-6 py-3 rounded-2xl bg-emerald-500 text-white font-bold text-sm shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] transition-all overflow-hidden flex items-center gap-2"
+                            className="group relative px-6 py-3 rounded-2xl bg-[#25D366] text-white font-bold text-sm shadow-[0_0_20px_rgba(37,211,102,0.3)] hover:shadow-[0_0_30px_rgba(37,211,102,0.5)] transition-all overflow-hidden flex items-center gap-2"
                         >
                             <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-shine"></span>
-                            <i className="fab fa-whatsapp text-xl"></i> {t('X-RAY GROUP') || 'مجموعة الواتساب'}
+                            <i className="fab fa-whatsapp text-lg"></i> 
+                            <span>X-RAY GROUP</span>
                         </a>
                     </div>
                 </div>

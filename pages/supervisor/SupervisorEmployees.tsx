@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, firebaseConfig, auth } from '../../firebase';
 // @ts-ignore
-import { collection, updateDoc, deleteDoc, setDoc, onSnapshot, doc, Timestamp, query, where, getDocs, writeBatch, limit, orderBy, addDoc } from 'firebase/firestore';
+import { collection, updateDoc, deleteDoc, setDoc, onSnapshot, doc, Timestamp, query, where, getDocs, writeBatch, limit, orderBy, addDoc,serverTimestamp } from 'firebase/firestore';
 // @ts-ignore
 import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
 // @ts-ignore
@@ -198,34 +198,20 @@ const SupervisorEmployees: React.FC = () => {
         } catch(e) { setToast({ msg: 'Error', type: 'error' }); }
     };
 
-    const handleSendLiveCheck = async (user: User) => {
-        if (!currentAdminId) return setToast({ msg: 'Admin ID not found', type: 'error' });
-        if (!confirm(`Request IMMEDIATE location check from ${user.name}?`)) return;
-        
-        try {
-            // Check for existing pending requests to avoid spam
-            const q = query(collection(db, 'location_checks'), where('targetUserId', '==', user.id), where('status', '==', 'pending'));
-            const snap = await getDocs(q);
-            if (!snap.empty) {
-                return setToast({ msg: 'Request already pending for this user', type: 'info' });
-            }
-
-        // في SupervisorEmployees.tsx داخل handleSendLiveCheck
-            await addDoc(collection(db, 'location_checks'), {
-                targetUserId: user.id,
-                supervisorId: currentAdminId,
-                status: 'pending',
-                createdAt: Timestamp.now(),
-                // تعديل هنا: دقيقة واحدة فقط (60 * 1000)
-                expiresAt: Timestamp.fromDate(new Date(Date.now() + 60 * 1000)) 
-            });
-            setToast({ msg: 'Check Request Sent! Waiting for user...', type: 'success' });
-        } catch(e) {
-            console.error(e);
-            setToast({ msg: 'Error sending request', type: 'error' });
-        }
-    };
-
+const handleSendLiveCheck = async (user: User) => {
+    try {
+        await addDoc(collection(db, 'location_checks'), {
+            targetUserId: user.id, // تأكد أن هذا هو نفس الـ ID الذي ظهر في كونسول الموظف
+            supervisorId: currentAdminId,
+            status: 'pending',
+            createdAt: serverTimestamp(), // Use server timestamp for accurate timing
+            requestedAtStr: new Date().toISOString() 
+        });
+        setToast({ msg: 'تم إرسال الطلب بنجاح', type: 'success' });
+    } catch (e) {
+        setToast({ msg: 'فشل في الإرسال', type: 'error' });
+    }
+};
     // --- Diagnose User Logic ---
     const handleDiagnoseUser = async (user: User) => {
       // Just check logs without sending request

@@ -9,10 +9,13 @@ import { useLanguage } from '../contexts/LanguageContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 import { calculateShiftStatus } from '../utils/attendanceLogic';
+// @ts-ignore
+import { onAuthStateChanged } from 'firebase/auth';
 
 const HOSPITAL_LAT = 21.584135549676002;
 const HOSPITAL_LNG = 39.208052479784165; 
 const ALLOWED_RADIUS_KM = 0.08; 
+
 
 // --- Helpers ---
 const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -170,6 +173,7 @@ const AttendancePage: React.FC = () => {
     const currentUserName = localStorage.getItem('username') || 'User';
     const localDeviceId = getUniqueDeviceId();
     const isProcessingRef = useRef(false);
+    const [realUserId, setRealUserId] = useState<string | null>(null);
 
     // 1. SYNC SERVER TIME
     useEffect(() => {
@@ -259,40 +263,9 @@ const AttendancePage: React.FC = () => {
         const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', '==', currentMonth));
         const unsubSch = onSnapshot(qSch, (snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
 
-        // --- LISTEN FOR LIVE CHECKS ---
-        const qLiveCheck = query(
-            collection(db, 'location_checks'), 
-            where('targetUserId', '==', currentUserId), 
-            where('status', '==', 'pending')
-        );
-        
-        const unsubLiveCheck = onSnapshot(qLiveCheck, (snap) => {
-            if (!snap.empty) {
-                const docData = snap.docs[0].data();
-                const req = { id: snap.docs[0].id, ...docData } as LocationCheckRequest;
-                
-                // التحقق من الوقت: هل انتهت الدقيقة؟
-                const now = Date.now();
-                const expiresAt = req.expiresAt?.toDate().getTime() || (now + 60000); // fallback
-                
-                if (now < expiresAt) {
-                    setActiveLiveCheck(req);
-                    // تشغيل الصوت فقط إذا لم يكن معروضاً بالفعل
-                    if (!activeLiveCheck) {
-                        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2868/2868-preview.mp3');
-                        audio.play().catch(()=>{});
-                    }
-                } else {
-                    // إذا وصل الطلب وهو منتهي الصلاحية بالفعل
-                    setActiveLiveCheck(null);
-                }
-            } else {
-                setActiveLiveCheck(null);
-            }
-        });
-
-        return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); unsubLiveCheck(); };
+        return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); };
     }, [currentUserId, isTimeSynced, currentTime?.toDateString()]);
+
 
     // 4. Calculate Shifts (Data layer)
     useEffect(() => {
@@ -499,67 +472,108 @@ const AttendancePage: React.FC = () => {
     }
     };
 
-useEffect(() => {
-    if (!activeLiveCheck) return;
+    // --- AUTH LISTENER ---
+    useEffect(() => {
+        const unsubAuth = onAuthStateChanged(auth, (user: any) => {
+            if (user) {
+                setRealUserId(user.uid);
+            } else {
+                setRealUserId(null);
+            }
+        });
+        return () => unsubAuth();
+    }, []);
 
-    const interval = setInterval(() => {
-        const now = Date.now();
-        const expiresAt = activeLiveCheck.expiresAt?.toDate().getTime();
-        
-        if (expiresAt && now >= expiresAt) {
-            // انتهى الوقت! إخفاء النافذة فوراً
-            setActiveLiveCheck(null);
-            setToast({msg: 'Check request timed out', type: 'info'});
+    // --- LIVE CHECK LISTENER (STRICT DEVICE CHECK) ---
+    useEffect(() => {
+        if (!realUserId) return;
+
+        const qLiveCheck = query(
+            collection(db, 'location_checks'), 
+            where('targetUserId', '==', realUserId), 
+            where('status', '==', 'pending')
+        );
+
+        const unsubLiveCheck = onSnapshot(qLiveCheck, async (snap) => {
+            if (!snap.empty) {
+                const docRef = snap.docs[0];
+                const docData = docRef.data();
+                const req = { id: docRef.id, ...docData } as LocationCheckRequest;
+                
+                // --- STRICT DEVICE VERIFICATION ---
+                // We check if the registered 'biometricId' matches the current localDeviceId
+                try {
+                    const userSnap = await getDoc(doc(db, 'users', realUserId));
+                    if (userSnap.exists()) {
+                        const registeredDevice = userSnap.data().biometricId;
+                        
+                        // If device is registered and DOES NOT match current device
+                        if (registeredDevice && registeredDevice !== localDeviceId) {
+                            // Auto-reject and do NOT show modal
+                            await updateDoc(doc(db, 'location_checks', req.id), {
+                                status: 'rejected',
+                                reason: 'Unauthorized Device Attempt',
+                                completedAt: serverTimestamp(),
+                                deviceMismatch: true
+                            });
+                            setToast({ msg: 'Live Check blocked: Unauthorized Device', type: 'error' });
+                            return; // STOP HERE
+                        }
+                    }
+                } catch (e) {
+                    console.error("Error verifying device for check", e);
+                }
+
+                // If device matches (or no device registered yet), show modal
+                setActiveLiveCheck(req);
+                new Audio('https://assets.mixkit.co/active_storage/sfx/2868/2868-preview.mp3').play().catch(()=>{});
+            } else {
+                setActiveLiveCheck(null);
+            }
+        });
+
+        return () => unsubLiveCheck();
+    }, [realUserId, localDeviceId]); // Depend on localDeviceId to ensure we compare against current
+
+    // --- TIMER FOR MODAL AUTO-CLOSE ---
+    useEffect(() => {
+        if (activeLiveCheck) {
+            const timer = setTimeout(() => {
+                setActiveLiveCheck(null);
+            }, 60000); 
+            return () => clearTimeout(timer);
         }
-    }, 1000);
-
-    return () => clearInterval(interval);
-}, [activeLiveCheck]);
+    }, [activeLiveCheck]);
 
 
     // --- LIVE CHECK HANDLER ---
-    const handleLiveCheck = () => {
-    if(!activeLiveCheck) return;
-    setIsLiveCheckProcessing(true);
-    
-    if (!navigator.geolocation) {
-        setToast({msg: 'GPS not supported', type: 'error'});
-        setIsLiveCheckProcessing(false);
-        return;
-    }
+    const handleLiveCheck = async () => {
+        if(!activeLiveCheck) return;
+        setIsLiveCheckProcessing(true);
 
-    navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-            try {
-                // إرسال البيانات للمشرف
+        navigator.geolocation.getCurrentPosition(
+            async (pos) => {
                 await updateDoc(doc(db, 'location_checks', activeLiveCheck.id), {
                     status: 'completed',
-                    userName: currentUserName, // إرسال الاسم كما طلبت
+                    userName: currentUserName,
                     locationLat: pos.coords.latitude,
                     locationLng: pos.coords.longitude,
-                    accuracy: pos.coords.accuracy, // دقة الموقع بالمتر
-                    completedAt: Timestamp.now()
+                    accuracy: pos.coords.accuracy,
+                    completedAt: serverTimestamp(),
+                    deviceId: localDeviceId // Log device used
                 });
-                setToast({msg: 'Location Sent Successfully!', type: 'success'});
-                setActiveLiveCheck(null); // إخفاء النافذة فوراً بعد النجاح
-            } catch(e) {
-                setToast({msg: 'Failed to send location', type: 'error'});
-            } finally {
+                
+                setToast({msg: 'تم إرسال الموقع بنجاح ✅', type: 'success'});
+                setActiveLiveCheck(null);
                 setIsLiveCheckProcessing(false);
-            }
-        },
-        (err) => {
-            setToast({msg: 'GPS Error: ' + err.message, type: 'error'});
-            setIsLiveCheckProcessing(false);
-        },
-        // إعدادات الدقة العالية جداً
-        { 
-            enableHighAccuracy: true, // تفعيل الـ GPS بدقة عالية
-            timeout: 20000,          // منح الهاتف وقتاً كافياً (20 ثانية) لالتقاط إشارة قوية
-            maximumAge: 0            // عدم قبول موقع مخزن سابقاً
-        }
-    );
-};
+            },
+            async (err) => {
+                setToast({msg: 'فشل تحديد الموقع، حاول مرة أخرى', type: 'error'});
+                setIsLiveCheckProcessing(false);
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    };
 
     // --- VISUAL CONFIGURATION ---
     const visualState = useMemo(() => {
@@ -569,7 +583,7 @@ useEffect(() => {
             if (shiftLogic.state === 'MISSED' || shiftLogic.state === 'ABSENT') {
                 return {
                     theme: 'rose', 
-                    mainText: shiftLogic.message, // ABSENT or MISSED OUT
+                    mainText: shiftLogic.message, 
                     subText: shiftLogic.sub,
                     icon: 'fa-user-slash',
                     ringClass: 'border-rose-500/20 shadow-[0_0_50px_rgba(244,63,94,0.1)]',
@@ -580,7 +594,7 @@ useEffect(() => {
             if (shiftLogic.state === 'COMPLETED') {
                 return {
                     theme: shiftLogic.message === 'NEXT SHIFT' ? 'slate' : 'emerald',
-                    mainText: shiftLogic.message, // DONE or NEXT SHIFT
+                    mainText: shiftLogic.message, 
                     subText: shiftLogic.sub,
                     icon: shiftLogic.message === 'NEXT SHIFT' ? 'fa-moon' : 'fa-check-circle',
                     ringClass: shiftLogic.message === 'NEXT SHIFT' ? 'border-slate-500/20 shadow-[0_0_50px_rgba(100,116,139,0.1)]' : 'border-emerald-500/20 shadow-[0_0_50px_rgba(16,185,129,0.1)]',

@@ -159,14 +159,17 @@ export interface LocationCheckRequest {
   id: string;
   targetUserId: string;
   targetUserName?: string; // NEW: Added to display name to supervisor
+  userName?: string; // NEW: Added to capture name of person who completed check
   supervisorId: string;
-  status: 'pending' | 'completed' | 'expired';
+  status: 'pending' | 'completed' | 'expired' | 'rejected';
   createdAt: any; // Timestamp
-  expiresAt: any; // Timestamp (Created + 5 mins)
+  expiresAt?: any; // Timestamp (Created + 5 mins)
   locationLat?: number;
   locationLng?: number;
   accuracy?: number;
   completedAt?: any;
+  reason?: string; // For rejection
+  deviceMismatch?: boolean;
 }
 
 // --- NEW: Appointments ---

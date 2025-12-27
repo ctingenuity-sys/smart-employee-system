@@ -691,8 +691,8 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
                                 </div>
                                 
                                 {heroInfo.mode === 'active' || heroInfo.mode === 'late' ? (
-                                    <button onClick={() => navigate('/attendance-punch')} className="w-10 h-10 rounded-full bg-white text-slate-900 flex items-center justify-center hover:scale-110 transition-transform shadow-lg shadow-white/20">
-                                        <i className="fas fa-fingerprint"></i>
+                                    <button onClick={() => navigate('/attendance-punch')} className="w-12 h-12 rounded-full bg-white text-slate-900 flex items-center justify-center hover:scale-110 transition-transform shadow-lg shadow-white/20 animate-pulse">
+                                        <i className="fas fa-fingerprint text-xl"></i>
                                     </button>
                                 ) : (
                                     <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center">

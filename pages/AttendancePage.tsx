@@ -100,7 +100,7 @@ const styles = `
     to { transform: rotate(360deg); }
 }
 .animate-float { animation: float 6s ease-in-out infinite; }
-.animate-pulse-ring { animation: pulse-ring 3s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.animate-pulse-ring { animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 .animate-rotate-slow { animation: rotate-slow 20s linear infinite; }
 .glass-panel {
     background: rgba(255, 255, 255, 0.03);
@@ -174,6 +174,22 @@ const AttendancePage: React.FC = () => {
     const localDeviceId = getUniqueDeviceId();
     const isProcessingRef = useRef(false);
     const [realUserId, setRealUserId] = useState<string | null>(null);
+
+    // --- 0. GPS WARM-UP (FASTER LOCATION) ---
+    useEffect(() => {
+        let watchId: number;
+        if ('geolocation' in navigator) {
+            // Start watching position immediately to warm up the GPS radio
+            watchId = navigator.geolocation.watchPosition(
+                () => {}, // Do nothing on success, just keep it hot
+                () => {}, // Ignore errors in background
+                { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 }
+            );
+        }
+        return () => {
+            if (watchId !== undefined) navigator.geolocation.clearWatch(watchId);
+        };
+    }, []);
 
     // 1. SYNC SERVER TIME
     useEffect(() => {
@@ -337,139 +353,145 @@ const AttendancePage: React.FC = () => {
     };
 
     const handlePunch = async () => {
-    if (isProcessingRef.current || !shiftLogic.canPunch) return;
-
-    isProcessingRef.current = true; 
-    playSound('click');
-    setErrorDetails({title:'', msg:''});
-
-    const releaseLock = (delay = 2000) => {
-        setTimeout(() => {
-            isProcessingRef.current = false;
-        }, delay);
-    };
-
-    if (!navigator.onLine) {
-        setStatus('ERROR');
-        setErrorDetails({ title: 'No Internet', msg: 'Check connection.' });
-        playSound('error');
-        releaseLock(); 
-        return;
-    }
-
-    if (!hasOverride) {
-        if (userProfile?.biometricId && userProfile.biometricId !== localDeviceId) {
-            setStatus('ERROR');
-            setErrorDetails({ title: 'Invalid Device', msg: 'Use registered device.' });
-            playSound('error');
-            releaseLock();
+        // --- 1. HANDLE LIVE CHECK IF ACTIVE ---
+        if (activeLiveCheck) {
+            handleLiveCheck();
             return;
         }
-    }
 
-    try {
-        await authenticateUser();
-        setStatus('SCANNING_LOC');
+        if (isProcessingRef.current || !shiftLogic.canPunch) return;
 
-        if (!navigator.geolocation) {
-            throw new Error('GPS not supported');
+        isProcessingRef.current = true; 
+        playSound('click');
+        setErrorDetails({title:'', msg:''});
+
+        const releaseLock = (delay = 2000) => {
+            setTimeout(() => {
+                isProcessingRef.current = false;
+            }, delay);
+        };
+
+        if (!navigator.onLine) {
+            setStatus('ERROR');
+            setErrorDetails({ title: 'No Internet', msg: 'Check connection.' });
+            playSound('error');
+            releaseLock(); 
+            return;
         }
 
-        navigator.geolocation.getCurrentPosition(
-            async (pos) => {
-                try {
-                    const { latitude, longitude, accuracy } = pos.coords;
-                    // @ts-ignore
-                    const isMocked = pos.coords.mocked || false; 
-
-                    const deviceTime = Date.now();
-                    const serverTimeFromOffset = deviceTime + timeOffset;
-                    const timeDiffMinutes = Math.abs(deviceTime - serverTimeFromOffset) / (1000 * 60);
-                    
-                    let isSuspicious = false;
-                    let violationType = '';
-
-                    if (timeDiffMinutes > 5) { 
-                        isSuspicious = true;
-                        violationType = 'MANUAL_TIME_CHANGE';
-                    }
-
-                    if (isMocked) {
-                        isSuspicious = true;
-                        violationType = 'MOCK_LOCATION_DETECTED';
-                    }
-
-                    const dist = getDistanceFromLatLonInKm(latitude, longitude, HOSPITAL_LAT, HOSPITAL_LNG);
-
-                    if (dist > ALLOWED_RADIUS_KM && !hasOverride) {
-                        setStatus('ERROR');
-                        setErrorDetails({ title: 'Out of Range', msg: `You are ${(dist * 1000).toFixed(0)}m away.` });
-                        playSound('error');
-                        releaseLock();
-                        return;
-                    }
-
-                    setStatus('PROCESSING');
-                    
-                    const localDateStr = getLocalDateKey(currentTime!);
-                    const nextType = shiftLogic.state === 'READY_IN' ? 'IN' : 'OUT';
-                    
-                    await addDoc(collection(db, 'attendance_logs'), {
-                        userId: currentUserId,
-                        userName: currentUserName,
-                        type: nextType,
-                        timestamp: serverTimestamp(),
-                        clientTimestamp: Timestamp.now(),
-                        date: localDateStr,
-                        locationLat: latitude,
-                        locationLng: longitude,
-                        distanceKm: dist,
-                        accuracy: accuracy,
-                        deviceInfo: navigator.userAgent,
-                        deviceId: localDeviceId,
-                        status: isSuspicious ? 'flagged' : 'verified', 
-                        shiftIndex: (shiftLogic as any).shiftIdx || 1,
-                        isSuspicious: isSuspicious, 
-                        violationType: violationType 
-                    });
-
-                    if (!userProfile?.biometricId) {
-                        await updateDoc(doc(db, 'users', currentUserId), {
-                            biometricId: localDeviceId,
-                            biometricRegisteredAt: Timestamp.now()
-                        });
-                    }
-
-                    setStatus('SUCCESS');
-                    playSound('success');
-                    if (navigator.vibrate) navigator.vibrate([100]);
-                    
-                    setTimeout(() => setStatus('IDLE'), 2000);
-                    releaseLock(3000); 
-
-                } catch (innerError: any) {
-                    console.error(innerError);
-                    setStatus('ERROR');
-                    setErrorDetails({ title: 'Process Error', msg: innerError.message });
-                    releaseLock();
-                }
-            },
-            (err) => {
+        if (!hasOverride) {
+            if (userProfile?.biometricId && userProfile.biometricId !== localDeviceId) {
                 setStatus('ERROR');
-                setErrorDetails({ title: 'GPS Failed', msg: err.message });
+                setErrorDetails({ title: 'Invalid Device', msg: 'Use registered device.' });
                 playSound('error');
-                setTimeout(() => setStatus('IDLE'), 3000);
                 releaseLock();
-            },
-            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-        );
+                return;
+            }
+        }
 
-    } catch (e: any) {
-        setStatus('ERROR');
-        setErrorDetails({ title: 'Auth Failed', msg: e.message || "Unknown error" });
-        playSound('error');
-        releaseLock();
-    }
+        try {
+            await authenticateUser();
+            setStatus('SCANNING_LOC');
+
+            if (!navigator.geolocation) {
+                throw new Error('GPS not supported');
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                async (pos) => {
+                    try {
+                        const { latitude, longitude, accuracy } = pos.coords;
+                        // @ts-ignore
+                        const isMocked = pos.coords.mocked || false; 
+
+                        const deviceTime = Date.now();
+                        const serverTimeFromOffset = deviceTime + timeOffset;
+                        const timeDiffMinutes = Math.abs(deviceTime - serverTimeFromOffset) / (1000 * 60);
+                        
+                        let isSuspicious = false;
+                        let violationType = '';
+
+                        if (timeDiffMinutes > 5) { 
+                            isSuspicious = true;
+                            violationType = 'MANUAL_TIME_CHANGE';
+                        }
+
+                        if (isMocked) {
+                            isSuspicious = true;
+                            violationType = 'MOCK_LOCATION_DETECTED';
+                        }
+
+                        const dist = getDistanceFromLatLonInKm(latitude, longitude, HOSPITAL_LAT, HOSPITAL_LNG);
+
+                        if (dist > ALLOWED_RADIUS_KM && !hasOverride) {
+                            setStatus('ERROR');
+                            setErrorDetails({ title: 'Out of Range', msg: `You are ${(dist * 1000).toFixed(0)}m away.` });
+                            playSound('error');
+                            releaseLock();
+                            return;
+                        }
+
+                        setStatus('PROCESSING');
+                        
+                        const localDateStr = getLocalDateKey(currentTime!);
+                        const nextType = shiftLogic.state === 'READY_IN' ? 'IN' : 'OUT';
+                        
+                        await addDoc(collection(db, 'attendance_logs'), {
+                            userId: currentUserId,
+                            userName: currentUserName,
+                            type: nextType,
+                            timestamp: serverTimestamp(),
+                            clientTimestamp: Timestamp.now(),
+                            date: localDateStr,
+                            locationLat: latitude,
+                            locationLng: longitude,
+                            distanceKm: dist,
+                            accuracy: accuracy,
+                            deviceInfo: navigator.userAgent,
+                            deviceId: localDeviceId,
+                            status: isSuspicious ? 'flagged' : 'verified', 
+                            shiftIndex: (shiftLogic as any).shiftIdx || 1,
+                            isSuspicious: isSuspicious, 
+                            violationType: violationType 
+                        });
+
+                        if (!userProfile?.biometricId) {
+                            await updateDoc(doc(db, 'users', currentUserId), {
+                                biometricId: localDeviceId,
+                                biometricRegisteredAt: Timestamp.now()
+                            });
+                        }
+
+                        setStatus('SUCCESS');
+                        playSound('success');
+                        if (navigator.vibrate) navigator.vibrate([100]);
+                        
+                        setTimeout(() => setStatus('IDLE'), 2000);
+                        releaseLock(3000); 
+
+                    } catch (innerError: any) {
+                        console.error(innerError);
+                        setStatus('ERROR');
+                        setErrorDetails({ title: 'Process Error', msg: innerError.message });
+                        releaseLock();
+                    }
+                },
+                (err) => {
+                    setStatus('ERROR');
+                    setErrorDetails({ title: 'GPS Failed', msg: err.message });
+                    playSound('error');
+                    setTimeout(() => setStatus('IDLE'), 3000);
+                    releaseLock();
+                },
+                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 } // Reduced timeout due to warm-up
+            );
+
+        } catch (e: any) {
+            setStatus('ERROR');
+            setErrorDetails({ title: 'Auth Failed', msg: e.message || "Unknown error" });
+            playSound('error');
+            releaseLock();
+        }
     };
 
     // --- AUTH LISTENER ---
@@ -507,8 +529,12 @@ const AttendancePage: React.FC = () => {
                     if (userSnap.exists()) {
                         const registeredDevice = userSnap.data().biometricId;
                         
+                        // Clean strings for comparison to avoid whitespace errors
+                        const regClean = (registeredDevice || '').trim();
+                        const localClean = (localDeviceId || '').trim();
+
                         // If device is registered and DOES NOT match current device
-                        if (registeredDevice && registeredDevice !== localDeviceId) {
+                        if (regClean && regClean !== localClean) {
                             // Auto-reject and do NOT show modal
                             await updateDoc(doc(db, 'location_checks', req.id), {
                                 status: 'rejected',
@@ -516,8 +542,9 @@ const AttendancePage: React.FC = () => {
                                 completedAt: serverTimestamp(),
                                 deviceMismatch: true
                             });
-                            setToast({ msg: 'Live Check blocked: Unauthorized Device', type: 'error' });
-                            return; // STOP HERE
+                            // Subtle notification instead of block alert
+                            setToast({ msg: 'Live Check skipped: Unauthorized Device', type: 'error' });
+                            return; 
                         }
                     }
                 } catch (e) {
@@ -535,21 +562,11 @@ const AttendancePage: React.FC = () => {
         return () => unsubLiveCheck();
     }, [realUserId, localDeviceId]); // Depend on localDeviceId to ensure we compare against current
 
-    // --- TIMER FOR MODAL AUTO-CLOSE ---
-    useEffect(() => {
-        if (activeLiveCheck) {
-            const timer = setTimeout(() => {
-                setActiveLiveCheck(null);
-            }, 60000); 
-            return () => clearTimeout(timer);
-        }
-    }, [activeLiveCheck]);
-
-
     // --- LIVE CHECK HANDLER ---
     const handleLiveCheck = async () => {
         if(!activeLiveCheck) return;
         setIsLiveCheckProcessing(true);
+        setStatus('SCANNING_LOC'); // Visual feedback
 
         navigator.geolocation.getCurrentPosition(
             async (pos) => {
@@ -566,10 +583,13 @@ const AttendancePage: React.FC = () => {
                 setToast({msg: 'تم إرسال الموقع بنجاح ✅', type: 'success'});
                 setActiveLiveCheck(null);
                 setIsLiveCheckProcessing(false);
+                setStatus('SUCCESS');
+                setTimeout(() => setStatus('IDLE'), 2000);
             },
             async (err) => {
                 setToast({msg: 'فشل تحديد الموقع، حاول مرة أخرى', type: 'error'});
                 setIsLiveCheckProcessing(false);
+                setStatus('IDLE');
             },
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
@@ -577,6 +597,19 @@ const AttendancePage: React.FC = () => {
 
     // --- VISUAL CONFIGURATION ---
     const visualState = useMemo(() => {
+        // Priority 1: LIVE CHECK
+        if (activeLiveCheck) {
+            return {
+                theme: 'rose',
+                mainText: isLiveCheckProcessing ? 'SENDING...' : 'CONFIRM LOCATION',
+                subText: 'Supervisor Requested',
+                icon: 'fa-map-marker-alt',
+                ringClass: 'border-red-500 shadow-[0_0_80px_rgba(239,68,68,0.6)] animate-pulse-ring',
+                btnClass: 'bg-red-600 text-white hover:bg-red-700 animate-pulse',
+                pulse: true
+            };
+        }
+
         const isBreak = (shiftLogic as any).isBreak;
         
         if (!shiftLogic.canPunch) {
@@ -639,7 +672,7 @@ const AttendancePage: React.FC = () => {
                 : 'bg-rose-600 text-white hover:bg-rose-500',
             pulse: true
         };
-    }, [shiftLogic]);
+    }, [shiftLogic, activeLiveCheck, isLiveCheckProcessing]);
 
     const radius = 140;
     const circumference = 2 * Math.PI * radius;
@@ -662,28 +695,6 @@ const AttendancePage: React.FC = () => {
             </div>
 
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
-
-            {/* --- LIVE CHECK OVERLAY --- */}
-            {activeLiveCheck && (
-                <div className="fixed inset-0 z-[9999] bg-red-900/90 flex flex-col items-center justify-center animate-bounce-in backdrop-blur-md">
-                    <div className="text-center p-8 bg-black/40 rounded-3xl border-2 border-red-500 shadow-[0_0_50px_rgba(220,38,38,0.5)]">
-                        <i className="fas fa-satellite-dish text-6xl text-red-500 animate-pulse mb-6"></i>
-                        <h2 className="text-3xl font-black text-white mb-2 uppercase tracking-wide">Supervisor Check</h2>
-                        <p className="text-red-200 mb-8 font-bold">Confirm your location immediately!</p>
-                        <button 
-                            onClick={handleLiveCheck}
-                            disabled={isLiveCheckProcessing}
-                            className="bg-red-600 hover:bg-red-500 text-white text-xl font-bold py-6 px-12 rounded-full shadow-lg transition-transform active:scale-95 animate-pulse flex items-center justify-center gap-2"
-                        >
-                            {isLiveCheckProcessing ? (
-                                <><i className="fas fa-spinner fa-spin"></i> Processing...</>
-                            ) : (
-                                `CONFIRM PRESENCE`
-                            )}
-                        </button>
-                    </div>
-                </div>
-            )}
 
             {/* --- Header --- */}
             <div className="relative z-30 flex justify-between items-center p-6 glass-panel border-b border-white/5">
@@ -764,13 +775,13 @@ const AttendancePage: React.FC = () => {
     <div className="relative z-20">
        <button
             onClick={handlePunch}
-            disabled={status !== 'IDLE' && status !== 'ERROR' || !shiftLogic.canPunch}
+            disabled={status !== 'IDLE' && status !== 'ERROR' && !activeLiveCheck && !shiftLogic.canPunch}
             className={`
                 relative w-64 h-64 rounded-full flex flex-col items-center justify-center 
                 transition-all duration-500 transform active:scale-95 
                 ${visualState.theme === 'rose' && status === 'ERROR' ? 'bg-red-900/40 text-red-500 border-red-500/50' : visualState.btnClass} 
                 glass-panel border-4 border-white/5 shadow-2xl
-                ${(status !== 'IDLE' && status !== 'ERROR') ? 'opacity-50 cursor-not-allowed' : ''}
+                ${(status !== 'IDLE' && status !== 'ERROR' && !activeLiveCheck) ? 'opacity-50 cursor-not-allowed' : ''}
             `}
         >
             <i className={`fas ${status === 'ERROR' ? 'fa-exclamation-triangle' : visualState.icon} text-5xl mb-4 neon-text-glow`}></i>

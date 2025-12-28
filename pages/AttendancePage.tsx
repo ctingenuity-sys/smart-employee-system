@@ -38,17 +38,6 @@ const getUniqueDeviceId = () => {
     return id;
 };
 
-const generateOfflineToken = (lat: number, lng: number, userId: string) => {
-    // تقريب الإحداثيات لتقليل طول الكود مع الحفاظ على الدقة
-    const shortLat = lat.toFixed(5);
-    const shortLng = lng.toFixed(5);
-    const timestamp = Math.floor(Date.now() / 1000); // الوقت بالثواني
-    
-    const rawData = `${shortLat}|${shortLng}|${timestamp}|${userId}`;
-    // تشفير Base64 بسيط
-    return btoa(rawData); 
-};
-
 const convertTo24Hour = (timeStr: string): string => {
     if (!timeStr) return '00:00';
     let s = timeStr.toLowerCase().trim();
@@ -186,25 +175,6 @@ const AttendancePage: React.FC = () => {
     const isProcessingRef = useRef(false);
     const [realUserId, setRealUserId] = useState<string | null>(null);
 
-
-
-    // داخل مكون AttendancePage
-const [offlineToken, setOfflineToken] = useState<string | null>(null);
-
-const handleOfflineProof = () => {
-    if (!navigator.geolocation) return;
-
-    navigator.geolocation.getCurrentPosition((pos) => {
-        const token = generateOfflineToken(
-            pos.coords.latitude,
-            pos.coords.longitude,
-            currentUserId || 'unknown'
-        );
-        setOfflineToken(token);
-    }, (err) => {
-        setToast({ msg: 'فشل الحصول على إحداثيات GPS بدون إنترنت', type: 'error' });
-    }, { enableHighAccuracy: true });
-};
     // --- 0. GPS WARM-UP (FASTER LOCATION) ---
     useEffect(() => {
         let watchId: number;
@@ -825,27 +795,6 @@ useEffect(() => {
             }`}
         />
     </svg>
-    {!navigator.onLine && (
-    <div className="mt-8 p-4 glass-panel rounded-2xl border-amber-500/30 text-center animate-pulse">
-        <p className="text-amber-400 text-xs font-bold mb-3">⚠️ لا يوجد اتصال إنترنت</p>
-        {!offlineToken ? (
-            <button 
-                onClick={handleOfflineProof}
-                className="bg-amber-600/20 text-amber-400 px-6 py-2 rounded-full border border-amber-500/50 text-sm font-bold"
-            >
-                توليد كود إثبات الموقع
-            </button>
-        ) : (
-            <div className="flex flex-col items-center">
-                <span className="text-white/40 text-[10px] uppercase mb-1">كود التحقق للمدير:</span>
-                <span className="text-3xl font-mono font-black tracking-widest text-white selection:bg-white/20">
-                    {offlineToken}
-                </span>
-                <p className="text-[9px] text-white/30 mt-2">أرسل هذا الكود للمدير أو أملِهِ عبر الهاتف</p>
-            </div>
-        )}
-    </div>
-)}
 
     <div className="relative z-20">
        <button

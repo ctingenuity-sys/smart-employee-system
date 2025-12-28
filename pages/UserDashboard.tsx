@@ -109,6 +109,33 @@ const UserDashboard: React.FC = () => {
 const [showAnnouncePopup, setShowAnnouncePopup] = useState(true);
   const [showAnnouncementsModal, setShowAnnouncementsModal] = useState(false);
 
+  
+const [generatedCode, setGeneratedCode] = useState<string | null>(null);
+const [isGenerating, setIsGenerating] = useState(false);
+const [toast, setToast] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
+
+const handleGenerateManualCode = () => {
+    setIsGenerating(true);
+    if (!navigator.geolocation) {
+        setToast({ msg: "متصفحك لا يدعم تحديد الموقع", type: 'error' });
+        setIsGenerating(false);
+        return;
+    }
+    navigator.geolocation.getCurrentPosition((pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const timestamp = Math.floor(Date.now() / 1000);
+        const userId = auth.currentUser?.uid || 'unknown';
+        const rawData = `${lat}|${lng}|${timestamp}|${userId}`;
+        const encoded = btoa(rawData);
+        setGeneratedCode(encoded);
+        setIsGenerating(false);
+        setToast({ msg: "تم توليد كود الموقع بنجاح", type: 'success' });
+    }, (err) => {
+        setToast({ msg: "فشل جلب الموقع، تأكد من تفعيل GPS", type: 'error' });
+        setIsGenerating(false);
+    }, { enableHighAccuracy: true });
+};
   // منطق التحقق من الـ 12 ساعة
   useEffect(() => {
     if (announcements.length > 0) {
@@ -592,55 +619,94 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
 
             <div className="max-w-6xl mx-auto px-6 w-full relative z-10 grid md:grid-cols-2 gap-12 items-center pt-8 pb-12">
                 
-                {/* Left Column: Greeting & Info */}
-                <div className={`space-y-6 ${dir === 'rtl' ? 'md:text-right' : 'md:text-left'} text-center md:text-left`}>
-                    
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/10 backdrop-blur-md shadow-sm">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                        <span className="text-[10px] font-bold text-white tracking-widest uppercase">System Online</span>
-                    </div>
+{/* Left Column: Greeting & Info */}
+<div className={`space-y-6 ${dir === 'rtl' ? 'md:text-right' : 'md:text-left'} text-center md:text-left`}>
+    
+    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/10 backdrop-blur-md shadow-sm">
+        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span className="text-[10px] font-bold text-white tracking-widest uppercase">System Online</span>
+    </div>
 
-                    <div>
-                        <h2 className="text-lg font-medium text-blue-200 mb-1">{t('user.hero.welcome')}</h2>
-                        <h1 className="text-5xl md:text-6xl font-black text-white leading-tight drop-shadow-lg tracking-tight">
-                            {currentUserName.split(' ')[0]}
-                            <span className="text-white/40">.</span>
-                        </h1>
-                    </div>
+    <div>
+        <h2 className="text-lg font-medium text-blue-200 mb-1">{t('user.hero.welcome')}</h2>
+        <h1 className="text-5xl md:text-6xl font-black text-white leading-tight drop-shadow-lg tracking-tight">
+            {currentUserName.split(' ')[0]}
+            <span className="text-white/40">.</span>
+        </h1>
+    </div>
 
-                    <div className={`flex flex-wrap items-center gap-4 ${dir === 'rtl' ? 'justify-center md:justify-start' : 'justify-center md:justify-start'}`}>
-                        <div className="glass-card px-5 py-2.5 rounded-2xl flex items-center gap-3 transition-transform hover:scale-105 cursor-default">
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-400 to-cyan-300 flex items-center justify-center text-slate-900 font-bold text-xs shadow-lg">
-                                <i className="fas fa-id-badge"></i>
-                            </div>
-                            <div className="text-left">
-                                <p className="text-[10px] text-white/50 font-bold uppercase tracking-wider">Role</p>
-                                <p className="text-sm font-bold text-white capitalize">{t(`role.${currentUserRole}`)}</p>
-                            </div>
-                        </div>
+    {/* مجموعة الأزرار - تم إضافة زر توليد الكود هنا بجانبهم */}
+    <div className={`flex flex-wrap items-center gap-3 ${dir === 'rtl' ? 'justify-center md:justify-start' : 'justify-center md:justify-start'}`}>
+        
+        {/* زر الدور (Role) */}
+        <div className="glass-card px-4 py-2 rounded-2xl flex items-center gap-3 cursor-default border border-white/5">
+            <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-blue-400 to-cyan-300 flex items-center justify-center text-slate-900 font-bold text-[10px] shadow-lg">
+                <i className="fas fa-id-badge"></i>
+            </div>
+            <div className="text-left">
+                <p className="text-[8px] text-white/50 font-bold uppercase tracking-wider leading-none">Role</p>
+                <p className="text-xs font-bold text-white capitalize">{t(`role.${currentUserRole}`)}</p>
+            </div>
+        </div>
 
-                        <a 
-                            href="http://192.168.0.8" 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="group relative px-6 py-3 rounded-2xl bg-white text-slate-900 font-bold text-sm shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:shadow-[0_0_30px_rgba(255,255,255,0.5)] transition-all overflow-hidden flex items-center gap-2"
-                        >
-                            <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/50 to-transparent -translate-x-full group-hover:animate-shine"></span>
-                            <i className="fas fa-desktop text-blue-600"></i> Open IHMS
-                        </a>
-                        <a 
-                            href="https://chat.whatsapp.com/HO07MVE2Y1c9d9pSFBa8ly" 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="group relative px-6 py-3 rounded-2xl bg-[#25D366] text-white font-bold text-sm shadow-[0_0_20px_rgba(37,211,102,0.3)] hover:shadow-[0_0_30px_rgba(37,211,102,0.5)] transition-all overflow-hidden flex items-center gap-2"
-                        >
-                            <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-shine"></span>
-                            <i className="fab fa-whatsapp text-lg"></i> 
-                            <span>X-RAY GROUP</span>
-                        </a>
-                    </div>
-                </div>
+        {/* زر Open IHMS */}
+        <a 
+            href="http://192.168.0.8" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="group relative px-5 py-2.5 rounded-2xl bg-white text-slate-900 font-bold text-xs shadow-lg hover:scale-105 transition-all flex items-center gap-2"
+        >
+            <i className="fas fa-desktop text-blue-600"></i> IHMS
+        </a>
 
+        {/* زر WhatsApp Group */}
+        <a 
+            href="https://chat.whatsapp.com/HO07MVE2Y1c9d9pSFBa8ly" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="group relative px-5 py-2.5 rounded-2xl bg-[#25D366] text-white font-bold text-xs shadow-lg hover:scale-105 transition-all flex items-center gap-2"
+        >
+            <i className="fab fa-whatsapp text-lg"></i> <span>X-RAY</span>
+        </a>
+
+        {/* زر توليد كود الموقع الجديد (صغير وبجانبهم) */}
+        <button 
+            onClick={handleGenerateManualCode}
+            disabled={isGenerating}
+            className="group relative px-5 py-2.5 rounded-2xl bg-cyan-600 text-white font-bold text-xs shadow-lg hover:bg-cyan-500 transition-all flex items-center gap-2 border border-cyan-400/30"
+        >
+            {isGenerating ? (
+                <i className="fas fa-spinner fa-spin"></i>
+            ) : (
+                <i className="fas fa-shield-check"></i>
+            )}
+            <span>{generatedCode ? "تحديث الكود" : "كود الموقع"}</span>
+        </button>
+    </div>
+
+    {/* نافذة عرض الكود في حال تم توليده - تظهر تحت الأزرار بشكل أنيق */}
+    {generatedCode && (
+        <div className="inline-flex items-center gap-4 bg-slate-900/80 backdrop-blur-md border border-cyan-500/50 p-2 pr-4 rounded-2xl animate-in slide-in-from-top-2">
+            <div className="flex flex-col">
+                <span className="text-[8px] text-cyan-400 font-bold uppercase tracking-tighter">Manual Code</span>
+                <code className="text-white font-mono text-sm tracking-widest">{generatedCode}</code>
+            </div>
+            <button 
+                onClick={() => {
+                    navigator.clipboard.writeText(generatedCode);
+                    setToast({ msg: "تم نسخ الكود", type: 'success' });
+                }}
+                className="w-8 h-8 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-white flex items-center justify-center transition-colors"
+                title="نسخ الكود"
+            >
+                <i className="fas fa-copy text-xs"></i>
+            </button>
+            <button onClick={() => setGeneratedCode(null)} className="text-white/30 hover:text-white transition-colors">
+                <i className="fas fa-times text-xs"></i>
+            </button>
+        </div>
+    )}
+</div>
                 {/* Right Column: The "Glass Card" Status Widget */}
                 <div className="flex justify-center md:justify-end">
                     <div className="relative group perspective-1000">

@@ -10,6 +10,11 @@ import { LanguageProvider } from './contexts/LanguageContext';
 import { doc, getDoc } from 'firebase/firestore';
 import Layout from './components/Layout';
 
+import { registerSW } from 'virtual:pwa-register';
+
+// هذا الكود سيقوم بتسجيل الـ Service Worker ليعمل الأوفلاين
+registerSW({ immediate: true });
+
 // --- Lazy Loading Pages (Code Splitting) ---
 const Login = React.lazy(() => import('./pages/Login'));
 const SupervisorDashboard = React.lazy(() => import('./pages/SupervisorDashboard'));

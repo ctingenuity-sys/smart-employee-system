@@ -345,30 +345,29 @@ useEffect(() => {
         new Audio(sounds[type]).play().catch(() => {});
     };
 
-  const authenticateUser = async () => {
-    if (window.PublicKeyCredential) {
-        try {
-            setStatus('AUTH_DEVICE');
-            // يفضل استخدام check بسيط أو التأكد من دعم الجهاز قبل البدء
-            const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-            if (!available) return true; // إذا الجهاز لا يدعم، تخطى الخطوة
-
-            await navigator.credentials.get({
-                publicKey: {
-                    challenge: new Uint8Array(32),
-                    userVerification: "required",
-                    timeout: 60000
-                }
-            });
-            return true;
-        } catch (error) {
-            console.error("Auth failed", error);
-            // بدلاً من رمي خطأ يوقف البصمة، يمكنك السماح بالدخول إذا كان الـ DeviceID صحيحاً
-            return true; 
+    const authenticateUser = async () => {
+        if (window.PublicKeyCredential) {
+            try {
+                setStatus('AUTH_DEVICE');
+                await navigator.credentials.create({
+                    publicKey: {
+                        challenge: new Uint8Array(32),
+                        rp: { name: "Smart Employee System" },
+                        user: { id: new Uint8Array(16), name: currentUserName, displayName: currentUserName },
+                        pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+                        authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
+                        timeout: 60000
+                    }
+                });
+                return true;
+            } catch (error) {
+                console.error("Auth failed", error);
+                throw new Error("Device authentication failed.");
+            }
         }
-    }
-    return true; 
-};
+        return true; 
+    };
+    
 
     const handlePunch = async () => {
         // --- 1. HANDLE LIVE CHECK IF ACTIVE ---

@@ -45,7 +45,7 @@ export const calculateShiftStatus = (
         const logTime = effectiveLogs[0].timestamp.toDate ? effectiveLogs[0].timestamp.toDate() : new Date(effectiveLogs[0].timestamp.seconds * 1000);
         const logH = logTime.getHours();
         
-        if (logH < 10) { 
+        if (logH < 12) { 
             effectiveLogs = effectiveLogs.slice(1);
             hasMorningOut = true;
         } else if (todayShifts.length > 0) {

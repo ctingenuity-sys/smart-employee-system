@@ -204,41 +204,55 @@ const SupervisorAttendance: React.FC = () => {
 
                 let in1 = null, out1 = null, in2 = null, out2 = null;
 
-                if (insToday.length > 0) {
-                    in1 = insToday[0];
-                    // نبحث عن أول خروج "بعد" هذا الدخول (حتى لو في يوم آخر) في كامل المصفوفة المرتبة
-                    out1 = allLogsSorted.find(o => 
-                        o.userId === user.id && 
-                        o.type === 'OUT' && 
-                        o.timestamp.seconds > in1.timestamp.seconds &&
-                        (o.timestamp.seconds - in1.timestamp.seconds) < 57600 // أقصى مدة 16 ساعة
-                    );
+const userLogs = allLogsSorted.filter(l => l.userId === user.id);
 
-                    if (insToday.length > 1) {
-                        in2 = insToday[1];
-                        out2 = allLogsSorted.find(o => 
-                            o.userId === user.id && 
-                            o.type === 'OUT' && 
-                            o.timestamp.seconds > in2.timestamp.seconds &&
-                            o.timestamp.seconds !== out1?.timestamp.seconds
-                        );
-                    }
-                } 
+if (myShifts.length > 0) {
+    // معالجة كل شفت مجدول لهذا اليوم
+    myShifts.forEach((sh, idx) => {
+        const schedStartMins = timeToMinutes(sh.start);
+        
+        // تحويل وقت الجدول إلى كائن Date حقيقي في يوم dateStr
+        const schedStartBase = new Date(d);
+        schedStartBase.setHours(Math.floor(schedStartMins / 60), schedStartMins % 60, 0, 0);
+        
+        // إذا كان الدوام يبدأ 12 منتصف الليل (24:00)، نعتبره فعلياً بداية اليوم التالي تقنياً
+        // ولكننا سنبحث عن بصمات حول هذا الوقت ونربطها بيوم الجمعة
+        if (sh.start === '24:00' || sh.start === '00:00') {
+             // إذا كان المقصود بـ 00:00 هو نهاية الجمعة/بداية السبت
+             if (idx > 0 || schedStartMins === 0) schedStartBase.setDate(schedStartBase.getDate() + 1);
+        }
 
-                // حالة "مقصود": إذا لم نجد دخول اليوم، ولكن يوجد خروج اليوم غير مرتبط بدخول سابق
-                if (!in1 && outsToday.length > 0) {
-                    // نتحقق إذا كان الخروج يخص شفت بدأ بالأمس (عبر منتصف الليل)
-                    const linkedToYesterday = allLogsSorted.find(i => 
-                        i.userId === user.id && i.type === 'IN' && 
-                        i.timestamp.seconds < outsToday[0].timestamp.seconds &&
-                        (outsToday[0].timestamp.seconds - i.timestamp.seconds) < 57600
-                    );
-                    
-                    if (!linkedToYesterday) {
-                        out1 = outsToday[0]; // أظهر البصمة كخروج وحيد
-                    }
-                }
+        // 1. البحث عن أقرب بصمة دخول (IN) في نافذة 6 ساعات من وقت الجدول
+        const matchedIn = userLogs.find(l => {
+            if (l.type !== 'IN') return false;
+            const logT = l.timestamp.toDate ? l.timestamp.toDate() : new Date(l.timestamp.seconds * 1000);
+            const diffHours = Math.abs(logT.getTime() - schedStartBase.getTime()) / 3600000;
+            return diffHours < 7; // نافذة 7 ساعات للبحث
+        });
 
+        if (idx === 0) {
+            in1 = matchedIn;
+            if (in1) {
+                // البحث عن أول خروج (OUT) بعد هذا الدخول مباشرة
+                out1 = userLogs.find(o => 
+                    o.type === 'OUT' && 
+                    o.timestamp.seconds > in1.timestamp.seconds &&
+                    (o.timestamp.seconds - in1.timestamp.seconds) < 57600 // أقصى مدة شفت 16 ساعة
+                );
+            }
+        } else if (idx === 1) {
+            in2 = matchedIn;
+            if (in2) {
+                out2 = userLogs.find(o => 
+                    o.type === 'OUT' && 
+                    o.timestamp.seconds > in2.timestamp.seconds &&
+                    o.timestamp.id !== out1?.timestamp.id && // لضمان عدم تكرار نفس البصمة
+                    (o.timestamp.seconds - in2.timestamp.seconds) < 57600
+                );
+            }
+        }
+    });
+}
                 // --- حسابات الحالة والوقت ---
                 let status: 'Present'|'Absent'|'Incomplete'|'Off' = 'Absent';
                 let lateMins = 0;
@@ -502,6 +516,7 @@ const SupervisorAttendance: React.FC = () => {
                                                                                 <th className="p-2 text-center border-l border-slate-300">Work (Mins)</th>
                                                                                 <th className="p-2 text-center">Status</th>
                                                                                 <th className="p-2 text-center">Risks</th>
+                                                                                <th className="p-2 text-center">Server Time</th>
                                                                             </tr>
                                                                         </thead>
                                                                         <tbody className="divide-y divide-slate-100 bg-white">

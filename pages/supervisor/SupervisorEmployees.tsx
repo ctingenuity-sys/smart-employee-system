@@ -22,6 +22,32 @@ const SupervisorEmployees: React.FC = () => {
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
     const [loading, setLoading] = useState(false);
 
+    const [offlineResult, setOfflineResult] = useState<any>(null);
+    const [verificationCode, setVerificationCode] = useState('');
+
+    const verifyOfflineCode = () => {
+        try {
+            // فك تشفير الكود
+            const decodedData = atob(verificationCode);
+            const [lat, lng, timestamp, userId] = decodedData.split('|');
+
+            const date = new Date(parseInt(timestamp) * 1000);
+            
+            setOfflineResult({
+                lat,
+                lng,
+                time: date.toLocaleString(),
+                userId,
+                isValid: true
+            });
+        } catch (e) {
+            alert("الكود غير صالح أو غير مكتمل");
+            setOfflineResult(null);
+        }
+    };
+
+    const [isAddFormOpen, setIsAddFormOpen] = useState(false);
+    const [isOfflineVerifierOpen, setIsOfflineVerifierOpen] = useState(false);
     // Modal States
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editForm, setEditForm] = useState<Partial<User>>({});
@@ -262,8 +288,97 @@ const handleSendLiveCheck = async (user: User) => {
                     <h1 className="text-2xl font-black text-slate-800">{t('sup.tab.users')}</h1>
                 </div>
             </div>
+            <div className="grid lg:grid-cols-3 gap-8 items-start">
+                {/* Right/Side Column: Forms (Accordions) */}
+                <div className="lg:col-span-1 space-y-4 sticky top-4">
+                    
+                    {/* Accordion: Add User */}
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                        <button 
+                            onClick={() => setIsAddFormOpen(!isAddFormOpen)}
+                            className="w-full flex items-center justify-between p-5 hover:bg-slate-50 transition-colors"
+                        >
+                            <div className="flex items-center gap-3 font-bold text-slate-800">
+                                <i className="fas fa-user-plus text-blue-500"></i>
+                                {t('sup.user.add')}
+                            </div>
+                            <i className={`fas fa-chevron-${isAddFormOpen ? 'up' : 'down'} text-slate-400 text-xs`}></i>
+                        </button>
+                        {isAddFormOpen && (
+                            <div className="p-5 border-t border-slate-50 space-y-3 animate-in fade-in duration-300">
+                                <input className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" placeholder={t('sup.user.name')} value={newUserName} onChange={e => setNewUserName(e.target.value)} />
+                                <input className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" placeholder="Email" type="email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} />
+                                <input className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" placeholder="Password" type="password" value={newUserPassword} onChange={e => setNewUserPassword(e.target.value)} />
+                                <input className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" placeholder="Phone" value={newUserPhone} onChange={e => setNewUserPhone(e.target.value)} />
+                                <select className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-bold" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}>
+                                    <option value="user">User</option>
+                                    <option value="doctor">Doctor</option>
+                                    <option value="supervisor">Supervisor</option>
+                                </select>
+                                <button 
+                                    onClick={handleAddUser} 
+                                    disabled={isAddingUser}
+                                    className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 shadow-md disabled:opacity-50"
+                                >
+                                    {isAddingUser ? <i className="fas fa-spinner fa-spin"></i> : t('add')}
+                                </button>
+                            </div>
+                        )}
+                    </div>
 
-            <div className="grid lg:grid-cols-3 gap-8">
+                    {/* Accordion: Offline Verification */}
+                    <div className="bg-slate-900 rounded-3xl shadow-lg border border-slate-800 overflow-hidden">
+                        <button 
+                            onClick={() => setIsOfflineVerifierOpen(!isOfflineVerifierOpen)}
+                            className="w-full flex items-center justify-between p-5 hover:bg-slate-800 transition-colors"
+                        >
+                            <div className="flex items-center gap-3 font-bold text-white">
+                                <i className="fas fa-shield-alt text-cyan-400"></i>
+                                إثبات الموقع (أوفلاين)
+                            </div>
+                            <i className={`fas fa-chevron-${isOfflineVerifierOpen ? 'up' : 'down'} text-slate-500 text-xs`}></i>
+                        </button>
+                        {isOfflineVerifierOpen && (
+                            <div className="p-5 border-t border-white/5 space-y-4 animate-in fade-in duration-300">
+                                <input 
+                                    type="text"
+                                    value={verificationCode}
+                                    onChange={(e) => setVerificationCode(e.target.value)}
+                                    placeholder="أدخل الكود المستلم..."
+                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-xs focus:ring-1 ring-cyan-500 outline-none"
+                                />
+                                <button 
+                                    onClick={verifyOfflineCode}
+                                    className="w-full bg-cyan-600 text-white py-3 rounded-xl font-bold hover:bg-cyan-500 transition-all active:scale-95 text-sm"
+                                >
+                                    تحقق من الكود
+                                </button>
+
+                                {offlineResult && (
+                                    <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-xl space-y-2">
+                                        <div className="flex justify-between text-[10px]">
+                                            <span className="text-cyan-400">وقت التوليد:</span>
+                                            <span className="text-white">{offlineResult.time}</span>
+                                        </div>
+                                        <div className="flex justify-between text-[10px]">
+                                            <span className="text-cyan-400">المعرف:</span>
+                                            <span className="text-white font-mono">{offlineResult.userId.substring(0,8)}...</span>
+                                        </div>
+                                        <a 
+                                            href={`https://www.google.com/maps?q=${offlineResult.lat},${offlineResult.lng}`}
+                                            target="_blank" rel="noreferrer"
+                                            className="block text-center bg-white/5 hover:bg-white/10 text-white text-[10px] py-2 rounded-lg transition-colors"
+                                        >
+                                            <i className="fas fa-map-marker-alt text-cyan-400 mr-1"></i> فتح الموقع على الخريطة
+                                        </a>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                
                 {/* User List */}
                 <div className="lg:col-span-2 space-y-4">
                     <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden">
@@ -323,30 +438,7 @@ const handleSendLiveCheck = async (user: User) => {
                 </div>
 
                 {/* Add User Form */}
-                <div className="lg:col-span-1">
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200 sticky top-4">
-                        <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><i className="fas fa-user-plus text-blue-500"></i> {t('sup.user.add')}</h3>
-                        <div className="space-y-3">
-                            <input className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" placeholder={t('sup.user.name')} value={newUserName} onChange={e => setNewUserName(e.target.value)} />
-                            <input className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" placeholder="Email" type="email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} />
-                            <input className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" placeholder="Password" type="password" value={newUserPassword} onChange={e => setNewUserPassword(e.target.value)} />
-                            <input className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" placeholder="Phone (Optional)" value={newUserPhone} onChange={e => setNewUserPhone(e.target.value)} />
-                            <select className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}>
-                                <option value="user">User</option>
-                                <option value="doctor">Doctor</option>
-                                <option value="supervisor">Supervisor</option>
-                                <option value="admin">Admin</option>
-                            </select>
-                            <button 
-                                onClick={handleAddUser} 
-                                disabled={isAddingUser}
-                                className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 shadow-lg flex items-center justify-center disabled:opacity-50"
-                            >
-                                {isAddingUser ? <i className="fas fa-spinner fa-spin"></i> : t('add')}
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                
             </div>
 
             {/* Edit Modal */}

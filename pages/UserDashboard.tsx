@@ -758,32 +758,69 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
                     
                     {isShiftWidgetOpen && (
                         <div className="flex flex-col">
+                            {/* Filter Toggle */}
                             <div className="flex p-2 bg-slate-50 border-b border-slate-100 gap-1">
-                                <button onClick={(e) => { e.stopPropagation(); setShiftFilterMode('present'); }} className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${shiftFilterMode === 'present' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}><i className="fas fa-check-circle mr-1"></i> Active</button>
-                                <button onClick={(e) => { e.stopPropagation(); setShiftFilterMode('all'); }} className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${shiftFilterMode === 'all' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}><i className="fas fa-list mr-1"></i> All Sched</button>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); setShiftFilterMode('present'); }} 
+                                    className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${shiftFilterMode === 'present' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
+                                >
+                                    <i className="fas fa-check-circle mr-1"></i> Active
+                                </button>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); setShiftFilterMode('all'); }} 
+                                    className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${shiftFilterMode === 'all' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
+                                >
+                                    <i className="fas fa-list mr-1"></i> All Sched
+                                </button>
                             </div>
+
                             <div className="space-y-1 max-h-[300px] overflow-y-auto custom-scrollbar-dark p-2">
-                                {onShiftNow.length === 0 ? <div className="text-center py-4 text-xs text-slate-400">No active staff found</div> : onShiftNow.map((p, i) => (
-                                    <div key={i} className={`flex items-center justify-between p-2 rounded-xl transition-colors ${p.role === 'doctor' ? 'bg-cyan-50 border border-cyan-100' : 'hover:bg-slate-50'}`}>
-                                        <div className="flex items-center gap-3">
-                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm relative ${p.role === 'doctor' ? 'bg-cyan-600 text-white' : 'bg-slate-200 text-slate-600'}`}>{p.name.charAt(0)}{p.isPresent ? <span className="absolute -bottom-1 -right-1 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full"></span> : <span className="absolute -bottom-1 -right-1 w-3 h-3 bg-red-400 border-2 border-white rounded-full"></span>}</div>
-                                            <div className="min-w-0">
-                                                <span className={`font-bold text-xs block truncate max-w-[120px] flex items-center gap-1 ${p.role === 'doctor' ? 'text-cyan-900' : 'text-slate-700'}`}>{p.name}{p.role === 'doctor' && <i className="fas fa-user-md text-[10px] text-cyan-500"></i>}</span>
-                                                <span className="text-[10px] text-slate-400 block truncate max-w-[150px]">{p.location}</span>
+                                {onShiftNow.length === 0 ? (
+                                    <div className="text-center py-4 text-xs text-slate-400">No active staff found</div>
+                                ) : (
+                                    onShiftNow.map((p, i) => (
+                                        <div key={i} className={`flex items-center justify-between p-2 rounded-xl transition-colors ${p.role === 'doctor' ? 'bg-cyan-50 border border-cyan-100' : 'hover:bg-slate-50'}`}>
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm relative ${p.role === 'doctor' ? 'bg-cyan-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                                                    {p.name.charAt(0)}
+                                                    {p.isPresent ? (
+                                                        <span className="absolute -bottom-1 -right-1 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full"></span>
+                                                    ) : (
+                                                        <span className="absolute -bottom-1 -right-1 w-3 h-3 bg-red-400 border-2 border-white rounded-full"></span>
+                                                    )}
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <span className={`font-bold text-xs block truncate max-w-[120px] flex items-center gap-1 ${p.role === 'doctor' ? 'text-cyan-900' : 'text-slate-700'}`}>
+                                                        {p.name}
+                                                        {p.role === 'doctor' && <i className="fas fa-user-md text-[10px] text-cyan-500"></i>}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-400 block truncate max-w-[150px]">{p.location}</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="text-[9px] bg-slate-100 px-2 py-1 rounded text-slate-500 font-mono">
+                                                    {p.time}
+                                                </div>
+                                                {p.phone && (
+                                                    <a 
+                                                        href={`tel:${p.phone}`} 
+                                                        className="w-6 h-6 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-colors"
+                                                        title="Call"
+                                                    >
+                                                        <i className="fas fa-phone text-[10px]"></i>
+                                                    </a>
+                                                )}
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-2">
-                                            <div className="text-[9px] bg-slate-100 px-2 py-1 rounded text-slate-500 font-mono">{p.time}</div>
-                                            {p.phone && <a href={`tel:${p.phone}`} className="w-6 h-6 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-colors" title="Call"><i className="fas fa-phone text-[10px]"></i></a>}
-                                        </div>
-                                    </div>
-                                ))}
+                                    ))
+                                )}
                             </div>
                         </div>
                     )}
                 </div>
             </div>
-    </div>
+
+        </div>
   );
 };
 

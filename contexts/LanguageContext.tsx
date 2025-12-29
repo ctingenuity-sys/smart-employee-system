@@ -37,6 +37,15 @@ const translations: Record<string, { ar: string; en: string }> = {
   'year': { ar: 'السنة', en: 'Year' },
   'from': { ar: 'من', en: 'From' },
   'to': { ar: 'إلى', en: 'To' },
+  'update': { ar: 'تحديث', en: 'Update' },
+  'close': { ar: 'إغلاق', en: 'Close' },
+  
+  // --- Status & Common ---
+  'status.active': { ar: 'نشط الآن', en: 'Active Now' },
+  'status.online': { ar: 'متصل', en: 'ONLINE' },
+  'status.syncing': { ar: 'مزامنة', en: 'SYNCING' },
+  'status.in': { ar: 'حضور', en: 'IN' },
+  'status.notyet': { ar: 'لم يحضر', en: 'Not Yet' },
   
   // --- Roles ---
   'role.admin': { ar: 'مسؤول', en: 'Admin' },
@@ -98,6 +107,16 @@ const translations: Record<string, { ar: string; en: string }> = {
 
   // --- Supervisor Dashboard ---
   'dash.onShift': { ar: 'المناوبون الآن', en: "Who's on Shift" },
+  'dash.activeNow': { ar: 'متواجدون الآن', en: "Active Now" },
+  'dash.noActiveStaff': { ar: 'لا يوجد موظفين حالياً', en: "No active staff found" },
+  'dash.locationCode': { ar: 'كود الموقع', en: "Location Code" },
+  'dash.locationCodeBtn': { ar: 'كود الموقع', en: "Location Code" },
+  'dash.genCode': { ar: 'توليد كود الموقع', en: "Generate Location Code" },
+  'dash.copyClose': { ar: 'نسخ وإغلاق', en: "Copy & Close" },
+  'dash.filterActive': { ar: 'نشط', en: "Active" },
+  'dash.filterAll': { ar: 'الكل', en: "All" },
+  'dash.call': { ar: 'اتصال', en: "Call" },
+
   'sup.totalEmp': { ar: 'إجمالي الموظفين', en: 'Total Employees' },
   'sup.swapReqs': { ar: 'طلبات التبديل', en: 'Swap Requests' },
   'sup.leaveReqs': { ar: 'طلبات الغياب', en: 'Leave Requests' },

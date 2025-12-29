@@ -49,6 +49,9 @@ const parseMultiShifts = (text: string) => {
     return shifts;
 };
 
+// Expanded Regex to match (PP), [PP], {PP} or standalone PP
+const ppRegex = /(?:\(|\[|\{)\s*pp\s*(?:\)|\]|\})|(?:\bPP\b)/i;
+
 const SupervisorDashboard: React.FC = () => {
   const { t, dir } = useLanguage();
   const navigate = useNavigate();
@@ -62,7 +65,7 @@ const SupervisorDashboard: React.FC = () => {
   const [allTodayLogs, setAllTodayLogs] = useState<AttendanceLog[]>([]); // For logic calculation
   
   // Who's on Shift State
-  const [onShiftNow, setOnShiftNow] = useState<{name: string, location: string, time: string, role?: string, phone?: string, isPresent: boolean}[]>([]);
+  const [onShiftNow, setOnShiftNow] = useState<{name: string, location: string, time: string, role?: string, phone?: string, isPresent: boolean, isPP: boolean}[]>([]);
   const [isShiftWidgetOpen, setIsShiftWidgetOpen] = useState(false);
   const [shiftFilterMode, setShiftFilterMode] = useState<'present' | 'all'>('present'); // 'present' = active only, 'all' = everyone scheduled
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -190,7 +193,16 @@ const SupervisorDashboard: React.FC = () => {
 
                   if (adjustedCurrent >= startM && adjustedCurrent < endM) {
                       const uData = users.find(u => u.id === sch.userId);
-                      const name = uData ? (uData.name || uData.email) : ( (sch as any).staffName || "Staff" );
+                      
+                      // Check PP in snapshot name (from schedule) OR note
+                      // This ensures even if user is linked, we check the schedule-specific name for (PP)
+                      const snapshotName = (sch as any).staffName || "";
+                      const isPP = ppRegex.test(snapshotName) || ppRegex.test(sch.note || '');
+                      
+                      // Clean name: Prefer User Profile Name if linked, otherwise snapshot name
+                      let rawName = uData ? (uData.name || uData.email) : snapshotName;
+                      let name = rawName.replace(ppRegex, '').trim();
+
                       const role = uData?.role;
                       const isPresent = presentUserIds.has(sch.userId);
 
@@ -212,7 +224,8 @@ const SupervisorDashboard: React.FC = () => {
                               time: `${shift.start} - ${shift.end}`,
                               role: role,
                               phone: uData?.phone,
-                              isPresent: isPresent
+                              isPresent: isPresent,
+                              isPP: isPP
                           });
                       }
                   }
@@ -335,7 +348,7 @@ const SupervisorDashboard: React.FC = () => {
                     <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full -mr-10 -mt-10 blur-xl"></div>
                     <div className="flex justify-between items-start relative z-10">
                         <div>
-                            <p className="text-emerald-100 font-bold text-xs uppercase tracking-widest mb-1">Active Now</p>
+                            <p className="text-emerald-100 font-bold text-xs uppercase tracking-widest mb-1">{t('dash.activeNow')}</p>
                             <h3 className="text-4xl font-black">{activeNowCount}</h3>
                         </div>
                         <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-2xl backdrop-blur-md">
@@ -434,6 +447,7 @@ const SupervisorDashboard: React.FC = () => {
             </div>
 
             {/* Floating On Shift Widget */}
+            {/* Floating On Shift Widget */}
             <div className={`fixed bottom-6 left-6 z-40 transition-all duration-300 ${onShiftNow.length > 0 || isShiftWidgetOpen ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'}`}>
                 <div className={`bg-white/95 backdrop-blur-md shadow-2xl border border-slate-200 transition-all duration-300 overflow-hidden ${isShiftWidgetOpen ? 'rounded-3xl w-80' : 'rounded-full w-auto hover:scale-105'}`}>
                     
@@ -464,50 +478,56 @@ const SupervisorDashboard: React.FC = () => {
                                     onClick={(e) => { e.stopPropagation(); setShiftFilterMode('present'); }} 
                                     className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${shiftFilterMode === 'present' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
                                 >
-                                    <i className="fas fa-check-circle mr-1"></i> Active
+                                    <i className="fas fa-check-circle mr-1"></i> {t('dash.filterActive')}
                                 </button>
                                 <button 
                                     onClick={(e) => { e.stopPropagation(); setShiftFilterMode('all'); }} 
                                     className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${shiftFilterMode === 'all' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
                                 >
-                                    <i className="fas fa-list mr-1"></i> All Sched
+                                    <i className="fas fa-list mr-1"></i> {t('dash.filterAll')}
                                 </button>
                             </div>
 
                             <div className="space-y-1 max-h-[300px] overflow-y-auto custom-scrollbar-dark p-2">
                                 {onShiftNow.length === 0 ? (
-                                    <div className="text-center py-4 text-xs text-slate-400">No active staff found</div>
+                                    <div className="text-center py-4 text-xs text-slate-400">{t('dash.noActiveStaff')}</div>
                                 ) : (
                                     onShiftNow.map((p, i) => (
                                         <div key={i} className={`flex items-center justify-between p-2 rounded-xl transition-colors ${p.role === 'doctor' ? 'bg-cyan-50 border border-cyan-100' : 'hover:bg-slate-50'}`}>
-                                            <div className="flex items-center gap-3">
-                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm relative ${p.role === 'doctor' ? 'bg-cyan-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
-                                                    {p.name.charAt(0)}
-                                                    {p.isPresent ? (
-                                                        <span className="absolute -bottom-1 -right-1 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full"></span>
-                                                    ) : (
-                                                        <span className="absolute -bottom-1 -right-1 w-3 h-3 bg-red-400 border-2 border-white rounded-full"></span>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-1">
+                                                    <div className={`w-2 h-2 rounded-full mr-1 ${p.isPresent ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
+                                                    <span className={`font-bold text-xs truncate max-w-[100px] ${p.role === 'doctor' ? 'text-cyan-900' : 'text-slate-700'}`}>
+                                                        {p.name}
+                                                    </span>
+                                                    {p.role === 'doctor' && <i className="fas fa-user-md text-[10px] text-cyan-500 shrink-0"></i>}
+                                                    {p.isPP && (
+                                                        <span className="shrink-0 text-[9px] bg-yellow-400 text-black px-1 rounded font-black border border-yellow-600 shadow-sm" title="Portable & Procedure">
+                                                            PP
+                                                        </span>
                                                     )}
                                                 </div>
-                                                <div className="min-w-0">
-                                                    <span className={`font-bold text-xs block truncate max-w-[120px] flex items-center gap-1 ${p.role === 'doctor' ? 'text-cyan-900' : 'text-slate-700'}`}>
-                                                        {p.name}
-                                                        {p.role === 'doctor' && <i className="fas fa-user-md text-[10px] text-cyan-500"></i>}
-                                                    </span>
-                                                    <span className="text-[10px] text-slate-400 block truncate max-w-[150px]">{p.location}</span>
-                                                </div>
+                                                <span className="text-[10px] text-slate-400 block truncate max-w-[150px] pl-3">{p.location}</span>
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <div className="text-[9px] bg-slate-100 px-2 py-1 rounded text-slate-500 font-mono">
+                                            <div className="flex flex-col items-end gap-1 pl-2">
+                                                <div className="text-[9px] bg-slate-100 px-2 py-1 rounded text-slate-500 font-mono whitespace-nowrap">
                                                     {p.time}
                                                 </div>
+                                                {/* VISIBLE STATUS INDICATOR */}
+                                                {p.isPresent ? (
+                                                    <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
+                                                        <i className="fas fa-check-circle text-[8px]"></i> {t('status.in')}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                                                        {t('status.notyet')}
+                                                    </span>
+                                                )}
                                                 {p.phone && (
                                                     <a 
                                                         href={`tel:${p.phone}`} 
-                                                        className="w-6 h-6 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-colors"
-                                                        title="Call"
+                                                        className="hidden" // Hiding phone to save space, relies on click if needed in future
                                                     >
-                                                        <i className="fas fa-phone text-[10px]"></i>
                                                     </a>
                                                 )}
                                             </div>

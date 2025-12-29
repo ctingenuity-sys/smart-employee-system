@@ -197,6 +197,7 @@ export interface VisualStaff {
     time?: string;
     startDate?: string;
     endDate?: string;
+    note?: string; // Added: Note specific to this shift
 }
 
 export interface ModalityColumn {
@@ -312,7 +313,11 @@ export interface SavedTemplate {
   fridayHeaders?: HeaderMap;
   holidayHeaders?: HeaderMap;
   doctorFridayHeaders?: DoctorFridayHeaderMap; 
-  doctorWeeklyHeaders?: DoctorWeeklyHeaderMap; // Added
+  doctorWeeklyHeaders?: DoctorWeeklyHeaderMap;
+  // Global fields
+  globalStartDate?: string;
+  globalEndDate?: string;
+  scheduleNote?: string;
 }
 
 // --- Attendance Analyzer Types ---

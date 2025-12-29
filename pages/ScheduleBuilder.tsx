@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 // @ts-ignore
@@ -215,8 +216,14 @@ const ScheduleBuilder: React.FC = () => {
     const [loading, setLoading] = useState(true);
     
     const [publishMonth, setPublishMonth] = useState(new Date().toISOString().slice(0, 7));
+    
+    // New Global Date Range States
+    const [globalStartDate, setGlobalStartDate] = useState('');
+    const [globalEndDate, setGlobalEndDate] = useState('');
+    // New: Schedule Note State
+    const [scheduleNote, setScheduleNote] = useState('');
+
     const [searchTerm, setSearchTerm] = useState('');
-    const [dateRange, setDateRange] = useState('');
     
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'|'info'} | null>(null);
     const [confirmation, setConfirmation] = useState<{isOpen: boolean, title: string, message: string, onConfirm: () => void}>({
@@ -273,7 +280,10 @@ const ScheduleBuilder: React.FC = () => {
                 fridayHeaders,
                 holidayHeaders,
                 doctorFridayHeaders,
-                doctorWeeklyHeaders
+                doctorWeeklyHeaders,
+                globalStartDate,
+                globalEndDate,
+                scheduleNote
             };
             const docRef = await addDoc(collection(db, 'schedule_templates'), template);
             setSavedTemplates([...savedTemplates, { id: docRef.id, ...template }]);
@@ -314,6 +324,12 @@ const ScheduleBuilder: React.FC = () => {
                 setDoctorFridayHeaders(tpl.doctorFridayHeaders || {...defaultDoctorFridayHeaders});
                 setDoctorWeeklyHeaders(tpl.doctorWeeklyHeaders || {...defaultDoctorWeeklyHeaders});
                 if(tpl.targetMonth) setPublishMonth(tpl.targetMonth);
+                
+                // Load global fields
+                setGlobalStartDate(tpl.globalStartDate || '');
+                setGlobalEndDate(tpl.globalEndDate || '');
+                setScheduleNote(tpl.scheduleNote || '');
+
                 setConfirmation(prev => ({ ...prev, isOpen: false }));
                 setActiveTab('visual');
                 setIsTemplatesOpen(false); // Close drawer after loading
@@ -432,6 +448,7 @@ const ScheduleBuilder: React.FC = () => {
             };
 
             // 1. General & Common
+            // Uses global date fallback
             for (const col of generalData) {
                 const parsed = parseMultiShifts(col.defaultTime);
                 const shifts = (parsed && parsed.length > 0) ? parsed : [{ start: '08:00', end: '16:00' }];
@@ -442,11 +459,12 @@ const ScheduleBuilder: React.FC = () => {
                         const newDoc = doc(scheduleRef);
                         const shiftData: any = {
                             userId: resolved.id,
-                            staffName: resolved.name, // Save name directly
+                            staffName: resolved.name, 
                             locationId: col.title,
                             month: publishMonth,
-                            validFrom: staff.startDate || monthStart,
-                            validTo: staff.endDate || monthEnd,
+                            // Use individual dates if set, otherwise global, otherwise full month
+                            validFrom: staff.startDate || globalStartDate || monthStart,
+                            validTo: staff.endDate || globalEndDate || monthEnd,
                             userType: 'user',
                             shifts: shifts,
                             note: col.title,
@@ -454,7 +472,6 @@ const ScheduleBuilder: React.FC = () => {
                             createdAt: Timestamp.now()
                         };
                         
-                        // Explicitly check for custom time
                         if(staff.time) {
                              const customShifts = parseMultiShifts(staff.time);
                              if(customShifts.length > 0) shiftData.shifts = customShifts;
@@ -467,6 +484,7 @@ const ScheduleBuilder: React.FC = () => {
             }
 
             // 2. Common Duties
+            // Uses global date fallback
             for (const duty of commonDuties) {
                 const parsed = parseMultiShifts(duty.time);
                 const shifts = (parsed && parsed.length > 0) ? parsed : [{ start: '08:00', end: '16:00' }];
@@ -476,11 +494,12 @@ const ScheduleBuilder: React.FC = () => {
                         const newDoc = doc(scheduleRef);
                         const shiftData: any = {
                             userId: resolved.id,
-                            staffName: resolved.name, // Save name directly
+                            staffName: resolved.name, 
                             locationId: 'common_duty',
                             month: publishMonth,
-                            validFrom: staff.startDate || monthStart,
-                            validTo: staff.endDate || monthEnd,
+                            // Use individual dates if set, otherwise global, otherwise full month
+                            validFrom: staff.startDate || globalStartDate || monthStart,
+                            validTo: staff.endDate || globalEndDate || monthEnd,
                             userType: 'user',
                             shifts: shifts,
                             note: duty.section,
@@ -512,7 +531,7 @@ const ScheduleBuilder: React.FC = () => {
                             const newDoc = doc(scheduleRef);
                             batch.set(newDoc, {
                                 userId: resolved.id,
-                                staffName: resolved.name, // Save name directly
+                                staffName: resolved.name, 
                                 locationId: 'Friday Shift',
                                 month: publishMonth,
                                 date: date,
@@ -545,18 +564,17 @@ const ScheduleBuilder: React.FC = () => {
                 const nightTo = row.nightEndDate || to;
                 
                 const processDocCol = async (staffList: VisualStaff[], shiftType: string, timeSourceStr: string, fallbackTime: string, isNight: boolean = false) => {
-                    // Try to parse from header text first (using the improved parseMultiShifts)
+                    // Try to parse from header text first
                     let shifts = parseMultiShifts(timeSourceStr);
                     if (shifts.length === 0) {
                         shifts = parseMultiShifts(fallbackTime);
                     }
-                    if (shifts.length === 0) shifts = [{start:'08:00', end:'16:00'}]; // Ultimate fallback
+                    if (shifts.length === 0) shifts = [{start:'08:00', end:'16:00'}]; 
 
                     for (const staff of staffList) {
                         const resolved = resolveStaff(staff);
                         if (resolved) {
                             let finalShifts = shifts;
-                            // Override if specific time is present under the doctor
                             if (staff.time && staff.time.trim()) {
                                 const specific = parseMultiShifts(staff.time);
                                 if (specific.length > 0) finalShifts = specific;
@@ -565,10 +583,9 @@ const ScheduleBuilder: React.FC = () => {
                             const newDoc = doc(scheduleRef);
                             batch.set(newDoc, {
                                 userId: resolved.id,
-                                staffName: resolved.name, // Save name directly
+                                staffName: resolved.name, 
                                 locationId: 'Doctor Schedule',
                                 month: publishMonth,
-                                // Use specific night dates if applicable, else general row dates
                                 validFrom: isNight ? nightFrom : from,
                                 validTo: isNight ? nightTo : to,
                                 userType: 'doctor',
@@ -596,14 +613,12 @@ const ScheduleBuilder: React.FC = () => {
                 const processDrFridayCol = async (staffList: VisualStaff[], colKey: string, timeKey: keyof DoctorFridayHeaderMap, titleKey: keyof DoctorFridayHeaderMap) => {
                     const timeStr = doctorFridayHeaders[timeKey] || '';
                     const titleStr = doctorFridayHeaders[titleKey] || colKey;
-                    // Parse multi shifts or default
                     const shifts = parseMultiShifts(timeStr).length > 0 ? parseMultiShifts(timeStr) : [{ start: '08:00', end: '16:00' }];
 
                     for (const staff of staffList) {
                         const resolved = resolveStaff(staff);
                         if (resolved) {
                             let finalShifts = shifts;
-                            // Override if specific time is present under the doctor
                             if (staff.time && staff.time.trim()) {
                                 const specific = parseMultiShifts(staff.time);
                                 if (specific.length > 0) finalShifts = specific;
@@ -637,7 +652,6 @@ const ScheduleBuilder: React.FC = () => {
                 if(!row.occasion) continue;
                 if(row.occasion.match(/^\d{4}-\d{2}-\d{2}$/) || row.occasion.match(/^\d{1,2}[-./]\d{1,2}[-./]\d{4}$/)) {
                     const date = normalizeDate(row.occasion);
-                    // Process similar to Friday (Simplified)
                     const processHolCol = async (staffList: VisualStaff[], colKey: string) => {
                         for (const staff of staffList) {
                             const resolved = resolveStaff(staff);
@@ -650,7 +664,7 @@ const ScheduleBuilder: React.FC = () => {
                                     month: publishMonth,
                                     date: date,
                                     userType: 'user',
-                                    shifts: [{start:'08:00', end:'20:00'}], // Default placeholder
+                                    shifts: [{start:'08:00', end:'20:00'}], 
                                     note: `Holiday - ${colKey}`,
                                     createdAt: Timestamp.now()
                                 });
@@ -659,7 +673,6 @@ const ScheduleBuilder: React.FC = () => {
                         }
                     }
                     await processHolCol(row.morning, 'Morning');
-                    // ... other columns
                 }
             }
 
@@ -678,7 +691,6 @@ const ScheduleBuilder: React.FC = () => {
         <div className="flex h-screen overflow-hidden bg-slate-50 print:bg-white print:h-auto print:overflow-visible" dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
             
-            {/* Sidebar for dragging staff */}
             {isSidebarOpen && <StaffSidebar users={allUsers} />}
 
             <div className="flex-1 flex flex-col h-full overflow-hidden print:h-auto print:overflow-visible relative">
@@ -754,9 +766,14 @@ const ScheduleBuilder: React.FC = () => {
                                 data={generalData} 
                                 commonDuties={commonDuties}
                                 isEditing={isEditingVisual}
-                                dateRange={dateRange}
                                 publishMonth={publishMonth}
-                                setDateRange={setDateRange}
+                                globalStartDate={globalStartDate}
+                                globalEndDate={globalEndDate}
+                                setGlobalStartDate={setGlobalStartDate}
+                                setGlobalEndDate={setGlobalEndDate}
+                                // Pass note state
+                                scheduleNote={scheduleNote}
+                                setScheduleNote={setScheduleNote}
                                 onUpdateColumn={(i, d) => { const n = [...generalData]; n[i] = d; setGeneralData(n); }}
                                 onUpdateDuty={(i, d) => { const n = [...commonDuties]; n[i] = d; setCommonDuties(n); }}
                                 onAddColumn={() => setGeneralData([...generalData, { id: Date.now().toString(), title: 'New', defaultTime: '', colorClass: 'bg-blue-100 text-blue-900', staff: [] }])}
@@ -770,6 +787,7 @@ const ScheduleBuilder: React.FC = () => {
                             />
                         )}
                         
+                        {/* Other views remain similar... */}
                         {visualSubTab === 'friday' && (
                             <FridayScheduleView 
                                 data={fridayData}

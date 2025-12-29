@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
   <head>
@@ -24,7 +25,10 @@
     </script>
 
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- CHANGED FONT TO CAIRO -->
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@200..1000&family=Oswald:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
     
@@ -34,8 +38,9 @@
         theme: {
           extend: {
             fontFamily: {
-              sans: ['Cairo', 'sans-serif'],
-              serif: ['Tajawal', 'serif'], // Used for print headers
+              sans: ['"Cairo"', 'sans-serif'], // Updated to Cairo
+              serif: ['"Cairo"', 'serif'],     // Updated to Cairo
+              oswald: ['"Oswald"', 'sans-serif'],
             },
             colors: {
               primary: '#2563eb', // blue-600
@@ -51,7 +56,7 @@
     <style>
       body {
         background-color: #f1f5f9;
-        font-family: 'Cairo', sans-serif;
+        font-family: 'Cairo', sans-serif; /* Updated to Cairo */
       }
       /* Custom Scrollbar */
       ::-webkit-scrollbar {
@@ -80,28 +85,24 @@
           background-color: white !important;
           margin: 0 !important;
           padding: 0 !important;
-          font-family: 'Tajawal', sans-serif !important;
-          font-size: 11px; /* Slightly smaller base font for information density */
+          font-family: 'Cairo', sans-serif !important; /* Updated to Cairo */
+          font-size: 11px;
         }
         
-        /* Hide UI elements */
         .no-print, button, input, select, .print\:hidden, nav, header, .sidebar, .toast {
           display: none !important;
         }
 
-        /* Reset Containers */
         .min-h-screen {
           min-height: 0 !important;
           height: auto !important;
           padding: 0 !important;
         }
         
-        /* Typography Crispness */
         h1, h2, h3, h4, h5, h6 {
           color: #000 !important;
         }
         
-        /* Table enhancements */
         table {
           width: 100% !important;
           border-collapse: collapse !important;
@@ -118,13 +119,11 @@
           display: table-footer-group;
         }
         
-        /* Clean up shadows/gradients for paper */
         * {
            box-shadow: none !important; 
            text-shadow: none !important;
         }
         
-        /* Tailwind Grid/Columns override */
         .print\:block { display: block !important; }
         .print\:hidden { display: none !important; }
       }

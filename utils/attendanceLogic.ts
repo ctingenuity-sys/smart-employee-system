@@ -2,27 +2,105 @@
 import { AttendanceLog } from '../types';
 
 export interface AttendanceStateResult {
-    state: 'LOADING' | 'READY_IN' | 'READY_OUT' | 'LOCKED' | 'COMPLETED' | 'MISSED' | 'ABSENT' | 'DISABLED' | 'ERROR' | 'WAITING';
+    state: 'LOADING' | 'READY_IN' | 'READY_OUT' | 'LOCKED' | 'COMPLETED' | 'MISSED_OUT' | 'ABSENT' | 'WAITING' | 'NEXT_SHIFT' | 'OFF';
     message: string;
     sub: string;
     canPunch: boolean;
     shiftIdx?: number;
     isBreak?: boolean;
     timeRemaining?: string;
+    color?: string;
 }
 
+// Helper to convert HH:MM to minutes from start of day
 export const toMins = (time: string): number => {
     if (!time) return 0;
     const [h, m] = time.split(':').map(Number);
     return (h * 60) + (m || 0);
 };
 
-const minsToTime = (totalMins: number) => {
-    let h = Math.floor(totalMins / 60) % 24;
-    const m = totalMins % 60;
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    h = h % 12 || 12;
-    return `${h}:${m.toString().padStart(2, '0')} ${ampm}`;
+// --- SMART LOG MATCHING ---
+const matchLogsToShifts = (
+    logs: AttendanceLog[], 
+    shifts: { start: string, end: string }[]
+) => {
+    const shiftLogs: { in?: AttendanceLog, out?: AttendanceLog }[] = shifts.map(() => ({}));
+    const usedLogIds = new Set<string>();
+
+    // 1. Assign IN Logs
+    shifts.forEach((shift, index) => {
+        const startMins = toMins(shift.start);
+        
+        const bestIn = logs.find(log => {
+            if (log.type !== 'IN' || usedLogIds.has(log.id)) return false;
+            const logDate = log.timestamp.toDate ? log.timestamp.toDate() : new Date(log.timestamp.seconds * 1000);
+            const logMins = logDate.getHours() * 60 + logDate.getMinutes();
+            
+            // Allow punching in 2 hours early
+            const minStart = startMins - 120; 
+            const maxStart = toMins(shift.end) - 1; // Until end of shift
+
+            // Handle Overnight Logic for Matching
+            let adjustedLogMins = logMins;
+            let adjustedMinStart = minStart;
+            let adjustedMaxStart = maxStart;
+
+            // If shift wraps around midnight (e.g. 22:00 to 02:00)
+            if (toMins(shift.end) < startMins) {
+                adjustedMaxStart += 1440;
+                if (adjustedLogMins < startMins - 180) adjustedLogMins += 1440;
+            }
+
+            return adjustedLogMins >= adjustedMinStart && adjustedLogMins <= adjustedMaxStart;
+        });
+
+        if (bestIn) {
+            shiftLogs[index].in = bestIn;
+            usedLogIds.add(bestIn.id);
+        }
+    });
+
+    // 2. Assign OUT Logs
+    shifts.forEach((shift, index) => {
+        const startMins = toMins(shift.start);
+        const shiftInLog = shiftLogs[index].in;
+        
+        const bestOut = logs.find(log => {
+            if (log.type !== 'OUT' || usedLogIds.has(log.id)) return false;
+            
+            const logDate = log.timestamp.toDate ? log.timestamp.toDate() : new Date(log.timestamp.seconds * 1000);
+            const logMins = logDate.getHours() * 60 + logDate.getMinutes();
+
+            // Must be after IN
+            if (shiftInLog) {
+                const inDate = shiftInLog.timestamp.toDate ? shiftInLog.timestamp.toDate() : new Date(shiftInLog.timestamp.seconds * 1000);
+                const inMins = inDate.getHours() * 60 + inDate.getMinutes();
+                
+                // Handle Crossing Midnight for comparison
+                let adjLog = logMins;
+                let adjIn = inMins;
+                // Heuristic: If log is "small" (AM) and in is "large" (PM), add 1440 to log
+                if (adjLog < adjIn && (adjIn - adjLog) > 720) adjLog += 1440;
+
+                if (adjLog <= adjIn) return false;
+            } else {
+                // If no IN, fallback logic: must be after start + 5 mins
+                let adjLog = logMins;
+                let adjStart = startMins;
+                if (adjLog < adjStart && (adjStart - adjLog) > 720) adjLog += 1440;
+                
+                if (adjLog < adjStart + 5) return false;
+            }
+            return true;
+        });
+
+        if (bestOut) {
+            shiftLogs[index].out = bestOut;
+            usedLogIds.add(bestOut.id);
+        }
+    });
+
+    return shiftLogs;
 };
 
 export const calculateShiftStatus = (
@@ -34,242 +112,170 @@ export const calculateShiftStatus = (
 ): AttendanceStateResult => {
     if (!currentTime) return { state: 'LOADING', message: 'SYNCING', sub: 'Server Time', canPunch: false };
 
-    const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
-    
-    // --- 1. Pre-process Logs (Smart Slicing) ---
-    // Remove "morning out" logs that belong to yesterday's shift to reset the day for new shifts
-    let effectiveLogs = [...todayLogs];
-    let hasMorningOut = false;
+    let currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
 
-    if (effectiveLogs.length > 0 && effectiveLogs[0].type === 'OUT') {
-        const logTime = effectiveLogs[0].timestamp.toDate ? effectiveLogs[0].timestamp.toDate() : new Date(effectiveLogs[0].timestamp.seconds * 1000);
-        const logH = logTime.getHours();
+    // --- CHECK FOR YESTERDAY'S NIGHT SHIFT COMPLETION ---
+    // If the user just punched OUT this morning for a shift that started yesterday
+    if (todayLogs.length === 1 && todayLogs[0].type === 'OUT') {
+        const outLog = todayLogs[0];
+        const outTime = outLog.timestamp.toDate ? outLog.timestamp.toDate() : new Date(outLog.timestamp.seconds * 1000);
+        const outMins = outTime.getHours() * 60 + outTime.getMinutes();
         
-        if (logH < 12) { 
-            effectiveLogs = effectiveLogs.slice(1);
-            hasMorningOut = true;
-        } else if (todayShifts.length > 0) {
-            const s1Start = toMins(todayShifts[0].start);
-            if (s1Start > 720 && toMins(`${logH}:${logTime.getMinutes()}`) < 720) {
-                effectiveLogs = effectiveLogs.slice(1);
-                hasMorningOut = true;
-            }
+        // Show "Shift Complete" for 1 hour after punching out
+        if (currentMinutes < outMins + 60) {
+             return { state: 'COMPLETED', message: 'SHIFT COMPLETE', sub: 'Good Job', canPunch: false };
         }
+        // After 1 hour, proceed to show "Next Shift" or Today's shift
     }
 
-    const logsCount = effectiveLogs.length;
-    const lastLog = logsCount > 0 ? effectiveLogs[logsCount - 1] : null;
-
-    // --- 2. Check Yesterday's Continuation (Overnight Shift) ---
-    if (logsCount === 0 && yesterdayLogs.length > 0) {
-        const lastYesterday = yesterdayLogs[yesterdayLogs.length - 1];
-        if (lastYesterday.type === 'IN') {
-            const lastInTime = lastYesterday.timestamp.toDate ? lastYesterday.timestamp.toDate().getTime() : new Date(lastYesterday.timestamp.seconds * 1000).getTime();
-            const diffHours = (currentTime.getTime() - lastInTime) / (1000 * 60 * 60);
-            
-            if (diffHours < 18) {
-                if (!hasMorningOut) {
-                    return { state: 'READY_OUT', message: 'END', sub: 'Overnight Shift', canPunch: true, shiftIdx: 1 };
-                }
-            }
-        }
-    }
-
-    // If no shifts scheduled today
     if (todayShifts.length === 0) {
-        return { state: 'COMPLETED', message: 'NO SHIFT', sub: 'Relax Today', canPunch: false };
+        return { state: 'OFF', message: 'NO SHIFT', sub: 'Relax Today', canPunch: false };
     }
 
-    // ============================================================
-    // 🛑 PHASE 0: NO LOGS (Checking Entry for Shift 1)
-    // ============================================================
-    if (logsCount === 0) {
-        const s1 = todayShifts[0];
-        const s1Start = toMins(s1.start);
-        let s1End = toMins(s1.end);
-        
-        let adjCurrent = currentMinutes;
-        if (s1End < s1Start) s1End += 1440; 
-        if (s1Start > 1000 && currentMinutes < 600) {} // handle extremely early check
+    // Sort logs
+    const sortedLogs = [...todayLogs].sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+    const matchedShifts = matchLogsToShifts(sortedLogs, todayShifts);
 
-        const windowOpen = s1Start - 30; 
-        
-        // Missed Shift
-        if (adjCurrent > s1End) {
-            if (adjCurrent <= s1End + 60) {
-                return { state: 'ABSENT', message: 'ABSENT', sub: 'Shift 1 Missed', canPunch: false };
+    // --- MAIN SHIFT LOOP ---
+    for (let i = 0; i < todayShifts.length; i++) {
+        const shift = todayShifts[i];
+        const shiftNum = i + 1;
+        const isLastShift = i === todayShifts.length - 1;
+        const hasNextShift = !isLastShift;
+
+        // --- NORMALIZE TIMES (Handle Midnight Crossing) ---
+        let start = toMins(shift.start);
+        let end = toMins(shift.end);
+        let now = currentMinutes;
+
+        // If shift crosses midnight (e.g., 22:00 to 02:00)
+        // We map 22:00->1320, 02:00->1560 (24*60 + 120)
+        // If current time is 01:00 (60), map to 1500
+        if (end < start) {
+            end += 1440; 
+            // If current time is "early morning" (e.g. 1 AM), treat it as "late night" relative to start
+            if (now < start - 180) now += 1440; 
+        }
+
+        // --- DEFINITIONS ---
+        // 1. Pre-Shift Window: 60 mins before start
+        const windowOpen = start - 60;
+        // 2. Lock Out Window: 15 mins before end (Unless override)
+        const lockOutTime = end - 15;
+        // 3. Late Out Threshold: 60 mins after end (Wait 1 hour for OUT)
+        const lateOutThreshold = end + 60;
+        // 4. Missed Out / Absent Transition: 
+        //    - Absent: End + 60 mins
+        //    - Missed Out: End + 90 mins (Wait 1hr, then show Missed Out for 30 mins)
+        const absentTransition = end + 60; 
+        const missedOutTransition = end + 90;
+
+        const logIn = matchedShifts[i].in;
+        const logOut = matchedShifts[i].out;
+
+        // =========================================================
+        // SCENARIO 1: SHIFT COMPLETED (Has IN & OUT)
+        // =========================================================
+        if (logIn && logOut) {
+            // Calculate actual OUT time in normalized minutes
+            const outD = logOut.timestamp.toDate ? logOut.timestamp.toDate() : new Date(logOut.timestamp.seconds * 1000);
+            let outMins = outD.getHours() * 60 + outD.getMinutes();
+            // Normalize outMins to match 'now' scope
+            if (outMins < start && outMins < 300) outMins += 1440; 
+
+            // Logic: "Shift Complete" -> Wait 1 hour -> "Next Shift" or "Done"
+            if (now < outMins + 60) {
+                return { state: 'COMPLETED', message: 'SHIFT COMPLETE', sub: `Shift ${shiftNum} Done`, canPunch: false };
             }
-            if (todayShifts.length > 1) {
-                const s2 = todayShifts[1];
-                const s2Start = toMins(s2.start);
-                let adjS2Start = s2Start;
-                if (s2Start < s1Start) adjS2Start += 1440; 
+            
+            // 1 Hour Passed
+            if (hasNextShift) {
+                // If there is a next shift, continue loop to let it check 'WAITING' status
+                continue; 
+            } else {
+                return { state: 'NEXT_SHIFT', message: 'NEXT SHIFT', sub: 'See you next time', canPunch: false };
+            }
+        }
 
-                const s2Window = adjS2Start - 30;
-
-                if (adjCurrent >= s2Window) {
-                    return { state: 'READY_IN', message: 'START', sub: 'Shift 2', canPunch: true, shiftIdx: 2 };
-                } else {
-                    let waitDiff = adjS2Start - adjCurrent;
-                    const h = Math.floor(waitDiff / 60);
-                    const m = waitDiff % 60;
-                    return { state: 'WAITING', message: 'NEXT SHIFT', sub: `Shift 2 in ${h}h ${m}m`, canPunch: false };
+        // =========================================================
+        // SCENARIO 2: IN PROGRESS (Has IN, No OUT)
+        // =========================================================
+        if (logIn && !logOut) {
+            
+            // A. Normal Working Time (Before Lock Window)
+            // Or Locked Window (End - 15)
+            if (now < end + 60) { // "Wait 1 hour after end"
+                
+                // Inside Lock Window (15 mins before end) -> Locked unless override
+                if (now < lockOutTime && !hasOverride) {
+                    return { state: 'LOCKED', message: 'ON DUTY', sub: `Shift ends ${shift.end}`, canPunch: false, shiftIdx: shiftNum };
                 }
-            } else {
-                return { state: 'COMPLETED', message: 'NEXT SHIFT', sub: 'See you tomorrow', canPunch: false };
+                
+                // Allow Punch Out
+                return { state: 'READY_OUT', message: `END SHIFT ${shiftNum}`, sub: 'Record Departure', canPunch: true, shiftIdx: shiftNum };
+            }
+
+            // B. Missed Out Phase (End + 60 to End + 90)
+            // "Wait 1 hour, if no out, show missed out for 30 mins"
+            if (now >= end + 60 && now < end + 90) {
+                return { state: 'MISSED_OUT', message: 'MISSED OUT', sub: 'Did not punch out', canPunch: false };
+            }
+
+            // C. After Missed Out Phase (> End + 90)
+            if (now >= end + 90) {
+                if (hasNextShift) {
+                    // Transition to waiting for next shift
+                    // We fall through to next iteration which will return 'WAITING' or 'READY_IN'
+                    continue; 
+                } else {
+                    return { state: 'NEXT_SHIFT', message: 'NEXT SHIFT', sub: 'See you next time', canPunch: false };
+                }
             }
         }
 
-        // Normal Entry
-        if (hasOverride || adjCurrent >= windowOpen) {
-            return { state: 'READY_IN', message: 'START', sub: 'Shift 1', canPunch: true, shiftIdx: 1 };
-        } else {
-            return { state: 'LOCKED', message: 'TOO EARLY', sub: `Starts at ${s1.start}`, canPunch: false };
-        }
-    }
+        // =========================================================
+        // SCENARIO 3: NOT STARTED (No IN)
+        // =========================================================
+        if (!logIn) {
+            
+            // A. Before Shift Window
+            if (now < windowOpen) {
+                // If we skipped previous shifts, this handles the gap
+                if (i > 0) {
+                    // Logic: "Waiting for second shift" -> Break
+                    const diff = windowOpen - now;
+                    const h = Math.floor(diff/60);
+                    const m = diff%60;
+                    // Only show Break if we are truly waiting (gap between shifts)
+                    return { state: 'WAITING', message: 'BREAK', sub: `Next shift in ${h}h ${m}m`, canPunch: false, isBreak: true };
+                }
+                // First shift early
+                return { state: 'LOCKED', message: 'TOO EARLY', sub: `Starts at ${shift.start}`, canPunch: false };
+            }
 
-    // ============================================================
-    // 🛑 PHASE 1: LOGGED IN ONCE (Waiting for OUT S1)
-    // ============================================================
-    if (logsCount === 1 && lastLog?.type === 'IN') {
-        const s1 = todayShifts[0];
-        const s1Start = toMins(s1.start);
-        let s1End = toMins(s1.end);
-        
-        let adjCurrent = currentMinutes;
-        if (s1End < s1Start) s1End += 1440;
-        if (s1Start > 1000 && currentMinutes < 900) adjCurrent += 1440;
+            // B. Punch In Window (Start - 60 to End)
+            if (now <= end || hasOverride) {
+                return { state: 'READY_IN', message: `START SHIFT ${shiftNum}`, sub: `Shift ${shiftNum} Entry`, canPunch: true, shiftIdx: shiftNum };
+            }
 
-        const unlockTime = s1End - 30; // 30 Minutes before end time
+            // C. Absent Phase (End to End + 60)
+            // "If no IN by end time -> Absent -> (1 hr later) Next"
+            if (now > end && now <= end + 60) {
+                return { state: 'ABSENT', message: 'ABSENT', sub: `Shift ${shiftNum} Missed`, canPunch: false };
+            }
 
-        // 1. Check if Locked (Current time < Unlock Time) - Unless Override
-        if (!hasOverride && adjCurrent < unlockTime) {
-            return { 
-                state: 'LOCKED', 
-                message: 'ON DUTY', 
-                sub: `Exit opens at ${minsToTime(unlockTime)}`, 
-                canPunch: false, 
-                shiftIdx: 1 
-            };
-        }
-
-        // 2. Before End + 60m (Grace Period for Punch Out)
-        if (adjCurrent <= s1End + 60) {
-            return { state: 'READY_OUT', message: 'END', sub: 'Shift 1', canPunch: true, shiftIdx: 1 };
-        }
-        
-        // 3. Missed Out Window
-        if (adjCurrent > s1End + 60 && adjCurrent <= s1End + 90) {
-            return { state: 'MISSED', message: 'MISSED OUT', sub: 'Forgot Checkout', canPunch: false };
-        }
-
-        // 4. Move to Next Shift
-        if (todayShifts.length > 1) {
-             const s2Start = toMins(todayShifts[1].start);
-             let adjS2Start = s2Start;
-             if (s2Start < s1Start) adjS2Start += 1440;
-
-             if (adjCurrent >= adjS2Start - 30) {
-                 return { state: 'READY_IN', message: 'START', sub: 'Shift 2', canPunch: true, shiftIdx: 2 };
-             }
-             return { state: 'DISABLED', message: 'BREAK', sub: 'Waiting Shift 2', canPunch: false, isBreak: true };
-        } else {
-             return { state: 'COMPLETED', message: 'NEXT SHIFT', sub: 'See you tomorrow', canPunch: false };
-        }
-    }
-
-    // ============================================================
-    // 🛑 PHASE 2: TWO LOGS (Finished S1 -> Waiting S2)
-    // ============================================================
-    if (logsCount === 2) {
-        if (todayShifts.length < 2) {
-            const lastOutTime = lastLog!.timestamp.toDate ? lastLog!.timestamp.toDate() : new Date(lastLog!.timestamp.seconds * 1000);
-            const minsSinceOut = (currentTime.getTime() - lastOutTime.getTime()) / 60000;
-
-            if (minsSinceOut < 60) {
-                return { state: 'COMPLETED', message: 'COMPLETE', sub: 'Shift Done', canPunch: false };
-            } else {
-                return { state: 'COMPLETED', message: 'NEXT SHIFT', sub: 'See you tomorrow', canPunch: false };
+            // D. After Absent Phase (> End + 60)
+            if (now > end + 60) {
+                if (hasNextShift) {
+                    // Go to next shift logic (which will show BREAK or READY_IN)
+                    continue;
+                } else {
+                    return { state: 'NEXT_SHIFT', message: 'NEXT SHIFT', sub: 'See you next time', canPunch: false };
+                }
             }
         }
-
-        // Split Shift
-        const s1 = todayShifts[0];
-        const s2 = todayShifts[1];
-        const s1Start = toMins(s1.start);
-        const s2Start = toMins(s2.start);
-        
-        let adjS2Start = s2Start;
-        if (s2Start < s1Start) adjS2Start += 1440;
-
-        let adjCurrent = currentMinutes;
-        if (s1Start > 1000 && currentMinutes < 900) adjCurrent += 1440;
-
-        const windowOpen = adjS2Start - 30;
-
-        if (hasOverride || adjCurrent >= windowOpen) {
-            return { state: 'READY_IN', message: 'START', sub: 'Shift 2', canPunch: true, shiftIdx: 2 };
-        } else {
-            let diff = adjS2Start - adjCurrent;
-            const h = Math.floor(diff / 60);
-            const m = diff % 60;
-            return { state: 'DISABLED', message: 'BREAK', sub: `Shift 2 in ${h}h ${m}m`, canPunch: false, isBreak: true };
-        }
     }
 
-    // ============================================================
-    // 🛑 PHASE 3: THREE LOGS (In S2)
-    // ============================================================
-    if (logsCount === 3) {
-        const s2 = todayShifts[1];
-        const s1Start = toMins(todayShifts[0].start);
-        let s2End = toMins(s2.end);
-        let s2Start = toMins(s2.start);
-
-        if (s2Start < s1Start) s2Start += 1440;
-        if (s2End < s1Start) s2End += 1440;
-        if (s2End < s2Start) s2End += 1440;
-
-        let adjCurrent = currentMinutes;
-        if (s1Start > 1000 && currentMinutes < 900) adjCurrent += 1440;
-
-        const unlockTimeS2 = s2End - 15;
-
-        // 1. Check if Locked (Current time < Unlock Time) - Unless Override
-        if (!hasOverride && adjCurrent < unlockTimeS2) {
-            return { 
-                state: 'LOCKED', 
-                message: 'ON DUTY', 
-                sub: `Exit opens at ${minsToTime(unlockTimeS2)}`, 
-                canPunch: false, 
-                shiftIdx: 2 
-            };
-        }
-
-        if (adjCurrent <= s2End + 60) {
-             return { state: 'READY_OUT', message: 'END', sub: 'Shift 2', canPunch: true, shiftIdx: 2 };
-        }
-        else if (adjCurrent > s2End + 60 && adjCurrent <= s2End + 90) {
-             return { state: 'MISSED', message: 'MISSED OUT', sub: 'Forgot Checkout S2', canPunch: false };
-        }
-        else {
-             return { state: 'COMPLETED', message: 'NEXT SHIFT', sub: 'See you tomorrow', canPunch: false };
-        }
-    }
-
-    // ============================================================
-    // 🛑 PHASE 4: FOUR LOGS (Completed)
-    // ============================================================
-    if (logsCount >= 4) {
-        const lastOutTime = lastLog!.timestamp.toDate ? lastLog!.timestamp.toDate() : new Date(lastLog!.timestamp.seconds * 1000);
-        const minsSinceOut = (currentTime.getTime() - lastOutTime.getTime()) / 60000;
-
-        if (minsSinceOut < 60) {
-            return { state: 'COMPLETED', message: 'COMPLETE', sub: 'Day Done', canPunch: false };
-        } else {
-            return { state: 'COMPLETED', message: 'NEXT SHIFT', sub: 'See you tomorrow', canPunch: false };
-        }
-    }
-
-    return { state: 'ERROR', message: 'UNKNOWN', sub: 'Contact Admin', canPunch: false };
+    // Default Fallback
+    return { state: 'OFF', message: 'OFF DUTY', sub: 'No Active Shift', canPunch: false };
 };

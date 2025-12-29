@@ -453,6 +453,9 @@ useEffect(() => {
                         const localDateStr = getLocalDateKey(currentTime!);
                         const nextType = shiftLogic.state === 'READY_IN' ? 'IN' : 'OUT';
                         
+                        // Use calculated shift index from logic to ensure correct reporting
+                        const currentShiftIdx = (shiftLogic as any).shiftIdx || 1;
+
                         await addDoc(collection(db, 'attendance_logs'), {
                             userId: currentUserId,
                             userName: currentUserName,
@@ -467,7 +470,7 @@ useEffect(() => {
                             deviceInfo: navigator.userAgent,
                             deviceId: localDeviceId,
                             status: isSuspicious ? 'flagged' : 'verified', 
-                            shiftIndex: (shiftLogic as any).shiftIdx || 1,
+                            shiftIndex: currentShiftIdx, 
                             isSuspicious: isSuspicious, 
                             violationType: violationType 
                         });
@@ -685,7 +688,7 @@ useEffect(() => {
         const isCheckIn = shiftLogic.state === 'READY_IN';
         return {
             theme: isCheckIn ? 'cyan' : 'rose',
-            mainText: isCheckIn ? 'START' : 'FINISH',
+            mainText: shiftLogic.message, // Use specific message like "START SHIFT 2"
             subText: shiftLogic.sub,
             icon: isCheckIn ? 'fa-fingerprint' : 'fa-sign-out-alt',
             ringClass: isCheckIn 
@@ -828,7 +831,14 @@ useEffect(() => {
     <div className="mt-10 w-full max-w-2xl flex flex-col gap-6 px-4">
         {todayShifts.map((s, i) => {
             const isCurrent = (shiftLogic as any).shiftIdx === (i + 1);
-            const isMissed = (shiftLogic as any).shiftIdx > (i + 1) && todayLogs.length < (i + 1) * 2;
+            // Logic change: Missed is if shiftLogic says we are past this index
+            // OR if logs are empty for this shift (handled by new logic matching)
+            const isMissed = (shiftLogic as any).shiftIdx > (i + 1) && todayLogs.length < (i + 1) * 2; 
+            
+            // Check if overnight shift for visual cue
+            const startH = parseInt(s.start.split(':')[0]);
+            const endH = parseInt(s.end.split(':')[0]);
+            const isOvernight = endH < startH;
 
             let borderColor = 'border-white/10';
             let bgColor = 'bg-white/5';
@@ -849,7 +859,7 @@ useEffect(() => {
                 >
                     <div className="flex justify-between items-center border-b border-white/5 pb-2">
                         <span className="text-xs font-black text-white/30 uppercase tracking-[0.3em]">
-                            Shift {i + 1}
+                            Shift {i + 1} {isOvernight ? '(OVERNIGHT)' : ''}
                         </span>
                         {isCurrent && (
                             <span className="flex items-center gap-2 text-[10px] bg-cyan-500 text-black px-3 py-1 rounded-full font-bold">
@@ -874,6 +884,7 @@ useEffect(() => {
                             <span className="text-3xl md:text-4xl font-black font-mono tracking-tighter">
                                 {s.end}
                             </span>
+                            {isOvernight && <span className="text-[9px] text-white/40 mt-1 uppercase">+1 Day</span>}
                         </div>
                     </div>
                 </div>

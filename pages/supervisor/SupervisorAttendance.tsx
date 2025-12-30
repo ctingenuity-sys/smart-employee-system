@@ -2,8 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 // @ts-ignore
-import { collection, query, where, getDocs, writeBatch, limit, orderBy } from 'firebase/firestore';
-import { User, Schedule, AttendanceLog } from '../../types';
+import { doc } from 'firebase/firestore';
+
+import { collection, query, where, getDocs, writeBatch, limit, orderBy, addDoc, Timestamp } from 'firebase/firestore';
+import { User, Schedule, AttendanceLog, ActionLog } from '../../types';
 import Toast from '../../components/Toast';
 import Modal from '../../components/Modal';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -58,6 +60,29 @@ const timeToMinutes = (timeStr: string) => {
     return parseInt(parts[0]) * 60 + parseInt(parts[1]);
 };
 
+// Helper to get list of YYYY-MM months between two dates
+const getMonthsInRange = (startStr: string, endStr: string) => {
+    const start = new Date(startStr);
+    const end = new Date(endStr);
+    // Add buffer for end date + 2 days logic
+    const extendedEnd = new Date(end);
+    extendedEnd.setDate(extendedEnd.getDate() + 2);
+    
+    const months = new Set<string>();
+    let cur = new Date(start);
+    // Set to first day to avoid skipping months due to day overflow
+    cur.setDate(1); 
+    
+    while(cur <= extendedEnd) {
+        months.add(cur.toISOString().slice(0, 7));
+        cur.setMonth(cur.getMonth() + 1);
+    }
+    // Ensure the month of the extended end date is included
+    months.add(extendedEnd.toISOString().slice(0, 7));
+    
+    return Array.from(months);
+};
+
 interface DailyDetail {
     date: string;
     day: string;
@@ -86,7 +111,8 @@ interface DailyDetail {
     earlyMinutes: number;
     dailyWorkMinutes: number;
     overtimeMinutes: number;
-    status: 'Present' | 'Absent' | 'Incomplete' | 'Off';
+    status: 'Present' | 'Absent' | 'Incomplete' | 'Off' | 'Partial Absent';
+    absentValue: number; // 0, 0.5, 1.0
     riskFlags: string[];
 }
 
@@ -112,8 +138,9 @@ const SupervisorAttendance: React.FC = () => {
     const [attFilterStart, setAttFilterStart] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
     const [attFilterEnd, setAttFilterEnd] = useState(new Date().toISOString().split('T')[0]);
     const [isCalculatingAtt, setIsCalculatingAtt] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
     const [expandedUser, setExpandedUser] = useState<string | null>(null);
-    const [toast, setToast] = useState<{msg: string, type: 'success'|'error'} | null>(null);
+    const [toast, setToast] = useState<{msg: string, type: 'success'|'info'|'error'} | null>(null);
     const [showOnlySuspicious, setShowOnlySuspicious] = useState(false);
 
     // Map Modal
@@ -149,9 +176,24 @@ const SupervisorAttendance: React.FC = () => {
             details: []
         }));
 
-        const qSch = query(collection(db, 'schedules')); 
-        const snapSch = await getDocs(qSch);
-        const schedules = snapSch.docs.map(doc => doc.data() as Schedule);
+        // OPTIMIZATION: Filter schedules by month to avoid fetching whole collection
+        const targetMonths = getMonthsInRange(attFilterStart, attFilterEnd);
+        let schedules: Schedule[] = [];
+        
+        if (targetMonths.length > 0) {
+            // Firestore 'in' limit is 10
+            if (targetMonths.length <= 10) {
+                const qSch = query(collection(db, 'schedules'), where('month', 'in', targetMonths));
+                const snapSch = await getDocs(qSch);
+                schedules = snapSch.docs.map(doc => doc.data() as Schedule);
+            } else {
+                // If more than 10 months selected (unlikely), fallback to fetching all or split queries
+                // For simplicity, fallback to all, but in real app batching is better
+                const qSch = query(collection(db, 'schedules'));
+                const snapSch = await getDocs(qSch);
+                schedules = snapSch.docs.map(doc => doc.data() as Schedule);
+            }
+        }
 
         // جلب اللوجات للفترة المطلوبة + يوم إضافي
         const qLogs = query(
@@ -165,6 +207,11 @@ const SupervisorAttendance: React.FC = () => {
         // ترتيب كل اللوجات زمنياً لضمان دقة الربط
         const allLogsSorted = allLogs.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
 
+        // جلب الإجازات المعتمدة لتجنب احتساب الغياب عليها
+        const qLeaves = query(collection(db, 'leaveRequests'), where('status', '==', 'approved'));
+        const snapLeaves = await getDocs(qLeaves);
+        const leaves = snapLeaves.docs.map(d => d.data());
+
         for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
             const dateStr = d.toISOString().split('T')[0];
             const dayOfWeek = d.getDay();
@@ -173,7 +220,7 @@ const SupervisorAttendance: React.FC = () => {
                 const summary = summaryMap.get(user.id)!;
                 let myShifts: { start: string, end: string }[] = [];
                 
-                // --- (هنا يبقى منطق استخراج الجدول myShifts كما هو في كودك الأصلي) ---
+                // --- استخراج الجدول ---
                 const userSchedules = schedules.filter(s => s.userId === user.id);
                 const specific = userSchedules.find(s => s.date === dateStr);
                 if (specific) {
@@ -195,110 +242,125 @@ const SupervisorAttendance: React.FC = () => {
                     });
                 }
 
-                // --- منطق الربط الجديد (يدعم الشفت الليلي وبصمة مقصود) ---
-                
-                // 1. بصمات الدخول لهذا اليوم الفعلي
+                // --- منطق الربط ---
                 const insToday = allLogsSorted.filter(l => l.userId === user.id && l.type === 'IN' && l.date === dateStr);
-                // 2. بصمات الخروج لهذا اليوم الفعلي (قد تشمل بصمة خروج مقصود)
                 const outsToday = allLogsSorted.filter(l => l.userId === user.id && l.type === 'OUT' && l.date === dateStr);
 
                 let in1 = null, out1 = null, in2 = null, out2 = null;
 
-const userLogs = allLogsSorted.filter(l => l.userId === user.id);
+                if (insToday.length > 0) {
+                    in1 = insToday[0];
+                    out1 = allLogsSorted.find(o => 
+                        o.userId === user.id && 
+                        o.type === 'OUT' && 
+                        o.timestamp.seconds > in1.timestamp.seconds &&
+                        (o.timestamp.seconds - in1.timestamp.seconds) < 57600
+                    );
 
-if (myShifts.length > 0) {
-    // معالجة كل شفت مجدول لهذا اليوم
-    myShifts.forEach((sh, idx) => {
-        const schedStartMins = timeToMinutes(sh.start);
-        
-        // تحويل وقت الجدول إلى كائن Date حقيقي في يوم dateStr
-        const schedStartBase = new Date(d);
-        schedStartBase.setHours(Math.floor(schedStartMins / 60), schedStartMins % 60, 0, 0);
-        
-        // إذا كان الدوام يبدأ 12 منتصف الليل (24:00)، نعتبره فعلياً بداية اليوم التالي تقنياً
-        // ولكننا سنبحث عن بصمات حول هذا الوقت ونربطها بيوم الجمعة
-        if (sh.start === '24:00' || sh.start === '00:00') {
-             // إذا كان المقصود بـ 00:00 هو نهاية الجمعة/بداية السبت
-             if (idx > 0 || schedStartMins === 0) schedStartBase.setDate(schedStartBase.getDate() + 1);
-        }
+                    if (insToday.length > 1) {
+                        in2 = insToday[1];
+                        out2 = allLogsSorted.find(o => 
+                            o.userId === user.id && 
+                            o.type === 'OUT' && 
+                            o.timestamp.seconds > in2.timestamp.seconds &&
+                            o.timestamp.seconds !== out1?.timestamp.seconds
+                        );
+                    }
+                } 
 
-        // 1. البحث عن أقرب بصمة دخول (IN) في نافذة 6 ساعات من وقت الجدول
-        const matchedIn = userLogs.find(l => {
-            if (l.type !== 'IN') return false;
-            const logT = l.timestamp.toDate ? l.timestamp.toDate() : new Date(l.timestamp.seconds * 1000);
-            const diffHours = Math.abs(logT.getTime() - schedStartBase.getTime()) / 3600000;
-            return diffHours < 7; // نافذة 7 ساعات للبحث
-        });
+                // حالة "مقصود" (خروج فقط)
+                if (!in1 && outsToday.length > 0) {
+                    const linkedToYesterday = allLogsSorted.find(i => 
+                        i.userId === user.id && i.type === 'IN' && 
+                        i.timestamp.seconds < outsToday[0].timestamp.seconds &&
+                        (outsToday[0].timestamp.seconds - i.timestamp.seconds) < 57600
+                    );
+                    if (!linkedToYesterday) out1 = outsToday[0];
+                }
 
-        if (idx === 0) {
-            in1 = matchedIn;
-            if (in1) {
-                // البحث عن أول خروج (OUT) بعد هذا الدخول مباشرة
-                out1 = userLogs.find(o => 
-                    o.type === 'OUT' && 
-                    o.timestamp.seconds > in1.timestamp.seconds &&
-                    (o.timestamp.seconds - in1.timestamp.seconds) < 57600 // أقصى مدة شفت 16 ساعة
-                );
-            }
-        } else if (idx === 1) {
-            in2 = matchedIn;
-            if (in2) {
-                out2 = userLogs.find(o => 
-                    o.type === 'OUT' && 
-                    o.timestamp.seconds > in2.timestamp.seconds &&
-                    o.timestamp.id !== out1?.timestamp.id && // لضمان عدم تكرار نفس البصمة
-                    (o.timestamp.seconds - in2.timestamp.seconds) < 57600
-                );
-            }
-        }
-    });
-}
-                // --- حسابات الحالة والوقت ---
-                let status: 'Present'|'Absent'|'Incomplete'|'Off' = 'Absent';
+                // --- حسابات الحالة والوقت والغياب ---
+                let status: 'Present'|'Absent'|'Incomplete'|'Off'|'Partial Absent' = 'Absent';
                 let lateMins = 0;
                 let workMinutes = 0;
+                let absentValue = 0;
                 let flags: string[] = [];
 
                 const fmtTime = (log: any) => log ? log.timestamp.toDate().toLocaleTimeString('en-US', {hour12:false, hour:'2-digit', minute:'2-digit'}) : null;
 
-                if (in1 || out1) {
-                    status = (in1 && out1) ? 'Present' : 'Incomplete';
+                const isOnLeave = leaves.some(l => l.from === user.id && l.startDate <= dateStr && l.endDate >= dateStr);
+
+                if (myShifts.length > 0 && !isOnLeave) {
+                    if (myShifts.length === 2) {
+                        // ** BROKEN SHIFT LOGIC (0.5 per shift) **
+                        let shiftsMissed = 0;
+                        
+                        // Shift 1 Check
+                        if (!in1 && !out1) shiftsMissed += 0.5;
+                        
+                        // Shift 2 Check
+                        if (!in2 && !out2) shiftsMissed += 0.5;
+
+                        absentValue = shiftsMissed;
+                        
+                        if (absentValue === 0) status = 'Present';
+                        else if (absentValue === 0.5) status = 'Partial Absent';
+                        else status = 'Absent';
+
+                    } else {
+                        // ** STRAIGHT SHIFT LOGIC **
+                        if (!in1 && !out1) {
+                            absentValue = 1.0;
+                            status = 'Absent';
+                        } else {
+                            status = (in1 && out1) ? 'Present' : 'Incomplete';
+                        }
+                    }
+                } else {
+                    status = 'Off';
+                }
+
+                if (status === 'Present' || status === 'Partial Absent' || status === 'Incomplete') {
                     summary.totalWorkDays++;
                     if (dayOfWeek === 5) summary.fridaysWorked++;
-
-                    if (in1 && out1) {
-                        workMinutes += Math.round((out1.timestamp.seconds - in1.timestamp.seconds) / 60);
-                    }
                     
-                    // تأخر الشفت الأول
+                    if (in1 && out1) workMinutes += Math.round((out1.timestamp.seconds - in1.timestamp.seconds) / 60);
+                    if (in2 && out2) workMinutes += Math.round((out2.timestamp.seconds - in2.timestamp.seconds) / 60);
+
+                    // Late Calc (Only Shift 1)
                     if (myShifts[0] && in1) {
                         const schedStart = timeToMinutes(myShifts[0].start);
                         const actStart = timeToMinutes(fmtTime(in1)!);
                         if (actStart > schedStart + 15) lateMins += (actStart - schedStart);
                     }
-                } else {
-                    status = myShifts.length > 0 ? 'Absent' : 'Off';
-                    if (status === 'Absent') summary.absentDays++;
                 }
 
-                // إضافة المخاطر (Fake Loc)
-                [in1, out1, in2, out2].forEach(l => {
-                    if (l && l.distanceKm && l.distanceKm > 0.15) flags.push(`Fake Loc`);
-                });
-
+                summary.absentDays += absentValue;
                 summary.totalLateMinutes += lateMins;
+
+                // --- RISK / FRAUD DETECTION LOGIC ---
+                // Fake Loc / Out of Range
+                [in1, out1, in2, out2].forEach(l => {
+                    if (l) {
+                        if (l.isSuspicious) {
+                            const type = l.violationType || 'SUSPICIOUS_ACTIVITY';
+                            flags.push(type === 'MOCK_LOCATION_DETECTED' ? 'FAKE_GPS' : type);
+                        }
+                        if (l.distanceKm && l.distanceKm > 0.15) {
+                            flags.push('OUT_OF_RANGE');
+                        }
+                    }
+                });
+                
                 if (flags.length > 0) summary.riskCount++;
 
                 summary.details.push({
                     date: dateStr, 
                     day: d.toLocaleDateString('en-US', {weekday:'short'}),
                     shiftsScheduled: myShifts,
-                    actualIn1: fmtTime(in1),
-                    actualOut1: fmtTime(out1),
+                    actualIn1: fmtTime(in1), actualOut1: fmtTime(out1),
                     in1Lat: in1?.locationLat, in1Lng: in1?.locationLng,
                     out1Lat: out1?.locationLat, out1Lng: out1?.locationLng,
-                    actualIn2: fmtTime(in2),
-                    actualOut2: fmtTime(out2),
+                    actualIn2: fmtTime(in2), actualOut2: fmtTime(out2),
                     in2Lat: in2?.locationLat, in2Lng: in2?.locationLng,
                     out2Lat: out2?.locationLat, out2Lng: out2?.locationLng,
                     lateMinutes: lateMins, 
@@ -308,7 +370,8 @@ if (myShifts.length > 0) {
                     dailyWorkMinutes: workMinutes, 
                     overtimeMinutes: workMinutes > 540 ? workMinutes - 540 : 0, 
                     status,
-                    riskFlags: [...new Set(flags)]
+                    absentValue,
+                    riskFlags: [...new Set(flags)] // Unique flags
                 });
             });
         }
@@ -320,6 +383,71 @@ if (myShifts.length > 0) {
         setIsCalculatingAtt(false); 
     }
 };
+
+    // --- Sync Logic: Write Absences to Actions Collection ---
+    const handleSyncAbsences = async () => {
+        if (attendanceSummaries.length === 0) return setToast({msg: 'Please calculate attendance first', type: 'info'});
+        
+        if (!confirm(`Are you sure you want to register absences for the period ${attFilterStart} to ${attFilterEnd}? This will affect employee reports.`)) return;
+
+        setIsSyncing(true);
+        try {
+            const batch = writeBatch(db);
+            const actionRef = collection(db, 'actions');
+            let count = 0;
+
+            // 1. Get existing absence records to prevent duplicates
+            // FIX: Removed multi-field inequality query (fromDate + toDate) to prevent index error.
+            // We query by start date and filter end date in memory.
+            const qExist = query(
+                actionRef, 
+                where('type', '==', 'unjustified_absence'),
+                where('fromDate', '>=', attFilterStart)
+            );
+            const existSnap = await getDocs(qExist);
+            // Filter in memory for the upper bound
+            const existingKeys = new Set(
+                existSnap.docs
+                    .map(d => d.data())
+                    .filter((d: any) => d.toDate <= attFilterEnd)
+                    .map((d: any) => `${d.employeeId}_${d.fromDate}`)
+            );
+
+            for (const summary of attendanceSummaries) {
+                for (const day of summary.details) {
+                    if (day.absentValue > 0) {
+                        const key = `${summary.userId}_${day.date}`;
+                        if (!existingKeys.has(key)) {
+                            const newDoc = doc(actionRef);
+                            batch.set(newDoc, {
+                                employeeId: summary.userId,
+                                type: 'unjustified_absence',
+                                fromDate: day.date,
+                                toDate: day.date,
+                                description: `System Auto-Absent: ${day.absentValue} Day(s) (No Punch)`,
+                                weight: day.absentValue, // Store weight for report calculation (0.5 or 1)
+                                createdAt: Timestamp.now()
+                            });
+                            count++;
+                        }
+                    }
+                }
+            }
+
+            if (count > 0) {
+                await batch.commit();
+                setToast({ msg: `Successfully registered ${count} absence records!`, type: 'success' });
+            } else {
+                setToast({ msg: 'No new absences to register.', type: 'info' });
+            }
+
+        } catch (e: any) {
+            console.error(e);
+            setToast({ msg: 'Error syncing: ' + e.message, type: 'error' });
+        } finally {
+            setIsSyncing(false);
+        }
+    };
 
     const handleExportExcel = () => {
         if (attendanceSummaries.length === 0) return setToast({ msg: 'No data to export', type: 'error' });
@@ -355,6 +483,7 @@ if (myShifts.length > 0) {
                         "Work (Mins)": d.dailyWorkMinutes,
                         "Late (Mins)": d.lateMinutes,
                         "Status": d.status,
+                        "Absence Value": d.absentValue,
                         "Risks": d.riskFlags.join(', ')
                     });
                 });
@@ -408,19 +537,24 @@ if (myShifts.length > 0) {
                         <button onClick={calculateAttendance} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all flex items-center gap-2">
                             {isCalculatingAtt ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-sync-alt"></i>} Refresh
                         </button>
+                        
+                        {/* Show Suspicious Toggle */}
+                        <button 
+                            onClick={() => setShowOnlySuspicious(!showOnlySuspicious)} 
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${showOnlySuspicious ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-500'}`}
+                            title="Show only rows with fraud or risk"
+                        >
+                            <i className="fas fa-shield-alt"></i> Risk Filter
+                        </button>
+
+                        <button onClick={handleSyncAbsences} disabled={isSyncing || attendanceSummaries.length === 0} className="bg-rose-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-rose-700 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed" title="Register absent days to reports">
+                            {isSyncing ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-file-export"></i>} Sync
+                        </button>
                         <button onClick={handleExportExcel} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-emerald-700 transition-all flex items-center gap-2">
-                            <i className="fas fa-file-excel"></i> Export Excel
+                            <i className="fas fa-file-excel"></i> Export
                         </button>
                         <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-700 transition-all flex items-center gap-2">
                             <i className="fas fa-print"></i> Print
-                        </button>
-                        <button
-                            onClick={() => setShowOnlySuspicious(!showOnlySuspicious)}
-                            className={`px-3 py-2 rounded-lg text-xs font-bold ${
-                                showOnlySuspicious ? 'bg-red-600 text-white' : 'bg-slate-200 text-slate-700'
-                            }`}
-                        >
-                            Suspicious Only
                         </button>
                     </div>
                 </div>
@@ -430,7 +564,7 @@ if (myShifts.length > 0) {
                     <div className="bg-gradient-to-br from-rose-500 to-pink-600 rounded-2xl p-6 text-white shadow-lg">
                         <div className="flex justify-between items-start">
                             <div>
-                                <p className="text-pink-100 font-bold text-xs uppercase tracking-wider mb-1">Total Absence</p>
+                                <p className="text-pink-100 font-bold text-xs uppercase tracking-wider mb-1">Total Absence Days</p>
                                 <h3 className="text-3xl font-black">{totalAbsent} <span className="text-sm font-medium opacity-80">Days</span></h3>
                             </div>
                             <div className="bg-white/20 p-3 rounded-xl"><i className="fas fa-user-times text-2xl"></i></div>
@@ -476,9 +610,11 @@ if (myShifts.length > 0) {
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 print:divide-slate-300">
                                         {attendanceSummaries.length === 0 ? (
-                                            <tr><td colSpan={9} className="p-8 text-center text-slate-400">Click 'Refresh Report' to load data.</td></tr>
+                                            <tr><td colSpan={9} className="p-8 text-center text-slate-400">Click 'Refresh' to calculate.</td></tr>
                                         ) : (
-                                            attendanceSummaries.map((summary, i) => (
+                                            attendanceSummaries
+                                            .filter(s => showOnlySuspicious ? s.riskCount > 0 : true)
+                                            .map((summary, i) => (
                                                 <React.Fragment key={summary.userId}>
                                                     <tr className="hover:bg-slate-50/50 print:break-inside-avoid">
                                                         <td className="p-3 font-bold text-slate-800">{summary.userName}</td>
@@ -488,7 +624,7 @@ if (myShifts.length > 0) {
                                                         <td className="p-3 text-center font-bold text-amber-600">{summary.totalLateMinutes}</td>
                                                         <td className="p-3 text-center font-bold text-emerald-600">{summary.totalOvertimeHours > 0 ? summary.totalOvertimeHours.toFixed(1) : '-'}</td>
                                                         <td className="p-3 text-center font-bold text-purple-600">
-                                                            {summary.riskCount > 0 ? <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded animate-pulse">{summary.riskCount} Flags</span> : '-'}
+                                                            {summary.riskCount > 0 ? <span className="bg-red-500 text-white px-2 py-0.5 rounded-full shadow-sm animate-pulse text-[10px]">{summary.riskCount} ALERTS</span> : '-'}
                                                         </td>
                                                         <td className="p-3 text-center print:hidden">
                                                             <button 
@@ -499,8 +635,8 @@ if (myShifts.length > 0) {
                                                             </button>
                                                         </td>
                                                     </tr>
-                                                    {/* Expanded Details - UPDATED FOR 4 PUNCHES */}
-                                                    {(expandedUser === summary.userId) && (
+                                                    {/* Expanded Details */}
+                                                    {(expandedUser === summary.userId || showOnlySuspicious) && (
                                                         <tr>
                                                             <td colSpan={9} className="p-0 bg-slate-50/50">
                                                                 <div className="p-2 border-b border-slate-200">
@@ -515,15 +651,14 @@ if (myShifts.length > 0) {
                                                                                 <th className="p-2 text-center text-indigo-700">Shift 2 Out</th>
                                                                                 <th className="p-2 text-center border-l border-slate-300">Work (Mins)</th>
                                                                                 <th className="p-2 text-center">Status</th>
-                                                                                <th className="p-2 text-center">Risks</th>
-                                                                                <th className="p-2 text-center">Server Time</th>
+                                                                                <th className="p-2 text-center">Risk</th>
                                                                             </tr>
                                                                         </thead>
                                                                         <tbody className="divide-y divide-slate-100 bg-white">
                                                                             {summary.details
-                                                                                        .filter(d => showOnlySuspicious ? d.riskFlags.length > 0 : true)
-                                                                                        .map((detail, idx) => (
-                                                                                <tr key={idx}>
+                                                                                .filter(d => showOnlySuspicious ? d.riskFlags.length > 0 : true)
+                                                                                .map((detail, idx) => (
+                                                                                <tr key={idx} className={`${detail.riskFlags.length > 0 ? 'bg-red-50 border-l-4 border-red-500' : detail.absentValue > 0 ? 'bg-orange-50' : ''}`}>
                                                                                     <td className="p-2">{detail.date}</td>
                                                                                     <td className="p-2">{detail.day}</td>
                                                                                     
@@ -553,31 +688,16 @@ if (myShifts.length > 0) {
                                                                                     </td>
                                                                                     <td className="p-2 text-center">
                                                                                         {detail.riskFlags.length > 0 ? (
-                                                                                            <div className="flex flex-col items-center">
-                                                                                                <span className="px-2 text-[9px] font-bold rounded-full bg-red-100 text-red-800">
-                                                                                                    Flagged
-                                                                                                </span>
-                                                                                                <span className="text-[9px] text-red-600 font-bold mt-1">
-                                                                                                    Suspicious
-                                                                                                </span>
+                                                                                            <div className="flex flex-col gap-1">
+                                                                                                {detail.riskFlags.map((flag, fi) => (
+                                                                                                    <span key={fi} className="text-[9px] font-black bg-red-600 text-white px-1.5 py-0.5 rounded uppercase tracking-tighter">
+                                                                                                        {flag === 'MOCK_LOCATION_DETECTED' ? <><i className="fas fa-satellite-dish mr-1"></i> FAKE GPS</> : 
+                                                                                                         flag === 'MANUAL_TIME_CHANGE' ? <><i className="fas fa-clock mr-1"></i> TIME MANIP</> : 
+                                                                                                         flag === 'OUT_OF_RANGE' ? <><i className="fas fa-map-marked-alt mr-1"></i> FAR DIST</> : flag}
+                                                                                                    </span>
+                                                                                                ))}
                                                                                             </div>
-                                                                                        ) : (
-                                                                                            <span className="px-2 text-[9px] font-bold rounded-full bg-green-100 text-green-800">
-                                                                                                Verified
-                                                                                            </span>
-                                                                                        )}
-                                                                                    </td>
-                                                                                    <td className="p-2 text-left text-gray-500">
-                                                                                        <div>Server: {detail.serverTimestamp?.toDate().toLocaleTimeString()}</div>
-                                                                                        {detail.clientTimestamp && (
-                                                                                            <div className={`text-[9px] ${
-                                                                                                Math.abs(detail.serverTimestamp.seconds - detail.clientTimestamp.seconds) > 300
-                                                                                                    ? 'text-red-600 font-bold'
-                                                                                                    : 'text-gray-400'
-                                                                                            }`}>
-                                                                                                Device: {detail.clientTimestamp.toDate().toLocaleTimeString()}
-                                                                                            </div>
-                                                                                        )}
+                                                                                        ) : '-'}
                                                                                     </td>
                                                                                 </tr>
                                                                                 

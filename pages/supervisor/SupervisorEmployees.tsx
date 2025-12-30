@@ -218,7 +218,7 @@ const SupervisorEmployees: React.FC = () => {
                 userName: user.name,
                 grantedBy: currentAdminName,
                 grantedAt: Timestamp.now(),
-                validUntil: Timestamp.fromDate(new Date(Date.now() + 3600000)) // +1 Hour
+                validUntil: Timestamp.fromDate(new Date(Date.now() + 30000)) // +1 Hour
             });
             setToast({ msg: 'Unlocked for 1 Hour', type: 'success' });
         } catch(e) { setToast({ msg: 'Error', type: 'error' }); }
@@ -232,7 +232,9 @@ const handleSendLiveCheck = async (user: User) => {
             status: 'pending',
             createdAt: serverTimestamp(), // Use server timestamp for accurate timing
             requestedAtStr: new Date().toISOString() 
+            
         });
+        
         setToast({ msg: 'تم إرسال الطلب بنجاح', type: 'success' });
     } catch (e) {
         setToast({ msg: 'فشل في الإرسال', type: 'error' });

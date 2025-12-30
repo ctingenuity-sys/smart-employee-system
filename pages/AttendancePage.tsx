@@ -162,6 +162,7 @@ const AttendancePage: React.FC = () => {
     const [todayLogs, setTodayLogs] = useState<AttendanceLog[]>([]);
     const [yesterdayLogs, setYesterdayLogs] = useState<AttendanceLog[]>([]);
     const [todayShifts, setTodayShifts] = useState<{ start: string, end: string }[]>([]);
+    const [yesterdayShifts, setYesterdayShifts] = useState<{ start: string, end: string }[]>([]); // NEW STATE
     const [overrideExpiries, setOverrideExpiries] = useState<Date[]>([]);
     const [hasOverride, setHasOverride] = useState(false);
     const [userProfile, setUserProfile] = useState<any>(null);
@@ -179,10 +180,9 @@ const AttendancePage: React.FC = () => {
     useEffect(() => {
         let watchId: number;
         if ('geolocation' in navigator) {
-            // Start watching position immediately to warm up the GPS radio
             watchId = navigator.geolocation.watchPosition(
-                () => {}, // Do nothing on success, just keep it hot
-                () => {}, // Ignore errors in background
+                () => {}, 
+                () => {}, 
                 { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 }
             );
         }
@@ -217,43 +217,35 @@ const AttendancePage: React.FC = () => {
     }, []);
 
     // 2. Clock Logic
-// 2. Clock Logic
-useEffect(() => {
-    const timer = setInterval(() => {
-        const now = new Date(Date.now() + timeOffset);
-        setCurrentTime(now);
+    useEffect(() => {
+        const timer = setInterval(() => {
+            const now = new Date(Date.now() + timeOffset);
+            setCurrentTime(now);
 
-        // --- Override Countdown (30 Seconds Logic) ---
-        const activeExpiry = overrideExpiries.find(expiry => expiry > now);
-        
-        if (activeExpiry) {
-            setHasOverride(true);
+            // --- Override Countdown ---
+            const activeExpiry = overrideExpiries.find(expiry => expiry > now);
             
-            // حساب الفرق بالثواني
-            const diffSeconds = Math.round((activeExpiry.getTime() - now.getTime()) / 1000);
-            
-            // تحديد الحد الأقصى بـ 30 ثانية فقط حتى لو كان الإذن في قاعدة البيانات أطول
-            // وإذا كان الوقت المتبقي أصلاً أقل من 30، يظهر الوقت الحقيقي
-            const displayedSeconds = Math.min(30, Math.max(0, diffSeconds));
-            
-            // إذا انتهت الـ 30 ثانية (حتى لو لم ينتهِ وقت الـ Firebase) نلغي التفعيل ظاهرياً
-            if (displayedSeconds <= 0) {
+            if (activeExpiry) {
+                setHasOverride(true);
+                const diffSeconds = Math.round((activeExpiry.getTime() - now.getTime()) / 1000);
+                const displayedSeconds = Math.min(30, Math.max(0, diffSeconds));
+                if (displayedSeconds <= 0) {
+                    setHasOverride(false);
+                    setTimeLeft(null);
+                } else {
+                    setTimeLeft(displayedSeconds);
+                }
+            } else {
                 setHasOverride(false);
                 setTimeLeft(null);
-            } else {
-                setTimeLeft(displayedSeconds);
             }
-        } else {
-            setHasOverride(false);
-            setTimeLeft(null);
-        }
 
-        if (now.getSeconds() === 0) {
-            setLogicTicker(prev => prev + 1);
-        }
-    }, 1000);
-    return () => clearInterval(timer);
-}, [isTimeSynced, timeOffset, overrideExpiries]);
+            if (now.getSeconds() === 0) {
+                setLogicTicker(prev => prev + 1);
+            }
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [isTimeSynced, timeOffset, overrideExpiries]);
 
 
     // 3. Data Subscriptions
@@ -305,6 +297,7 @@ useEffect(() => {
         const dateStr = getLocalDateKey(currentTime);
         const dayOfWeek = currentTime.getDay(); 
 
+        // --- Calculate Today Shifts ---
         let myShifts: { start: string, end: string }[] = [];
         const specific = schedules.find(s => s.date === dateStr);
         
@@ -328,12 +321,43 @@ useEffect(() => {
             });
         }
         setTodayShifts(myShifts);
+
+        // --- Calculate Yesterday Shifts (For overnight logic) ---
+        const yestDate = new Date(currentTime);
+        yestDate.setDate(yestDate.getDate() - 1);
+        const yestStr = getLocalDateKey(yestDate);
+        const yestDay = yestDate.getDay();
+
+        let yShifts: { start: string, end: string }[] = [];
+        const specificYest = schedules.find(s => s.date === yestStr);
+        if (specificYest) {
+            yShifts = specificYest.shifts || parseMultiShifts(specificYest.note || "");
+        } else {
+            schedules.forEach(sch => {
+                if (sch.date) return;
+                let applies = false;
+                const isFri = (sch.locationId || '').toLowerCase().includes('friday') || (sch.note || '').toLowerCase().includes('friday');
+                if (yestDay === 5) { if (isFri) applies = true; } else { if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; }
+                
+                if (applies) {
+                    if (sch.validFrom && yestStr < sch.validFrom) applies = false;
+                    if (sch.validTo && yestStr > sch.validTo) applies = false;
+                }
+                if (applies) {
+                    const parsed = sch.shifts || parseMultiShifts(sch.note || "");
+                    if (parsed.length > 0) yShifts = parsed;
+                }
+            });
+        }
+        setYesterdayShifts(yShifts);
+
     }, [schedules, currentTime]);
 
     // Use the logic from separate file
     const shiftLogic = useMemo(() => {
-        return calculateShiftStatus(currentTime, todayLogs, yesterdayLogs, todayShifts, hasOverride);
-    }, [todayLogs, yesterdayLogs, todayShifts, hasOverride, logicTicker, currentTime]);
+        // Pass yesterdayShifts to support overnight logic
+        return calculateShiftStatus(currentTime, todayLogs, yesterdayLogs, todayShifts, hasOverride, yesterdayShifts);
+    }, [todayLogs, yesterdayLogs, todayShifts, yesterdayShifts, hasOverride, logicTicker, currentTime]);
 
     // --- ACTIONS ---
     const playSound = (type: 'success' | 'error' | 'click') => {
@@ -370,7 +394,6 @@ useEffect(() => {
     
 
     const handlePunch = async () => {
-        // --- 1. HANDLE LIVE CHECK IF ACTIVE ---
         if (activeLiveCheck) {
             handleLiveCheck();
             return;
@@ -453,7 +476,6 @@ useEffect(() => {
                         const localDateStr = getLocalDateKey(currentTime!);
                         const nextType = shiftLogic.state === 'READY_IN' ? 'IN' : 'OUT';
                         
-                        // Use calculated shift index from logic to ensure correct reporting
                         const currentShiftIdx = (shiftLogic as any).shiftIdx || 1;
 
                         await addDoc(collection(db, 'attendance_logs'), {
@@ -497,19 +519,17 @@ useEffect(() => {
                     }
                 },
                 (err) => {
-
                     let errorMsg = "حدث خطأ في تحديد الموقع";
                     if (err.code === 1) errorMsg = "يرجى تفعيل صلاحية الموقع للمتصفح";
                     if (err.code === 2) errorMsg = "إشارة الـ GPS ضعيفة جداً (حاول الاقتراب من نافذة أو فتح الواي فاي)";
                     if (err.code === 3) errorMsg = "استغرق تحديد الموقع وقتاً طويلاً، حاول مرة أخرى";
-                    
                     setStatus('ERROR');
                     setErrorDetails({ title: 'GPS Failed', msg: err.message });
                     playSound('error');
                     setTimeout(() => setStatus('IDLE'), 3000);
                     releaseLock();
                 },
-                { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 } // Reduced timeout due to warm-up
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
             );
 
         } catch (e: any) {
@@ -520,7 +540,7 @@ useEffect(() => {
         }
     };
 
-    // --- AUTH LISTENER ---
+    // --- LIVE CHECK LISTENER ---
     useEffect(() => {
         const unsubAuth = onAuthStateChanged(auth, (user: any) => {
             if (user) {
@@ -532,7 +552,6 @@ useEffect(() => {
         return () => unsubAuth();
     }, []);
 
-    // --- LIVE CHECK LISTENER (STRICT DEVICE CHECK) ---
     useEffect(() => {
         if (!realUserId) return;
 
@@ -548,28 +567,20 @@ useEffect(() => {
                 const docData = docRef.data();
                 const req = { id: docRef.id, ...docData } as LocationCheckRequest;
                 
-                // --- STRICT DEVICE VERIFICATION ---
-                // We check if the registered 'biometricId' matches the current localDeviceId
                 try {
                     const userSnap = await getDoc(doc(db, 'users', realUserId));
                     if (userSnap.exists()) {
                         const registeredDevice = userSnap.data().biometricId;
-                        
-                        // Clean strings for comparison to avoid whitespace errors
                         const regClean = (registeredDevice || '').trim();
                         const localClean = (localDeviceId || '').trim();
 
-                        // If device is registered and DOES NOT match current device
-                        // UPDATED: Check for override permissions first!
                         if (regClean && regClean !== localClean && !hasOverride) {
-                            // Auto-reject and do NOT show modal
                             await updateDoc(doc(db, 'location_checks', req.id), {
                                 status: 'rejected',
                                 reason: 'Unauthorized Device Attempt',
                                 completedAt: serverTimestamp(),
                                 deviceMismatch: true
                             });
-                            // Subtle notification instead of block alert
                             setToast({ msg: 'Live Check skipped: Unauthorized Device', type: 'error' });
                             return; 
                         }
@@ -578,7 +589,6 @@ useEffect(() => {
                     console.error("Error verifying device for check", e);
                 }
 
-                // If device matches (or no device registered yet), show modal
                 setActiveLiveCheck(req);
                 new Audio('https://assets.mixkit.co/active_storage/sfx/2868/2868-preview.mp3').play().catch(()=>{});
             } else {
@@ -587,13 +597,12 @@ useEffect(() => {
         });
 
         return () => unsubLiveCheck();
-    }, [realUserId, localDeviceId, hasOverride]); // Depend on hasOverride to allow check if perm granted
+    }, [realUserId, localDeviceId, hasOverride]);
 
-    // --- LIVE CHECK HANDLER ---
     const handleLiveCheck = async () => {
         if(!activeLiveCheck) return;
         setIsLiveCheckProcessing(true);
-        setStatus('SCANNING_LOC'); // Visual feedback
+        setStatus('SCANNING_LOC');
 
         navigator.geolocation.getCurrentPosition(
             async (pos) => {
@@ -604,7 +613,7 @@ useEffect(() => {
                     locationLng: pos.coords.longitude,
                     accuracy: pos.coords.accuracy,
                     completedAt: serverTimestamp(),
-                    deviceId: localDeviceId // Log device used
+                    deviceId: localDeviceId
                 });
                 
                 setToast({msg: 'تم إرسال الموقع بنجاح ✅', type: 'success'});
@@ -624,7 +633,6 @@ useEffect(() => {
 
     // --- VISUAL CONFIGURATION ---
     const visualState = useMemo(() => {
-        // Priority 1: LIVE CHECK
         if (activeLiveCheck) {
             return {
                 theme: 'rose',
@@ -640,10 +648,33 @@ useEffect(() => {
         const isBreak = (shiftLogic as any).isBreak;
         
         if (!shiftLogic.canPunch) {
-            if (shiftLogic.state === 'MISSED' || shiftLogic.state === 'ABSENT') {
+            // New States Visuals
+            if (shiftLogic.state === 'MISSED_OUT') {
+                return {
+                    theme: 'rose',
+                    mainText: 'MISSED OUT',
+                    subText: shiftLogic.sub,
+                    icon: 'fa-user-clock',
+                    ringClass: 'border-rose-500/20 shadow-[0_0_50px_rgba(244,63,94,0.1)]',
+                    btnClass: 'bg-rose-900/10 text-rose-500 animate-pulse',
+                    pulse: true
+                };
+            }
+            if (shiftLogic.state === 'NEXT_SHIFT') {
+                return {
+                    theme: 'slate',
+                    mainText: 'NEXT SHIFT',
+                    subText: shiftLogic.sub,
+                    icon: 'fa-moon',
+                    ringClass: 'border-slate-500/20 shadow-[0_0_50px_rgba(100,116,139,0.1)]',
+                    btnClass: 'bg-slate-900/10 text-slate-500',
+                    pulse: false
+                };
+            }
+            if (shiftLogic.state === 'ABSENT') {
                 return {
                     theme: 'rose', 
-                    mainText: shiftLogic.message, 
+                    mainText: 'ABSENT', 
                     subText: shiftLogic.sub,
                     icon: 'fa-user-slash',
                     ringClass: 'border-rose-500/20 shadow-[0_0_50px_rgba(244,63,94,0.1)]',
@@ -653,12 +684,12 @@ useEffect(() => {
             }
             if (shiftLogic.state === 'COMPLETED') {
                 return {
-                    theme: shiftLogic.message === 'NEXT SHIFT' ? 'slate' : 'emerald',
+                    theme: 'emerald',
                     mainText: shiftLogic.message, 
                     subText: shiftLogic.sub,
-                    icon: shiftLogic.message === 'NEXT SHIFT' ? 'fa-moon' : 'fa-check-circle',
-                    ringClass: shiftLogic.message === 'NEXT SHIFT' ? 'border-slate-500/20 shadow-[0_0_50px_rgba(100,116,139,0.1)]' : 'border-emerald-500/20 shadow-[0_0_50px_rgba(16,185,129,0.1)]',
-                    btnClass: shiftLogic.message === 'NEXT SHIFT' ? 'bg-slate-900/10 text-slate-500' : 'bg-emerald-900/10 text-emerald-500',
+                    icon: 'fa-check-circle',
+                    ringClass: 'border-emerald-500/20 shadow-[0_0_50px_rgba(16,185,129,0.1)]',
+                    btnClass: 'bg-emerald-900/10 text-emerald-500',
                     pulse: false
                 };
             }
@@ -688,7 +719,7 @@ useEffect(() => {
         const isCheckIn = shiftLogic.state === 'READY_IN';
         return {
             theme: isCheckIn ? 'cyan' : 'rose',
-            mainText: shiftLogic.message, // Use specific message like "START SHIFT 2"
+            mainText: shiftLogic.message,
             subText: shiftLogic.sub,
             icon: isCheckIn ? 'fa-fingerprint' : 'fa-sign-out-alt',
             ringClass: isCheckIn 
@@ -710,7 +741,6 @@ useEffect(() => {
         <div className="min-h-screen bg-[#050505] text-white font-sans flex flex-col relative overflow-hidden selection:bg-cyan-500/30" dir={dir}>
             <style>{styles}</style>
             
-            {/* --- LIVE AMBIENT BACKGROUND --- */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
                 <div className={`absolute top-[-20%] left-[-10%] w-[70vw] h-[70vw] rounded-full mix-blend-screen filter blur-[120px] opacity-20 animate-float transition-colors duration-[2000ms]
                     ${visualState.theme === 'cyan' ? 'bg-cyan-600' : visualState.theme === 'rose' ? 'bg-rose-600' : visualState.theme === 'amber' ? 'bg-amber-600' : 'bg-slate-800'}`}>
@@ -723,7 +753,6 @@ useEffect(() => {
 
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
-            {/* --- Header --- */}
             <div className="relative z-30 flex justify-between items-center p-6 glass-panel border-b border-white/5">
                 <button onClick={() => navigate('/user')} className="group flex items-center gap-3 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 transition-all backdrop-blur-md">
                     <i className="fas fa-chevron-left text-white/70 group-hover:text-white transition-colors rtl:rotate-180"></i>
@@ -765,12 +794,10 @@ useEffect(() => {
                 </div>
             </div>
         )}
-            {/* --- Main Content --- */}
             <div className="flex-1 flex flex-col items-center justify-center relative z-20 px-4 pb-24">
                 
                 {currentTime && <DigitalClock date={currentTime} />}
 
-                {/* --- THE REACTOR BUTTON --- */}
 <div className="relative group scale-90 md:scale-100 transition-transform duration-500 flex items-center justify-center">
     
     <div className="absolute inset-[-40px] border border-dashed border-white/10 rounded-full animate-rotate-slow pointer-events-none"></div>
@@ -826,16 +853,12 @@ useEffect(() => {
     </div>
 </div>
 
-                {/* Shift HUD */}
 {todayShifts.length > 0 && (
     <div className="mt-10 w-full max-w-2xl flex flex-col gap-6 px-4">
         {todayShifts.map((s, i) => {
             const isCurrent = (shiftLogic as any).shiftIdx === (i + 1);
-            // Logic change: Missed is if shiftLogic says we are past this index
-            // OR if logs are empty for this shift (handled by new logic matching)
             const isMissed = (shiftLogic as any).shiftIdx > (i + 1) && todayLogs.length < (i + 1) * 2; 
             
-            // Check if overnight shift for visual cue
             const startH = parseInt(s.start.split(':')[0]);
             const endH = parseInt(s.end.split(':')[0]);
             const isOvernight = endH < startH;
@@ -894,7 +917,6 @@ useEffect(() => {
 )}
             </div>
 
-            {/* --- History Drawer --- */}
             <div className={`fixed bottom-0 left-0 right-0 glass-panel border-t border-white/10 transition-transform duration-500 z-40 flex flex-col rounded-t-[2.5rem] shadow-[0_-10px_60px_rgba(0,0,0,0.5)] ${showHistory ? 'translate-y-0 h-[75vh]' : 'translate-y-[calc(100%-90px)] h-[75vh]'}`}>
                 <div 
                     onClick={() => setShowHistory(!showHistory)}

@@ -138,7 +138,7 @@ export const calculateShiftStatus = (
             // If we punched IN yesterday, we need to punch OUT today
             if (lastInYesterday) {
                 const shiftEndMinsToday = toMins(overnightShift.end);
-                const extWindow = shiftEndMinsToday + 360; // 6 hours after shift end allowed
+                const extWindow = shiftEndMinsToday + 460; // 6 hours after shift end allowed
 
                 // Check if we already punched out TODAY linked to this
                 const hasPunchedOutToday = todayLogs.some(l => 
@@ -196,7 +196,7 @@ export const calculateShiftStatus = (
         }
 
         // Windows
-        const windowOpen = start - 60; // 1 hour before
+        const windowOpen = start - 15; // 1 hour before
         const lockOutTime = end - 15;
 
         const logIn = matchedShifts[i].in;

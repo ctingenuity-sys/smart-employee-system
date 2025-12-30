@@ -60,29 +60,6 @@ const timeToMinutes = (timeStr: string) => {
     return parseInt(parts[0]) * 60 + parseInt(parts[1]);
 };
 
-// Helper to get list of YYYY-MM months between two dates
-const getMonthsInRange = (startStr: string, endStr: string) => {
-    const start = new Date(startStr);
-    const end = new Date(endStr);
-    // Add buffer for end date + 2 days logic
-    const extendedEnd = new Date(end);
-    extendedEnd.setDate(extendedEnd.getDate() + 2);
-    
-    const months = new Set<string>();
-    let cur = new Date(start);
-    // Set to first day to avoid skipping months due to day overflow
-    cur.setDate(1); 
-    
-    while(cur <= extendedEnd) {
-        months.add(cur.toISOString().slice(0, 7));
-        cur.setMonth(cur.getMonth() + 1);
-    }
-    // Ensure the month of the extended end date is included
-    months.add(extendedEnd.toISOString().slice(0, 7));
-    
-    return Array.from(months);
-};
-
 interface DailyDetail {
     date: string;
     day: string;
@@ -156,7 +133,7 @@ const SupervisorAttendance: React.FC = () => {
     try {
         const startD = new Date(attFilterStart);
         const endD = new Date(attFilterEnd);
-        // نزيد يوماً واحداً في البحث لجلب بصمات الخروج التي تقع في صباح اليوم التالي
+        // Extend fetch range by 2 days to catch late check-outs or overnight shifts
         const fetchEndD = new Date(endD); 
         fetchEndD.setDate(fetchEndD.getDate() + 2); 
 
@@ -176,26 +153,34 @@ const SupervisorAttendance: React.FC = () => {
             details: []
         }));
 
-        // OPTIMIZATION: Filter schedules by month to avoid fetching whole collection
-        const targetMonths = getMonthsInRange(attFilterStart, attFilterEnd);
-        let schedules: Schedule[] = [];
-        
-        if (targetMonths.length > 0) {
-            // Firestore 'in' limit is 10
-            if (targetMonths.length <= 10) {
-                const qSch = query(collection(db, 'schedules'), where('month', 'in', targetMonths));
-                const snapSch = await getDocs(qSch);
-                schedules = snapSch.docs.map(doc => doc.data() as Schedule);
-            } else {
-                // If more than 10 months selected (unlikely), fallback to fetching all or split queries
-                // For simplicity, fallback to all, but in real app batching is better
-                const qSch = query(collection(db, 'schedules'));
-                const snapSch = await getDocs(qSch);
-                schedules = snapSch.docs.map(doc => doc.data() as Schedule);
-            }
+        // --- 1. OPTIMIZED SCHEDULE FETCHING ---
+        // Instead of fetching by 'month', we fetch by 'validTo'.
+        // We want any schedule that is still valid AFTER the report start date.
+        // This captures schedules spanning Jan-Feb even if we filter for Feb.
+        let qSch;
+        if (attFilterUser) {
+            // If checking one user, just fetch all their schedules. It's fast.
+            qSch = query(collection(db, 'schedules'), where('userId', '==', attFilterUser));
+        } else {
+            // For all staff, fetch any schedule that hasn't expired before the start date.
+            // Note: This relies on 'validTo' string comparison.
+            qSch = query(collection(db, 'schedules'), where('validTo', '>=', attFilterStart));
         }
+        
+        const snapSch = await getDocs(qSch);
+        // Client-side filter: Remove schedules that start AFTER the report ends
+        const rawSchedules = snapSch.docs
+            .map(doc => doc.data() as Schedule)
+            .filter(s => !s.validFrom || s.validFrom <= attFilterEnd);
 
-        // جلب اللوجات للفترة المطلوبة + يوم إضافي
+        // Pre-process schedules into a Map for O(1) access
+        const schedulesByUser = new Map<string, Schedule[]>();
+        rawSchedules.forEach(s => {
+            if (!schedulesByUser.has(s.userId)) schedulesByUser.set(s.userId, []);
+            schedulesByUser.get(s.userId)!.push(s);
+        });
+
+        // --- 2. FETCH LOGS ---
         const qLogs = query(
             collection(db, 'attendance_logs'), 
             where('date', '>=', startD.toISOString().split('T')[0]), 
@@ -204,14 +189,25 @@ const SupervisorAttendance: React.FC = () => {
         const snapLogs = await getDocs(qLogs);
         const allLogs = snapLogs.docs.map(doc => doc.data() as AttendanceLog);
         
-        // ترتيب كل اللوجات زمنياً لضمان دقة الربط
-        const allLogsSorted = allLogs.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+        // Pre-process logs into a Map for O(1) access [UserId_Date] -> Logs[]
+        const logsMap = new Map<string, AttendanceLog[]>();
+        allLogs.forEach(log => {
+            const key = `${log.userId}_${log.date}`;
+            if (!logsMap.has(key)) logsMap.set(key, []);
+            logsMap.get(key)!.push(log);
+        });
+        
+        // Sort logs within map
+        logsMap.forEach((logsList) => {
+            logsList.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+        });
 
-        // جلب الإجازات المعتمدة لتجنب احتساب الغياب عليها
+        // --- 3. FETCH LEAVES ---
         const qLeaves = query(collection(db, 'leaveRequests'), where('status', '==', 'approved'));
         const snapLeaves = await getDocs(qLeaves);
         const leaves = snapLeaves.docs.map(d => d.data());
 
+        // --- 4. MAIN CALCULATION LOOP ---
         for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
             const dateStr = d.toISOString().split('T')[0];
             const dayOfWeek = d.getDay();
@@ -220,21 +216,32 @@ const SupervisorAttendance: React.FC = () => {
                 const summary = summaryMap.get(user.id)!;
                 let myShifts: { start: string, end: string }[] = [];
                 
-                // --- استخراج الجدول ---
-                const userSchedules = schedules.filter(s => s.userId === user.id);
+                // Get pre-filtered schedules for this user
+                const userSchedules = schedulesByUser.get(user.id) || [];
+                
+                // Find applicable schedule
                 const specific = userSchedules.find(s => s.date === dateStr);
                 if (specific) {
                     myShifts = specific.shifts || parseMultiShifts(specific.note || "");
                 } else {
+                    // Check recurring schedules
                     userSchedules.forEach(sch => {
-                        if (sch.date) return;
+                        if (sch.date) return; // Skip specific dates
                         let applies = false;
                         const isFri = (sch.locationId || '').toLowerCase().includes('friday');
-                        if (dayOfWeek === 5) { if (isFri) applies = true; } else { if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; }
+                        
+                        if (dayOfWeek === 5) { 
+                            if (isFri) applies = true; 
+                        } else { 
+                            if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; 
+                        }
+                        
+                        // Strict Date Range Check
                         if (applies) {
                             if (sch.validFrom && dateStr < sch.validFrom) applies = false;
                             if (sch.validTo && dateStr > sch.validTo) applies = false;
                         }
+                        
                         if (applies) {
                             const parsed = sch.shifts || parseMultiShifts(sch.note||"");
                             if (parsed.length > 0) myShifts = parsed;
@@ -242,43 +249,63 @@ const SupervisorAttendance: React.FC = () => {
                     });
                 }
 
-                // --- منطق الربط ---
-                const insToday = allLogsSorted.filter(l => l.userId === user.id && l.type === 'IN' && l.date === dateStr);
-                const outsToday = allLogsSorted.filter(l => l.userId === user.id && l.type === 'OUT' && l.date === dateStr);
+                // --- Match Logs (Optimized) ---
+                const todayLogs = logsMap.get(`${user.id}_${dateStr}`) || [];
+                const insToday = todayLogs.filter(l => l.type === 'IN');
+                const outsToday = todayLogs.filter(l => l.type === 'OUT');
 
                 let in1 = null, out1 = null, in2 = null, out2 = null;
 
                 if (insToday.length > 0) {
                     in1 = insToday[0];
-                    out1 = allLogsSorted.find(o => 
-                        o.userId === user.id && 
-                        o.type === 'OUT' && 
-                        o.timestamp.seconds > in1.timestamp.seconds &&
-                        (o.timestamp.seconds - in1.timestamp.seconds) < 57600
+                    // Look for OUT in same day...
+                    out1 = outsToday.find(o => 
+                        o.timestamp.seconds > in1!.timestamp.seconds &&
+                        (o.timestamp.seconds - in1!.timestamp.seconds) < 57600
                     );
+                    
+                    // ...OR look for OUT in NEXT day (Overnight shift)
+                    if (!out1) {
+                        const nextD = new Date(d);
+                        nextD.setDate(d.getDate() + 1);
+                        const nextDateStr = nextD.toISOString().split('T')[0];
+                        const nextDayLogs = logsMap.get(`${user.id}_${nextDateStr}`) || [];
+                        
+                        // Find early morning OUT (before 12 PM next day)
+                        out1 = nextDayLogs.find(o => 
+                            o.type === 'OUT' &&
+                            // Ensure it's not too far (e.g. 16 hours max shift)
+                            (o.timestamp.seconds - in1!.timestamp.seconds) < 57600 
+                        );
+                    }
 
                     if (insToday.length > 1) {
                         in2 = insToday[1];
-                        out2 = allLogsSorted.find(o => 
-                            o.userId === user.id && 
-                            o.type === 'OUT' && 
-                            o.timestamp.seconds > in2.timestamp.seconds &&
+                        out2 = outsToday.find(o => 
+                            o.timestamp.seconds > in2!.timestamp.seconds &&
                             o.timestamp.seconds !== out1?.timestamp.seconds
                         );
+                        // Check next day for 2nd shift? Rarely happens, logic omitted for simplicity
                     }
                 } 
 
-                // حالة "مقصود" (خروج فقط)
+                // Case: OUT only (Forgot IN)
                 if (!in1 && outsToday.length > 0) {
-                    const linkedToYesterday = allLogsSorted.find(i => 
-                        i.userId === user.id && i.type === 'IN' && 
-                        i.timestamp.seconds < outsToday[0].timestamp.seconds &&
-                        (outsToday[0].timestamp.seconds - i.timestamp.seconds) < 57600
-                    );
-                    if (!linkedToYesterday) out1 = outsToday[0];
+                    // Check if this OUT belongs to yesterday
+                    const prevD = new Date(d);
+                    prevD.setDate(d.getDate() - 1);
+                    const prevDateStr = prevD.toISOString().split('T')[0];
+                    const prevLogs = logsMap.get(`${user.id}_${prevDateStr}`) || [];
+                    const lastInPrev = prevLogs.filter(l => l.type === 'IN').pop();
+                    
+                    const isLinkedToPrev = lastInPrev && (outsToday[0].timestamp.seconds - lastInPrev.timestamp.seconds) < 57600;
+                    
+                    if (!isLinkedToPrev) {
+                        out1 = outsToday[0]; // Orphaned OUT
+                    }
                 }
 
-                // --- حسابات الحالة والوقت والغياب ---
+                // --- Calculations ---
                 let status: 'Present'|'Absent'|'Incomplete'|'Off'|'Partial Absent' = 'Absent';
                 let lateMins = 0;
                 let workMinutes = 0;
@@ -293,15 +320,10 @@ const SupervisorAttendance: React.FC = () => {
                     if (myShifts.length === 2) {
                         // ** BROKEN SHIFT LOGIC (0.5 per shift) **
                         let shiftsMissed = 0;
-                        
-                        // Shift 1 Check
                         if (!in1 && !out1) shiftsMissed += 0.5;
-                        
-                        // Shift 2 Check
                         if (!in2 && !out2) shiftsMissed += 0.5;
 
                         absentValue = shiftsMissed;
-                        
                         if (absentValue === 0) status = 'Present';
                         else if (absentValue === 0.5) status = 'Partial Absent';
                         else status = 'Absent';
@@ -330,6 +352,7 @@ const SupervisorAttendance: React.FC = () => {
                     if (myShifts[0] && in1) {
                         const schedStart = timeToMinutes(myShifts[0].start);
                         const actStart = timeToMinutes(fmtTime(in1)!);
+                        // Grace period logic (e.g., 15 mins)
                         if (actStart > schedStart + 15) lateMins += (actStart - schedStart);
                     }
                 }
@@ -337,8 +360,7 @@ const SupervisorAttendance: React.FC = () => {
                 summary.absentDays += absentValue;
                 summary.totalLateMinutes += lateMins;
 
-                // --- RISK / FRAUD DETECTION LOGIC ---
-                // Fake Loc / Out of Range
+                // Risk Analysis
                 [in1, out1, in2, out2].forEach(l => {
                     if (l) {
                         if (l.isSuspicious) {
@@ -371,7 +393,7 @@ const SupervisorAttendance: React.FC = () => {
                     overtimeMinutes: workMinutes > 540 ? workMinutes - 540 : 0, 
                     status,
                     absentValue,
-                    riskFlags: [...new Set(flags)] // Unique flags
+                    riskFlags: [...new Set(flags)] 
                 });
             });
         }

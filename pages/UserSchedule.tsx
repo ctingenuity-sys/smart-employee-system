@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
@@ -64,6 +65,12 @@ const formatTime12 = (time24: string) => {
   return `${hour}:${m} ${ampm}`;
 };
 
+const formatDateSimple = (dateStr: string) => {
+    if (!dateStr) return '???';
+    const d = new Date(dateStr);
+    return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+}
+
 const SHIFT_DESCRIPTIONS: Record<string, string> = {
     'Straight Morning': '9am-5pm\nXRAYS + USG',
     'Straight Evening': '5pm-1am\nXRAYS + USG',
@@ -100,9 +107,9 @@ const PersonalNotepad: React.FC = () => {
 
 // --- Visual CSS Barcode Component ---
 const Barcode: React.FC = () => (
-    <div className="flex justify-center items-center h-8 w-full overflow-hidden opacity-60 mix-blend-multiply gap-[2px]">
-        {[...Array(20)].map((_, i) => (
-            <div key={i} className="bg-current h-full" style={{ width: Math.random() > 0.5 ? '2px' : '4px' }}></div>
+    <div className="flex justify-center items-center h-12 w-full overflow-hidden opacity-40 mix-blend-multiply gap-[3px]">
+        {[...Array(25)].map((_, i) => (
+            <div key={i} className="bg-current h-full rounded-full" style={{ width: Math.random() > 0.5 ? '2px' : '5px', opacity: Math.random() > 0.3 ? 1 : 0.5 }}></div>
         ))}
     </div>
 );
@@ -155,10 +162,10 @@ const UserSchedule: React.FC = () => {
     const getTicketStatus = (sch: Schedule) => {
         const isSwap = (sch.locationId || '').toLowerCase().includes('swap') || (sch.note || '').toLowerCase().includes('swap');
         if (!sch.date) {
-          if(sch.locationId === 'common_duty') return { label: 'RECURRING', theme: 'purple', icon: 'fa-star' };
+          if(sch.locationId === 'common_duty') return { label: 'GENERAL', theme: 'purple', icon: 'fa-layer-group', isHoliday: false };
           if(sch.locationId === 'Holiday Shift') return { label: 'HOLIDAY', theme: 'rose', icon: 'fa-gift', isHoliday: true };
           if (isSwap) return { label: 'SWAP', theme: 'violet', icon: 'fa-exchange-alt', pulse: true };
-          return { label: 'GENERAL', theme: 'blue', icon: 'fa-calendar' };
+          return { label: 'GENERAL', theme: 'indigo', icon: 'fa-calendar-alt' };
         }
         
         const shiftDate = new Date(sch.date);
@@ -176,13 +183,14 @@ const UserSchedule: React.FC = () => {
         if (isGrayscale) return 'bg-gradient-to-r from-slate-200 to-slate-300 text-slate-500 border-slate-300';
         
         const themes: Record<string, string> = {
-            purple: 'bg-gradient-to-br from-purple-600 to-indigo-600 text-white border-purple-500',
-            rose: 'bg-gradient-to-br from-rose-500 to-pink-600 text-white border-rose-500',
-            blue: 'bg-gradient-to-br from-blue-500 to-cyan-600 text-white border-blue-500',
-            amber: 'bg-gradient-to-br from-amber-400 to-orange-500 text-white border-amber-500',
-            violet: 'bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white border-violet-500',
-            teal: 'bg-gradient-to-br from-teal-500 to-emerald-600 text-white border-teal-500',
-            sky: 'bg-gradient-to-br from-sky-500 to-blue-600 text-white border-sky-500',
+            purple: 'bg-gradient-to-br from-purple-700 via-purple-600 to-indigo-700 text-white border-purple-500',
+            rose: 'bg-gradient-to-br from-rose-600 via-pink-600 to-red-600 text-white border-rose-500',
+            blue: 'bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-700 text-white border-blue-500',
+            amber: 'bg-gradient-to-br from-amber-500 via-orange-500 to-yellow-600 text-white border-amber-500',
+            violet: 'bg-gradient-to-br from-violet-700 via-purple-700 to-fuchsia-800 text-white border-violet-500',
+            teal: 'bg-gradient-to-br from-teal-600 via-emerald-600 to-green-700 text-white border-teal-500',
+            sky: 'bg-gradient-to-br from-sky-600 via-blue-500 to-cyan-600 text-white border-sky-500',
+            indigo: 'bg-gradient-to-br from-indigo-700 via-blue-800 to-slate-900 text-white border-indigo-500',
             slate: 'bg-gradient-to-br from-slate-500 to-slate-700 text-white border-slate-500'
         };
         return themes[theme] || themes.blue;
@@ -231,7 +239,7 @@ const UserSchedule: React.FC = () => {
                   <p className="text-slate-500 font-bold">{t('user.hero.noShift')}</p>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 gap-6">
+                <div className="grid grid-cols-1 gap-8">
                   {schedules.map((sch) => {
                     const status = getTicketStatus(sch);
                     const gradientClass = getGradient(status.theme || 'blue', status.grayscale || false);
@@ -250,60 +258,99 @@ const UserSchedule: React.FC = () => {
                     }
                     if (!displayShifts || displayShifts.length === 0) displayShifts = [{ start: '08:00', end: '16:00' }];
 
+                    // Validity Logic
+                    const isValidityTicket = !sch.date && sch.validFrom;
+                    const validFromStr = sch.validFrom ? formatDateSimple(sch.validFrom) : '???';
+                    const validToStr = sch.validTo ? formatDateSimple(sch.validTo) : 'End of Month';
+
                     return (
-                        <div key={sch.id} className="relative group w-full flex flex-col md:flex-row shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
+                        <div key={sch.id} className="relative group w-full flex flex-col md:flex-row shadow-2xl transition-all duration-500 transform hover:-translate-y-2 hover:shadow-[0_20px_50px_rgba(0,0,0,0.15)] rounded-3xl overflow-hidden">
                             
                             {/* --- MAIN TICKET SECTION (LEFT) --- */}
-                            <div className={`flex-1 rounded-t-3xl md:rounded-l-3xl md:rounded-tr-none relative overflow-hidden ${gradientClass}`}>
-                                {/* Background Pattern/Noise */}
-                                <div className="absolute inset-0 opacity-10" style={{backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '10px 10px'}}></div>
+                            <div className={`flex-1 relative overflow-hidden ${gradientClass} p-0 flex flex-col`}>
                                 
-                                {/* Status Badge (Absolute) */}
-                                <div className="absolute top-4 right-4 bg-black/20 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-[10px] font-black uppercase tracking-widest text-white shadow-sm">
-                                    {status.label}
-                                </div>
+                                {/* Background Noise Texture */}
+                                <div className="absolute inset-0 opacity-20 mix-blend-overlay pointer-events-none" style={{backgroundImage: 'url("https://grainy-gradients.vercel.app/noise.svg")'}}></div>
+                                
+                                {/* Validity Banner - The "Wow" Factor */}
+                                {isValidityTicket && (
+                                    <div className="bg-black/40 backdrop-blur-md border-b border-white/10 px-4 py-2 flex justify-between items-center z-20">
+                                        <div className="flex items-center gap-2 text-[10px] font-black tracking-[0.2em] text-white/90 uppercase animate-pulse">
+                                            <i className="fas fa-circle text-[6px] text-emerald-400"></i> Valid
+                                        </div>
+                                        <div className="font-mono text-xs font-bold text-white flex items-center gap-2">
+                                            <span className="opacity-70">FROM</span>
+                                            <span className="bg-white/10 px-2 rounded text-emerald-300">{validFromStr}</span>
+                                            <span className="opacity-50">➜</span>
+                                            <span className="opacity-70">TO</span>
+                                            <span className="bg-white/10 px-2 rounded text-emerald-300">{validToStr}</span>
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div className="p-6 md:p-8 flex flex-col h-full relative z-10">
-                                    {/* Date Header */}
-                                    <div className="flex items-end gap-3 mb-6">
+                                    {/* Top Row: Date & Status */}
+                                    <div className="flex justify-between items-start mb-6">
                                         {sch.date ? (
-                                            <>
-                                                <span className="text-6xl font-black leading-none tracking-tighter drop-shadow-md">{new Date(sch.date).getDate()}</span>
-                                                <div className="flex flex-col pb-1">
-                                                    <span className="text-sm font-bold uppercase tracking-widest opacity-80">{new Date(sch.date).toLocaleString('en-US', { month: 'short' })}</span>
-                                                    <span className="text-xs font-medium opacity-70">{new Date(sch.date).toLocaleString('en-US', { weekday: 'long' })}</span>
-                                                </div>
-                                            </>
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-bold uppercase tracking-widest opacity-70 mb-[-5px]">{new Date(sch.date).toLocaleString('en-US', { month: 'long' })}</span>
+                                                <span className="text-6xl font-black leading-none tracking-tighter drop-shadow-lg font-oswald">{new Date(sch.date).getDate()}</span>
+                                                <span className="text-xs font-medium opacity-80 uppercase tracking-wide mt-1">{new Date(sch.date).toLocaleString('en-US', { weekday: 'long' })}</span>
+                                            </div>
                                         ) : (
-                                            <div className="flex items-center gap-3">
-                                                <i className={`fas ${status.icon} text-4xl opacity-80`}></i>
-                                                <span className="text-2xl font-black uppercase tracking-wide">Recurring</span>
+                                            <div className="flex flex-col">
+                                                <i className={`fas ${status.icon} text-4xl opacity-90 mb-2`}></i>
+                                                <span className="text-2xl font-black uppercase tracking-tight font-oswald leading-none">{status.label}</span>
+                                                <span className="text-[10px] uppercase tracking-[0.3em] opacity-60">Schedule</span>
+                                            </div>
+                                        )}
+                                        
+                                        {!isValidityTicket && (
+                                            <div className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-lg border border-white/20 text-[10px] font-black uppercase tracking-widest text-white shadow-sm">
+                                                {status.label}
                                             </div>
                                         )}
                                     </div>
 
-                                    {/* Location Info */}
-                                    <div className="mb-6">
-                                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-60 mb-1">Assigned Location</p>
-                                        <h3 className="text-2xl md:text-3xl font-black uppercase tracking-tight leading-none drop-shadow-sm">{getLocationName(sch)}</h3>
-                                        {customNote && ( <div className="mt-2 inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm px-3 py-1 rounded-lg text-xs font-bold shadow-sm border border-white/10"><i className="fas fa-info-circle"></i> {customNote}</div> )}
-                                        {detailedDesc && ( <p className="mt-2 text-xs font-medium opacity-80 max-w-sm leading-relaxed">{detailedDesc}</p> )}
+                                    {/* Middle Row: Location */}
+                                    <div className="mb-8">
+                                        <p className="text-[9px] font-bold uppercase tracking-[0.3em] opacity-50 mb-1">Assigned Unit</p>
+                                        <h3 className="text-2xl md:text-4xl font-black uppercase tracking-tight leading-none drop-shadow-md font-oswald max-w-lg">
+                                            {getLocationName(sch)}
+                                        </h3>
+                                        
+                                        <div className="flex flex-wrap gap-2 mt-3">
+                                            {customNote && ( 
+                                                <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] font-bold border border-white/10 hover:bg-white/20 transition-colors">
+                                                    <i className="fas fa-info-circle text-sky-300"></i> {customNote}
+                                                </div> 
+                                            )}
+                                            {detailedDesc && ( 
+                                                <div className="inline-flex items-center gap-2 bg-black/20 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] font-bold border border-white/5">
+                                                    {detailedDesc}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
 
-                                    {/* Shifts List */}
-                                    <div className="mt-auto space-y-2">
+                                    {/* Bottom Row: Shifts */}
+                                    <div className="mt-auto space-y-3">
                                         {displayShifts.map((s, i) => (
-                                            <div key={i} className="flex items-center gap-4 bg-black/10 rounded-xl p-3 border border-white/5">
-                                                <div className="flex flex-col">
-                                                    <span className="text-[10px] uppercase font-bold opacity-60">Start</span>
-                                                    <span className="text-lg font-mono font-bold tracking-tight">{formatTime12(s.start)}</span>
+                                            <div key={i} className="flex items-center gap-4 bg-black/20 backdrop-blur-sm rounded-xl p-3 border border-white/10 hover:bg-black/30 transition-colors group/shift">
+                                                <div className="flex flex-col min-w-[60px]">
+                                                    <span className="text-[9px] uppercase font-bold opacity-50 tracking-wider">Start</span>
+                                                    <span className="text-xl font-mono font-bold tracking-tight text-white group-hover/shift:text-emerald-300 transition-colors">{formatTime12(s.start)}</span>
                                                 </div>
-                                                <div className="flex-1 border-b-2 border-dashed border-white/30 h-2 relative">
-                                                    <i className="fas fa-plane absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-[10px] opacity-50"></i>
+                                                
+                                                {/* Visual Flight Path */}
+                                                <div className="flex-1 flex flex-col justify-center relative px-2">
+                                                    <div className="h-[2px] w-full bg-gradient-to-r from-white/20 via-white/60 to-white/20 rounded-full"></div>
+                                                    <i className="fas fa-plane text-xs absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white/80 transform rotate-90 md:rotate-0"></i>
                                                 </div>
-                                                <div className="flex flex-col text-right">
-                                                    <span className="text-[10px] uppercase font-bold opacity-60">End</span>
-                                                    <span className="text-lg font-mono font-bold tracking-tight">{formatTime12(s.end)}</span>
+
+                                                <div className="flex flex-col text-right min-w-[60px]">
+                                                    <span className="text-[9px] uppercase font-bold opacity-50 tracking-wider">End</span>
+                                                    <span className="text-xl font-mono font-bold tracking-tight text-white group-hover/shift:text-emerald-300 transition-colors">{formatTime12(s.end)}</span>
                                                 </div>
                                             </div>
                                         ))}
@@ -311,34 +358,35 @@ const UserSchedule: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* --- PERFORATION / TEAR LINE --- */}
-                            <div className="relative flex-shrink-0 w-full h-4 md:w-4 md:h-auto bg-[#f8fafc] flex md:flex-col items-center justify-between overflow-hidden z-20">
-                                {/* The "Holes" - Using pseudo elements or masking is cleaner but this works reliably */}
-                                <div className="absolute -left-3 md:left-auto md:-top-3 w-6 h-6 bg-[#f8fafc] rounded-full z-30"></div>
-                                <div className="absolute -right-3 md:right-auto md:-bottom-3 w-6 h-6 bg-[#f8fafc] rounded-full z-30"></div>
+                            {/* --- PERFORATION (MOBILE: HORIZONTAL, DESKTOP: VERTICAL) --- */}
+                            <div className="relative flex-shrink-0 w-full h-6 md:w-6 md:h-auto bg-[#f1f5f9] flex md:flex-col items-center justify-between overflow-hidden z-20">
+                                {/* The Holes */}
+                                <div className="absolute -left-3 md:left-auto md:-top-3 w-6 h-6 bg-[#f1f5f9] rounded-full z-30 shadow-inner"></div>
+                                <div className="absolute -right-3 md:right-auto md:-bottom-3 w-6 h-6 bg-[#f1f5f9] rounded-full z-30 shadow-inner"></div>
                                 
                                 {/* Dashed Line */}
-                                <div className="w-full h-full border-b-2 md:border-b-0 md:border-r-2 border-dashed border-slate-300/80 my-2 md:mx-2"></div>
+                                <div className="w-full h-[2px] md:w-[2px] md:h-full border-b-2 md:border-b-0 md:border-r-2 border-dashed border-slate-300 my-auto md:mx-auto"></div>
                             </div>
 
-                            {/* --- STUB SECTION (RIGHT) --- */}
-                            <div className={`w-full md:w-48 bg-white rounded-b-3xl md:rounded-r-3xl md:rounded-bl-none p-6 flex flex-col items-center justify-between border-2 border-l-0 border-slate-100 ${status.grayscale ? 'opacity-60' : ''}`}>
+                            {/* --- STUB SECTION (RIGHT/BOTTOM) --- */}
+                            <div className={`w-full md:w-56 bg-white p-6 flex flex-row md:flex-col items-center justify-between gap-4 border-2 border-dashed border-slate-100 ${status.grayscale ? 'opacity-60' : ''}`}>
                                 
-                                <div className="text-center w-full">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Ticket Class</p>
-                                    <div className={`inline-block px-3 py-1 rounded border-2 font-black text-sm uppercase ${status.theme === 'amber' ? 'border-amber-500 text-amber-600' : 'border-slate-800 text-slate-800'}`}>
-                                        Standard
+                                <div className="text-center w-full hidden md:block">
+                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Class</p>
+                                    <div className={`inline-block px-4 py-1 rounded-full border-2 font-black text-xs uppercase ${status.theme === 'amber' ? 'border-amber-500 text-amber-600 bg-amber-50' : 'border-slate-800 text-slate-800 bg-slate-50'}`}>
+                                        STANDARD
                                     </div>
                                 </div>
 
-                                <div className="my-4 w-full opacity-30">
+                                {/* Barcode Vertical on Desktop, Horizontal on Mobile */}
+                                <div className="w-24 md:w-full md:h-24 opacity-60 mix-blend-multiply rotate-90 md:rotate-0">
                                     <Barcode />
                                 </div>
 
-                                <div className="text-center">
-                                    <i className={`fas ${status.icon} text-4xl mb-2 ${status.grayscale ? 'text-slate-300' : 'text-slate-800'}`}></i>
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Boarding</p>
-                                    <p className={`text-sm font-bold ${status.grayscale ? 'text-slate-500' : 'text-slate-800'}`}>
+                                <div className="text-right md:text-center">
+                                    <i className={`fas ${status.icon} text-3xl md:text-5xl mb-2 text-slate-200 block`}></i>
+                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Boarding</p>
+                                    <p className={`text-lg font-black ${status.grayscale ? 'text-slate-500' : 'text-slate-800'}`}>
                                         {status.label}
                                     </p>
                                 </div>

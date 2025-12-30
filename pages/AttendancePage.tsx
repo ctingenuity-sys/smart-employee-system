@@ -45,7 +45,7 @@ const convertTo24Hour = (timeStr: string): string => {
     if (s.includes('mn') || s.includes('midnight') || s === '24:00') return '24:00';
     if (s.includes('noon')) return '12:00';
     let modifier = null;
-    if (s.includes('pm')) modifier = 'pm'; else if (s.includes('am')) modifier = 'am';
+    if (s.includes('pm') || s.includes('p.m') || s.includes('م') || s.includes('مساء')) modifier = 'pm'; else if (s.includes('am') || s.includes('a.m') || s.includes('ص') || s.includes('صباح')) modifier = 'am';
     const cleanTime = s.replace(/[^\d:]/g, ''); 
     const parts = cleanTime.split(':');
     let h = parseInt(parts[0], 10);
@@ -162,7 +162,9 @@ const AttendancePage: React.FC = () => {
     const [todayLogs, setTodayLogs] = useState<AttendanceLog[]>([]);
     const [yesterdayLogs, setYesterdayLogs] = useState<AttendanceLog[]>([]);
     const [todayShifts, setTodayShifts] = useState<{ start: string, end: string }[]>([]);
-    const [yesterdayShifts, setYesterdayShifts] = useState<{ start: string, end: string }[]>([]); // NEW STATE
+    const [yesterdayShifts, setYesterdayShifts] = useState<{ start: string, end: string }[]>([]);
+    const [tomorrowShifts, setTomorrowShifts] = useState<{ start: string, end: string }[]>([]); // NEW
+    
     const [overrideExpiries, setOverrideExpiries] = useState<Date[]>([]);
     const [hasOverride, setHasOverride] = useState(false);
     const [userProfile, setUserProfile] = useState<any>(null);
@@ -283,8 +285,14 @@ const AttendancePage: React.FC = () => {
             setOverrideExpiries(expiries.sort((a, b) => a.getTime() - b.getTime()));
         });
 
+        // UPDATED LOGIC: Fetch Previous, Current, AND Next Month to cover all recurring bases
         const currentMonth = currentTime.toISOString().slice(0, 7);
-        const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', '==', currentMonth));
+        const prevDate = new Date(currentTime); prevDate.setMonth(prevDate.getMonth() - 1);
+        const prevMonth = prevDate.toISOString().slice(0, 7);
+        const nextDate = new Date(currentTime); nextDate.setMonth(nextDate.getMonth() + 1);
+        const nextMonth = nextDate.toISOString().slice(0, 7);
+
+        const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
         const unsubSch = onSnapshot(qSch, (snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
 
         return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); };
@@ -294,62 +302,48 @@ const AttendancePage: React.FC = () => {
     // 4. Calculate Shifts (Data layer)
     useEffect(() => {
         if (!currentTime) return;
-        const dateStr = getLocalDateKey(currentTime);
-        const dayOfWeek = currentTime.getDay(); 
-
-        // --- Calculate Today Shifts ---
-        let myShifts: { start: string, end: string }[] = [];
-        const specific = schedules.find(s => s.date === dateStr);
         
-        if (specific) {
-            myShifts = specific.shifts || parseMultiShifts(specific.note || "");
-        } else {
-            schedules.forEach(sch => {
-                if (sch.date) return;
-                let applies = false;
-                const isFri = (sch.locationId || '').toLowerCase().includes('friday') || (sch.note || '').toLowerCase().includes('friday');
-                if (dayOfWeek === 5) { if (isFri) applies = true; } else { if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; }
-                
-                if (applies) {
-                    if (sch.validFrom && dateStr < sch.validFrom) applies = false;
-                    if (sch.validTo && dateStr > sch.validTo) applies = false;
-                }
-                if (applies) {
-                    const parsed = sch.shifts || parseMultiShifts(sch.note || "");
-                    if (parsed.length > 0) myShifts = parsed;
-                }
-            });
-        }
-        setTodayShifts(myShifts);
+        const getShiftsForDate = (targetDate: Date) => {
+            const dateStr = getLocalDateKey(targetDate);
+            const dayOfWeek = targetDate.getDay();
+            let resultShifts: { start: string, end: string }[] = [];
+            
+            const specific = schedules.find(s => s.date === dateStr);
+            if (specific) {
+                resultShifts = specific.shifts || parseMultiShifts(specific.note || "");
+            } else {
+                schedules.forEach(sch => {
+                    if (sch.date) return;
+                    let applies = false;
+                    const isFri = (sch.locationId || '').toLowerCase().includes('friday') || (sch.note || '').toLowerCase().includes('friday');
+                    if (dayOfWeek === 5) { if (isFri) applies = true; } else { if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; }
+                    
+                    if (applies) {
+                        if (sch.validFrom && dateStr < sch.validFrom) applies = false;
+                        if (sch.validTo && dateStr > sch.validTo) applies = false;
+                    }
+                    
+                    if (applies) {
+                        const parsed = sch.shifts || parseMultiShifts(sch.note || "");
+                        if (parsed.length > 0) resultShifts = parsed;
+                    }
+                });
+            }
+            return resultShifts;
+        };
 
-        // --- Calculate Yesterday Shifts (For overnight logic) ---
+        // Today
+        setTodayShifts(getShiftsForDate(currentTime));
+
+        // Yesterday
         const yestDate = new Date(currentTime);
         yestDate.setDate(yestDate.getDate() - 1);
-        const yestStr = getLocalDateKey(yestDate);
-        const yestDay = yestDate.getDay();
+        setYesterdayShifts(getShiftsForDate(yestDate));
 
-        let yShifts: { start: string, end: string }[] = [];
-        const specificYest = schedules.find(s => s.date === yestStr);
-        if (specificYest) {
-            yShifts = specificYest.shifts || parseMultiShifts(specificYest.note || "");
-        } else {
-            schedules.forEach(sch => {
-                if (sch.date) return;
-                let applies = false;
-                const isFri = (sch.locationId || '').toLowerCase().includes('friday') || (sch.note || '').toLowerCase().includes('friday');
-                if (yestDay === 5) { if (isFri) applies = true; } else { if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; }
-                
-                if (applies) {
-                    if (sch.validFrom && yestStr < sch.validFrom) applies = false;
-                    if (sch.validTo && yestStr > sch.validTo) applies = false;
-                }
-                if (applies) {
-                    const parsed = sch.shifts || parseMultiShifts(sch.note || "");
-                    if (parsed.length > 0) yShifts = parsed;
-                }
-            });
-        }
-        setYesterdayShifts(yShifts);
+        // Tomorrow
+        const tomDate = new Date(currentTime);
+        tomDate.setDate(tomDate.getDate() + 1);
+        setTomorrowShifts(getShiftsForDate(tomDate));
 
     }, [schedules, currentTime]);
 
@@ -645,10 +639,23 @@ const AttendancePage: React.FC = () => {
             };
         }
 
+        // Logic Override for "OFF DUTY" -> Show Next Shift
+        if (shiftLogic.state === 'OFF' && tomorrowShifts.length > 0) {
+            const nextShift = tomorrowShifts[0];
+            return {
+                theme: 'sky',
+                mainText: 'NEXT SHIFT',
+                subText: `Tomorrow ${nextShift.start}`,
+                icon: 'fa-calendar-day',
+                ringClass: 'border-sky-500/20 shadow-[0_0_50px_rgba(56,189,248,0.1)]',
+                btnClass: 'bg-sky-900/10 text-sky-500',
+                pulse: false
+            };
+        }
+
         const isBreak = (shiftLogic as any).isBreak;
         
         if (!shiftLogic.canPunch) {
-            // New States Visuals
             if (shiftLogic.state === 'MISSED_OUT') {
                 return {
                     theme: 'rose',
@@ -730,7 +737,7 @@ const AttendancePage: React.FC = () => {
                 : 'bg-rose-600 text-white hover:bg-rose-500',
             pulse: true
         };
-    }, [shiftLogic, activeLiveCheck, isLiveCheckProcessing]);
+    }, [shiftLogic, activeLiveCheck, isLiveCheckProcessing, tomorrowShifts]);
 
     const radius = 140;
     const circumference = 2 * Math.PI * radius;
@@ -821,7 +828,8 @@ const AttendancePage: React.FC = () => {
             className={`transition-all duration-1000 ease-linear ${
                 visualState.theme === 'cyan' ? 'text-cyan-400' : 
                 visualState.theme === 'rose' ? 'text-rose-500' : 
-                visualState.theme === 'amber' ? 'text-amber-500' : 'text-slate-600'
+                visualState.theme === 'amber' ? 'text-amber-500' : 
+                visualState.theme === 'sky' ? 'text-sky-400' : 'text-slate-600'
             }`}
         />
     </svg>

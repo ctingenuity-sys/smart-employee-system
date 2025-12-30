@@ -2,7 +2,7 @@
 import { AttendanceLog } from '../types';
 
 export interface AttendanceStateResult {
-    state: 'LOADING' | 'READY_IN' | 'READY_OUT' | 'LOCKED' | 'COMPLETED' | 'MISSED_OUT' | 'ABSENT' | 'WAITING' | 'NEXT_SHIFT' | 'OFF';
+    state: 'LOADING' | 'READY_IN' | 'READY_OUT' | 'LOCKED' | 'COMPLETED' | 'MISSED_OUT' | 'ABSENT' | 'WAITING' | 'NEXT_SHIFT' | 'OFF' | 'UPCOMING';
     message: string;
     sub: string;
     canPunch: boolean;
@@ -196,7 +196,7 @@ export const calculateShiftStatus = (
         }
 
         // Windows
-        const windowOpen = start - 15; // 1 hour before
+        const windowOpen = start - 15; // 30 mins before
         const lockOutTime = end - 15;
 
         const logIn = matchedShifts[i].in;
@@ -253,7 +253,6 @@ export const calculateShiftStatus = (
             if (now < windowOpen) {
                 // If it's a future shift today
                 if (i > 0) {
-                    const prevShift = todayShifts[i-1];
                     const diff = windowOpen - now;
                     const h = Math.floor(diff/60);
                     const m = diff%60;
@@ -267,9 +266,20 @@ export const calculateShiftStatus = (
                     };
                 }
                 
-                // First shift early
+                // First shift early - Show UPCOMING instead of LOCKED/OFF
                 const h = Math.floor((windowOpen - now)/60);
                 const m = (windowOpen - now)%60;
+                
+                // If extremely early (more than 4 hours), show upcoming but not locked
+                if ((windowOpen - now) > 240) {
+                     return { 
+                        state: 'UPCOMING', 
+                        message: 'UPCOMING', 
+                        sub: `Starts today at ${shift.start}`, 
+                        canPunch: false 
+                    };
+                }
+
                 return { 
                     state: 'LOCKED', 
                     message: 'TOO EARLY', 

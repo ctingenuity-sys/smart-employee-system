@@ -196,7 +196,7 @@ export const calculateShiftStatus = (
         }
 
         // Windows
-        const windowOpen = start - 60; // 1 hour before
+        const windowOpen = start - 15; // 1 hour before
         const lockOutTime = end - 15;
 
         const logIn = matchedShifts[i].in;

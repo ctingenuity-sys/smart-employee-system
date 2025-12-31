@@ -2,9 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 // @ts-ignore
-import { doc } from 'firebase/firestore';
-
-import { collection, query, where, getDocs, writeBatch, limit, orderBy, addDoc, Timestamp } from 'firebase/firestore';
+import { doc, collection, query, where, getDocs, writeBatch, limit, orderBy, addDoc, Timestamp } from 'firebase/firestore';
 import { User, Schedule, AttendanceLog, ActionLog } from '../../types';
 import Toast from '../../components/Toast';
 import Modal from '../../components/Modal';

@@ -12,13 +12,24 @@ export interface AttendanceStateResult {
     color?: string;
 }
 
-// Helper to convert HH:MM to minutes from start of day
-export const toMins = (time: string): number => {
-    if (!time) return 0;
+// Helper to convert HH:MM to minutes from start of day (Robust Version)
+export const toMins = (time: string | undefined | null): number => {
+    if (!time || typeof time !== 'string' || !time.includes(':')) return 0;
+    
     // Normalize 24:00 to 1440 minutes
     if (time === '24:00') return 1440;
-    const [h, m] = time.split(':').map(Number);
-    return (h * 60) + (m || 0);
+    
+    try {
+        const parts = time.split(':');
+        const h = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        
+        if (isNaN(h) || isNaN(m)) return 0;
+        
+        return (h * 60) + (m || 0);
+    } catch (e) {
+        return 0;
+    }
 };
 
 // --- SMART LOG MATCHING ---
@@ -124,23 +135,24 @@ export const calculateShiftStatus = (
         const actionMap: Record<string, string> = {
             'annual_leave': 'ON LEAVE',
             'sick_leave': 'SICK LEAVE',
-            'unjustified_absence': 'ABSENT (ADMIN)',
+            'unjustified_absence': 'ABSENT',
             'justified_absence': 'EXCUSED ABSENCE',
             'mission': 'ON MISSION'
         };
         
         const message = actionMap[activeActionType] || activeActionType.replace('_', ' ').toUpperCase();
-        const sub = 'Registered by Supervisor';
+        const sub = 'Status Update';
         
         // If it's "Mission", they might still need to punch, otherwise lock it
         const canPunch = activeActionType === 'mission' || hasOverride; 
+        const color = activeActionType.includes('absence') ? 'bg-red-600 text-white' : 'bg-purple-600 text-white';
 
         return {
             state: 'ON_LEAVE',
             message,
             sub,
             canPunch,
-            color: activeActionType.includes('absence') ? 'bg-red-600' : 'bg-purple-600'
+            color
         };
     }
 

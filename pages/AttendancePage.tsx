@@ -288,11 +288,13 @@ const AttendancePage: React.FC = () => {
             setOverrideExpiries(expiries.sort((a, b) => a.getTime() - b.getTime()));
         });
 
-        // NEW: Fetch Actions/Leaves for Today
+        // NEW: Fetch Actions/Leaves for Today to Lock Attendance
         const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
         const unsubActions = onSnapshot(qActions, (snap) => {
             const actions = snap.docs.map(d => d.data() as ActionLog);
+            // Check if any active action covers today
             const active = actions.find(a => a.fromDate <= todayStr && a.toDate >= todayStr);
+            
             if (active) {
                 // Ignore 'positive' or simple notes, prioritize absence/leave types
                 if (['annual_leave', 'sick_leave', 'unjustified_absence', 'justified_absence', 'mission'].includes(active.type)) {
@@ -370,7 +372,7 @@ const AttendancePage: React.FC = () => {
     // Use the logic from separate file
     const shiftLogic = useMemo(() => {
         // Pass yesterdayShifts to support overnight logic
-        // NEW: Pass todayAction to logic
+        // NEW: Pass todayAction to logic so it returns ON_LEAVE state
         return calculateShiftStatus(currentTime, todayLogs, yesterdayLogs, todayShifts, hasOverride, yesterdayShifts, todayAction);
     }, [todayLogs, yesterdayLogs, todayShifts, yesterdayShifts, hasOverride, logicTicker, currentTime, todayAction]);
 
@@ -674,15 +676,18 @@ const AttendancePage: React.FC = () => {
             };
         }
 
-        // NEW: Specific Handling for Leave State
+        // NEW: Specific Handling for Leave State (Robust Check)
         if (shiftLogic.state === 'ON_LEAVE') {
+            const colorStr = shiftLogic.color || '';
+            const isRed = colorStr.includes('red') || colorStr.includes('rose');
+            
             return {
-                theme: shiftLogic.color?.includes('red') ? 'rose' : 'purple',
+                theme: isRed ? 'rose' : 'purple',
                 mainText: shiftLogic.message,
                 subText: shiftLogic.sub,
                 icon: 'fa-umbrella-beach',
-                ringClass: `border-${shiftLogic.color?.includes('red') ? 'red' : 'purple'}-500/20 shadow-[0_0_50px_rgba(200,200,200,0.1)]`,
-                btnClass: `${shiftLogic.color || 'bg-purple-900/40 text-purple-400'} cursor-not-allowed`,
+                ringClass: `border-${isRed ? 'red' : 'purple'}-500/20 shadow-[0_0_50px_rgba(200,200,200,0.1)]`,
+                btnClass: `${colorStr || 'bg-purple-900/40 text-purple-400'} cursor-not-allowed`,
                 pulse: false
             };
         }

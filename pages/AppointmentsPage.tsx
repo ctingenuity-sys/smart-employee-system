@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
+// @ts-ignore
 import { collection, query, where, onSnapshot, addDoc, Timestamp, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { Appointment } from '../types';
 import Loading from '../components/Loading';

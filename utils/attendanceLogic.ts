@@ -14,14 +14,20 @@ export interface AttendanceStateResult {
 
 // Helper to safely extract Date object from log, handling pending serverTimestamp (null)
 const getLogDate = (log: AttendanceLog): Date => {
-    // If serverTimestamp is pending (null), use clientTimestamp or fallback to now
     if (!log.timestamp) {
         if (log.clientTimestamp) {
             return log.clientTimestamp.toDate ? log.clientTimestamp.toDate() : new Date(log.clientTimestamp.seconds * 1000);
         }
-        return new Date(); // Fallback for immediate UI update
+        return new Date(); 
     }
     return log.timestamp.toDate ? log.timestamp.toDate() : new Date(log.timestamp.seconds * 1000);
+};
+
+// Helper to get seconds for strict chronological comparison
+const getLogSeconds = (log: AttendanceLog): number => {
+    if (log.timestamp) return log.timestamp.seconds;
+    if (log.clientTimestamp) return log.clientTimestamp.seconds;
+    return Math.floor(Date.now() / 1000);
 };
 
 // Helper to convert HH:MM to minutes from start of day (Robust Version)
@@ -59,11 +65,10 @@ const matchLogsToShifts = (
         const bestIn = logs.find(log => {
             if (log.type !== 'IN' || usedLogIds.has(log.id)) return false;
             
-            const logDate = getLogDate(log); // Safe date extraction
+            const logDate = getLogDate(log); 
             const logMins = logDate.getHours() * 60 + logDate.getMinutes();
             
             // Flexible Window: 
-            // If shift starts at midnight (0 or 1440), we look for punches late night or very early morning
             const minStart = startMins - 120; // 2 hours before
             let maxStart = toMins(shift.end); 
             
@@ -78,7 +83,7 @@ const matchLogsToShifts = (
             }
             // If shift is 24:00 (Midnight Start)
             else if (startMins === 1440 || startMins === 0) {
-                 if (logMins < 120) adjustedLogMins += 1440; // 01:00 AM becomes 25:00
+                 if (logMins < 120) adjustedLogMins += 1440; 
             }
 
             return adjustedLogMins >= minStart && adjustedLogMins <= (maxStart - 1);
@@ -92,34 +97,42 @@ const matchLogsToShifts = (
 
     // 2. Assign OUT Logs
     shifts.forEach((shift, index) => {
-        const startMins = toMins(shift.start);
         const shiftInLog = shiftLogs[index].in;
         
         const bestOut = logs.find(log => {
             if (log.type !== 'OUT' || usedLogIds.has(log.id)) return false;
             
-            const logDate = getLogDate(log); // Safe date extraction
-            const logMins = logDate.getHours() * 60 + logDate.getMinutes();
-
-            // Must be after IN
+            // CRITICAL FIX: Strict Chronological Check
+            // We ensure the OUT log actually happened AFTER the IN log in absolute time.
+            // This prevents an early morning OUT (from yesterday's shift) matching an evening IN (today's shift).
             if (shiftInLog) {
-                const inDate = getLogDate(shiftInLog); // Safe date extraction
-                let inMins = inDate.getHours() * 60 + inDate.getMinutes();
-                let adjLog = logMins;
+                const inSeconds = getLogSeconds(shiftInLog);
+                const outSeconds = getLogSeconds(log);
 
-                // Normalize checks crossing midnight
-                if (adjLog < inMins && (inMins > 1000)) adjLog += 1440; 
+                // Must be strictly after IN
+                if (outSeconds <= inSeconds) return false;
 
-                if (adjLog <= inMins) return false;
+                // Max shift duration sanity check (e.g., 18 hours max to avoid linking to next day's shift by mistake)
+                if ((outSeconds - inSeconds) > 64800) return false; 
+
+                return true;
             } else {
-                // Fallback: Must be after start time
+                // Fallback if IN is missing (Checking against shift start time)
+                const logDate = getLogDate(log);
+                const logMins = logDate.getHours() * 60 + logDate.getMinutes();
+                const startMins = toMins(shift.start);
+                
                 let adjLog = logMins;
                 let adjStart = startMins;
+                
+                // If shift starts late (e.g. 23:00) and log is early (01:00), normalize log
                 if (adjLog < adjStart && adjStart > 1000) adjLog += 1440;
                 
+                // Must be at least 5 mins after shift start
                 if (adjLog < adjStart + 5) return false;
+                
+                return true;
             }
-            return true;
         });
 
         if (bestOut) {
@@ -144,7 +157,6 @@ export const calculateShiftStatus = (
 
     // --- PRIORITY 0: CHECK FOR ADMIN ACTIONS (LEAVES/ABSENCE) ---
     if (activeActionType) {
-        // Map action types to user-friendly messages
         const actionMap: Record<string, string> = {
             'annual_leave': 'ON LEAVE',
             'sick_leave': 'SICK LEAVE',
@@ -155,8 +167,6 @@ export const calculateShiftStatus = (
         
         const message = actionMap[activeActionType] || activeActionType.replace('_', ' ').toUpperCase();
         const sub = 'Status Update';
-        
-        // If it's "Mission", they might still need to punch, otherwise lock it
         const canPunch = activeActionType === 'mission' || hasOverride; 
         const color = activeActionType.includes('absence') ? 'bg-red-600 text-white' : 'bg-purple-600 text-white';
 
@@ -174,39 +184,33 @@ export const calculateShiftStatus = (
     // =========================================================================
     // PRIORITY 1: FINISH YESTERDAY'S OVERNIGHT SHIFT (e.g., Thu 9PM -> Fri 8AM)
     // =========================================================================
-    // Only check this if it's currently "Morning" (before 12PM) to avoid conflict with tonight's shift
     if (currentMinutes < 720) {
         const overnightShift = yesterdayShifts.find(s => {
             const start = toMins(s.start);
             const end = toMins(s.end);
-            // Standard overnight OR Ends next morning
             return end < start || (start > 1000 && end < 900); 
         });
 
         if (overnightShift) {
-            // Sort safely using safe timestamp check
             const sortedYestLogs = [...yesterdayLogs].sort((a,b) => {
-                const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
-                const tB = b.timestamp?.seconds || b.clientTimestamp?.seconds || 0;
+                const tA = getLogSeconds(a);
+                const tB = getLogSeconds(b);
                 return tB - tA;
             });
             const lastInYesterday = sortedYestLogs.find(l => l.type === 'IN');
 
-            // If we punched IN yesterday, we need to punch OUT today
             if (lastInYesterday) {
                 const shiftEndMinsToday = toMins(overnightShift.end);
-                const extWindow = shiftEndMinsToday + 460; // 6 hours after shift end allowed
+                const extWindow = shiftEndMinsToday + 460; 
 
                 // Check if we already punched out TODAY linked to this
                 const hasPunchedOutToday = todayLogs.some(l => {
                     if (l.type !== 'OUT') return false;
-                    const lDate = getLogDate(l);
-                    const lMins = lDate.getHours() * 60 + lDate.getMinutes();
-                    return lMins <= 720;
+                    // Ensure this OUT is chronologically after the IN
+                    return getLogSeconds(l) > getLogSeconds(lastInYesterday);
                 });
 
                 if (!hasPunchedOutToday) {
-                    // Still need to punch out
                     if (currentMinutes < extWindow) {
                         return { 
                             state: 'READY_OUT', 
@@ -223,19 +227,15 @@ export const calculateShiftStatus = (
     }
 
     // =========================================================================
-    // PRIORITY 2: TODAY'S SHIFTS (e.g., Fri 12MN -> Sat 8AM)
+    // PRIORITY 2: TODAY'S SHIFTS
     // =========================================================================
 
     if (todayShifts.length === 0) {
         return { state: 'OFF', message: 'OFF DUTY', sub: 'No Active Shift', canPunch: false };
     }
 
-    // Sort logs safely
-    const sortedLogs = [...todayLogs].sort((a, b) => {
-        const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
-        const tB = b.timestamp?.seconds || b.clientTimestamp?.seconds || 0;
-        return tA - tB;
-    });
+    // Sort logs safely by timestamp ascending
+    const sortedLogs = [...todayLogs].sort((a, b) => getLogSeconds(a) - getLogSeconds(b));
     
     const matchedShifts = matchLogsToShifts(sortedLogs, todayShifts);
 
@@ -251,62 +251,56 @@ export const calculateShiftStatus = (
 
         // Special Case: Shift starts at 24:00/00:00 (Midnight)
         if (start === 0 && end > 0) {
-             // Treat 00:00 as 24:00 for calculation if we are late in the day
              if (now > 1000) start = 1440;
         }
 
-        // Handle Midnight Crossing
+        // Handle Midnight Crossing for End Time
         if (end < start) {
-            end += 1440; // End is next day (e.g., 01:00 becomes 1500)
+            end += 1440; 
         }
 
         // *** CRITICAL FIX FOR OVERNIGHT SHIFTS ***
-        // Calculate "Effective Now" to correctly compare post-midnight hours against shift end
         let effectiveNow = now;
-        
-        // If shift ends next day (end > 1440) AND current time is early morning (now < start)
         if (end > 1440 && now < start) {
             effectiveNow += 1440;
         }
 
-        // Windows
-        const windowOpen = start - 30; // 30 mins before start
-        const unlockOutTime = end - 15; // 15 mins before end
+        const windowOpen = start - 60; // 60 mins before start allowed
+        const unlockOutTime = end - 15; // 15 mins before end allowed for early out
 
         const logIn = matchedShifts[i].in;
         const logOut = matchedShifts[i].out;
 
         // 1. Shift Completed
         if (logIn && logOut) {
-            // Show done message for 1 hour, then wait for next
-            const outDate = getLogDate(logOut); // Safe date extraction
+            // Logic to stay in "Completed" state for a while before showing "Waiting" for next shift
+            const outDate = getLogDate(logOut);
             let outMins = outDate.getHours() * 60 + outDate.getMinutes();
             if (outMins < start && outMins < 300) outMins += 1440; 
 
-            // Use effectiveNow here as well for consistency
-            if (effectiveNow < outMins + 60 && !hasNextShift) {
+            if (effectiveNow < outMins + 120 && !hasNextShift) {
                 return { state: 'COMPLETED', message: 'SHIFT COMPLETE', sub: `Shift ${shiftNum} Done`, canPunch: false };
             }
-            continue; // Check next shift
+            continue; 
         }
 
         // 2. Checked In (Active)
         if (logIn && !logOut) {
             
-            // Check if forgotten (90 mins past end)
-            if (effectiveNow > end + 90) {
+            // Check if forgotten (3 hours past end)
+            if (effectiveNow > end + 180) {
                  if (hasNextShift) {
                      const nextS = todayShifts[i+1];
                      let nextStartMins = toMins(nextS.start);
                      if (nextStartMins === 0 && now > 1000) nextStartMins = 1440; 
-                     if (now >= nextStartMins - 60) continue; 
+                     // Only skip if the next shift has actually started
+                     if (now >= nextStartMins - 30) continue; 
                  }
                  return { state: 'MISSED_OUT', message: 'MISSED OUT', sub: 'Forgot to punch out?', canPunch: false };
             }
 
-            // ** STRICT LOCK: Button only opens 15 mins before end **
+            // ** LOCK OUT BUTTON **
             if (effectiveNow < unlockOutTime && !hasOverride) {
-                // Calculate time remaining
                 const diff = unlockOutTime - effectiveNow;
                 const h = Math.floor(diff / 60);
                 const m = diff % 60;
@@ -315,7 +309,7 @@ export const calculateShiftStatus = (
                 return { 
                     state: 'LOCKED', 
                     message: 'ON DUTY', 
-                    sub: `Unlock in ${timeMsg}`, // Dynamic countdown
+                    sub: `Unlock in ${timeMsg}`, 
                     canPunch: false, 
                     shiftIdx: shiftNum 
                 };
@@ -328,7 +322,6 @@ export const calculateShiftStatus = (
         if (!logIn) {
             // Too Early?
             if (now < windowOpen) {
-                // If it's a future shift today
                 if (i > 0) {
                     const diff = windowOpen - now;
                     const h = Math.floor(diff/60);
@@ -343,7 +336,6 @@ export const calculateShiftStatus = (
                     };
                 }
                 
-                // First shift early
                 if ((windowOpen - now) > 240) {
                      return { state: 'UPCOMING', message: 'UPCOMING', sub: `Starts today at ${shift.start}`, canPunch: false };
                 }
@@ -353,7 +345,7 @@ export const calculateShiftStatus = (
                 return { state: 'LOCKED', message: 'TOO EARLY', sub: `Starts at ${shift.start} (in ${h}h ${m}m)`, canPunch: false };
             }
 
-            // Punch In Window (Active until End)
+            // Punch In Window (Active until End + Buffer)
             if (effectiveNow <= end || hasOverride) {
                 let isLate = false;
                 if (now > start + 30) isLate = true;
@@ -376,6 +368,5 @@ export const calculateShiftStatus = (
         }
     }
 
-    // Default Fallback
     return { state: 'OFF', message: 'OFF DUTY', sub: 'No Active Shift', canPunch: false };
 };

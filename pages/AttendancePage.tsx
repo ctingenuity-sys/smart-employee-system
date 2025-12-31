@@ -265,7 +265,14 @@ const AttendancePage: React.FC = () => {
         const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', todayStr));
         const unsubLogs = onSnapshot(qLogs, (snap) => {
             const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
-            logs.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+            
+            // Fix: Sort with safe timestamp check to prevent crash on pending writes
+            logs.sort((a, b) => {
+                const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
+                const tB = b.timestamp?.seconds || b.clientTimestamp?.seconds || 0;
+                return tA - tB;
+            });
+            
             setTodayLogs(logs);
         });
 
@@ -276,7 +283,11 @@ const AttendancePage: React.FC = () => {
         const qLogsYesterday = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', yesterdayStr));
         const unsubLogsYesterday = onSnapshot(qLogsYesterday, (snap) => {
             const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
-            logs.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+            logs.sort((a, b) => {
+                const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
+                const tB = b.timestamp?.seconds || b.clientTimestamp?.seconds || 0;
+                return tA - tB;
+            });
             setYesterdayLogs(logs);
         });
 

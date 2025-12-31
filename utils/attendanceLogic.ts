@@ -12,6 +12,18 @@ export interface AttendanceStateResult {
     color?: string;
 }
 
+// Helper to safely extract Date object from log, handling pending serverTimestamp (null)
+const getLogDate = (log: AttendanceLog): Date => {
+    // If serverTimestamp is pending (null), use clientTimestamp or fallback to now
+    if (!log.timestamp) {
+        if (log.clientTimestamp) {
+            return log.clientTimestamp.toDate ? log.clientTimestamp.toDate() : new Date(log.clientTimestamp.seconds * 1000);
+        }
+        return new Date(); // Fallback for immediate UI update
+    }
+    return log.timestamp.toDate ? log.timestamp.toDate() : new Date(log.timestamp.seconds * 1000);
+};
+
 // Helper to convert HH:MM to minutes from start of day (Robust Version)
 export const toMins = (time: string | undefined | null): number => {
     if (!time || typeof time !== 'string' || !time.includes(':')) return 0;
@@ -46,7 +58,8 @@ const matchLogsToShifts = (
         
         const bestIn = logs.find(log => {
             if (log.type !== 'IN' || usedLogIds.has(log.id)) return false;
-            const logDate = log.timestamp.toDate ? log.timestamp.toDate() : new Date(log.timestamp.seconds * 1000);
+            
+            const logDate = getLogDate(log); // Safe date extraction
             const logMins = logDate.getHours() * 60 + logDate.getMinutes();
             
             // Flexible Window: 
@@ -85,12 +98,12 @@ const matchLogsToShifts = (
         const bestOut = logs.find(log => {
             if (log.type !== 'OUT' || usedLogIds.has(log.id)) return false;
             
-            const logDate = log.timestamp.toDate ? log.timestamp.toDate() : new Date(log.timestamp.seconds * 1000);
+            const logDate = getLogDate(log); // Safe date extraction
             const logMins = logDate.getHours() * 60 + logDate.getMinutes();
 
             // Must be after IN
             if (shiftInLog) {
-                const inDate = shiftInLog.timestamp.toDate ? shiftInLog.timestamp.toDate() : new Date(shiftInLog.timestamp.seconds * 1000);
+                const inDate = getLogDate(shiftInLog); // Safe date extraction
                 let inMins = inDate.getHours() * 60 + inDate.getMinutes();
                 let adjLog = logMins;
 
@@ -125,7 +138,7 @@ export const calculateShiftStatus = (
     todayShifts: { start: string, end: string }[],
     hasOverride: boolean,
     yesterdayShifts: { start: string, end: string }[] = [],
-    activeActionType: string | null = null // NEW PARAMETER
+    activeActionType: string | null = null
 ): AttendanceStateResult => {
     if (!currentTime) return { state: 'LOADING', message: 'SYNCING', sub: 'Server Time', canPunch: false };
 
@@ -171,7 +184,12 @@ export const calculateShiftStatus = (
         });
 
         if (overnightShift) {
-            const sortedYestLogs = [...yesterdayLogs].sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+            // Sort safely using safe timestamp check
+            const sortedYestLogs = [...yesterdayLogs].sort((a,b) => {
+                const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
+                const tB = b.timestamp?.seconds || b.clientTimestamp?.seconds || 0;
+                return tB - tA;
+            });
             const lastInYesterday = sortedYestLogs.find(l => l.type === 'IN');
 
             // If we punched IN yesterday, we need to punch OUT today
@@ -180,10 +198,12 @@ export const calculateShiftStatus = (
                 const extWindow = shiftEndMinsToday + 460; // 6 hours after shift end allowed
 
                 // Check if we already punched out TODAY linked to this
-                const hasPunchedOutToday = todayLogs.some(l => 
-                    l.type === 'OUT' && 
-                    toMins(l.timestamp.toDate().toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'})) <= 720 
-                );
+                const hasPunchedOutToday = todayLogs.some(l => {
+                    if (l.type !== 'OUT') return false;
+                    const lDate = getLogDate(l);
+                    const lMins = lDate.getHours() * 60 + lDate.getMinutes();
+                    return lMins <= 720;
+                });
 
                 if (!hasPunchedOutToday) {
                     // Still need to punch out
@@ -210,7 +230,13 @@ export const calculateShiftStatus = (
         return { state: 'OFF', message: 'OFF DUTY', sub: 'No Active Shift', canPunch: false };
     }
 
-    const sortedLogs = [...todayLogs].sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+    // Sort logs safely
+    const sortedLogs = [...todayLogs].sort((a, b) => {
+        const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
+        const tB = b.timestamp?.seconds || b.clientTimestamp?.seconds || 0;
+        return tA - tB;
+    });
+    
     const matchedShifts = matchLogsToShifts(sortedLogs, todayShifts);
 
     for (let i = 0; i < todayShifts.length; i++) {
@@ -239,9 +265,6 @@ export const calculateShiftStatus = (
         let effectiveNow = now;
         
         // If shift ends next day (end > 1440) AND current time is early morning (now < start)
-        // Example: Shift 5PM (1020) to 1AM (1500). Current time 12:30 AM (30).
-        // 30 < 1020 is true. So effectiveNow becomes 1470.
-        // 1470 < 1500 (1AM) is true.
         if (end > 1440 && now < start) {
             effectiveNow += 1440;
         }
@@ -256,7 +279,7 @@ export const calculateShiftStatus = (
         // 1. Shift Completed
         if (logIn && logOut) {
             // Show done message for 1 hour, then wait for next
-            const outDate = logOut.timestamp.toDate ? logOut.timestamp.toDate() : new Date(logOut.timestamp.seconds * 1000);
+            const outDate = getLogDate(logOut); // Safe date extraction
             let outMins = outDate.getHours() * 60 + outDate.getMinutes();
             if (outMins < start && outMins < 300) outMins += 1440; 
 

@@ -265,7 +265,7 @@ export const calculateShiftStatus = (
             effectiveNow += 1440;
         }
 
-        const windowOpen = start - 60; // 60 mins before start allowed
+        const windowOpen = start - 30; // 60 mins before start allowed
         const unlockOutTime = end - 15; // 15 mins before end allowed for early out
 
         const logIn = matchedShifts[i].in;

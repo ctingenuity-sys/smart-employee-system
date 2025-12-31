@@ -2,7 +2,7 @@
 import { AttendanceLog } from '../types';
 
 export interface AttendanceStateResult {
-    state: 'LOADING' | 'READY_IN' | 'READY_OUT' | 'LOCKED' | 'COMPLETED' | 'MISSED_OUT' | 'ABSENT' | 'WAITING' | 'NEXT_SHIFT' | 'OFF' | 'UPCOMING';
+    state: 'LOADING' | 'READY_IN' | 'READY_OUT' | 'LOCKED' | 'COMPLETED' | 'MISSED_OUT' | 'ABSENT' | 'WAITING' | 'NEXT_SHIFT' | 'OFF' | 'UPCOMING' | 'ON_LEAVE';
     message: string;
     sub: string;
     canPunch: boolean;
@@ -113,9 +113,36 @@ export const calculateShiftStatus = (
     yesterdayLogs: AttendanceLog[],
     todayShifts: { start: string, end: string }[],
     hasOverride: boolean,
-    yesterdayShifts: { start: string, end: string }[] = [] 
+    yesterdayShifts: { start: string, end: string }[] = [],
+    activeActionType: string | null = null // NEW PARAMETER
 ): AttendanceStateResult => {
     if (!currentTime) return { state: 'LOADING', message: 'SYNCING', sub: 'Server Time', canPunch: false };
+
+    // --- PRIORITY 0: CHECK FOR ADMIN ACTIONS (LEAVES/ABSENCE) ---
+    if (activeActionType) {
+        // Map action types to user-friendly messages
+        const actionMap: Record<string, string> = {
+            'annual_leave': 'ON LEAVE',
+            'sick_leave': 'SICK LEAVE',
+            'unjustified_absence': 'ABSENT (ADMIN)',
+            'justified_absence': 'EXCUSED ABSENCE',
+            'mission': 'ON MISSION'
+        };
+        
+        const message = actionMap[activeActionType] || activeActionType.replace('_', ' ').toUpperCase();
+        const sub = 'Registered by Supervisor';
+        
+        // If it's "Mission", they might still need to punch, otherwise lock it
+        const canPunch = activeActionType === 'mission' || hasOverride; 
+
+        return {
+            state: 'ON_LEAVE',
+            message,
+            sub,
+            canPunch,
+            color: activeActionType.includes('absence') ? 'bg-red-600' : 'bg-purple-600'
+        };
+    }
 
     let currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
 
@@ -192,12 +219,24 @@ export const calculateShiftStatus = (
 
         // Handle Midnight Crossing
         if (end < start) {
-            end += 1440; // End is next day
+            end += 1440; // End is next day (e.g., 01:00 becomes 1500)
+        }
+
+        // *** CRITICAL FIX FOR OVERNIGHT SHIFTS ***
+        // Calculate "Effective Now" to correctly compare post-midnight hours against shift end
+        let effectiveNow = now;
+        
+        // If shift ends next day (end > 1440) AND current time is early morning (now < start)
+        // Example: Shift 5PM (1020) to 1AM (1500). Current time 12:30 AM (30).
+        // 30 < 1020 is true. So effectiveNow becomes 1470.
+        // 1470 < 1500 (1AM) is true.
+        if (end > 1440 && now < start) {
+            effectiveNow += 1440;
         }
 
         // Windows
-        const windowOpen = start - 15; // 30 mins before
-        const lockOutTime = end - 15;
+        const windowOpen = start - 30; // 30 mins before start
+        const unlockOutTime = end - 15; // 15 mins before end
 
         const logIn = matchedShifts[i].in;
         const logOut = matchedShifts[i].out;
@@ -209,39 +248,42 @@ export const calculateShiftStatus = (
             let outMins = outDate.getHours() * 60 + outDate.getMinutes();
             if (outMins < start && outMins < 300) outMins += 1440; 
 
-            if (now < outMins + 60 && !hasNextShift) {
+            // Use effectiveNow here as well for consistency
+            if (effectiveNow < outMins + 60 && !hasNextShift) {
                 return { state: 'COMPLETED', message: 'SHIFT COMPLETE', sub: `Shift ${shiftNum} Done`, canPunch: false };
             }
             continue; // Check next shift
         }
 
-        // 2. Checked In (Active) - BUT CHECK IF STALE
+        // 2. Checked In (Active)
         if (logIn && !logOut) {
             
-            // CRITICAL: Handle "Forgot to Punch Out"
-            // If current time is significantly past this shift's end, 
-            // AND we are in the window for the NEXT shift, assume this one is abandoned.
-            if (now > end + 60) { // 90 mins buffer past end of shift
+            // Check if forgotten (90 mins past end)
+            if (effectiveNow > end + 90) {
                  if (hasNextShift) {
                      const nextS = todayShifts[i+1];
                      let nextStartMins = toMins(nextS.start);
                      if (nextStartMins === 0 && now > 1000) nextStartMins = 1440; 
-                     
-                     // If we are within the window of the NEXT shift, skip this one
-                     if (now >= nextStartMins - 60) {
-                         continue; 
-                     }
+                     if (now >= nextStartMins - 60) continue; 
                  }
-                 // If no next shift or too early for it, show Missed Out
                  return { state: 'MISSED_OUT', message: 'MISSED OUT', sub: 'Forgot to punch out?', canPunch: false };
             }
 
-            if (now < lockOutTime && !hasOverride && end < 1440) {
-                return { state: 'LOCKED', message: 'ON DUTY', sub: `Wait until ${shift.end}`, canPunch: false, shiftIdx: shiftNum };
-            }
-            
-            if (end > 1440) {
-                 return { state: 'LOCKED', message: 'ON DUTY (NIGHT)', sub: `Punch Out Tomorrow at ${shift.end}`, canPunch: false, shiftIdx: shiftNum };
+            // ** STRICT LOCK: Button only opens 15 mins before end **
+            if (effectiveNow < unlockOutTime && !hasOverride) {
+                // Calculate time remaining
+                const diff = unlockOutTime - effectiveNow;
+                const h = Math.floor(diff / 60);
+                const m = diff % 60;
+                const timeMsg = h > 0 ? `${h}h ${m}m` : `${m}m`;
+
+                return { 
+                    state: 'LOCKED', 
+                    message: 'ON DUTY', 
+                    sub: `Unlock in ${timeMsg}`, // Dynamic countdown
+                    canPunch: false, 
+                    shiftIdx: shiftNum 
+                };
             }
 
             return { state: 'READY_OUT', message: `END SHIFT ${shiftNum}`, sub: 'Record Departure', canPunch: true, shiftIdx: shiftNum };
@@ -266,30 +308,18 @@ export const calculateShiftStatus = (
                     };
                 }
                 
-                // First shift early - Show UPCOMING instead of LOCKED/OFF
-                const h = Math.floor((windowOpen - now)/60);
-                const m = (windowOpen - now)%60;
-                
-                // If extremely early (more than 4 hours), show upcoming but not locked
+                // First shift early
                 if ((windowOpen - now) > 240) {
-                     return { 
-                        state: 'UPCOMING', 
-                        message: 'UPCOMING', 
-                        sub: `Starts today at ${shift.start}`, 
-                        canPunch: false 
-                    };
+                     return { state: 'UPCOMING', message: 'UPCOMING', sub: `Starts today at ${shift.start}`, canPunch: false };
                 }
 
-                return { 
-                    state: 'LOCKED', 
-                    message: 'TOO EARLY', 
-                    sub: `Starts at ${shift.start} (in ${h}h ${m}m)`, 
-                    canPunch: false 
-                };
+                const h = Math.floor((windowOpen - now)/60);
+                const m = (windowOpen - now)%60;
+                return { state: 'LOCKED', message: 'TOO EARLY', sub: `Starts at ${shift.start} (in ${h}h ${m}m)`, canPunch: false };
             }
 
-            // Punch In Window
-            if (now <= end || end > 1440 || hasOverride) {
+            // Punch In Window (Active until End)
+            if (effectiveNow <= end || hasOverride) {
                 let isLate = false;
                 if (now > start + 30) isLate = true;
 
@@ -304,7 +334,7 @@ export const calculateShiftStatus = (
             }
 
             // Absent
-            if (now > end && end < 1440) {
+            if (effectiveNow > end) {
                 if (!isLastShift) continue; 
                 return { state: 'ABSENT', message: 'ABSENT', sub: `Shift ${shiftNum} Missed`, canPunch: false };
             }

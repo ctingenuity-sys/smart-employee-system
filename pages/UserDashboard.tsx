@@ -6,7 +6,7 @@ import { db, auth } from '../firebase';
 // @ts-ignore
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
-import { Schedule, Announcement, SwapRequest, OpenShift, User, AttendanceLog } from '../types';
+import { Schedule, Announcement, SwapRequest, OpenShift, User, AttendanceLog, ActionLog } from '../types';
 
 // --- Helpers ---
 const getLocalDateStr = (d: Date) => {
@@ -103,6 +103,9 @@ const UserDashboard: React.FC = () => {
   const [allTodayLogs, setAllTodayLogs] = useState<AttendanceLog[]>([]); // For "Who's on shift" accuracy
   const [hasAttendanceOverride, setHasAttendanceOverride] = useState(false);
   
+  // NEW: Store Actions (Leaves, Absences)
+  const [userActions, setUserActions] = useState<ActionLog[]>([]);
+
   // Who's on Shift State
   const [onShiftNow, setOnShiftNow] = useState<{name: string, location: string, time: string, role?: string, phone?: string, isPresent: boolean, isPP: boolean}[]>([]);
   const [isShiftWidgetOpen, setIsShiftWidgetOpen] = useState(false);
@@ -229,7 +232,14 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
         setAllUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
     });
 
-    return () => { unsubAnnounce(); unsubOpenShifts(); unsubIncoming(); unsubOverride(); unsubSchedule(); unsubLogs(); unsubAllLogs(); };
+    // NEW: Fetch Actions/Leaves for current user
+    // We fetch broader range or all to simplify, or last 30 days
+    const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
+    const unsubActions = onSnapshot(qActions, (snap) => {
+        setUserActions(snap.docs.map(d => ({ id: d.id, ...d.data() } as ActionLog)));
+    });
+
+    return () => { unsubAnnounce(); unsubOpenShifts(); unsubIncoming(); unsubOverride(); unsubSchedule(); unsubLogs(); unsubAllLogs(); unsubActions(); };
   }, [currentUserId]);
 
   // --- On Shift Logic (Corrected) ---
@@ -340,6 +350,33 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
   // --- ENHANCED HERO LOGIC ---
   const getHeroInfo = () => {
     const now = new Date();
+    const todayStr = getLocalDateStr(now);
+
+    // 1. Check for Actions (Leaves/Absence) FIRST
+    const activeAction = userActions.find(a => a.fromDate <= todayStr && a.toDate >= todayStr);
+    
+    if (activeAction) {
+        // Map types to user friendly text
+        const actionMap: Record<string, {title: string, sub: string, mode: string}> = {
+            'annual_leave': { title: 'ON LEAVE', sub: 'Annual Leave', mode: 'leave' },
+            'sick_leave': { title: 'SICK LEAVE', sub: 'Get Well Soon', mode: 'leave' },
+            'unjustified_absence': { title: 'ABSENT', sub: 'Contact Supervisor', mode: 'absent' },
+            'justified_absence': { title: 'EXCUSED', sub: 'Authorized Absence', mode: 'leave' },
+            'mission': { title: 'ON MISSION', sub: 'External Duty', mode: 'active' }
+        };
+
+        const config = actionMap[activeAction.type] || { title: activeAction.type.toUpperCase(), sub: 'Status Update', mode: 'off' };
+        
+        // If it's a mission, they might still be 'active' but special
+        return { 
+            mode: config.mode, 
+            title: config.title, 
+            subtitle: config.sub, 
+            location: 'System Update' 
+        };
+    }
+
+    // 2. Normal Shift Logic
     const userSchedules = currentSchedules.filter(s => s.userId === currentUserId);
     
     const sortedLogs = [...todayLogs].sort((a,b) => {
@@ -510,6 +547,8 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
   if (heroInfo.mode === 'complete') themeColor = 'cyan';
   if (heroInfo.mode === 'late') themeColor = 'red';
   if (heroInfo.mode === 'off') themeColor = 'slate';
+  if (heroInfo.mode === 'leave') themeColor = 'purple';
+  if (heroInfo.mode === 'absent') themeColor = 'red';
 
   const styles = `
     @keyframes aurora {
@@ -617,12 +656,13 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
                 ${themeColor === 'red' ? 'bg-gradient-to-br from-red-900 via-rose-800 to-slate-900' :
                   themeColor === 'emerald' ? 'bg-gradient-to-br from-emerald-900 via-teal-800 to-slate-900' :
                   themeColor === 'cyan' ? 'bg-gradient-to-br from-cyan-900 via-blue-800 to-slate-900' :
+                  themeColor === 'purple' ? 'bg-gradient-to-br from-purple-900 via-indigo-800 to-slate-900' :
                   'bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900'
                 }`}
             >
                 {/* Floating Blobs */}
                 <div className={`absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full mix-blend-screen filter blur-[100px] opacity-30 animate-pulse-slow
-                    ${themeColor === 'red' ? 'bg-red-500' : themeColor === 'emerald' ? 'bg-emerald-500' : 'bg-blue-500'}`}>
+                    ${themeColor === 'red' ? 'bg-red-500' : themeColor === 'emerald' ? 'bg-emerald-500' : themeColor === 'purple' ? 'bg-purple-500' : 'bg-blue-500'}`}>
                 </div>
                 <div className="absolute bottom-[-10%] right-[-10%] w-[400px] h-[400px] bg-purple-500 rounded-full mix-blend-screen filter blur-[100px] opacity-20 animate-pulse-slow delay-1000"></div>
                 
@@ -636,7 +676,7 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
                 <div className={`space-y-6 ${dir === 'rtl' ? 'md:text-right' : 'md:text-left'} text-center md:text-left`}>
                     
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/10 backdrop-blur-md shadow-sm">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span className={`w-2 h-2 rounded-full ${heroInfo.mode === 'absent' ? 'bg-red-500' : heroInfo.mode === 'leave' ? 'bg-purple-400' : 'bg-emerald-400'} animate-pulse`}></span>
                         <span className="text-[10px] font-bold text-white tracking-widest uppercase">System Online</span>
                     </div>
 
@@ -698,7 +738,7 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
                     <div className="relative group perspective-1000">
                         {/* Glow behind card */}
                         <div className={`absolute inset-0 bg-gradient-to-r blur-2xl opacity-40 transition-colors duration-1000 rounded-3xl transform scale-110
-                            ${themeColor === 'red' ? 'from-red-500 to-orange-500' : themeColor === 'emerald' ? 'from-emerald-500 to-cyan-500' : 'from-blue-500 to-purple-500'}
+                            ${themeColor === 'red' ? 'from-red-500 to-orange-500' : themeColor === 'emerald' ? 'from-emerald-500 to-cyan-500' : themeColor === 'purple' ? 'from-purple-500 to-indigo-500' : 'from-blue-500 to-purple-500'}
                         `}></div>
 
                         <div className="glass-card w-full md:w-[380px] p-6 rounded-[32px] relative z-10 transition-transform duration-500 hover:rotate-y-2 hover:rotate-x-2">
@@ -708,11 +748,14 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
                                 <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-3xl shadow-lg animate-float-icon
                                     ${themeColor === 'red' ? 'bg-gradient-to-br from-red-500 to-orange-500 text-white' : 
                                       themeColor === 'emerald' ? 'bg-gradient-to-br from-emerald-400 to-cyan-500 text-white' : 
+                                      themeColor === 'purple' ? 'bg-gradient-to-br from-purple-500 to-indigo-500 text-white' : 
                                       themeColor === 'slate' ? 'bg-white/10 text-white/60' :
                                       'bg-gradient-to-br from-blue-500 to-indigo-500 text-white'}
                                 `}>
                                     {heroInfo.mode === 'active' ? <i className="fas fa-bolt"></i> : 
                                      heroInfo.mode === 'late' ? <i className="fas fa-exclamation-triangle"></i> :
+                                     heroInfo.mode === 'leave' ? <i className="fas fa-umbrella-beach"></i> :
+                                     heroInfo.mode === 'absent' ? <i className="fas fa-user-times"></i> :
                                      heroInfo.mode === 'upcoming' ? <i className="fas fa-hourglass-half"></i> :
                                      <i className="fas fa-moon"></i>}
                                 </div>
@@ -720,6 +763,7 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
                                     <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border
                                         ${themeColor === 'red' ? 'bg-red-500/20 border-red-500/50 text-red-200' : 
                                           themeColor === 'emerald' ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-200' : 
+                                          themeColor === 'purple' ? 'bg-purple-500/20 border-purple-500/50 text-purple-200' :
                                           'bg-white/10 border-white/20 text-white/60'}
                                     `}>
                                         {heroInfo.mode === 'active' ? 'On Duty' : heroInfo.mode}
@@ -730,7 +774,7 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
                             {/* Middle: Big Title */}
                             <div className="mb-6">
                                 <h3 className="text-3xl font-black text-white leading-tight mb-1">{heroInfo.title}</h3>
-                                <p className={`text-sm font-bold uppercase tracking-wide opacity-80 ${themeColor === 'red' ? 'text-red-200' : themeColor === 'emerald' ? 'text-emerald-200' : 'text-blue-200'}`}>
+                                <p className={`text-sm font-bold uppercase tracking-wide opacity-80 ${themeColor === 'red' ? 'text-red-200' : themeColor === 'emerald' ? 'text-emerald-200' : themeColor === 'purple' ? 'text-purple-200' : 'text-blue-200'}`}>
                                     {heroInfo.subtitle}
                                 </p>
                             </div>

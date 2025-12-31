@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, memo } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
 import { collection, addDoc, onSnapshot, query, where, Timestamp, serverTimestamp, doc, updateDoc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
-import { AttendanceLog, Schedule, LocationCheckRequest } from '../types';
+import { AttendanceLog, Schedule, LocationCheckRequest, ActionLog } from '../types';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
 // @ts-ignore
@@ -163,7 +163,10 @@ const AttendancePage: React.FC = () => {
     const [yesterdayLogs, setYesterdayLogs] = useState<AttendanceLog[]>([]);
     const [todayShifts, setTodayShifts] = useState<{ start: string, end: string }[]>([]);
     const [yesterdayShifts, setYesterdayShifts] = useState<{ start: string, end: string }[]>([]);
-    const [tomorrowShifts, setTomorrowShifts] = useState<{ start: string, end: string }[]>([]); // NEW
+    const [tomorrowShifts, setTomorrowShifts] = useState<{ start: string, end: string }[]>([]);
+    
+    // NEW: Action/Leave State
+    const [todayAction, setTodayAction] = useState<string | null>(null);
     
     const [overrideExpiries, setOverrideExpiries] = useState<Date[]>([]);
     const [hasOverride, setHasOverride] = useState(false);
@@ -285,6 +288,23 @@ const AttendancePage: React.FC = () => {
             setOverrideExpiries(expiries.sort((a, b) => a.getTime() - b.getTime()));
         });
 
+        // NEW: Fetch Actions/Leaves for Today
+        const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
+        const unsubActions = onSnapshot(qActions, (snap) => {
+            const actions = snap.docs.map(d => d.data() as ActionLog);
+            const active = actions.find(a => a.fromDate <= todayStr && a.toDate >= todayStr);
+            if (active) {
+                // Ignore 'positive' or simple notes, prioritize absence/leave types
+                if (['annual_leave', 'sick_leave', 'unjustified_absence', 'justified_absence', 'mission'].includes(active.type)) {
+                    setTodayAction(active.type);
+                } else {
+                    setTodayAction(null);
+                }
+            } else {
+                setTodayAction(null);
+            }
+        });
+
         // UPDATED LOGIC: Fetch Previous, Current, AND Next Month to cover all recurring bases
         const currentMonth = currentTime.toISOString().slice(0, 7);
         const prevDate = new Date(currentTime); prevDate.setMonth(prevDate.getMonth() - 1);
@@ -295,7 +315,7 @@ const AttendancePage: React.FC = () => {
         const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
         const unsubSch = onSnapshot(qSch, (snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
 
-        return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); };
+        return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); unsubActions(); };
     }, [currentUserId, isTimeSynced, currentTime?.toDateString()]);
 
 
@@ -350,8 +370,9 @@ const AttendancePage: React.FC = () => {
     // Use the logic from separate file
     const shiftLogic = useMemo(() => {
         // Pass yesterdayShifts to support overnight logic
-        return calculateShiftStatus(currentTime, todayLogs, yesterdayLogs, todayShifts, hasOverride, yesterdayShifts);
-    }, [todayLogs, yesterdayLogs, todayShifts, yesterdayShifts, hasOverride, logicTicker, currentTime]);
+        // NEW: Pass todayAction to logic
+        return calculateShiftStatus(currentTime, todayLogs, yesterdayLogs, todayShifts, hasOverride, yesterdayShifts, todayAction);
+    }, [todayLogs, yesterdayLogs, todayShifts, yesterdayShifts, hasOverride, logicTicker, currentTime, todayAction]);
 
     // --- ACTIONS ---
     const playSound = (type: 'success' | 'error' | 'click') => {
@@ -653,6 +674,19 @@ const AttendancePage: React.FC = () => {
             };
         }
 
+        // NEW: Specific Handling for Leave State
+        if (shiftLogic.state === 'ON_LEAVE') {
+            return {
+                theme: shiftLogic.color?.includes('red') ? 'rose' : 'purple',
+                mainText: shiftLogic.message,
+                subText: shiftLogic.sub,
+                icon: 'fa-umbrella-beach',
+                ringClass: `border-${shiftLogic.color?.includes('red') ? 'red' : 'purple'}-500/20 shadow-[0_0_50px_rgba(200,200,200,0.1)]`,
+                btnClass: `${shiftLogic.color || 'bg-purple-900/40 text-purple-400'} cursor-not-allowed`,
+                pulse: false
+            };
+        }
+
         const isBreak = (shiftLogic as any).isBreak;
         
         if (!shiftLogic.canPunch) {
@@ -750,7 +784,7 @@ const AttendancePage: React.FC = () => {
             
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
                 <div className={`absolute top-[-20%] left-[-10%] w-[70vw] h-[70vw] rounded-full mix-blend-screen filter blur-[120px] opacity-20 animate-float transition-colors duration-[2000ms]
-                    ${visualState.theme === 'cyan' ? 'bg-cyan-600' : visualState.theme === 'rose' ? 'bg-rose-600' : visualState.theme === 'amber' ? 'bg-amber-600' : 'bg-slate-800'}`}>
+                    ${visualState.theme === 'cyan' ? 'bg-cyan-600' : visualState.theme === 'rose' ? 'bg-rose-600' : visualState.theme === 'amber' ? 'bg-amber-600' : visualState.theme === 'purple' ? 'bg-purple-600' : 'bg-slate-800'}`}>
                 </div>
                 <div className={`absolute bottom-[-20%] right-[-10%] w-[60vw] h-[60vw] rounded-full mix-blend-screen filter blur-[100px] opacity-10 animate-float transition-colors duration-[2000ms] delay-1000
                     ${visualState.theme === 'cyan' ? 'bg-blue-600' : visualState.theme === 'rose' ? 'bg-orange-600' : 'bg-slate-700'}`}>
@@ -829,6 +863,7 @@ const AttendancePage: React.FC = () => {
                 visualState.theme === 'cyan' ? 'text-cyan-400' : 
                 visualState.theme === 'rose' ? 'text-rose-500' : 
                 visualState.theme === 'amber' ? 'text-amber-500' : 
+                visualState.theme === 'purple' ? 'text-purple-500' : 
                 visualState.theme === 'sky' ? 'text-sky-400' : 'text-slate-600'
             }`}
         />
@@ -843,7 +878,7 @@ const AttendancePage: React.FC = () => {
                 transition-all duration-500 transform active:scale-95 
                 ${visualState.theme === 'rose' && status === 'ERROR' ? 'bg-red-900/40 text-red-500 border-red-500/50' : visualState.btnClass} 
                 glass-panel border-4 border-white/5 shadow-2xl
-                ${(status !== 'IDLE' && status !== 'ERROR' && !activeLiveCheck) ? 'opacity-50 cursor-not-allowed' : ''}
+                ${(status !== 'IDLE' && status !== 'ERROR' && !activeLiveCheck && !shiftLogic.canPunch) ? 'opacity-90 cursor-not-allowed' : ''}
             `}
         >
             <i className={`fas ${status === 'ERROR' ? 'fa-exclamation-triangle' : visualState.icon} text-5xl mb-4 neon-text-glow`}></i>

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { Schedule, Location, User } from '../types';
+import { Schedule, Location, User, ActionLog } from '../types';
 import Loading from '../components/Loading';
 import { useLanguage } from '../contexts/LanguageContext';
 // @ts-ignore
@@ -119,6 +119,7 @@ const UserSchedule: React.FC = () => {
     const navigate = useNavigate();
     const currentUserId = auth.currentUser?.uid;
     const [schedules, setSchedules] = useState<Schedule[]>([]);
+    const [actions, setActions] = useState<ActionLog[]>([]);
     const [locations, setLocations] = useState<Location[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -131,19 +132,69 @@ const UserSchedule: React.FC = () => {
             setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
         });
 
-        // Schedules
         if (currentUserId) {
-            const q = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', '==', selectedMonth));
-            const unsubSch = onSnapshot(q, snap => {
+            // Schedules
+            const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', '==', selectedMonth));
+            const unsubSch = onSnapshot(qSch, snap => {
                 const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule));
-                // Sort by date
-                data.sort((a, b) => {
-                    const dateA = a.date || a.validFrom || '9999-99-99';
-                    const dateB = b.date || b.validFrom || '9999-99-99';
-                    return dateA.localeCompare(dateB);
+                
+                // Fetch Actions (Leaves/Absences) separately and merge logic
+                // NOTE: Querying by employeeId only, filtering by month in JS to avoid complex indexes
+                const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
+                const unsubActions = onSnapshot(qActions, actionSnap => {
+                    const fetchedActions = actionSnap.docs
+                        .map(d => ({ id: d.id, ...d.data() } as ActionLog))
+                        .filter(a => {
+                            // Simple overlap check with selected month
+                            const start = a.fromDate;
+                            const end = a.toDate;
+                            // Check if action falls within selected month
+                            return (start && start.startsWith(selectedMonth)) || (end && end.startsWith(selectedMonth));
+                        });
+                    
+                    // Transform actions into Schedule-like objects for display
+                    const actionSchedules: Schedule[] = [];
+                    fetchedActions.forEach(act => {
+                        // Skip 'positive' actions as they are just kudos/points
+                        if (act.type === 'positive') return;
+
+                        // Create an entry for each day in the action range that falls in this month
+                        const startDate = new Date(act.fromDate);
+                        const endDate = new Date(act.toDate);
+                        
+                        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                            const dateStr = d.toISOString().split('T')[0];
+                            if (dateStr.startsWith(selectedMonth)) {
+                                actionSchedules.push({
+                                    id: `action_${act.id}_${dateStr}`,
+                                    userId: currentUserId,
+                                    locationId: 'LEAVE_ACTION', // Special ID for rendering
+                                    date: dateStr,
+                                    shifts: [],
+                                    note: act.type, // Store type here
+                                    userType: 'user',
+                                    month: selectedMonth
+                                });
+                            }
+                        }
+                    });
+
+                    // Merge: Filter out regular schedules if an action exists on that day (Action Overrides Schedule)
+                    const actionDates = new Set(actionSchedules.map(s => s.date));
+                    const filteredRegularSchedules = data.filter(s => !s.date || !actionDates.has(s.date));
+                    
+                    const combined = [...filteredRegularSchedules, ...actionSchedules];
+                    
+                    // Sort
+                    combined.sort((a, b) => {
+                        const dateA = a.date || a.validFrom || '9999-99-99';
+                        const dateB = b.date || b.validFrom || '9999-99-99';
+                        return dateA.localeCompare(dateB);
+                    });
+
+                    setSchedules(combined);
+                    setLoading(false);
                 });
-                setSchedules(data);
-                setLoading(false);
             });
             return () => { unsubLocs(); unsubSch(); }
         }
@@ -152,6 +203,16 @@ const UserSchedule: React.FC = () => {
     }, [selectedMonth, currentUserId]);
 
     const getLocationName = useCallback((sch: Schedule) => {
+        if (sch.locationId === 'LEAVE_ACTION') {
+            const map: Record<string, string> = {
+                'annual_leave': 'ANNUAL LEAVE',
+                'sick_leave': 'SICK LEAVE',
+                'unjustified_absence': 'ABSENT (ADMIN)',
+                'justified_absence': 'EXCUSED ABSENCE',
+                'mission': 'ON MISSION'
+            };
+            return map[sch.note || ''] || (sch.note || 'LEAVE').toUpperCase().replace('_', ' ');
+        }
         if (sch.locationId === 'common_duty' && sch.note) {
             return sch.note.split(' - ')[0]; 
         }
@@ -160,6 +221,12 @@ const UserSchedule: React.FC = () => {
     }, [locations]);
 
     const getTicketStatus = (sch: Schedule) => {
+        // Special Action Handling
+        if (sch.locationId === 'LEAVE_ACTION') {
+            if ((sch.note || '').includes('absence')) return { label: 'ABSENT', theme: 'red', icon: 'fa-user-slash', isAction: true };
+            return { label: 'ON LEAVE', theme: 'purple', icon: 'fa-umbrella-beach', isAction: true };
+        }
+
         const isSwap = (sch.locationId || '').toLowerCase().includes('swap') || (sch.note || '').toLowerCase().includes('swap');
         if (!sch.date) {
           if(sch.locationId === 'common_duty') return { label: 'GENERAL', theme: 'purple', icon: 'fa-layer-group', isHoliday: false };
@@ -191,7 +258,8 @@ const UserSchedule: React.FC = () => {
             teal: 'bg-gradient-to-br from-teal-600 via-emerald-600 to-green-700 text-white border-teal-500',
             sky: 'bg-gradient-to-br from-sky-600 via-blue-500 to-cyan-600 text-white border-sky-500',
             indigo: 'bg-gradient-to-br from-indigo-700 via-blue-800 to-slate-900 text-white border-indigo-500',
-            slate: 'bg-gradient-to-br from-slate-500 to-slate-700 text-white border-slate-500'
+            slate: 'bg-gradient-to-br from-slate-500 to-slate-700 text-white border-slate-500',
+            red: 'bg-gradient-to-br from-red-700 via-red-600 to-rose-700 text-white border-red-500' // Added for Absence
         };
         return themes[theme] || themes.blue;
     };
@@ -246,7 +314,7 @@ const UserSchedule: React.FC = () => {
                     
                     let detailedDesc = sch.note && SHIFT_DESCRIPTIONS[sch.note] ? SHIFT_DESCRIPTIONS[sch.note] : '';
                     let customNote = '';
-                    if (sch.note && !SHIFT_DESCRIPTIONS[sch.note]) {
+                    if (sch.note && !SHIFT_DESCRIPTIONS[sch.note] && sch.locationId !== 'LEAVE_ACTION') {
                         const parts = sch.note.split(' - ');
                         if (parts.length > 1) { customNote = parts.slice(1).join(' - '); } else if (sch.note !== sch.locationId) { customNote = sch.note; }
                     }
@@ -312,9 +380,9 @@ const UserSchedule: React.FC = () => {
                                         )}
                                     </div>
 
-                                    {/* Middle Row: Location */}
+                                    {/* Middle Row: Location or Action */}
                                     <div className="mb-8">
-                                        <p className="text-[9px] font-bold uppercase tracking-[0.3em] opacity-50 mb-1">Assigned Unit</p>
+                                        <p className="text-[9px] font-bold uppercase tracking-[0.3em] opacity-50 mb-1">{sch.locationId === 'LEAVE_ACTION' ? 'Status Update' : 'Assigned Unit'}</p>
                                         <h3 className="text-2xl md:text-4xl font-black uppercase tracking-tight leading-none drop-shadow-md font-oswald max-w-lg">
                                             {getLocationName(sch)}
                                         </h3>
@@ -334,27 +402,29 @@ const UserSchedule: React.FC = () => {
                                     </div>
 
                                     {/* Bottom Row: Shifts */}
-                                    <div className="mt-auto space-y-3">
-                                        {displayShifts.map((s, i) => (
-                                            <div key={i} className="flex items-center gap-4 bg-black/20 backdrop-blur-sm rounded-xl p-3 border border-white/10 hover:bg-black/30 transition-colors group/shift">
-                                                <div className="flex flex-col min-w-[60px]">
-                                                    <span className="text-[9px] uppercase font-bold opacity-50 tracking-wider">Start</span>
-                                                    <span className="text-xl font-mono font-bold tracking-tight text-white group-hover/shift:text-emerald-300 transition-colors">{formatTime12(s.start)}</span>
-                                                </div>
-                                                
-                                                {/* Visual Flight Path */}
-                                                <div className="flex-1 flex flex-col justify-center relative px-2">
-                                                    <div className="h-[2px] w-full bg-gradient-to-r from-white/20 via-white/60 to-white/20 rounded-full"></div>
-                                                    <i className="fas fa-plane text-xs absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white/80 transform rotate-90 md:rotate-0"></i>
-                                                </div>
+                                    {sch.locationId !== 'LEAVE_ACTION' && (
+                                        <div className="mt-auto space-y-3">
+                                            {displayShifts.map((s, i) => (
+                                                <div key={i} className="flex items-center gap-4 bg-black/20 backdrop-blur-sm rounded-xl p-3 border border-white/10 hover:bg-black/30 transition-colors group/shift">
+                                                    <div className="flex flex-col min-w-[60px]">
+                                                        <span className="text-[9px] uppercase font-bold opacity-50 tracking-wider">Start</span>
+                                                        <span className="text-xl font-mono font-bold tracking-tight text-white group-hover/shift:text-emerald-300 transition-colors">{formatTime12(s.start)}</span>
+                                                    </div>
+                                                    
+                                                    {/* Visual Flight Path */}
+                                                    <div className="flex-1 flex flex-col justify-center relative px-2">
+                                                        <div className="h-[2px] w-full bg-gradient-to-r from-white/20 via-white/60 to-white/20 rounded-full"></div>
+                                                        <i className="fas fa-plane text-xs absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white/80 transform rotate-90 md:rotate-0"></i>
+                                                    </div>
 
-                                                <div className="flex flex-col text-right min-w-[60px]">
-                                                    <span className="text-[9px] uppercase font-bold opacity-50 tracking-wider">End</span>
-                                                    <span className="text-xl font-mono font-bold tracking-tight text-white group-hover/shift:text-emerald-300 transition-colors">{formatTime12(s.end)}</span>
+                                                    <div className="flex flex-col text-right min-w-[60px]">
+                                                        <span className="text-[9px] uppercase font-bold opacity-50 tracking-wider">End</span>
+                                                        <span className="text-xl font-mono font-bold tracking-tight text-white group-hover/shift:text-emerald-300 transition-colors">{formatTime12(s.end)}</span>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))}
-                                    </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 

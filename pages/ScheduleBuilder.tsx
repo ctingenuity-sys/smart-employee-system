@@ -20,31 +20,47 @@ import Modal from '../components/Modal';
 const convertTo24Hour = (timeStr: string): string | null => {
     if (!timeStr) return null;
     let s = timeStr.toLowerCase().trim();
+    
+    // Handle specific OCR artifacts from PDF
+    s = s.replace(/12mn0/g, '24:00'); 
+    s = s.replace(/12mn/g, '24:00');
+
     s = s.replace(/(\d+)\.(\d+)/, '$1:$2');
-    if (s.match(/\b12\s*:?\s*0{0,2}\s*mn\b/) || s.includes('midnight') || s.includes('12mn')) return '24:00';
+    if (s.match(/\b12\s*:?\s*0{0,2}\s*mn\b/) || s.includes('midnight')) return '24:00';
     if (s.match(/\b12\s*:?\s*0{0,2}\s*n\b/) || s.includes('noon')) return '12:00';
+    
     let modifier = null;
     if (s.includes('pm') || s.includes('p.m') || s.includes('م') || s.includes('مساء')) modifier = 'pm';
     else if (s.includes('am') || s.includes('a.m') || s.includes('ص') || s.includes('صباح')) modifier = 'am';
+    
     const cleanTime = s.replace(/[^\d:]/g, ''); 
     const parts = cleanTime.split(':');
+    
     if (parts.length === 0 || parts[0] === '') return null;
+    
     let h = parseInt(parts[0], 10);
     let m = parts[1] ? parseInt(parts[1], 10) : 0;
+    
     if (modifier) {
         if (modifier === 'pm' && h < 12) h += 12;
         if (modifier === 'am' && h === 12) h = 0;
     }
+    
     if (h === 24) return '24:00';
     if (h > 24) return null;
+    
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 };
 
 const parseMultiShifts = (text: string) => {
     if (!text) return [];
+    // Clean text more aggressively for PDF formats like "9AM 1PM" (missing separator)
     let cleanText = text.replace(/[()（）]/g, ' ').trim();
+    
+    // Handle "9AM-1PM/5PM-10PM" format
     const segments = cleanText.split(/[\/,]|\s+and\s+|&|\s+(?=\d{1,2}(?::\d{2})?\s*(?:am|pm|mn|noon))/i);
     const shifts: { start: string, end: string }[] = [];
+    
     segments.forEach(seg => {
         const trimmed = seg.trim();
         if(!trimmed) return;
@@ -152,13 +168,14 @@ const parseDateRangeRow = (input: string, currentMonth: string) => {
     return { from, to };
 };
 
+// Updated Default Headers to match PDF exactly
 const defaultHeaders: HeaderMap = {
-    morning: 'Morning',
-    evening: 'Evening',
-    broken: 'Broken',
-    cathLab: 'Cath Lab',
-    mri: 'MRI',
-    night: 'Night'
+    morning: 'MORNING (8AM-5PM)',
+    evening: 'EVENING (3PM-12MN)',
+    broken: 'BROKEN (9AM-1PM/5PM-10PM)',
+    cathLab: 'CATH LAB',
+    mri: 'MRI (9AM-1PM/5PM-10PM)',
+    night: 'NIGHT (11PM-8AM)'
 };
 
 const defaultDoctorFridayHeaders: DoctorFridayHeaderMap = {
@@ -467,7 +484,8 @@ const ScheduleBuilder: React.FC = () => {
                             validTo: staff.endDate || globalEndDate || monthEnd,
                             userType: 'user',
                             shifts: shifts,
-                            note: col.title,
+                            // *** MODIFIED: Append staff note to location title for display in ticket ***
+                            note: staff.note ? `${col.title} - ${staff.note}` : col.title,
                             week: 'all',
                             createdAt: Timestamp.now()
                         };
@@ -502,7 +520,8 @@ const ScheduleBuilder: React.FC = () => {
                             validTo: staff.endDate || globalEndDate || monthEnd,
                             userType: 'user',
                             shifts: shifts,
-                            note: duty.section,
+                            // *** MODIFIED: Append staff note ***
+                            note: staff.note ? `${duty.section} - ${staff.note}` : duty.section,
                             week: 'all',
                             createdAt: Timestamp.now()
                         };
@@ -518,16 +537,26 @@ const ScheduleBuilder: React.FC = () => {
                 }
             }
 
-            // 3. Friday Data
+            // 3. Friday Data - UPDATED LOGIC TO USE HEADERS
             for (const row of fridayData) {
                 if(!row.date) continue;
                 const date = normalizeDate(row.date);
                 
-                const processFridayCol = async (staffList: VisualStaff[], colKey: string, defaultTime: string) => {
-                    const shifts = parseMultiShifts(defaultTime) || [{start:'08:00', end:'16:00'}];
+                const processFridayCol = async (staffList: VisualStaff[], colKey: string, timeSource: string, fallbackTime: string) => {
+                    let shifts = parseMultiShifts(timeSource);
+                    if (shifts.length === 0) {
+                        shifts = parseMultiShifts(fallbackTime) || [{start:'08:00', end:'16:00'}];
+                    }
+
                     for (const staff of staffList) {
                         const resolved = resolveStaff(staff);
                         if (resolved) {
+                            let finalShifts = shifts;
+                            if (staff.time && staff.time.trim()) {
+                                const specific = parseMultiShifts(staff.time);
+                                if (specific.length > 0) finalShifts = specific;
+                            }
+
                             const newDoc = doc(scheduleRef);
                             batch.set(newDoc, {
                                 userId: resolved.id,
@@ -536,8 +565,8 @@ const ScheduleBuilder: React.FC = () => {
                                 month: publishMonth,
                                 date: date,
                                 userType: 'user',
-                                shifts: shifts,
-                                note: `Friday - ${colKey}`,
+                                shifts: finalShifts,
+                                note: staff.note ? `Friday - ${colKey} - ${staff.note}` : `Friday - ${colKey}`,
                                 createdAt: Timestamp.now()
                             });
                             await checkBatch();
@@ -545,12 +574,13 @@ const ScheduleBuilder: React.FC = () => {
                     }
                 };
 
-                await processFridayCol(row.morning, 'Morning', '08:00 - 16:00'); 
-                await processFridayCol(row.evening, 'Evening', '16:00 - 24:00');
-                await processFridayCol(row.broken, 'Broken', '09:00 - 13:00, 17:00 - 21:00');
-                await processFridayCol(row.cathLab, 'Cath Lab', '08:00 - 16:00');
-                await processFridayCol(row.mri, 'MRI', '08:00 - 20:00');
-                await processFridayCol(row.night, 'Night', '24:00 - 08:00');
+                // Use the HEADERS as the source of time, falling back to defaults if empty
+                await processFridayCol(row.morning, 'Morning', fridayHeaders.morning || '8AM-5PM', '08:00 - 17:00'); 
+                await processFridayCol(row.evening, 'Evening', fridayHeaders.evening || '3PM-12MN', '15:00 - 24:00');
+                await processFridayCol(row.broken, 'Broken', fridayHeaders.broken || '9AM-1PM/5PM-10PM', '09:00 - 13:00, 17:00 - 22:00');
+                await processFridayCol(row.cathLab, 'Cath Lab', fridayHeaders.cathLab || '8AM-8PM', '08:00 - 20:00');
+                await processFridayCol(row.mri, 'MRI', fridayHeaders.mri || '9AM-1PM/5PM-10PM', '09:00 - 13:00, 17:00 - 22:00');
+                await processFridayCol(row.night, 'Night', fridayHeaders.night || '11PM-8AM', '23:00 - 08:00');
             }
 
             // 4. Doctor Weekly Data
@@ -590,7 +620,7 @@ const ScheduleBuilder: React.FC = () => {
                                 validTo: isNight ? nightTo : to,
                                 userType: 'doctor',
                                 shifts: finalShifts,
-                                note: shiftType,
+                                note: shiftType, // Doctors don't use note field heavily in this context, usually shiftType is key
                                 createdAt: Timestamp.now()
                             });
                             await checkBatch();
@@ -665,7 +695,7 @@ const ScheduleBuilder: React.FC = () => {
                                     date: date,
                                     userType: 'user',
                                     shifts: [{start:'08:00', end:'20:00'}], 
-                                    note: `Holiday - ${colKey}`,
+                                    note: staff.note ? `Holiday - ${colKey} - ${staff.note}` : `Holiday - ${colKey}`,
                                     createdAt: Timestamp.now()
                                 });
                                 await checkBatch();

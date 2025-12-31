@@ -140,7 +140,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
   }
 
   // --- Logic Handlers ---
-  const handleStaffChange = (colIndex: number, staffIndex: number, field: 'name' | 'time' | 'startDate' | 'endDate', value: string) => {
+  const handleStaffChange = (colIndex: number, staffIndex: number, field: 'name' | 'time' | 'startDate' | 'endDate' | 'note', value: string) => {
       const newCols = [...data];
       const newStaff = [...newCols[colIndex].staff];
       newStaff[staffIndex] = { ...newStaff[staffIndex], [field]: value };
@@ -254,7 +254,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
       } catch (err) { console.error("Duty Drop error", err); }
   };
 
-  const handleDutyStaffChange = (dutyIndex: number, staffIndex: number, field: 'name' | 'time' | 'startDate' | 'endDate', val: string) => {
+  const handleDutyStaffChange = (dutyIndex: number, staffIndex: number, field: 'name' | 'time' | 'startDate' | 'endDate' | 'note', val: string) => {
      const newDuties = [...commonDuties];
      const newStaffList = [...newDuties[dutyIndex].staff];
      newStaffList[staffIndex] = { ...newStaffList[staffIndex], [field]: val };
@@ -402,6 +402,13 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                         <span className="hidden print:block text-[11px] font-mono font-bold text-slate-800 whitespace-nowrap print:text-[11px] print:leading-none print:mt-0" dir="ltr">{staff.time}</span>
                      )}
                      
+                     {/* NOTE DISPLAY */}
+                     {staff.note && (
+                         <div className="hidden print:block text-[9px] text-yellow-900 bg-yellow-100/50 border border-yellow-200 px-1 rounded-md mt-0.5 print:text-[9px] print:border-0 print:bg-white/50 font-bold print:mt-0 leading-none text-center italic w-full">
+                             {staff.note}
+                         </div>
+                     )}
+                     
                      {/* Specific Override Display */}
                      {(staff.startDate && staff.endDate) && (
                          <div className="hidden print:block text-[9px] bg-red-50 text-red-600 px-1 rounded border border-red-100 mt-0.5 print:text-[9px] print:border-0 print:bg-white/50 print:text-red-700 font-bold print:mt-0 uppercase leading-none text-center">
@@ -410,7 +417,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                      )}
                 </div>
                 
-                {/* --- EDITING EXTRA FIELDS (Time, Start, End) --- */}
+                {/* --- EDITING EXTRA FIELDS (Time, Note, Start, End) --- */}
                 {isEditing && (
                     <div className="flex flex-col w-full gap-1 mt-1 print:hidden">
                         <input 
@@ -419,6 +426,13 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                             onChange={(e) => handleStaffChange(colIndex, staffIndex, 'time', e.target.value)}
                             onMouseDown={(e) => e.stopPropagation()}
                             className="w-full text-xs text-slate-500 bg-white border border-slate-200 rounded px-1 focus:outline-none"
+                        />
+                        <input 
+                            placeholder="Note (e.g. 4PM-12AM)"
+                            value={staff.note || ''} 
+                            onChange={(e) => handleStaffChange(colIndex, staffIndex, 'note', e.target.value)}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            className="w-full text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 focus:outline-none placeholder-amber-300/70"
                         />
                         <div className="flex gap-1">
                             <input 
@@ -441,11 +455,20 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                     </div>
                 )}
 
-                {/* VIEW MODE TIME */}
-                {!isEditing && staff.time && (
-                    <div className="mt-1 text-[10px] font-black text-slate-700 bg-white/70 inline-block px-2 py-0.5 rounded border border-slate-300 uppercase tracking-tight print:hidden" dir="ltr">
-                        {staff.time}
-                    </div>
+                {/* VIEW MODE TIME & NOTE */}
+                {!isEditing && (
+                    <>
+                        {staff.time && (
+                            <div className="mt-1 text-[10px] font-black text-slate-700 bg-white/70 inline-block px-2 py-0.5 rounded border border-slate-300 uppercase tracking-tight print:hidden" dir="ltr">
+                                {staff.time}
+                            </div>
+                        )}
+                        {staff.note && (
+                            <div className="mt-1 text-[10px] font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-200 italic print:hidden w-full text-center">
+                                {staff.note}
+                            </div>
+                        )}
+                    </>
                 )}
                 </div>
             );
@@ -605,6 +628,12 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                                         className="px-2 py-1 rounded text-xs w-full outline-none bg-slate-50 border border-slate-100 text-slate-500"
                                         placeholder="Time (Optional)"
                                     />
+                                    <input 
+                                        value={s.note || ''}
+                                        onChange={(e) => handleDutyStaffChange(dutyIndex, sIndex, 'note', e.target.value)}
+                                        className="px-2 py-1 rounded text-xs w-full outline-none bg-amber-50 border border-amber-100 text-amber-700"
+                                        placeholder="Note"
+                                    />
                                     <div className="flex gap-1">
                                         <input 
                                             type="date"
@@ -627,6 +656,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                                 >
                                     <span className="font-oswald tracking-wide text-xl">{highlightMatch(s.name)}</span>
                                     {s.time && <span className="text-[11px] bg-white/50 px-1 py-0 rounded mt-1 font-mono border border-black/5" dir="ltr">{s.time}</span>}
+                                    {s.note && <span className="text-[10px] text-amber-800 bg-amber-100 px-1 py-0.5 rounded mt-1 w-full italic">{s.note}</span>}
                                 </div>
                             )}
                             
@@ -638,6 +668,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                             >
                                 <span className="font-oswald font-medium text-xl print:text-[15px] print:font-medium print:leading-tight">{s.name}</span>
                                 {s.time && <span className="text-[11px] bg-white/50 px-1 py-0 rounded mt-1 font-mono border border-black/5 print:bg-white/50 print:mt-0.5 print:border-none print:text-[11px] print:font-bold print:text-black" dir="ltr">{s.time}</span>}
+                                {s.note && <span className="text-[9px] text-amber-900 bg-amber-100/50 px-1 rounded mt-0.5 print:text-[9px] print:border-0 print:bg-white/50 print:text-black font-bold print:mt-0 leading-none text-center italic">{s.note}</span>}
                                 {(s.startDate && s.endDate) && (
                                     <div className="hidden print:block text-[9px] bg-red-50 text-red-600 px-1 rounded border border-red-100 mt-0.5 print:text-[9px] print:border-0 print:bg-white/50 print:text-red-700 font-bold print:mt-0 uppercase leading-none text-center">
                                         FROM {formatDate(s.startDate)} TO {formatDate(s.endDate)}

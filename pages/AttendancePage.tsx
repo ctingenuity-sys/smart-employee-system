@@ -28,14 +28,77 @@ const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon
 }
 const deg2rad = (deg: number) => deg * (Math.PI/180);
 
-const getUniqueDeviceId = () => {
-    const key = 'app_unique_device_id';
-    let id = localStorage.getItem(key);
-    if (!id) {
-        id = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-        localStorage.setItem(key, id);
+// --- ADVANCED HYBRID FINGERPRINTING ---
+// Combines Hardware Traits (for stability) + Persistent Token (for uniqueness)
+const getStableDeviceFingerprint = async (): Promise<string> => {
+    try {
+        // 1. Hardware/Browser Signature (Shared across identical devices)
+        const nav = window.navigator as any;
+        const screen = window.screen;
+        
+        const hardwareInfo = [
+            nav.userAgent,
+            nav.language,
+            screen.colorDepth,
+            screen.width + 'x' + screen.height,
+            nav.hardwareConcurrency,
+            nav.deviceMemory,
+            Intl.DateTimeFormat().resolvedOptions().timeZone
+        ].join('||');
+
+        // Canvas Fingerprinting
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        let canvasHash = 'no-canvas';
+        
+        if (ctx) {
+            canvas.width = 200;
+            canvas.height = 50;
+            ctx.textBaseline = "top";
+            ctx.font = "16px Arial";
+            ctx.fillStyle = "#f60";
+            ctx.fillRect(125, 1, 62, 20);
+            ctx.fillStyle = "#069";
+            ctx.fillText("AJ_SMART_SYSTEM_v1", 2, 15);
+            ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
+            ctx.fillText("AJ_SMART_SYSTEM_v1", 4, 17);
+            
+            ctx.beginPath();
+            ctx.arc(50, 50, 50, 0, Math.PI * 2, true);
+            ctx.closePath();
+            ctx.fill();
+
+            canvasHash = canvas.toDataURL();
+        }
+
+        const hardwareString = `${hardwareInfo}###${canvasHash}`;
+        const msgBuffer = new TextEncoder().encode(hardwareString);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hardwareHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        
+        // 2. Persistent Installation Token (Unique per browser instance)
+        // This solves the "Identical Device" problem.
+        let installToken = localStorage.getItem('aj_device_install_token');
+        if (!installToken) {
+            // Generate a random unique ID for this specific browser installation
+            installToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+            localStorage.setItem('aj_device_install_token', installToken);
+        }
+
+        // 3. Combine: HardwareHash_InstallToken
+        // Example: a1b2c3d4_xyz987
+        return `${hardwareHex}_${installToken}`; 
+
+    } catch (e) {
+        console.error("Fingerprint generation failed, falling back to simple ID", e);
+        let id = localStorage.getItem('app_device_fallback');
+        if (!id) {
+            id = 'fallback_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+            localStorage.setItem('app_device_fallback', id);
+        }
+        return id;
     }
-    return id;
 };
 
 const convertTo24Hour = (timeStr: string): string => {
@@ -175,14 +238,22 @@ const AttendancePage: React.FC = () => {
     const [activeLiveCheck, setActiveLiveCheck] = useState<LocationCheckRequest | null>(null);
     const [isLiveCheckProcessing, setIsLiveCheckProcessing] = useState(false);
     
+    // --- Stable Hardware Device ID ---
+    const [localDeviceId, setLocalDeviceId] = useState<string>('');
+
     const currentUserId = auth.currentUser?.uid;
     const currentUserName = localStorage.getItem('username') || 'User';
-    const localDeviceId = getUniqueDeviceId();
     const isProcessingRef = useRef(false);
     const [realUserId, setRealUserId] = useState<string | null>(null);
 
-    // --- 0. GPS WARM-UP (FASTER LOCATION) ---
+    // --- 0. Initialize Device Fingerprint & GPS ---
     useEffect(() => {
+        // Generate stable fingerprint
+        getStableDeviceFingerprint().then(id => {
+            console.log("Device Fingerprint Generated:", id);
+            setLocalDeviceId(id);
+        });
+
         let watchId: number;
         if ('geolocation' in navigator) {
             watchId = navigator.geolocation.watchPosition(
@@ -447,10 +518,19 @@ const AttendancePage: React.FC = () => {
             return;
         }
 
+        if (!localDeviceId) {
+             setStatus('ERROR');
+             setErrorDetails({ title: 'Device Error', msg: 'Identifying Device...' });
+             // Try to regenerate fingerprint if missing
+             getStableDeviceFingerprint().then(setLocalDeviceId);
+             releaseLock();
+             return;
+        }
+
         if (!hasOverride) {
             if (userProfile?.biometricId && userProfile.biometricId !== localDeviceId) {
                 setStatus('ERROR');
-                setErrorDetails({ title: 'Invalid Device', msg: 'Use registered device.' });
+                setErrorDetails({ title: 'Invalid Device', msg: 'Please use your registered device.' });
                 playSound('error');
                 releaseLock();
                 return;
@@ -518,7 +598,7 @@ const AttendancePage: React.FC = () => {
                             distanceKm: dist,
                             accuracy: accuracy,
                             deviceInfo: navigator.userAgent,
-                            deviceId: localDeviceId,
+                            deviceId: localDeviceId, // Using the new Stable Fingerprint
                             status: isSuspicious ? 'flagged' : 'verified', 
                             shiftIndex: currentShiftIdx, 
                             isSuspicious: isSuspicious, 

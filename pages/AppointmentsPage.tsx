@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
 import { collection, query, where, onSnapshot, addDoc, Timestamp, deleteDoc, doc, updateDoc } from 'firebase/firestore';
@@ -11,6 +11,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 import VoiceInput from '../components/VoiceInput';
+import { GoogleGenAI } from "@google/genai";
 
 const MODALITIES = [
     { id: 'MRI', label: 'MRI', icon: 'fa-magnet', color: 'text-blue-600 bg-blue-50' },
@@ -35,13 +36,17 @@ const AppointmentsPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [toast, setToast] = useState<{msg: string, type: 'success'|'info'|'error'} | null>(null);
+    const [isScanning, setIsScanning] = useState(false);
 
     // Form State
     const [patientName, setPatientName] = useState('');
-    const [fileNumber, setFileNumber] = useState(''); // NEW: File Number State
+    const [fileNumber, setFileNumber] = useState(''); 
     const [examType, setExamType] = useState('MRI');
     const [apptTime, setApptTime] = useState('');
     const [notes, setNotes] = useState('');
+
+    // Refs
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const currentUserId = auth.currentUser?.uid;
     const currentUserName = localStorage.getItem('username') || 'User';
@@ -91,7 +96,7 @@ const AppointmentsPage: React.FC = () => {
         try {
             await addDoc(collection(db, 'appointments'), {
                 patientName,
-                fileNumber: fileNumber || '', // Save File Number
+                fileNumber: fileNumber || '', 
                 examType,
                 date: selectedDate,
                 time: apptTime,
@@ -107,7 +112,6 @@ const AppointmentsPage: React.FC = () => {
             setFileNumber('');
             setApptTime(''); 
             setNotes('');
-            // Keep exam type for faster entry
         } catch (e) {
             setToast({ msg: 'Error adding appointment', type: 'error' });
         }
@@ -137,6 +141,71 @@ const AppointmentsPage: React.FC = () => {
 
             await updateDoc(doc(db, 'appointments', appt.id), updateData);
         } catch(e) { console.error(e); }
+    };
+
+    // --- AI SMART SCAN LOGIC ---
+    const handleImageScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            setIsScanning(true);
+            const file = e.target.files[0];
+            
+            try {
+                // Convert to Base64
+                const reader = new FileReader();
+                reader.onloadend = async () => {
+                    const base64Data = (reader.result as string).split(',')[1];
+                    const apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
+                    
+                    if (!apiKey) throw new Error("API Key missing");
+
+                    const ai = new GoogleGenAI({ apiKey });
+                    const prompt = `
+                        Analyze this medical request image. Extract the following fields strictly in JSON format:
+                        {
+                            "patientName": "Full Name",
+                            "fileNumber": "File/MRN Number (digits)",
+                            "examType": "One of: MRI, CT, X-RAY, US, FLUO, MAMMO, OTHER"
+                        }
+                        If unsure, leave blank.
+                    `;
+
+                    const response = await ai.models.generateContent({
+                        model: 'gemini-2.5-flash',
+                        contents: {
+                            parts: [
+                                { inlineData: { mimeType: file.type, data: base64Data } },
+                                { text: prompt }
+                            ]
+                        },
+                        config: { responseMimeType: 'application/json' }
+                    });
+
+                    const result = JSON.parse(response.text || '{}');
+                    
+                    if (result.patientName) setPatientName(result.patientName);
+                    if (result.fileNumber) setFileNumber(result.fileNumber);
+                    if (result.examType && MODALITIES.some(m => m.id === result.examType)) {
+                        setExamType(result.examType);
+                    }
+
+                    // Set default time to now if empty
+                    if (!apptTime) {
+                        const now = new Date();
+                        setApptTime(`${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`);
+                    }
+
+                    setToast({ msg: 'Data Extracted Successfully! ✨', type: 'success' });
+                };
+                reader.readAsDataURL(file);
+            } catch (error: any) {
+                console.error(error);
+                setToast({ msg: 'Scan Failed: ' + error.message, type: 'error' });
+            } finally {
+                setIsScanning(false);
+                // Reset input
+                if (fileInputRef.current) fileInputRef.current.value = '';
+            }
+        }
     };
 
     return (
@@ -340,6 +409,33 @@ const AppointmentsPage: React.FC = () => {
 
             {/* Add Modal */}
             <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title={t('appt.new')}>
+                <div className="mb-6 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600">
+                            {isScanning ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-camera"></i>}
+                        </div>
+                        <div>
+                            <h4 className="font-bold text-indigo-900 text-sm">Smart Scan</h4>
+                            <p className="text-xs text-indigo-500">Auto-fill from Request Form</p>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isScanning}
+                        className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md"
+                    >
+                        {isScanning ? 'Analyzing...' : 'Scan Now'}
+                    </button>
+                    <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        className="hidden" 
+                        accept="image/*" 
+                        capture="environment"
+                        onChange={handleImageScan}
+                    />
+                </div>
+
                 <form onSubmit={handleSubmit} className="space-y-5">
                     <div className="grid grid-cols-2 gap-4">
                         <div className="col-span-2 md:col-span-1">

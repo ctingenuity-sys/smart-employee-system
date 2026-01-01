@@ -111,10 +111,19 @@ const SupervisorDashboard: React.FC = () => {
           setAllTodayLogs(logs); // Keep all for logic
       });
 
-      // 5. Schedules for "Who is on shift"
+      // 5. Schedules for "Who is on shift" - UPDATED to fetch surrounding months
       const now = new Date();
       const currentMonth = now.toISOString().slice(0, 7);
-      const qSch = query(collection(db, 'schedules'), where('month', '==', currentMonth));
+      
+      const prevMonthDate = new Date(now);
+      prevMonthDate.setMonth(now.getMonth() - 1);
+      const prevMonth = prevMonthDate.toISOString().slice(0, 7);
+
+      const nextMonthDate = new Date(now);
+      nextMonthDate.setMonth(now.getMonth() + 1);
+      const nextMonth = nextMonthDate.toISOString().slice(0, 7);
+
+      const qSch = query(collection(db, 'schedules'), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
       getDocs(qSch).then(snap => {
           setSchedules(snap.docs.map(d => d.data() as Schedule));
       });
@@ -496,7 +505,13 @@ const SupervisorDashboard: React.FC = () => {
                                         <div key={i} className={`flex items-center justify-between p-2 rounded-xl transition-colors ${p.role === 'doctor' ? 'bg-cyan-50 border border-cyan-100' : 'hover:bg-slate-50'}`}>
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-center gap-1">
-                                                    <div className={`w-2 h-2 rounded-full mr-1 ${p.isPresent ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
+                                                    {p.role !== 'doctor' && (
+                                                        <div
+                                                            className={`w-2 h-2 rounded-full mr-1 ${
+                                                            p.isPresent ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
+                                                            }`}
+                                                        ></div>
+                                                        )}
                                                     <span className={`font-bold text-xs truncate max-w-[100px] ${p.role === 'doctor' ? 'text-cyan-900' : 'text-slate-700'}`}>
                                                         {p.name}
                                                     </span>
@@ -514,20 +529,24 @@ const SupervisorDashboard: React.FC = () => {
                                                     {p.time}
                                                 </div>
                                                 {/* VISIBLE STATUS INDICATOR */}
-                                                {p.isPresent ? (
-                                                    <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
+                                                {p.role !== 'doctor' && (
+                                                    p.isPresent ? (
+                                                        <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
                                                         <i className="fas fa-check-circle text-[8px]"></i> {t('status.in')}
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
                                                         {t('status.notyet')}
-                                                    </span>
-                                                )}
+                                                        </span>
+                                                    )
+                                                    )}
                                                 {p.phone && (
-                                                    <a 
-                                                        href={`tel:${p.phone}`} 
-                                                        className="hidden" // Hiding phone to save space, relies on click if needed in future
+                                                     <a 
+                                                        href={`tel:${p.phone}`}
+                                                        className="ml-1 w-5 h-5 flex items-center justify-center rounded-full bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors shadow-sm"
+                                                        title={t('dash.call')}
                                                     >
+                                                        <i className="fas fa-phone text-[10px]"></i>
                                                     </a>
                                                 )}
                                             </div>

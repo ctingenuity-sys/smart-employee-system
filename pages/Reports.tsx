@@ -1,12 +1,12 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { db } from '../firebase';
-import { User, ActionLog } from '../types';
+import { User, ActionLog, Appointment } from '../types';
 import Loading from '../components/Loading';
 import Modal from '../components/Modal';
 import { PrintHeader, PrintFooter } from '../components/PrintLayout';
 // @ts-ignore
-import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, Timestamp, query, where } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
 
 // --- Configuration ---
@@ -18,6 +18,7 @@ const Reports: React.FC = () => {
     const [employees, setEmployees] = useState<User[]>([]);
     const [actions, setActions] = useState<ActionLog[]>([]);
     const [loading, setLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState<'attendance' | 'productivity'>('attendance');
 
     // Filters
     const [filterEmp, setFilterEmp] = useState('');
@@ -25,6 +26,10 @@ const Reports: React.FC = () => {
     const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
     const [filterFromDate, setFilterFromDate] = useState('');
     const [filterToDate, setFilterToDate] = useState('');
+
+    // Productivity State
+    const [productivityData, setProductivityData] = useState<any[]>([]);
+    const [isProductivityLoading, setIsProductivityLoading] = useState(false);
 
     // Add/Edit Form State
     const [isFormOpen, setIsFormOpen] = useState(false);
@@ -68,6 +73,52 @@ const Reports: React.FC = () => {
         init();
     }, []);
 
+    // Fetch Productivity Data when tab is switched or filters change
+    useEffect(() => {
+        if (activeTab === 'productivity') {
+            fetchProductivity();
+        }
+    }, [activeTab, filterMonth, filterYear, filterFromDate, filterToDate]);
+
+    const fetchProductivity = async () => {
+        setIsProductivityLoading(true);
+        try {
+            const { start, end } = getDateRange();
+            const q = query(
+                collection(db, 'appointments'),
+                where('date', '>=', start),
+                where('date', '<=', end),
+                where('status', '==', 'done')
+            );
+            const snap = await getDocs(q);
+            const appts = snap.docs.map(d => d.data() as Appointment);
+
+            // Group by Performer
+            const grouped: Record<string, { name: string, total: number, fileNumbers: string[] }> = {};
+            
+            appts.forEach(appt => {
+                if (!appt.performedBy) return;
+                
+                if (!grouped[appt.performedBy]) {
+                    grouped[appt.performedBy] = {
+                        name: appt.performedByName || 'Unknown',
+                        total: 0,
+                        fileNumbers: []
+                    };
+                }
+                
+                grouped[appt.performedBy].total++;
+                if (appt.fileNumber) {
+                    grouped[appt.performedBy].fileNumbers.push(appt.fileNumber);
+                }
+            });
+
+            setProductivityData(Object.values(grouped).sort((a,b) => b.total - a.total));
+
+        } catch (e) { console.error(e); }
+        finally { setIsProductivityLoading(false); }
+    };
+
     // --- Helpers ---
     const getMonthCount = () => {
         if (filterFromDate && filterToDate) {
@@ -90,14 +141,21 @@ const Reports: React.FC = () => {
                 const y = parseInt(filterYear);
                 const m = parseInt(filterMonth);
                 const firstDay = new Date(y, m - 1, 1);
-                const lastDay = new Date(y, m, 0);
-                start = firstDay.toISOString().split('T')[0];
-                end = lastDay.toISOString().split('T')[0];
+                // Adjust date string to YYYY-MM-DD
+                const mStr = m.toString().padStart(2, '0');
+                const lastDayObj = new Date(y, m, 0);
+                
+                start = `${y}-${mStr}-01`;
+                end = `${y}-${mStr}-${lastDayObj.getDate()}`;
             } else if (filterYear) {
                 start = `${filterYear}-01-01`;
                 end = `${filterYear}-12-31`;
             }
         }
+        // Fallback defaults
+        if (!start) start = new Date().toISOString().split('T')[0];
+        if (!end) end = new Date().toISOString().split('T')[0];
+
         return { start, end };
     };
 
@@ -192,7 +250,6 @@ const Reports: React.FC = () => {
     };
 
     const handlePrint = () => {
-        // Ensure browser print dialog opens
         window.print();
     };
 
@@ -202,17 +259,15 @@ const Reports: React.FC = () => {
     const circumference = 2 * Math.PI * radius;
     const offset = evaluation ? circumference - (evaluation.percentage / 100) * circumference : 0;
 
-    // Determine print header details
     const selectedEmployeeName = filterEmp ? employees.find(e => e.id === filterEmp)?.name : "All Staff";
     const dateTitle = filterFromDate && filterToDate ? `${filterFromDate} - ${filterToDate}` : `${filterYear}-${filterMonth.padStart(2, '0')}`;
 
     return (
         <div className="min-h-screen bg-slate-50 font-sans pb-12 print:bg-white print:p-0 print:pb-0" dir={dir}>
             
-            {/* Generic Print Header for Reports */}
             <PrintHeader 
                 title={t('rep.title')} 
-                subtitle={`EVALUATION REPORT: ${selectedEmployeeName}`} 
+                subtitle={`REPORT: ${activeTab === 'productivity' ? 'Radiology Exams Count' : 'HR & Attendance'}`} 
                 month={dateTitle} 
             />
 
@@ -221,14 +276,16 @@ const Reports: React.FC = () => {
                 <div className="max-w-7xl mx-auto flex justify-between items-center">
                     <div>
                         <h1 className="text-3xl font-black tracking-tight">{t('rep.title')}</h1>
-                        <p className="text-slate-400 mt-2">{t('rep.subtitle')} ({POINTS_PER_MONTH} pts/mo)</p>
+                        <p className="text-slate-400 mt-2">{t('rep.subtitle')}</p>
                     </div>
-                    <button 
-                        onClick={() => { setEditingId(null); setIsFormOpen(true); }}
-                        className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center gap-2"
-                    >
-                        <i className="fas fa-plus-circle"></i> {t('rep.add')}
-                    </button>
+                    {activeTab === 'attendance' && (
+                        <button 
+                            onClick={() => { setEditingId(null); setIsFormOpen(true); }}
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center gap-2"
+                        >
+                            <i className="fas fa-plus-circle"></i> {t('rep.add')}
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -236,13 +293,31 @@ const Reports: React.FC = () => {
                 
                 {/* Filters Bar */}
                 <div className="bg-white rounded-2xl shadow-lg p-4 mb-8 flex flex-wrap gap-4 items-center border border-gray-100 print:hidden">
-                    <div className="flex-1 min-w-[200px]">
-                        <label className="block text-xs font-bold text-gray-400 mb-1">{t('rep.filter.emp')}</label>
-                        <select className="w-full bg-slate-50 border-none rounded-lg font-bold text-slate-700 focus:ring-2 focus:ring-blue-200" value={filterEmp} onChange={e => setFilterEmp(e.target.value)}>
-                            <option value="">-- All --</option>
-                            {employees.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
-                        </select>
+                    {/* Tabs Switcher */}
+                    <div className="flex bg-slate-100 p-1 rounded-xl">
+                        <button 
+                            onClick={() => setActiveTab('attendance')} 
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'attendance' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}
+                        >
+                            Attendance / HR
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('productivity')} 
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'productivity' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}
+                        >
+                            Productivity (Exams)
+                        </button>
                     </div>
+
+                    {activeTab === 'attendance' && (
+                        <div className="flex-1 min-w-[200px]">
+                            <label className="block text-xs font-bold text-gray-400 mb-1">{t('rep.filter.emp')}</label>
+                            <select className="w-full bg-slate-50 border-none rounded-lg font-bold text-slate-700 focus:ring-2 focus:ring-blue-200" value={filterEmp} onChange={e => setFilterEmp(e.target.value)}>
+                                <option value="">-- All --</option>
+                                {employees.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
+                            </select>
+                        </div>
+                    )}
                     
                     <div className="w-[120px]">
                         <label className="block text-xs font-bold text-gray-400 mb-1">{t('month')}</label>
@@ -259,149 +334,187 @@ const Reports: React.FC = () => {
                         </select>
                     </div>
 
-                    <div className="flex-1 min-w-[200px] rtl:border-l ltr:border-r border-gray-100 rtl:pl-4 ltr:pr-4 rtl:ml-2 ltr:mr-2">
-                        <label className="block text-xs font-bold text-gray-400 mb-1">{t('rep.filter.custom')}</label>
-                        <div className="flex gap-2">
-                            <input type="date" className="w-full bg-slate-50 border-none rounded-lg text-xs" value={filterFromDate} onChange={e => setFilterFromDate(e.target.value)} />
-                            <input type="date" className="w-full bg-slate-50 border-none rounded-lg text-xs" value={filterToDate} onChange={e => setFilterToDate(e.target.value)} />
-                        </div>
-                    </div>
-
-                    <button onClick={handlePrint} className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 flex items-center justify-center">
+                    <button onClick={handlePrint} className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 flex items-center justify-center ml-auto">
                         <i className="fas fa-print"></i>
                     </button>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 print:block">
-                    
-                    {/* LEFT: Evaluation Card */}
-                    <div className="lg:col-span-1 print:mb-6 print:break-inside-avoid">
-                        {evaluation ? (
-                            <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100 sticky top-4 print:border-2 print:border-slate-800 print:shadow-none">
-                                <div className={`p-6 text-center ${evaluation.bg} border-b border-gray-100 print:bg-white print:border-b-2 print:border-slate-800`}>
-                                    <h2 className="text-xl font-bold text-slate-800 mb-4 uppercase">{t('rep.card')}</h2>
-                                    
-                                    <div className="relative w-48 h-48 mx-auto mb-4">
-                                        <svg className="w-full h-full transform -rotate-90">
-                                            <circle cx="96" cy="96" r={radius} className="text-gray-200 fill-none stroke-current" strokeWidth="12" />
-                                            <circle cx="96" cy="96" r={radius} className={`${evaluation.color} fill-none transition-all duration-1000 ease-out`} strokeWidth="12" strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" />
-                                        </svg>
-                                        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
-                                            <span className={`text-4xl font-black ${evaluation.color.split(' ')[0]}`}>{evaluation.percentage}%</span>
-                                            <span className="block text-xs font-bold text-gray-400 mt-1 uppercase">{evaluation.grade}</span>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex justify-center gap-2 mb-2">
-                                        <span className="bg-white border px-3 py-1 rounded-full text-xs font-bold shadow-sm text-slate-600">
-                                            {evaluation.months} {t('month')}
-                                        </span>
-                                        <span className="bg-white border px-3 py-1 rounded-full text-xs font-bold shadow-sm text-slate-600">
-                                            {filteredActions.length} Actions
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div className="p-6 space-y-4">
-                                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-gray-200">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center print:bg-transparent print:text-black print:border"><i className="fas fa-star"></i></div>
-                                            <span className="text-sm font-bold text-gray-600 uppercase">{t('rep.base')}</span>
-                                        </div>
-                                        <span className="font-bold text-lg text-slate-800">{evaluation.maxScore}</span>
-                                    </div>
-
-                                    <div className="flex justify-between items-center p-3 bg-red-50 rounded-xl border border-red-100">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center print:bg-transparent print:text-black print:border"><i className="fas fa-minus-circle"></i></div>
-                                            <span className="text-sm font-bold text-gray-600 uppercase">{t('rep.deduct')}</span>
-                                        </div>
-                                        <span className="font-bold text-lg text-red-600">-{evaluation.totalDeductions}</span>
-                                    </div>
-
-                                    <div className="border-t-2 border-dashed border-gray-300 pt-4 mt-2">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-lg font-black text-slate-800 uppercase">{t('rep.net')}</span>
-                                            <span className={`text-2xl font-black ${evaluation.color.split(' ')[0]}`}>{evaluation.finalScore}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                {activeTab === 'productivity' ? (
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none animate-fade-in">
+                        <div className="p-6 bg-slate-50 border-b border-slate-200 print:bg-white print:border-slate-800 flex justify-between items-center">
+                            <h3 className="font-bold text-lg text-slate-800 uppercase tracking-wide">
+                                <i className="fas fa-chart-line text-emerald-500 mr-2"></i> Radiology Exams Volume
+                            </h3>
+                            <span className="text-xs bg-white border px-2 py-1 rounded shadow-sm text-slate-500 font-bold">
+                                {isProductivityLoading ? 'Calculating...' : 'Ranked by Volume'}
+                            </span>
+                        </div>
+                        {isProductivityLoading ? (
+                            <div className="p-10"><Loading /></div>
                         ) : (
-                            <div className="bg-white rounded-3xl p-8 text-center border-2 border-dashed border-gray-200 print:hidden">
-                                <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
-                                    <i className="fas fa-chart-pie text-4xl"></i>
-                                </div>
-                                <h3 className="text-lg font-bold text-slate-600">Select Employee</h3>
-                            </div>
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-white text-slate-500 font-bold text-xs uppercase border-b border-slate-100 print:border-slate-800 print:text-black">
+                                    <tr>
+                                        <th className="p-4 w-10 text-center">Rank</th>
+                                        <th className="p-4">Employee</th>
+                                        <th className="p-4 text-center">Total Exams</th>
+                                        <th className="p-4">File Numbers (Sample)</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50 print:divide-slate-300">
+                                    {productivityData.length === 0 ? (
+                                        <tr><td colSpan={4} className="p-8 text-center text-slate-400">No exams found for this period.</td></tr>
+                                    ) : (
+                                        productivityData.map((data, i) => (
+                                            <tr key={i} className="hover:bg-slate-50 print:break-inside-avoid">
+                                                <td className="p-4 text-center font-black text-slate-300 print:text-black">{i + 1}</td>
+                                                <td className="p-4 font-bold text-slate-800 print:text-black">{data.name}</td>
+                                                <td className="p-4 text-center">
+                                                    <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full font-bold shadow-sm print:border print:border-black print:bg-transparent print:text-black">
+                                                        {data.total}
+                                                    </span>
+                                                </td>
+                                                <td className="p-4 text-xs font-mono text-slate-500 print:text-black max-w-md break-all">
+                                                    {data.fileNumbers.slice(0, 15).join(', ')} 
+                                                    {data.fileNumbers.length > 15 && <span className="text-slate-400"> +{data.fileNumbers.length - 15} more...</span>}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
                         )}
                     </div>
+                ) : (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 print:block">
+                        {/* LEFT: Evaluation Card */}
+                        <div className="lg:col-span-1 print:mb-6 print:break-inside-avoid">
+                            {evaluation ? (
+                                <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100 sticky top-4 print:border-2 print:border-slate-800 print:shadow-none">
+                                    <div className={`p-6 text-center ${evaluation.bg} border-b border-gray-100 print:bg-white print:border-b-2 print:border-slate-800`}>
+                                        <h2 className="text-xl font-bold text-slate-800 mb-4 uppercase">{t('rep.card')}</h2>
+                                        
+                                        <div className="relative w-48 h-48 mx-auto mb-4">
+                                            <svg className="w-full h-full transform -rotate-90">
+                                                <circle cx="96" cy="96" r={radius} className="text-gray-200 fill-none stroke-current" strokeWidth="12" />
+                                                <circle cx="96" cy="96" r={radius} className={`${evaluation.color} fill-none transition-all duration-1000 ease-out`} strokeWidth="12" strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" />
+                                            </svg>
+                                            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
+                                                <span className={`text-4xl font-black ${evaluation.color.split(' ')[0]}`}>{evaluation.percentage}%</span>
+                                                <span className="block text-xs font-bold text-gray-400 mt-1 uppercase">{evaluation.grade}</span>
+                                            </div>
+                                        </div>
 
-                    {/* RIGHT: Actions List */}
-                    <div className="lg:col-span-2 space-y-6 print:w-full">
-                        <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none print:rounded-lg">
-                            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 print:bg-white print:border-b-2 print:border-slate-800">
-                                <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2 uppercase">
-                                    <i className="fas fa-history text-blue-500 print:hidden"></i> {t('rep.log')}
-                                </h3>
-                                <span className="text-xs font-bold bg-white px-2 py-1 rounded border text-gray-500">{filteredActions.length}</span>
-                            </div>
+                                        <div className="flex justify-center gap-2 mb-2">
+                                            <span className="bg-white border px-3 py-1 rounded-full text-xs font-bold shadow-sm text-slate-600">
+                                                {evaluation.months} {t('month')}
+                                            </span>
+                                            <span className="bg-white border px-3 py-1 rounded-full text-xs font-bold shadow-sm text-slate-600">
+                                                {filteredActions.length} Actions
+                                            </span>
+                                        </div>
+                                    </div>
 
-                            <div className="overflow-x-auto">
-                                <table className={`w-full text-sm ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
-                                    <thead className="bg-gray-50 text-gray-500 font-medium print:bg-white print:text-black print:border-b-2 print:border-slate-800">
-                                        <tr>
-                                            <th className="p-4">{t('rep.filter.emp')}</th>
-                                            <th className="p-4">{t('req.type')}</th>
-                                            <th className="p-4">{t('date')}</th>
-                                            <th className="p-4">Points</th>
-                                            <th className="p-4 print:hidden">{t('actions')}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-50 print:divide-slate-300">
-                                        {filteredActions.length === 0 ? (
-                                            <tr><td colSpan={5} className="p-8 text-center text-slate-400">---</td></tr>
-                                        ) : filteredActions.map(act => {
-                                            const weight = ACTION_WEIGHTS[act.type];
-                                            const isPositive = weight < 0;
-                                            return (
-                                                <tr key={act.id} className="hover:bg-slate-50 transition-colors group print:hover:bg-transparent">
-                                                    <td className="p-4 border-r print:border-slate-300">
-                                                        <div className="font-bold text-slate-700">{employees.find(e => e.id === act.employeeId)?.name || 'Unknown'}</div>
-                                                        <div className="text-xs text-slate-400 print:text-slate-600">{act.description}</div>
-                                                    </td>
-                                                    <td className="p-4 border-r print:border-slate-300">
-                                                        <span className={`px-2 py-1 rounded text-xs font-bold border ${isPositive ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'} print:border-none print:bg-transparent print:text-black print:p-0`}>
-                                                            {t(`action.${act.type}`)}
-                                                        </span>
-                                                    </td>
-                                                    <td className="p-4 text-xs font-mono text-slate-600 border-r print:border-slate-300">
-                                                        {act.fromDate} 
-                                                        {act.fromDate !== act.toDate && <><br/><i className="fas fa-arrow-down text-[10px] my-1 opacity-50 print:hidden"></i><span className="hidden print:inline"> - </span><br/>{act.toDate}</>}
-                                                    </td>
-                                                    <td className="p-4 font-bold border-r print:border-slate-300">
-                                                        {isPositive ? (
-                                                            <span className="text-emerald-500">+{Math.abs(weight)}</span>
-                                                        ) : (
-                                                            <span className="text-red-500">-{weight}</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="p-4 print:hidden">
-                                                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button onClick={() => handleEdit(act)} className="w-8 h-8 rounded bg-blue-50 text-blue-600 hover:bg-blue-100"><i className="fas fa-pen text-xs"></i></button>
-                                                            <button onClick={() => handleDelete(act.id)} className="w-8 h-8 rounded bg-red-50 text-red-600 hover:bg-red-100"><i className="fas fa-trash text-xs"></i></button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
+                                    <div className="p-6 space-y-4">
+                                        <div className="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-gray-200">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center print:bg-transparent print:text-black print:border"><i className="fas fa-star"></i></div>
+                                                <span className="text-sm font-bold text-gray-600 uppercase">{t('rep.base')}</span>
+                                            </div>
+                                            <span className="font-bold text-lg text-slate-800">{evaluation.maxScore}</span>
+                                        </div>
+
+                                        <div className="flex justify-between items-center p-3 bg-red-50 rounded-xl border border-red-100">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center print:bg-transparent print:text-black print:border"><i className="fas fa-minus-circle"></i></div>
+                                                <span className="text-sm font-bold text-gray-600 uppercase">{t('rep.deduct')}</span>
+                                            </div>
+                                            <span className="font-bold text-lg text-red-600">-{evaluation.totalDeductions}</span>
+                                        </div>
+
+                                        <div className="border-t-2 border-dashed border-gray-300 pt-4 mt-2">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-lg font-black text-slate-800 uppercase">{t('rep.net')}</span>
+                                                <span className={`text-2xl font-black ${evaluation.color.split(' ')[0]}`}>{evaluation.finalScore}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="bg-white rounded-3xl p-8 text-center border-2 border-dashed border-gray-200 print:hidden">
+                                    <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
+                                        <i className="fas fa-chart-pie text-4xl"></i>
+                                    </div>
+                                    <h3 className="text-lg font-bold text-slate-600">Select Employee</h3>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* RIGHT: Actions List */}
+                        <div className="lg:col-span-2 space-y-6 print:w-full">
+                            <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none print:rounded-lg">
+                                <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 print:bg-white print:border-b-2 print:border-slate-800">
+                                    <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2 uppercase">
+                                        <i className="fas fa-history text-blue-500 print:hidden"></i> {t('rep.log')}
+                                    </h3>
+                                    <span className="text-xs font-bold bg-white px-2 py-1 rounded border text-gray-500">{filteredActions.length}</span>
+                                </div>
+
+                                <div className="overflow-x-auto">
+                                    <table className={`w-full text-sm ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
+                                        <thead className="bg-gray-50 text-gray-500 font-medium print:bg-white print:text-black print:border-b-2 print:border-slate-800">
+                                            <tr>
+                                                <th className="p-4">{t('rep.filter.emp')}</th>
+                                                <th className="p-4">{t('req.type')}</th>
+                                                <th className="p-4">{t('date')}</th>
+                                                <th className="p-4">Points</th>
+                                                <th className="p-4 print:hidden">{t('actions')}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-50 print:divide-slate-300">
+                                            {filteredActions.length === 0 ? (
+                                                <tr><td colSpan={5} className="p-8 text-center text-slate-400">---</td></tr>
+                                            ) : filteredActions.map(act => {
+                                                const weight = ACTION_WEIGHTS[act.type];
+                                                const isPositive = weight < 0;
+                                                return (
+                                                    <tr key={act.id} className="hover:bg-slate-50 transition-colors group print:hover:bg-transparent">
+                                                        <td className="p-4 border-r print:border-slate-300">
+                                                            <div className="font-bold text-slate-700">{employees.find(e => e.id === act.employeeId)?.name || 'Unknown'}</div>
+                                                            <div className="text-xs text-slate-400 print:text-slate-600">{act.description}</div>
+                                                        </td>
+                                                        <td className="p-4 border-r print:border-slate-300">
+                                                            <span className={`px-2 py-1 rounded text-xs font-bold border ${isPositive ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'} print:border-none print:bg-transparent print:text-black print:p-0`}>
+                                                                {t(`action.${act.type}`)}
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-4 text-xs font-mono text-slate-600 border-r print:border-slate-300">
+                                                            {act.fromDate} 
+                                                            {act.fromDate !== act.toDate && <><br/><i className="fas fa-arrow-down text-[10px] my-1 opacity-50 print:hidden"></i><span className="hidden print:inline"> - </span><br/>{act.toDate}</>}
+                                                        </td>
+                                                        <td className="p-4 font-bold border-r print:border-slate-300">
+                                                            {isPositive ? (
+                                                                <span className="text-emerald-500">+{Math.abs(weight)}</span>
+                                                            ) : (
+                                                                <span className="text-red-500">-{weight}</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="p-4 print:hidden">
+                                                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                <button onClick={() => handleEdit(act)} className="w-8 h-8 rounded bg-blue-50 text-blue-600 hover:bg-blue-100"><i className="fas fa-pen text-xs"></i></button>
+                                                                <button onClick={() => handleDelete(act.id)} className="w-8 h-8 rounded bg-red-50 text-red-600 hover:bg-red-100"><i className="fas fa-trash text-xs"></i></button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     </div>
-
-                </div>
+                )}
             </div>
 
             <PrintFooter />

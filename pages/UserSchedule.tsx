@@ -213,6 +213,12 @@ const UserSchedule: React.FC = () => {
             };
             return map[sch.note || ''] || (sch.note || 'LEAVE').toUpperCase().replace('_', ' ');
         }
+        if (sch.locationId && sch.locationId.startsWith('Swap Duty')) {
+            const parts = sch.locationId.split(' - ');
+            const realLoc = parts[1] || 'Swap';
+            const loc = locations.find(l => l.id === realLoc);
+            return `Swap: ${loc ? loc.name : realLoc}`;
+        }
         if (sch.locationId === 'common_duty' && sch.note) {
             return sch.note.split(' - ')[0]; 
         }

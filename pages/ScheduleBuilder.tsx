@@ -391,6 +391,52 @@ const ScheduleBuilder: React.FC = () => {
         });
     };
 
+    // New Function to Clear Swaps with Client-side Filtering to avoid Index Error
+    const handleClearSwaps = () => {
+        if (!publishMonth) return setToast({ msg: 'Select Month', type: 'error' });
+        setConfirmation({
+            isOpen: true,
+            title: 'Clear All Swaps',
+            message: `Delete ALL Swaps for ${publishMonth}? This deletes all "Swap Duty" schedules.`,
+            onConfirm: async () => {
+                setConfirmation(prev => ({ ...prev, isOpen: false }));
+                setLoading(true);
+                try {
+                    // FIX: Query only by month to avoid "Requires Index" error
+                    const q = query(
+                        collection(db, 'schedules'), 
+                        where('month', '==', publishMonth)
+                    );
+                    const snapshot = await getDocs(q);
+                    
+                    // Client-side filtering
+                    const swapDocs = snapshot.docs.filter(doc => {
+                        const loc = doc.data().locationId;
+                        return loc && typeof loc === 'string' && loc.startsWith('Swap');
+                    });
+                    
+                    const batchSize = 500;
+                    
+                    if (swapDocs.length === 0) {
+                        setToast({ msg: 'No swaps found.', type: 'info' });
+                    } else {
+                        for (let i = 0; i < swapDocs.length; i += batchSize) {
+                            const chunk = swapDocs.slice(i, i + batchSize);
+                            const batch = writeBatch(db);
+                            chunk.forEach(d => batch.delete(d.ref));
+                            await batch.commit();
+                        }
+                        setToast({ msg: 'All swaps cleared!', type: 'success' });
+                    }
+                } catch (e: any) {
+                    setToast({ msg: 'Error: ' + e.message, type: 'error' });
+                } finally {
+                    setLoading(false);
+                }
+            }
+        });
+    };
+
     const handlePublishSchedule = () => {
         if (!publishMonth) return setToast({ msg: 'Select Month', type: 'error' });
         setConfirmation({
@@ -761,8 +807,11 @@ const ScheduleBuilder: React.FC = () => {
                         <button onClick={handlePublishSchedule} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-200 flex items-center gap-2">
                             <i className="fas fa-upload"></i> {t('sb.publish')}
                         </button>
+                        <button onClick={handleClearSwaps} className="bg-purple-50 text-purple-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-purple-100 flex items-center gap-2">
+                            <i className="fas fa-eraser"></i> Clr Swaps
+                        </button>
                         <button onClick={handleUnpublish} className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-100 flex items-center gap-2">
-                            <i className="fas fa-trash"></i> Clear
+                            <i className="fas fa-trash"></i> Clear All
                         </button>
                     </div>
                 </div>

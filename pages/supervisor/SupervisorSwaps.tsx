@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 // @ts-ignore
@@ -54,7 +55,21 @@ const SupervisorSwaps: React.FC = () => {
           const status = isApproved ? 'approvedBySupervisor' : 'rejectedBySupervisor';
           
           if (isApproved && req.startDate) {
-              const qSch = query(collection(db, 'schedules'), where('month', '==', req.startDate.slice(0, 7)));
+              // --- FIX: Include Previous Month in Query ---
+              // Overlapping schedules (e.g., Dec 25 - Jan 25) are stored under '2023-12'.
+              // If req.startDate is '2024-01-01', we must check '2023-12' as well.
+              
+              const currentMonth = req.startDate.slice(0, 7);
+              
+              const d = new Date(req.startDate);
+              d.setMonth(d.getMonth() - 1);
+              const prevMonth = d.toISOString().slice(0, 7);
+
+              const qSch = query(
+                  collection(db, 'schedules'), 
+                  where('month', 'in', [prevMonth, currentMonth])
+              );
+              
               const snap = await getDocs(qSch);
               const allSchedules = snap.docs.map(d => d.data() as Schedule);
 
@@ -70,7 +85,7 @@ const SupervisorSwaps: React.FC = () => {
                   userId: req.from,
                   staffName: nameA,
                   date: req.startDate,
-                  month: req.startDate.slice(0, 7),
+                  month: currentMonth, // Store new record in the current month
                   locationId: shiftB ? `Swap Duty - ${shiftB.locationId}` : 'Swap Duty - Off',
                   shifts: shiftB ? (shiftB.shifts || []) : [],
                   note: `Swap Approved: Covering ${nameB}`,
@@ -83,7 +98,7 @@ const SupervisorSwaps: React.FC = () => {
                   userId: req.to,
                   staffName: nameB,
                   date: req.startDate,
-                  month: req.startDate.slice(0, 7),
+                  month: currentMonth,
                   locationId: shiftA ? `Swap Duty - ${shiftA.locationId}` : 'Swap Duty - Off',
                   shifts: shiftA ? (shiftA.shifts || []) : [],
                   note: `Swap Approved: Covered by ${nameA}`,

@@ -250,10 +250,18 @@ const DoctorDashboard: React.FC = () => {
   useEffect(() => {
     if (!currentUserId) return;
     setLoading(true);
+    
+    // Add Prev & Next Months for overlapping logic
+    const currentMonth = selectedMonth;
+    const prevDate = new Date(currentMonth + "-01"); prevDate.setMonth(prevDate.getMonth() - 1);
+    const prevMonth = prevDate.toISOString().slice(0, 7);
+    const nextDate = new Date(currentMonth + "-01"); nextDate.setMonth(nextDate.getMonth() + 1);
+    const nextMonth = nextDate.toISOString().slice(0, 7);
+
     const q = query(
       collection(db, 'schedules'),
       where('userId', '==', currentUserId),
-      where('month', '==', selectedMonth)
+      where('month', 'in', [prevMonth, currentMonth, nextMonth])
     );
     const unsub = onSnapshot(q, snap => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule));
@@ -281,6 +289,12 @@ const DoctorDashboard: React.FC = () => {
   }, [users]);
 
   const getLocationName = useCallback((sch: Schedule) => {
+    if (sch.locationId.startsWith('Swap Duty')) {
+        const parts = sch.locationId.split(' - ');
+        const realLoc = parts[1] || 'Swap';
+        const loc = locations.find(l => l.id === realLoc);
+        return `Swap: ${loc ? loc.name : realLoc}`;
+    }
     if (sch.locationId === 'common_duty' && sch.note) {
         return sch.note.split(' - ')[0]; 
     }
@@ -468,6 +482,9 @@ const DoctorDashboard: React.FC = () => {
     
     const flatShifts: any[] = [];
 
+    // Filter Logic: If we have specific date schedules (swaps), filter out recurring schedules for that day
+    const specificDates = new Set(schedules.filter(s => s.date).map(s => s.date));
+
     schedules.forEach(sch => {
         const locationId = (sch.locationId || '').toLowerCase();
         const note = (sch.note || '').toLowerCase();
@@ -491,13 +508,18 @@ const DoctorDashboard: React.FC = () => {
             if (sch.date) {
                 if (sch.date === dateStr) applies = true;
             } else {
-                const hasSpecific = schedules.some(s => s.date === dateStr);
-                if (!hasSpecific) {
-                    if (isFridayShift) { if (dayOfWeek === 5) applies = true; }
-                    else { applies = true; } // Standard applies all days
-                    
-                    if (sch.validFrom && dateStr < sch.validFrom) applies = false;
-                    if (sch.validTo && dateStr > sch.validTo) applies = false;
+                // IMPORTANT: If there is a specific schedule for this date, ignore recurring
+                if (specificDates.has(dateStr)) {
+                    applies = false;
+                } else {
+                    const hasSpecific = schedules.some(s => s.date === dateStr);
+                    if (!hasSpecific) {
+                        if (isFridayShift) { if (dayOfWeek === 5) applies = true; }
+                        else { if (!isFridayShift && !(sch.locationId || '').includes('Holiday')) applies = true; } // Standard applies all days
+                        
+                        if (sch.validFrom && dateStr < sch.validFrom) applies = false;
+                        if (sch.validTo && dateStr > sch.validTo) applies = false;
+                    }
                 }
             }
 

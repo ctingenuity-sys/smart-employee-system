@@ -199,14 +199,21 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
         setHasAttendanceOverride(active);
     });
 
-    // 4. Schedules (Current AND Next Month to catch shifts at start of next month)
+    // 4. Schedules (Previous, Current AND Next Month to catch shifts at month boundaries)
     const now = new Date();
     const currentMonth = now.toISOString().slice(0, 7);
+    
+    // Add Previous Month Logic
+    const prevMonthDate = new Date(now);
+    prevMonthDate.setMonth(now.getMonth() - 1);
+    const prevMonth = prevMonthDate.toISOString().slice(0, 7);
+
     const nextMonthDate = new Date(now);
     nextMonthDate.setMonth(now.getMonth() + 1);
     const nextMonth = nextMonthDate.toISOString().slice(0, 7);
 
-    const qSchedule = query(collection(db, 'schedules'), where('month', 'in', [currentMonth, nextMonth]));
+    // Filter by IN array of 3 months
+    const qSchedule = query(collection(db, 'schedules'), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
     const unsubSchedule = onSnapshot(qSchedule, (snap) => {
         const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule));
         setCurrentSchedules(data); // Stores *all* schedules for logic
@@ -399,19 +406,31 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
     tomorrowDate.setDate(tomorrowDate.getDate() + 1);
 
     const checkDates = [todayDate, tomorrowDate];
-    const flatShifts: { startObj: Date, endObj: Date, startStr: string, endStr: string, location: string, dateLabel: string }[] = [];
+    const flatShifts: { startObj: Date, endObj: Date, startStr: string, endStr: string, location: string, dateLabel: string, isSwap: boolean }[] = [];
 
     checkDates.forEach(d => {
         const dStr = getLocalDateStr(d);
         const dDay = d.getDay();
         const dateLabel = d.getDate() === now.getDate() ? t('date') : 'Tomorrow';
 
-        userSchedules.forEach(sch => {
+        // *** FIX: PRIORITY LOGIC FOR SWAPS ***
+        // 1. Find if there is a specific schedule for this day (Swap/Specific Date)
+        const specificSchedules = userSchedules.filter(s => s.date === dStr);
+        
+        // 2. Determine which schedules to process
+        // If specific schedules exist, ignore recurring ones for this day entirely
+        const schedulesToProcess = specificSchedules.length > 0 
+            ? specificSchedules 
+            : userSchedules.filter(s => !s.date); // Only process recurring if no specific
+
+        schedulesToProcess.forEach(sch => {
             let applies = false;
-            const isFri = (sch.locationId || '').toLowerCase().includes('friday');
             
-            if (sch.date === dStr) applies = true;
-            else if (!sch.date) {
+            if (sch.date === dStr) {
+                applies = true;
+            } else {
+                // Recurring check
+                const isFri = (sch.locationId || '').toLowerCase().includes('friday');
                 if (dDay === 5) { if (isFri) applies = true; }
                 else { if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; }
                 
@@ -419,7 +438,17 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
             }
 
             if (applies) {
+                // Check if explicitly "Swap Duty - Off" or similar
+                if (sch.locationId && (sch.locationId.includes('Off') || sch.locationId.includes('OFF'))) {
+                    // Do not add to flatShifts, effectively making it "No Shift"
+                    return;
+                }
+
                 const parsed = sch.shifts || parseMultiShifts(sch.note || "") || [{start: '08:00', end: '16:00'}];
+                const isSwap = (sch.note || '').includes('Swap') || sch.locationId.includes('Swap');
+                let locationName = sch.locationId;
+                if (locationName.startsWith('Swap Duty - ')) locationName = locationName.replace('Swap Duty - ', '');
+
                 parsed.forEach(p => {
                     const sD = constructDateTime(dStr, p.start, '08:00');
                     let eD = constructDateTime(dStr, p.end, '16:00');
@@ -432,8 +461,9 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
                         endObj: eD,
                         startStr: p.start,
                         endStr: p.end,
-                        location: sch.locationId,
-                        dateLabel: dateLabel
+                        location: locationName,
+                        dateLabel: dateLabel,
+                        isSwap: isSwap
                     });
                 });
             }
@@ -452,8 +482,10 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
              }
         }
 
+        const title = activeShift.isSwap ? 'Covering Shift' : 'On Duty';
+
         if (lastLog && lastLog.type === 'IN') {
-             return { mode: 'active', title: 'On Duty', subtitle: `${formatTime12(activeShift.startStr)} - ${formatTime12(activeShift.endStr)}`, location: activeShift.location };
+             return { mode: 'active', title: title, subtitle: `${formatTime12(activeShift.startStr)} - ${formatTime12(activeShift.endStr)}`, location: activeShift.location };
         } else {
              return { mode: 'late', title: t('action.late') + '!', subtitle: 'Clock In Now!', location: activeShift.location };
         }
@@ -463,7 +495,8 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
     if (upcomingShift) {
         const isTomorrow = upcomingShift.dateLabel === 'Tomorrow';
         const label = isTomorrow ? `Tomorrow ${formatTime12(upcomingShift.startStr)}` : formatTime12(upcomingShift.startStr);
-        return { mode: 'upcoming', title: t('user.hero.nextShift'), subtitle: label, location: upcomingShift.location };
+        const title = upcomingShift.isSwap ? 'Swap Shift' : t('user.hero.nextShift');
+        return { mode: 'upcoming', title: title, subtitle: label, location: upcomingShift.location };
     }
 
     return { mode: 'off', title: t('user.hero.noShift'), subtitle: 'Enjoy your time', location: 'Off Duty' };

@@ -37,6 +37,8 @@ export interface Schedule {
   validFrom?: string; // YYYY-MM-DD
   validTo?: string;   // YYYY-MM-DD
   staffName?: string; // Added for schedule builder publishing
+  createdAt?: any;
+  swapRequestId?: string;
 }
 
 export interface SwapRequest {

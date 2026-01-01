@@ -188,6 +188,7 @@ export const calculateShiftStatus = (
         const overnightShift = yesterdayShifts.find(s => {
             const start = toMins(s.start);
             const end = toMins(s.end);
+            // Detect if shift crosses midnight (End < Start) OR (Starts late > 1000 and Ends early morning)
             return end < start || (start > 1000 && end < 900); 
         });
 
@@ -201,7 +202,12 @@ export const calculateShiftStatus = (
 
             if (lastInYesterday) {
                 const shiftEndMinsToday = toMins(overnightShift.end);
-                const extWindow = shiftEndMinsToday + 460; 
+                
+                // *** FIX: LOCK UNTIL 15 MINS BEFORE END ***
+                // Handle case where "24:00" might come in as 1440, reset to 0 for next day calc
+                const effectiveEndMins = shiftEndMinsToday >= 1440 ? 0 : shiftEndMinsToday;
+                const unlockTime = effectiveEndMins - 15;
+                const extWindow = shiftEndMinsToday + 460; // Allow checkout up to ~7 hours late
 
                 // Check if we already punched out TODAY linked to this
                 const hasPunchedOutToday = todayLogs.some(l => {
@@ -212,6 +218,23 @@ export const calculateShiftStatus = (
 
                 if (!hasPunchedOutToday) {
                     if (currentMinutes < extWindow) {
+                        
+                        // Check for Lockout Period (e.g., it's 00:30, Shift ends 01:00, Unlock 00:45)
+                        if (currentMinutes < unlockTime && !hasOverride) {
+                             const diff = unlockTime - currentMinutes;
+                             const h = Math.floor(diff / 60);
+                             const m = diff % 60;
+                             const timeMsg = h > 0 ? `${h}h ${m}m` : `${m}m`;
+                             
+                             return {
+                                 state: 'LOCKED',
+                                 message: 'ON DUTY',
+                                 sub: `Unlock in ${timeMsg}`,
+                                 canPunch: false,
+                                 shiftIdx: 1
+                             };
+                        }
+
                         return { 
                             state: 'READY_OUT', 
                             message: 'END YESTERDAY SHIFT', 
@@ -265,7 +288,7 @@ export const calculateShiftStatus = (
             effectiveNow += 1440;
         }
 
-        const windowOpen = start - 30; // 60 mins before start allowed
+        const windowOpen = start - 60; // 60 mins before start allowed
         const unlockOutTime = end - 15; // 15 mins before end allowed for early out
 
         const logIn = matchedShifts[i].in;

@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, addDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, Timestamp, getCountFromServer } from 'firebase/firestore';
 import { ActionLog, PeerRecognition, User } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import Toast from '../components/Toast';
@@ -18,6 +19,7 @@ const UserProfile: React.FC = () => {
     const [myActions, setMyActions] = useState<ActionLog[]>([]);
     const [myKudos, setMyKudos] = useState<PeerRecognition[]>([]);
     const [users, setUsers] = useState<User[]>([]);
+    const [patientsCount, setPatientsCount] = useState(0);
     
     const [isKudosModalOpen, setIsKudosModalOpen] = useState(false);
     const [kudosForm, setKudosForm] = useState({ toUserId: '', type: 'thankyou' as 'hero'|'thankyou'|'teamplayer', message: '' });
@@ -43,6 +45,20 @@ const UserProfile: React.FC = () => {
         const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
             setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
         });
+
+        // Get Patients Count (Async once)
+        const fetchPatientCount = async () => {
+            try {
+                const q = query(
+                    collection(db, 'appointments'), 
+                    where('performedBy', '==', currentUserId),
+                    where('status', '==', 'done')
+                );
+                const snapshot = await getCountFromServer(q);
+                setPatientsCount(snapshot.data().count);
+            } catch (e) { console.error(e); }
+        };
+        fetchPatientCount();
 
         return () => { unsubKudos(); unsubActions(); unsubUsers(); };
     }, [currentUserId]);
@@ -97,12 +113,16 @@ const UserProfile: React.FC = () => {
                             <p className="text-slate-400">Points based on monthly performance</p>
                         </div>
                     </div>
-                    <div className="flex gap-4">
-                        <div className="bg-white/10 px-4 py-2 rounded-xl text-center">
+                    <div className="flex flex-wrap gap-4">
+                        <div className="bg-white/10 px-4 py-2 rounded-xl text-center min-w-[80px]">
                             <span className="block text-2xl font-black text-emerald-400">{myKudos.length}</span>
                             <span className="text-[10px] uppercase font-bold text-slate-300">Kudos</span>
                         </div>
-                        <div className="bg-white/10 px-4 py-2 rounded-xl text-center">
+                        <div className="bg-white/10 px-4 py-2 rounded-xl text-center min-w-[80px]">
+                            <span className="block text-2xl font-black text-blue-400">{patientsCount}</span>
+                            <span className="text-[10px] uppercase font-bold text-slate-300">Cases</span>
+                        </div>
+                        <div className="bg-white/10 px-4 py-2 rounded-xl text-center min-w-[80px]">
                             <span className="block text-2xl font-black text-red-400">{myActions.filter(a => ['violation', 'late', 'unjustified_absence'].includes(a.type)).length}</span>
                             <span className="text-[10px] uppercase font-bold text-slate-300">Flags</span>
                         </div>

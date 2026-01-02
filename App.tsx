@@ -10,11 +10,6 @@ import { LanguageProvider } from './contexts/LanguageContext';
 import { doc, getDoc } from 'firebase/firestore';
 import Layout from './components/Layout';
 
-import { registerSW } from 'virtual:pwa-register';
-
-// هذا الكود سيقوم بتسجيل الـ Service Worker ليعمل الأوفلاين
-registerSW({ immediate: true });
-
 // --- Lazy Loading Pages (Code Splitting) ---
 const Login = React.lazy(() => import('./pages/Login'));
 const SupervisorDashboard = React.lazy(() => import('./pages/SupervisorDashboard'));
@@ -45,6 +40,7 @@ const HRAssistantPage = React.lazy(() => import('./pages/HRAssistantPage'));
 const DoctorDashboard = React.lazy(() => import('./pages/DoctorDashboard'));
 const AttendancePage = React.lazy(() => import('./pages/AttendancePage'));
 const AppointmentsPage = React.lazy(() => import('./pages/AppointmentsPage'));
+const PatientTicket = React.lazy(() => import('./pages/PatientTicket'));
 
 // --- Auth Context ---
 interface AuthContextType {
@@ -125,8 +121,8 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
 // --- Protected Route Component ---
 interface ProtectedRouteProps {
-  children?: React.ReactNode; // Made optional to fix TS error: Property 'children' is missing...
-  allowedRoles?: any[]; // Use any[] to allow string[] or UserRole[] without strict type issues
+  children?: React.ReactNode; 
+  allowedRoles?: any[]; 
 }
 
 const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
@@ -135,7 +131,6 @@ const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
     if (!user) return <Navigate to="/login" replace />;
     
     if (allowedRoles && role && !allowedRoles.includes(role)) {
-        // Redirect based on actual role
         if (role === UserRole.USER) return <Navigate to="/user" replace />;
         if (role === UserRole.DOCTOR) return <Navigate to="/doctor" replace />;
         return <Navigate to="/login" replace />;
@@ -155,6 +150,9 @@ const AppRoutes: React.FC = () => {
   return (
     <Router>
       <Routes>
+        {/* Public Routes */}
+        <Route path="/ticket/:id" element={<Suspense fallback={<Loading />}><PatientTicket /></Suspense>} />
+
         <Route
           path="/login"
           element={

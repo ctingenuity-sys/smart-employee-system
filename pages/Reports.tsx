@@ -6,32 +6,39 @@ import Loading from '../components/Loading';
 import Modal from '../components/Modal';
 import { PrintHeader, PrintFooter } from '../components/PrintLayout';
 // @ts-ignore
-import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, Timestamp, query, where } from 'firebase/firestore';
+import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, Timestamp, query, where, onSnapshot } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
 
 // --- Configuration ---
 const POINTS_PER_MONTH = 120;
 
 const Reports: React.FC = () => {
-    const { t, dir } = useLanguage();
     // --- State ---
+    const { t, dir } = useLanguage();
     const [employees, setEmployees] = useState<User[]>([]);
     const [actions, setActions] = useState<ActionLog[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'attendance' | 'productivity'>('attendance');
 
-    // Filters
     const [filterEmp, setFilterEmp] = useState('');
     const [filterMonth, setFilterMonth] = useState((new Date().getMonth() + 1).toString());
     const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
     const [filterFromDate, setFilterFromDate] = useState('');
     const [filterToDate, setFilterToDate] = useState('');
+    
+    // NEW: Productivity Search
+    const [prodSearch, setProdSearch] = useState('');
 
-    // Productivity State
-    const [productivityData, setProductivityData] = useState<any[]>([]);
+    const [productivityData, setProductivityData] = useState<Appointment[]>([]);
     const [isProductivityLoading, setIsProductivityLoading] = useState(false);
 
-    // Add/Edit Form State
+    // --- Modals state ---
+    const [isFollowUpModalOpen, setIsFollowUpModalOpen] = useState(false);
+    const [selectedPatientForAppt, setSelectedPatientForAppt] = useState<Appointment | null>(null);
+    const [newApptDate, setNewApptDate] = useState('');
+    const [newApptTime, setNewApptTime] = useState('');
+    const [newApptNote, setNewApptNote] = useState('');
+
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [formData, setFormData] = useState({
@@ -42,7 +49,6 @@ const Reports: React.FC = () => {
         description: ''
     });
 
-    // We define action weights here, mapped to translation keys
     const ACTION_WEIGHTS: Record<string, number> = {
         'annual_leave': 0, 
         'sick_leave': 1, 
@@ -54,16 +60,19 @@ const Reports: React.FC = () => {
         'positive': -5
     };
 
-    // --- Initial Load ---
+    // --- Initial Load (Users & Actions) ---
     useEffect(() => {
         const init = async () => {
             try {
-                const [uSnap, aSnap] = await Promise.all([
-                    getDocs(collection(db, 'users')),
-                    getDocs(collection(db, 'actions'))
-                ]);
+                // Real-time listener for Actions to keep HR tab updated
+                const unsubActions = onSnapshot(collection(db, 'actions'), (snap) => {
+                    setActions(snap.docs.map(d => ({ id: d.id, ...d.data() } as ActionLog)));
+                });
+
+                const uSnap = await getDocs(collection(db, 'users'));
                 setEmployees(uSnap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
-                setActions(aSnap.docs.map(d => ({ id: d.id, ...d.data() } as ActionLog)));
+                
+                return () => unsubActions();
             } catch (err) {
                 console.error(err);
             } finally {
@@ -73,53 +82,36 @@ const Reports: React.FC = () => {
         init();
     }, []);
 
-    // Fetch Productivity Data when tab is switched or filters change
-    useEffect(() => {
-        if (activeTab === 'productivity') {
-            fetchProductivity();
+    // --- Helpers for Date Range ---
+    const getDateRange = () => {
+        let start = filterFromDate;
+        let end = filterToDate;
+
+        if (!start && !end) {
+            if (filterYear && filterMonth) {
+                const y = parseInt(filterYear);
+                const m = parseInt(filterMonth);
+                // Fix timezone offset issue for start date
+                const mStr = m.toString().padStart(2, '0');
+                
+                const lastDayObj = new Date(y, m, 0);
+                
+                // Format manually to YYYY-MM-DD
+                const yStr = y;
+                const lastDStr = lastDayObj.getDate().toString().padStart(2,'0');
+
+                start = `${yStr}-${mStr}-01`;
+                end = `${yStr}-${mStr}-${lastDStr}`;
+            } else {
+                // Default to Today if nothing selected
+                const now = new Date();
+                start = now.toISOString().split('T')[0];
+                end = now.toISOString().split('T')[0];
+            }
         }
-    }, [activeTab, filterMonth, filterYear, filterFromDate, filterToDate]);
-
-    const fetchProductivity = async () => {
-        setIsProductivityLoading(true);
-        try {
-            const { start, end } = getDateRange();
-            const q = query(
-                collection(db, 'appointments'),
-                where('date', '>=', start),
-                where('date', '<=', end),
-                where('status', '==', 'done')
-            );
-            const snap = await getDocs(q);
-            const appts = snap.docs.map(d => d.data() as Appointment);
-
-            // Group by Performer
-            const grouped: Record<string, { name: string, total: number, fileNumbers: string[] }> = {};
-            
-            appts.forEach(appt => {
-                if (!appt.performedBy) return;
-                
-                if (!grouped[appt.performedBy]) {
-                    grouped[appt.performedBy] = {
-                        name: appt.performedByName || 'Unknown',
-                        total: 0,
-                        fileNumbers: []
-                    };
-                }
-                
-                grouped[appt.performedBy].total++;
-                if (appt.fileNumber) {
-                    grouped[appt.performedBy].fileNumbers.push(appt.fileNumber);
-                }
-            });
-
-            setProductivityData(Object.values(grouped).sort((a,b) => b.total - a.total));
-
-        } catch (e) { console.error(e); }
-        finally { setIsProductivityLoading(false); }
+        return { start, end };
     };
 
-    // --- Helpers ---
     const getMonthCount = () => {
         if (filterFromDate && filterToDate) {
             const start = new Date(filterFromDate);
@@ -132,37 +124,48 @@ const Reports: React.FC = () => {
         return 1;
     };
 
-    const getDateRange = () => {
-        let start = filterFromDate;
-        let end = filterToDate;
+    // --- REAL-TIME PRODUCTIVITY FETCH ---
+    useEffect(() => {
+        if (activeTab !== 'productivity') return;
 
-        if (!start && !end) {
-            if (filterYear && filterMonth) {
-                const y = parseInt(filterYear);
-                const m = parseInt(filterMonth);
-                const firstDay = new Date(y, m - 1, 1);
-                // Adjust date string to YYYY-MM-DD
-                const mStr = m.toString().padStart(2, '0');
-                const lastDayObj = new Date(y, m, 0);
-                
-                start = `${y}-${mStr}-01`;
-                end = `${y}-${mStr}-${lastDayObj.getDate()}`;
-            } else if (filterYear) {
-                start = `${filterYear}-01-01`;
-                end = `${filterYear}-12-31`;
-            }
-        }
-        // Fallback defaults
-        if (!start) start = new Date().toISOString().split('T')[0];
-        if (!end) end = new Date().toISOString().split('T')[0];
-
-        return { start, end };
-    };
-
-    // --- Computed Data ---
-    const filteredActions = useMemo(() => {
+        setIsProductivityLoading(true);
+        
         const { start, end } = getDateRange();
         
+        // Query: Get appointments within date range
+        // NOTE: Removed 'status' == 'done' from query to prevent "Index Required" errors.
+        // We filter status in the snapshot callback.
+        const q = query(
+            collection(db, 'appointments'),
+            where('date', '>=', start),
+            where('date', '<=', end)
+        );
+
+        const unsub = onSnapshot(q, (snap) => {
+            const appts = snap.docs
+                .map(d => ({ id: d.id, ...d.data() } as Appointment))
+                .filter(a => a.status === 'done'); // Client-side filtering
+
+            // Sort by Date then Time descending
+            appts.sort((a,b) => {
+                if (a.date !== b.date) return b.date.localeCompare(a.date);
+                return b.time.localeCompare(a.time);
+            });
+            
+            setProductivityData(appts);
+            setIsProductivityLoading(false);
+        }, (error) => {
+            console.error("Productivity Sync Error:", error);
+            setIsProductivityLoading(false);
+        });
+
+        return () => unsub();
+    }, [activeTab, filterMonth, filterYear, filterFromDate, filterToDate]);
+
+
+    // --- Attendance Calculations ---
+    const filteredActions = useMemo(() => {
+        const { start, end } = getDateRange();
         return actions.filter(act => {
             if (filterEmp && act.employeeId !== filterEmp) return false;
             if (start && act.toDate < start) return false;
@@ -173,23 +176,23 @@ const Reports: React.FC = () => {
 
     const evaluation = useMemo(() => {
         if (!filterEmp) return null;
-
         const months = getMonthCount();
         const maxScore = months * POINTS_PER_MONTH;
-        
         let totalDeductions = 0;
         
         filteredActions.forEach(act => {
             const weight = ACTION_WEIGHTS[act.type] || 0;
+            // Calculate days duration
             const s = new Date(act.fromDate);
             const e = new Date(act.toDate);
             const diff = Math.abs(e.getTime() - s.getTime());
             const days = Math.ceil(diff / (1000 * 60 * 60 * 24)) + 1; 
             
+            // Only deduct if weight > 0 (Positive values like 'positive' have negative weight, adding to score)
             totalDeductions += (weight * days);
         });
 
-        const finalScore = Math.min(maxScore, Math.max(0, maxScore - totalDeductions));
+        const finalScore = Math.min(maxScore + 100, Math.max(0, maxScore - totalDeductions)); // Allow > max if bonus
         const percentage = Math.round((finalScore / maxScore) * 100);
 
         let grade = t('grade.excellent');
@@ -200,17 +203,32 @@ const Reports: React.FC = () => {
         else if (percentage < 70) { grade = t('grade.acceptable'); color = 'text-orange-500 stroke-orange-500'; bg = 'bg-orange-50'; }
         else if (percentage < 85) { grade = t('grade.vgood'); color = 'text-blue-500 stroke-blue-500'; bg = 'bg-blue-50'; }
 
-        return {
-            months,
-            maxScore,
-            totalDeductions,
-            finalScore,
-            percentage,
-            grade,
-            color,
-            bg
-        };
+        return { months, maxScore, totalDeductions, finalScore, percentage, grade, color, bg };
     }, [filteredActions, filterEmp, filterMonth, filterYear, filterFromDate, filterToDate, t]);
+
+    // --- Productivity Filter & Chart Data ---
+    const filteredProductivity = useMemo(() => {
+        if(!prodSearch) return productivityData;
+        return productivityData.filter(p => 
+            (p.fileNumber && p.fileNumber.includes(prodSearch)) || 
+            (p.patientName && p.patientName.toLowerCase().includes(prodSearch.toLowerCase()))
+        );
+    }, [productivityData, prodSearch]);
+
+    const productivityChartData = useMemo(() => {
+        const counts: Record<string, number> = {};
+        // Use filtered data for the chart to reflect search
+        filteredProductivity.forEach(p => {
+            const name = p.performedByName || 'Unknown';
+            counts[name] = (counts[name] || 0) + 1;
+        });
+        
+        const maxVal = Math.max(...Object.values(counts), 1);
+
+        return Object.entries(counts)
+            .map(([name, count]) => ({ name, count, percentage: (count / maxVal) * 100 }))
+            .sort((a, b) => b.count - a.count);
+    }, [filteredProductivity]);
 
     // --- Handlers ---
     const handleSubmit = async () => {
@@ -219,10 +237,8 @@ const Reports: React.FC = () => {
         try {
             if (editingId) {
                 await updateDoc(doc(db, 'actions', editingId), payload);
-                setActions(prev => prev.map(a => a.id === editingId ? { ...a, ...payload } : a));
             } else {
-                const ref = await addDoc(collection(db, 'actions'), payload);
-                setActions(prev => [{ id: ref.id, ...payload } as any, ...prev]);
+                await addDoc(collection(db, 'actions'), payload);
             }
             setIsFormOpen(false);
             setEditingId(null);
@@ -233,7 +249,6 @@ const Reports: React.FC = () => {
     const handleDelete = async (id: string) => {
         if (confirm(t('confirm') + '?')) {
             await deleteDoc(doc(db, 'actions', id));
-            setActions(prev => prev.filter(a => a.id !== id));
         }
     };
 
@@ -249,17 +264,44 @@ const Reports: React.FC = () => {
         setIsFormOpen(true);
     };
 
-    const handlePrint = () => {
-        window.print();
+    // --- Appointment Booking from Report ---
+    const openFollowUpModal = (appt: Appointment) => {
+        setSelectedPatientForAppt(appt);
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        setNewApptDate(tomorrow.toISOString().split('T')[0]);
+        setNewApptTime('09:00');
+        setNewApptNote(`Follow-up: ${appt.examType}`);
+        setIsFollowUpModalOpen(true);
     };
+
+    const handleSaveAppointment = async () => {
+        if (!selectedPatientForAppt || !newApptDate || !newApptTime) return;
+        try {
+            await addDoc(collection(db, 'appointments'), {
+                patientName: selectedPatientForAppt.patientName,
+                fileNumber: selectedPatientForAppt.fileNumber || '',
+                examType: selectedPatientForAppt.examType,
+                date: newApptDate,
+                time: newApptTime,
+                notes: newApptNote,
+                status: 'pending',
+                createdBy: 'Supervisor',
+                createdByName: 'Admin',
+                createdAt: Timestamp.now()
+            });
+            alert('تم حجز الموعد بنجاح ✅');
+            setIsFollowUpModalOpen(false);
+        } catch (e) { console.error(e); alert('خطأ في الحفظ'); }
+    };
+
+    const handlePrint = () => window.print();
 
     if (loading) return <Loading />;
 
     const radius = 50;
     const circumference = 2 * Math.PI * radius;
     const offset = evaluation ? circumference - (evaluation.percentage / 100) * circumference : 0;
-
-    const selectedEmployeeName = filterEmp ? employees.find(e => e.id === filterEmp)?.name : "All Staff";
     const dateTitle = filterFromDate && filterToDate ? `${filterFromDate} - ${filterToDate}` : `${filterYear}-${filterMonth.padStart(2, '0')}`;
 
     return (
@@ -267,7 +309,7 @@ const Reports: React.FC = () => {
             
             <PrintHeader 
                 title={t('rep.title')} 
-                subtitle={`REPORT: ${activeTab === 'productivity' ? 'Radiology Exams Count' : 'HR & Attendance'}`} 
+                subtitle={`REPORT: ${activeTab === 'productivity' ? 'Completed Exams Log' : 'HR & Attendance'}`} 
                 month={dateTitle} 
             />
 
@@ -281,7 +323,7 @@ const Reports: React.FC = () => {
                     {activeTab === 'attendance' && (
                         <button 
                             onClick={() => { setEditingId(null); setIsFormOpen(true); }}
-                            className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center gap-2"
+                            className="bg-blue-600 hover:bg-blue-50 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center gap-2"
                         >
                             <i className="fas fa-plus-circle"></i> {t('rep.add')}
                         </button>
@@ -293,19 +335,18 @@ const Reports: React.FC = () => {
                 
                 {/* Filters Bar */}
                 <div className="bg-white rounded-2xl shadow-lg p-4 mb-8 flex flex-wrap gap-4 items-center border border-gray-100 print:hidden">
-                    {/* Tabs Switcher */}
                     <div className="flex bg-slate-100 p-1 rounded-xl">
                         <button 
                             onClick={() => setActiveTab('attendance')} 
                             className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'attendance' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}
                         >
-                            Attendance / HR
+                            HR & Attendance
                         </button>
                         <button 
                             onClick={() => setActiveTab('productivity')} 
                             className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'productivity' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}
                         >
-                            Productivity (Exams)
+                            Completed Exams
                         </button>
                     </div>
 
@@ -319,10 +360,22 @@ const Reports: React.FC = () => {
                         </div>
                     )}
                     
+                    {/* NEW: File Search for Productivity Tab */}
+                    {activeTab === 'productivity' && (
+                        <div className="flex-1 min-w-[200px]">
+                            <label className="block text-xs font-bold text-gray-400 mb-1">Search File / Name</label>
+                            <input 
+                                className="w-full bg-slate-50 border-none rounded-lg font-bold text-slate-700 focus:ring-2 focus:ring-emerald-200 px-3 py-2 text-sm" 
+                                placeholder="رقم الملف أو الاسم..."
+                                value={prodSearch} 
+                                onChange={e => setProdSearch(e.target.value)}
+                            />
+                        </div>
+                    )}
+                    
                     <div className="w-[120px]">
                         <label className="block text-xs font-bold text-gray-400 mb-1">{t('month')}</label>
                         <select className="w-full bg-slate-50 border-none rounded-lg font-bold text-slate-700" value={filterMonth} onChange={e => {setFilterMonth(e.target.value); setFilterFromDate(''); setFilterToDate('');}}>
-                            <option value="">All</option>
                             {[...Array(12)].map((_, i) => <option key={i} value={i+1}>{i+1}</option>)}
                         </select>
                     </div>
@@ -340,54 +393,98 @@ const Reports: React.FC = () => {
                 </div>
 
                 {activeTab === 'productivity' ? (
-                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none animate-fade-in">
-                        <div className="p-6 bg-slate-50 border-b border-slate-200 print:bg-white print:border-slate-800 flex justify-between items-center">
-                            <h3 className="font-bold text-lg text-slate-800 uppercase tracking-wide">
-                                <i className="fas fa-chart-line text-emerald-500 mr-2"></i> Radiology Exams Volume
-                            </h3>
-                            <span className="text-xs bg-white border px-2 py-1 rounded shadow-sm text-slate-500 font-bold">
-                                {isProductivityLoading ? 'Calculating...' : 'Ranked by Volume'}
-                            </span>
-                        </div>
-                        {isProductivityLoading ? (
-                            <div className="p-10"><Loading /></div>
-                        ) : (
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-white text-slate-500 font-bold text-xs uppercase border-b border-slate-100 print:border-slate-800 print:text-black">
-                                    <tr>
-                                        <th className="p-4 w-10 text-center">Rank</th>
-                                        <th className="p-4">Employee</th>
-                                        <th className="p-4 text-center">Total Exams</th>
-                                        <th className="p-4">File Numbers (Sample)</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50 print:divide-slate-300">
-                                    {productivityData.length === 0 ? (
-                                        <tr><td colSpan={4} className="p-8 text-center text-slate-400">No exams found for this period.</td></tr>
-                                    ) : (
-                                        productivityData.map((data, i) => (
-                                            <tr key={i} className="hover:bg-slate-50 print:break-inside-avoid">
-                                                <td className="p-4 text-center font-black text-slate-300 print:text-black">{i + 1}</td>
-                                                <td className="p-4 font-bold text-slate-800 print:text-black">{data.name}</td>
-                                                <td className="p-4 text-center">
-                                                    <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full font-bold shadow-sm print:border print:border-black print:bg-transparent print:text-black">
-                                                        {data.total}
-                                                    </span>
-                                                </td>
-                                                <td className="p-4 text-xs font-mono text-slate-500 print:text-black max-w-md break-all">
-                                                    {data.fileNumbers.slice(0, 15).join(', ')} 
-                                                    {data.fileNumbers.length > 15 && <span className="text-slate-400"> +{data.fileNumbers.length - 15} more...</span>}
-                                                </td>
-                                            </tr>
-                                        ))
-                                    )}
-                                </tbody>
-                            </table>
+                    <div className="space-y-6">
+                        
+                        {/* 1. Productivity Chart */}
+                        {productivityChartData.length > 0 && (
+                            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 print:break-inside-avoid">
+                                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                                    <i className="fas fa-chart-bar text-emerald-500"></i> أداء الموظفين (عدد الحالات)
+                                </h3>
+                                <div className="space-y-3">
+                                    {productivityChartData.map((item, index) => (
+                                        <div key={index} className="flex items-center gap-4">
+                                            <div className="w-32 text-xs font-bold text-slate-600 truncate text-right">{item.name}</div>
+                                            <div className="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden">
+                                                <div 
+                                                    className="h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full" 
+                                                    style={{ width: `${item.percentage}%` }}
+                                                ></div>
+                                            </div>
+                                            <div className="w-10 text-xs font-black text-slate-800 text-left">{item.count}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         )}
+
+                        {/* 2. Productivity Table */}
+                        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none animate-fade-in">
+                            <div className="p-6 bg-slate-50 border-b border-slate-200 print:bg-white print:border-slate-800 flex justify-between items-center">
+                                <h3 className="font-bold text-lg text-slate-800 uppercase tracking-wide">
+                                    <i className="fas fa-check-circle text-emerald-500 mr-2"></i> سجل الفحوصات المنجزة
+                                </h3>
+                                <span className="text-xs bg-white border px-2 py-1 rounded shadow-sm text-slate-500 font-bold">
+                                    {isProductivityLoading ? 'Syncing...' : `${filteredProductivity.length} Records`}
+                                </span>
+                            </div>
+                            {isProductivityLoading && productivityData.length === 0 ? (
+                                <div className="p-10"><Loading /></div>
+                            ) : (
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-white text-slate-500 font-bold text-xs uppercase border-b border-slate-100 print:border-slate-800 print:text-black">
+                                        <tr>
+                                            <th className="p-4 w-10 text-center">#</th>
+                                            <th className="p-4">التاريخ والوقت</th>
+                                            <th className="p-4">اسم المريض</th>
+                                            <th className="p-4">رقم الملف</th>
+                                            <th className="p-4">نوع الفحص</th>
+                                            <th className="p-4">تم بواسطة</th>
+                                            <th className="p-4 print:hidden text-center">إجراءات</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50 print:divide-slate-300">
+                                        {filteredProductivity.length === 0 ? (
+                                            <tr><td colSpan={7} className="p-8 text-center text-slate-400">No completed exams found for this period.</td></tr>
+                                        ) : (
+                                            filteredProductivity.map((data, i) => (
+                                                <tr key={i} className="hover:bg-slate-50 print:break-inside-avoid animate-fade-in">
+                                                    <td className="p-4 text-center font-black text-slate-300 print:text-black">{i + 1}</td>
+                                                    <td className="p-4 font-mono text-xs text-slate-500 print:text-black">
+                                                        {data.date} <span className="text-slate-400">|</span> {data.time}
+                                                    </td>
+                                                    <td className="p-4 font-bold text-slate-800 print:text-black">{data.patientName}</td>
+                                                    <td className="p-4 font-mono text-slate-600 print:text-black">{data.fileNumber}</td>
+                                                    <td className="p-4">
+                                                        <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded text-xs font-bold border border-slate-200 print:border-black print:bg-transparent print:text-black">
+                                                            {data.examType}
+                                                        </span>
+                                                        {data.notes && <p className="text-[10px] text-slate-400 mt-1 max-w-[200px] truncate">{data.notes}</p>}
+                                                    </td>
+                                                    <td className="p-4 font-bold text-emerald-700 print:text-black">
+                                                        {data.performedByName || 'Unknown'}
+                                                    </td>
+                                                    <td className="p-4 print:hidden text-center">
+                                                        <button 
+                                                            onClick={() => openFollowUpModal(data)}
+                                                            className="text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 p-2 rounded-lg transition-colors"
+                                                            title="جدولة موعد متابعة / إعادة"
+                                                        >
+                                                            <i className="fas fa-calendar-plus"></i>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
                     </div>
                 ) : (
+                    // ... (HR & Attendance Tab Content) ...
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 print:block">
-                        {/* LEFT: Evaluation Card */}
+                        {/* Evaluation Card */}
                         <div className="lg:col-span-1 print:mb-6 print:break-inside-avoid">
                             {evaluation ? (
                                 <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100 sticky top-4 print:border-2 print:border-slate-800 print:shadow-none">
@@ -450,7 +547,7 @@ const Reports: React.FC = () => {
                             )}
                         </div>
 
-                        {/* RIGHT: Actions List */}
+                        {/* Action Log List */}
                         <div className="lg:col-span-2 space-y-6 print:w-full">
                             <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none print:rounded-lg">
                                 <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 print:bg-white print:border-b-2 print:border-slate-800">
@@ -519,7 +616,7 @@ const Reports: React.FC = () => {
 
             <PrintFooter />
 
-            {/* Modal for Adding/Editing */}
+            {/* Modal for Adding/Editing Action */}
             <Modal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} title={editingId ? t('edit') : t('add')}>
                 <div className="space-y-4">
                     <div>
@@ -542,7 +639,7 @@ const Reports: React.FC = () => {
                         </div>
                         <div>
                             <label className="text-xs font-bold text-gray-500 mb-1 block">{t('to')}</label>
-                            <input type="date" className="w-full bg-slate-50 border border-gray-200 rounded-xl p-3 text-sm" value={formData.toDate} onChange={e => setFormData({...formData, toDate: e.target.value})} />
+                            <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm" value={formData.toDate} onChange={e => setFormData({...formData, toDate: e.target.value})} />
                         </div>
                     </div>
 
@@ -570,6 +667,62 @@ const Reports: React.FC = () => {
 
                     <button onClick={handleSubmit} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 shadow-lg">
                         {t('save')}
+                    </button>
+                </div>
+            </Modal>
+
+            {/* Modal for Booking Appointment from Reports */}
+            <Modal isOpen={isFollowUpModalOpen} onClose={() => setIsFollowUpModalOpen(false)} title="جدولة موعد متابعة / إعادة">
+                <div className="space-y-4">
+                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-blue-900">
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <p className="text-xs font-bold uppercase opacity-70">المريض</p>
+                                <h4 className="font-bold text-lg">{selectedPatientForAppt?.patientName}</h4>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-xs font-bold uppercase opacity-70">الفحص السابق</p>
+                                <span className="bg-white px-2 py-0.5 rounded text-sm font-bold shadow-sm">{selectedPatientForAppt?.examType}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">تاريخ الموعد الجديد</label>
+                            <input 
+                                type="date" 
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold"
+                                value={newApptDate}
+                                onChange={e => setNewApptDate(e.target.value)}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">الوقت</label>
+                            <input 
+                                type="time" 
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold"
+                                value={newApptTime}
+                                onChange={e => setNewApptTime(e.target.value)}
+                            />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">ملاحظات / سبب الموعد</label>
+                        <textarea 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-medium min-h-[80px]"
+                            value={newApptNote}
+                            onChange={e => setNewApptNote(e.target.value)}
+                            placeholder="مثلاً: إعادة الفحص لعدم وضوح الصورة، أو متابعة دورية..."
+                        ></textarea>
+                    </div>
+
+                    <button 
+                        onClick={handleSaveAppointment}
+                        className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition-all"
+                    >
+                        تأكيد الحجز
                     </button>
                 </div>
             </Modal>

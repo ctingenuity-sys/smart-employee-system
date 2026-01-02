@@ -1,5 +1,4 @@
 
-
 export enum UserRole {
   ADMIN = 'admin',
   SUPERVISOR = 'supervisor',
@@ -180,16 +179,21 @@ export interface Appointment {
   id: string;
   patientName: string;
   fileNumber?: string; // NEW: Patient File Number
+  doctorName?: string; // NEW: Referring Doctor
+  patientAge?: string; // NEW: Age
   examType: string;
+  examList?: string[]; // NEW: List of all specific exams
   date: string; // YYYY-MM-DD
   time: string; // HH:mm
   notes?: string;
-  status: 'pending' | 'done' | 'cancelled';
+  status: 'pending' | 'done' | 'cancelled' | 'scheduled'; // Added 'scheduled'
   createdBy: string; // User ID
   createdByName: string;
   performedBy?: string; // NEW: User ID who did the exam
   performedByName?: string; // NEW: Name of user who did the exam
   createdAt: any;
+  scheduledDate?: string; // For bookings
+  refNo?: string; // Unique Reference for deduplication
 }
 
 // --- Visual Schedule Types ---

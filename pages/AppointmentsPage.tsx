@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, addDoc, Timestamp, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, Timestamp, deleteDoc, doc, updateDoc, writeBatch, getDocs, orderBy, getCountFromServer, setDoc } from 'firebase/firestore';
 import { Appointment } from '../types';
 import Loading from '../components/Loading';
 import Toast from '../components/Toast';
@@ -10,111 +10,493 @@ import Modal from '../components/Modal';
 import { useLanguage } from '../contexts/LanguageContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
-import VoiceInput from '../components/VoiceInput';
-import { GoogleGenAI } from "@google/genai";
 
+// Enhanced Keywords based on specific IHMS formats
 const MODALITIES = [
-    { id: 'MRI', label: 'MRI', icon: 'fa-magnet', color: 'text-blue-600 bg-blue-50' },
-    { id: 'CT', label: 'CT Scan', icon: 'fa-ring', color: 'text-emerald-600 bg-emerald-50' },
-    { id: 'X-RAY', label: 'X-Ray', icon: 'fa-x-ray', color: 'text-slate-600 bg-slate-50' },
-    { id: 'US', label: 'Ultrasound', icon: 'fa-wave-square', color: 'text-indigo-600 bg-indigo-50' },
-    { id: 'FLUO', label: 'Fluoroscopy', icon: 'fa-video', color: 'text-amber-600 bg-amber-50' },
-    { id: 'MAMMO', label: 'Mammography', icon: 'fa-venus', color: 'text-pink-600 bg-pink-50' },
-    { id: 'OTHER', label: 'General/Other', icon: 'fa-notes-medical', color: 'text-gray-600 bg-gray-50' }
+    { 
+        id: 'MRI', 
+        label: 'MRI', 
+        icon: 'fa-magnet', 
+        color: 'text-blue-600 bg-blue-50', 
+        border: 'border-blue-200', 
+        keywords: ['MRI', 'MR ', 'MAGNETIC', 'M.R.I'],
+        defaultPrep: 'إزالة المعادن، المجوهرات، والهاتف. الحضور قبل الموعد بـ 15 دقيقة.'
+    },
+    { 
+        id: 'CT', 
+        label: 'CT Scan', 
+        icon: 'fa-ring', 
+        color: 'text-emerald-600 bg-emerald-50', 
+        border: 'border-emerald-200', 
+        keywords: ['C.T.', 'CT ', 'COMPUTED', 'CAT ', 'MDCT'],
+        defaultPrep: 'صيام 4 ساعات قبل الفحص (في حال الصبغة). إحضار وظائف الكلى.'
+    },
+    { 
+        id: 'US', 
+        label: 'Ultrasound', 
+        icon: 'fa-wave-square', 
+        color: 'text-indigo-600 bg-indigo-50', 
+        border: 'border-indigo-200', 
+        keywords: ['US ', 'U.S', 'ULTRASOUND', 'SONO', 'DOPPLER', 'ECHO', 'DUPLEX'],
+        defaultPrep: 'شرب لتر ماء قبل ساعة وحبس البول (للحوض/البطن). صيام 6 ساعات (للمرارة).'
+    },
+    { 
+        id: 'X-RAY', 
+        label: 'X-Ray & General', 
+        icon: 'fa-x-ray', 
+        color: 'text-slate-600 bg-slate-50', 
+        border: 'border-slate-200', 
+        keywords: ['X-RAY', 'XRAY', 'XR ', 'MAMMO', 'CR ', 'DR ', 'CHEST', 'PLAIN', 'SPINE', 'KNEE', 'FOOT', 'HAND'],
+        defaultPrep: 'إزالة المجوهرات والمعادن من منطقة الفحص.'
+    },
+    { 
+        id: 'FLUO', 
+        label: 'Fluoroscopy', 
+        icon: 'fa-video', 
+        color: 'text-amber-600 bg-amber-50', 
+        border: 'border-amber-200', 
+        keywords: ['FLUO', 'BARIUM', 'CONTRAST', 'HSG', 'MCUG'],
+        defaultPrep: 'صيام كامل لمدة 8 ساعات.'
+    },
+    { 
+        id: 'OTHER', 
+        label: 'General', 
+        icon: 'fa-notes-medical', 
+        color: 'text-gray-600 bg-gray-50', 
+        border: 'border-gray-200', 
+        keywords: [],
+        defaultPrep: 'اتباع تعليمات الطبيب.'
+    }
 ];
+
+// Type definition for Settings
+interface ModalitySettings {
+    limit: number;
+    slots: string[]; // Array of time strings "09:00", "10:00"
+}
+
+// Default Settings
+const DEFAULT_SETTINGS: Record<string, ModalitySettings> = {
+    'MRI': { limit: 15, slots: ['09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '17:00', '17:30', '18:00', '18:30', '19:00', '19:30'] },
+    'CT': { limit: 20, slots: ['09:00', '09:20', '09:40', '10:00', '10:20', '10:40', '11:00', '11:20', '11:40', '12:00'] },
+    'US': { limit: 30, slots: [] }, // Empty slots means free text time
+    'X-RAY': { limit: 50, slots: [] },
+    'FLUO': { limit: 10, slots: ['08:00', '09:00', '10:00'] },
+    'OTHER': { limit: 100, slots: [] }
+};
+
+// Helper to find value in object case-insensitively and recursively
+const findValue = (obj: any, keys: string[]): any => {
+    if (!obj) return null;
+    const lowerKeys = keys.map(k => k.toLowerCase());
+    for (const key of Object.keys(obj)) {
+        if (lowerKeys.includes(key.toLowerCase()) && obj[key]) {
+            return obj[key];
+        }
+    }
+    return null;
+};
+
+interface ExtendedAppointment extends Appointment {
+    roomNumber?: string;
+    preparation?: string;
+}
 
 const AppointmentsPage: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
     
     // Data State
-    const [appointments, setAppointments] = useState<Appointment[]>([]);
+    const [appointments, setAppointments] = useState<ExtendedAppointment[]>([]);
+    const appointmentsRef = useRef<ExtendedAppointment[]>([]); 
+    
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-    const [selectedModality, setSelectedModality] = useState('ALL');
+    const [activeView, setActiveView] = useState<'pending' | 'done' | 'scheduled'>('pending');
+    const [activeModality, setActiveModality] = useState<string>('ALL');
+    const [searchQuery, setSearchQuery] = useState(''); 
     
     // UI State
     const [loading, setLoading] = useState(true);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-    const [toast, setToast] = useState<{msg: string, type: 'success'|'info'|'error'} | null>(null);
-    const [isScanning, setIsScanning] = useState(false);
+    const [isBridgeModalOpen, setIsBridgeModalOpen] = useState(false);
+    const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+    
+    // Quota & Slots State
+    const [modalitySettings, setModalitySettings] = useState<Record<string, ModalitySettings>>(DEFAULT_SETTINGS);
 
-    // Form State
+    // Booking Modal
+    const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+    const [bookingAppt, setBookingAppt] = useState<ExtendedAppointment | null>(null);
+    const [bookingDate, setBookingDate] = useState('');
+    const [bookingTime, setBookingTime] = useState('');
+    const [bookingRoom, setBookingRoom] = useState(''); 
+    const [bookingPrep, setBookingPrep] = useState(''); 
+    const [bookingWarning, setBookingWarning] = useState(''); 
+    const [availableSlots, setAvailableSlots] = useState<string[]>([]); // For Dropdown
+
+    // Success/QR Modal
+    const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
+    const [bookedTicketId, setBookedTicketId] = useState('');
+
+    const [toast, setToast] = useState<{msg: string, type: 'success'|'info'|'error'} | null>(null);
+    const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+    const [isListening, setIsListening] = useState(false);
+
+    // Manual Add State
     const [patientName, setPatientName] = useState('');
     const [fileNumber, setFileNumber] = useState(''); 
     const [examType, setExamType] = useState('MRI');
-    const [apptTime, setApptTime] = useState('');
+    const [doctorName, setDoctorName] = useState('');
+    const [patientAge, setPatientAge] = useState('');
     const [notes, setNotes] = useState('');
-
-    // Refs
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const currentUserId = auth.currentUser?.uid;
     const currentUserName = localStorage.getItem('username') || 'User';
-    const storedRole = localStorage.getItem('role') || 'user';
-    const isSupervisor = storedRole === 'admin' || storedRole === 'supervisor';
+    const isSupervisor = localStorage.getItem('role') === 'admin' || localStorage.getItem('role') === 'supervisor';
+
+    // Cleanup Logic
+    const [isCleanupProcessing, setIsCleanupProcessing] = useState(false);
 
     useEffect(() => {
-        setLoading(true);
-        // Query by date
-        const q = query(
-            collection(db, 'appointments'),
-            where('date', '==', selectedDate)
-        );
-
-        const unsub = onSnapshot(q, (snap) => {
-            const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Appointment));
-            // Client-side sort by time
-            list.sort((a, b) => a.time.localeCompare(b.time));
-            setAppointments(list);
-            setLoading(false);
-        });
-
-        return () => unsub();
-    }, [selectedDate]);
-
-    // Filter Logic
-    const filteredAppointments = useMemo(() => {
-        if (selectedModality === 'ALL') return appointments;
-        return appointments.filter(a => a.examType === selectedModality);
-    }, [appointments, selectedModality]);
-
-    // Stats Logic
-    const stats = useMemo(() => {
-        const total = appointments.length;
-        const pending = appointments.filter(a => a.status === 'pending').length;
-        const done = appointments.filter(a => a.status === 'done').length;
-        return { total, pending, done };
+        appointmentsRef.current = appointments;
     }, [appointments]);
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!patientName || !examType || !apptTime) {
-            setToast({ msg: 'Please fill required fields', type: 'error' });
-            return;
+    // Load Settings
+    useEffect(() => {
+        const savedSettings = localStorage.getItem('appt_settings_v2');
+        if (savedSettings) {
+            try {
+                setModalitySettings(JSON.parse(savedSettings));
+            } catch(e) {
+                // Migrate old simple limits if found
+                const oldLimits = localStorage.getItem('appt_daily_limits');
+                if (oldLimits) {
+                    try {
+                        const parsedOld = JSON.parse(oldLimits);
+                        const merged = { ...DEFAULT_SETTINGS };
+                        Object.keys(parsedOld).forEach(k => {
+                            if(merged[k]) merged[k].limit = parsedOld[k];
+                        });
+                        setModalitySettings(merged);
+                    } catch(ex) {}
+                }
+            }
+        }
+    }, []);
+
+    // --- 1. INTELLIGENT EXAM SPLITTER (Enhanced Deduplication with Deterministic IDs) ---
+    useEffect(() => {
+        const handleMessage = async (event: MessageEvent) => {
+            if (!event.data || event.data.type !== 'SMART_SYNC_DATA') return;
+
+            setIsListening(true);
+            const rawPayload = event.data.payload; 
+            
+            let payload: any[] = [];
+            if (Array.isArray(rawPayload)) {
+                payload = rawPayload;
+            } else if (rawPayload && typeof rawPayload === 'object') {
+                payload = [rawPayload];
+            }
+
+            if (payload.length === 0) return;
+
+            const batch = writeBatch(db);
+            let processedCount = 0;
+
+            const detectModality = (serviceName: string) => {
+                const sNameUpper = serviceName.toUpperCase();
+                for (const mod of MODALITIES) {
+                    if (mod.id === 'OTHER') continue;
+                    if (mod.keywords.some(k => sNameUpper.includes(k))) {
+                        return mod.id;
+                    }
+                }
+                return 'OTHER';
+            };
+
+            const cleanTime = (t: any) => {
+                if(!t) return '';
+                const s = String(t).trim();
+                return s.substring(0, 5); 
+            };
+
+            const cleanDate = (d: any) => {
+                if(!d) return new Date().toISOString().split('T')[0];
+                return String(d).split('T')[0];
+            };
+
+            payload.forEach((p: any) => {
+                const pName = findValue(p, ['patientName', 'engName', 'name', 'patName', 'fullName']) || 'Unknown';
+                const cleanName = pName.includes(' - ') ? pName.split(' - ')[1] : pName;
+                const fNum = findValue(p, ['fileNumber', 'fileNo', 'mrn', 'patientId', 'pid']) || '';
+                const age = findValue(p, ['ageYear', 'age', 'patientAge', 'dob']);
+                
+                // Extract Queue Time specifically for sorting
+                const rawQueTime = findValue(p, ['queTime', 'time', 'visitTime']) || '';
+                const qTime = cleanTime(rawQueTime) || '00:00';
+                
+                const commonInfo = {
+                    patientName: cleanName,
+                    fileNumber: String(fNum),
+                    patientAge: age ? String(age) : '',
+                    status: 'pending',
+                    createdBy: 'Bridge',
+                    createdByName: 'System',
+                    notes: ''
+                };
+
+                const detailsArr = p.xrayPatientDetails || p.orderDetails || p.services || [];
+
+                if (Array.isArray(detailsArr) && detailsArr.length > 0) {
+                    const modalityGroups: Record<string, { exams: string[], time: string, date: string, doc: string, ref: string }> = {};
+
+                    detailsArr.forEach((det: any) => {
+                        const sName = findValue(det, ['serviceName', 'examName', 'procedure', 'xrayName']);
+                        if (!sName) return;
+
+                        const modId = detectModality(sName);
+                        // Prefer detailed time if available, else parent time
+                        const detTimeRaw = findValue(det, ['queTime', 'time']) || rawQueTime;
+                        const detTime = cleanTime(detTimeRaw);
+                        const detDate = cleanDate(det.queDate || p.queDate);
+                        
+                        const docName = det.doctorName || p.doctorName || 'Unknown Dr';
+                        const refNo = String(det.queRefNo || det.refNo || p.refNo || '');
+
+                        if (!modalityGroups[modId]) {
+                            modalityGroups[modId] = {
+                                exams: [],
+                                time: detTime || '00:00',
+                                date: detDate,
+                                doc: docName,
+                                ref: refNo
+                            };
+                        }
+                        modalityGroups[modId].exams.push(sName);
+                    });
+
+                    Object.keys(modalityGroups).forEach(modId => {
+                        const group = modalityGroups[modId];
+                        
+                        // Deterministic ID: FileNumber_Modality_Date
+                        // Adding time to ID to allow multiple same-modality visits in one day if times differ
+                        const uniqueId = `${group.date}_${commonInfo.fileNumber}_${modId}`.replace(/[^a-zA-Z0-9_]/g, '');
+                        
+                        const docRef = doc(db, 'appointments', uniqueId);
+                        batch.set(docRef, {
+                            ...commonInfo,
+                            examType: modId, 
+                            examList: group.exams, 
+                            doctorName: group.doc,
+                            refNo: group.ref,
+                            date: group.date, 
+                            time: group.time,
+                            createdAt: Timestamp.now() // Update timestamp to bring to top if re-synced (optional)
+                        }, { merge: true }); // Merge prevents overwriting existing data fields not present in new payload, but we want to update time/status usually.
+                        processedCount++;
+                    });
+
+                } else {
+                    const sName = findValue(p, ['serviceName', 'examName']) || 'General Exam';
+                    const modId = detectModality(sName);
+                    const uniqueId = `${cleanDate(p.queDate)}_${commonInfo.fileNumber}_${modId}`.replace(/[^a-zA-Z0-9_]/g, '');
+                    
+                    const docRef = doc(db, 'appointments', uniqueId);
+                    batch.set(docRef, {
+                        ...commonInfo,
+                        examType: modId,
+                        examList: [sName],
+                        doctorName: p.doctorName || 'Unknown Dr',
+                        refNo: String(p.refNo || ''),
+                        date: cleanDate(p.queDate),
+                        time: qTime,
+                        createdAt: Timestamp.now()
+                    }, { merge: true });
+                    processedCount++;
+                }
+            });
+
+            try {
+                if (processedCount > 0) {
+                    await batch.commit();
+                    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+                    audio.play().catch(e => {});
+                    setToast({ msg: `تم استقبال ${processedCount} فحوصات! 📥`, type: 'success' });
+                    setLastSyncTime(new Date());
+                    
+                    // Always switch view to Pending to see new items
+                    if(activeView !== 'pending') setActiveView('pending');
+                }
+            } catch (e) {
+                console.error("Sync Write Error:", e);
+            }
+            setTimeout(() => setIsListening(false), 2000);
+        };
+
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+    }, [selectedDate]); 
+
+    // Firestore Listener
+    useEffect(() => {
+        setLoading(true);
+        let q;
+        if (activeView === 'scheduled') {
+             q = query(collection(db, 'appointments'), where('status', '==', 'scheduled'));
+        } else {
+             q = query(collection(db, 'appointments'), where('date', '==', selectedDate));
         }
 
-        try {
-            await addDoc(collection(db, 'appointments'), {
-                patientName,
-                fileNumber: fileNumber || '', 
-                examType,
-                date: selectedDate,
-                time: apptTime,
-                notes,
-                status: 'pending',
-                createdBy: currentUserId,
-                createdByName: currentUserName,
-                createdAt: Timestamp.now()
+        const unsub = onSnapshot(q, (snap) => {
+            const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as ExtendedAppointment));
+            let filtered = list;
+            
+            if (activeView !== 'scheduled') {
+                filtered = list.filter(a => a.status === activeView);
+            }
+            
+            // STRICT SORT LOGIC: Newest Time First (LIFO based on Queue Time)
+            // If Time is 19:00, it should be above 08:00
+            filtered.sort((a: any, b: any) => {
+                // Primary Sort: Time Descending (Latest time at top)
+                // "19:00" > "08:00" -> return negative -> a comes first
+                return b.time.localeCompare(a.time); 
             });
-            setToast({ msg: t('save'), type: 'success' });
-            setIsAddModalOpen(false);
-            setPatientName(''); 
-            setFileNumber('');
-            setApptTime(''); 
-            setNotes('');
-        } catch (e) {
-            setToast({ msg: 'Error adding appointment', type: 'error' });
+            
+            setAppointments(filtered);
+            setLoading(false);
+        });
+        return () => unsub();
+    }, [selectedDate, activeView]);
+
+    const filteredAppointments = useMemo(() => {
+        let list = appointments;
+        if (activeModality !== 'ALL') {
+            if (activeModality === 'X-RAY') {
+                list = list.filter(a => a.examType === 'X-RAY' || a.examType === 'OTHER');
+            } else {
+                list = list.filter(a => a.examType === activeModality);
+            }
         }
+        if (searchQuery) {
+            const lowerQ = searchQuery.toLowerCase();
+            list = list.filter(a => 
+                a.patientName.toLowerCase().includes(lowerQ) || 
+                (a.fileNumber && a.fileNumber.includes(lowerQ)) ||
+                (a.refNo && a.refNo.includes(lowerQ))
+            );
+        }
+        return list;
+    }, [appointments, activeModality, searchQuery]);
+
+    // --- ACTIONS ---
+    const handleAcceptPatient = async (appt: ExtendedAppointment) => {
+        try {
+            await updateDoc(doc(db, 'appointments', appt.id), {
+                status: 'done',
+                performedBy: currentUserId,
+                performedByName: currentUserName,
+                completedAt: Timestamp.now()
+            });
+            setToast({ msg: `تم إنجاز ${appt.patientName} ✅`, type: 'success' });
+        } catch(e) { console.error(e); setToast({msg: 'خطأ', type: 'error'}); }
+    };
+
+    const handleOpenBooking = (appt: ExtendedAppointment) => {
+        setBookingAppt(appt);
+        const tom = new Date(); tom.setDate(tom.getDate()+1);
+        setBookingDate(tom.toISOString().split('T')[0]);
+        setBookingTime(""); // Reset time
+        setBookingRoom(appt.roomNumber || 'الغرفة العامة');
+        const mod = MODALITIES.find(m => m.id === appt.examType);
+        setBookingPrep(mod?.defaultPrep || 'لا توجد تحضيرات خاصة');
+        setBookingWarning('');
+        setIsBookingModalOpen(true);
+    };
+
+    // Calculate Available Slots & Quota
+    useEffect(() => {
+        const checkQuotaAndSlots = async () => {
+            if (!bookingAppt || !bookingDate) return;
+            setBookingWarning('');
+            setAvailableSlots([]);
+
+            try {
+                // Fetch scheduled appointments for that day & modality
+                const qScheduled = query(
+                    collection(db, 'appointments'),
+                    where('status', '==', 'scheduled'),
+                    where('scheduledDate', '==', bookingDate),
+                    where('examType', '==', bookingAppt.examType)
+                );
+                const snapshot = await getDocs(qScheduled);
+                const bookedTimes = snapshot.docs.map(d => d.data().time);
+                const currentCount = snapshot.size;
+                
+                const settings = modalitySettings[bookingAppt.examType] || DEFAULT_SETTINGS['OTHER'];
+                const limit = settings.limit;
+                const definedSlots = settings.slots || [];
+
+                if (currentCount >= limit) {
+                    setBookingWarning(`⚠️ تم اكتمال العدد لهذا القسم (${currentCount}/${limit}).`);
+                } else {
+                    setBookingWarning(`✅ متاح: ${limit - currentCount} أماكن.`);
+                    
+                    // Filter Slots (Conflict Prevention)
+                    if (definedSlots.length > 0) {
+                        const free = definedSlots.filter(s => !bookedTimes.includes(s));
+                        setAvailableSlots(free);
+                    } else {
+                        // Empty array means manual text input is allowed (no specific slots)
+                        setAvailableSlots([]);
+                    }
+                }
+            } catch(e) { console.error(e); }
+        };
+        checkQuotaAndSlots();
+    }, [bookingDate, bookingAppt, modalitySettings]);
+
+    const confirmBooking = async () => {
+        if (!bookingAppt || !bookingDate || !bookingTime) {
+            setToast({msg: 'يرجى اختيار التاريخ والوقت', type: 'error'});
+            return;
+        }
+        try {
+            await updateDoc(doc(db, 'appointments', bookingAppt.id), {
+                status: 'scheduled',
+                scheduledDate: bookingDate,
+                time: bookingTime, 
+                roomNumber: bookingRoom, 
+                preparation: bookingPrep, 
+                notes: `${bookingAppt.notes || ''}\n📅 Booked: ${bookingDate} ${bookingTime}`
+            });
+            
+            // Show Success Modal with QR
+            setBookedTicketId(bookingAppt.id);
+            setIsBookingModalOpen(false);
+            setIsTicketModalOpen(true);
+            setBookingAppt(null);
+
+        } catch(e) {
+            setToast({ msg: 'خطأ في الحجز', type: 'error' });
+        }
+    };
+
+    const handleUndo = async (appt: ExtendedAppointment) => {
+        if (!isSupervisor && appt.performedBy !== currentUserId) {
+            setToast({msg: 'لا يمكنك التراجع عن حالة زميل', type: 'error'});
+            return;
+        }
+        try {
+            await updateDoc(doc(db, 'appointments', appt.id), {
+                status: 'pending',
+                performedBy: null,
+                performedByName: null,
+                completedAt: null
+            });
+            setToast({ msg: 'تم إعادة الحالة لقائمة الانتظار', type: 'info' });
+        } catch(e) { console.error(e); }
     };
 
     const handleDelete = async (id: string) => {
@@ -122,375 +504,612 @@ const AppointmentsPage: React.FC = () => {
         try {
             await deleteDoc(doc(db, 'appointments', id));
             setToast({ msg: t('delete'), type: 'success' });
-        } catch(e) { setToast({ msg: 'Error', type: 'error' }); }
-    };
-
-    const handleStatusToggle = async (appt: Appointment) => {
-        try {
-            const newStatus = appt.status === 'done' ? 'pending' : 'done';
-            const updateData: any = { status: newStatus };
-
-            // Logic to track who performed the exam
-            if (newStatus === 'done') {
-                updateData.performedBy = currentUserId;
-                updateData.performedByName = currentUserName;
-            } else {
-                updateData.performedBy = null;
-                updateData.performedByName = null;
-            }
-
-            await updateDoc(doc(db, 'appointments', appt.id), updateData);
         } catch(e) { console.error(e); }
     };
 
-    // --- AI SMART SCAN LOGIC ---
-    const handleImageScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            setIsScanning(true);
-            const file = e.target.files[0];
+    const handleManualSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!patientName || !examType) return;
+        try {
+            const now = new Date();
+            // Manual Add: Use unique ID to prevent issues, though manual is less likely to dupe
+            const uniqueId = `MANUAL_${Date.now()}`;
+            await setDoc(doc(db, 'appointments', uniqueId), {
+                patientName,
+                fileNumber,
+                doctorName,
+                patientAge,
+                examType,
+                examList: [examType], 
+                date: selectedDate,
+                time: `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`,
+                notes,
+                status: 'pending',
+                createdBy: currentUserId,
+                createdByName: currentUserName,
+                createdAt: Timestamp.now()
+            });
+            setToast({ msg: 'تم إضافة الحالة', type: 'success' });
+            setIsAddModalOpen(false);
+            setPatientName(''); setFileNumber(''); setNotes(''); setDoctorName(''); setPatientAge('');
+        } catch (e) { setToast({ msg: 'خطأ', type: 'error' }); }
+    };
+
+    const handleSaveLimits = () => {
+        localStorage.setItem('appt_settings_v2', JSON.stringify(modalitySettings));
+        setToast({ msg: 'تم حفظ إعدادات الحصص والمواعيد', type: 'success' });
+        setIsSettingsModalOpen(false);
+    };
+
+    // --- ADMIN BULK ACTIONS ---
+    const handleBulkAction = async (action: 'clean_old' | 'delete_all' | 'delete_done' | 'delete_pending') => {
+        if (!isSupervisor) return;
+        
+        let confirmMsg = '';
+        let queryConstraint: any[] = [];
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        switch(action) {
+            case 'clean_old':
+                confirmMsg = `حذف جميع الحالات القديمة (ما قبل ${todayStr})؟`;
+                queryConstraint = [where('date', '<', todayStr)];
+                break;
+            case 'delete_all':
+                confirmMsg = `⚠️ تحذير: حذف جميع الحالات (${appointments.length}) في القائمة الحالية؟`;
+                // To be safe, we will specifically target today's date if 'delete_all' to avoid wiping entire DB
+                queryConstraint = [where('date', '==', selectedDate)];
+                break;
+            case 'delete_done':
+                confirmMsg = 'حذف جميع الحالات المنجزة (Done)؟';
+                queryConstraint = [where('status', '==', 'done'), where('date', '==', selectedDate)];
+                break;
+            case 'delete_pending':
+                confirmMsg = 'حذف جميع الحالات في الانتظار (Pending)؟';
+                queryConstraint = [where('status', '==', 'pending'), where('date', '==', selectedDate)];
+                break;
+        }
+
+        if (!confirm(confirmMsg)) return;
+        
+        setIsCleanupProcessing(true);
+        try {
+            const q = query(collection(db, 'appointments'), ...queryConstraint);
+            const snap = await getDocs(q);
             
-            try {
-                // Convert to Base64
-                const reader = new FileReader();
-                reader.onloadend = async () => {
-                    const base64Data = (reader.result as string).split(',')[1];
-                    const apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
-                    
-                    if (!apiKey) throw new Error("API Key missing");
+            if (snap.empty) {
+                setToast({msg: 'لا توجد بيانات للحذف', type: 'info'});
+                setIsCleanupProcessing(false);
+                return;
+            }
 
-                    const ai = new GoogleGenAI({ apiKey });
-                    const prompt = `
-                        Analyze this medical request image. Extract the following fields strictly in JSON format:
-                        {
-                            "patientName": "Full Name",
-                            "fileNumber": "File/MRN Number (digits)",
-                            "examType": "One of: MRI, CT, X-RAY, US, FLUO, MAMMO, OTHER"
-                        }
-                        If unsure, leave blank.
-                    `;
+            // Batch delete (chunked)
+            const chunks = [];
+            const docs = snap.docs;
+            for (let i = 0; i < docs.length; i += 500) {
+                chunks.push(docs.slice(i, i + 500));
+            }
 
-                    const response = await ai.models.generateContent({
-                        model: 'gemini-2.5-flash',
-                        contents: {
-                            parts: [
-                                { inlineData: { mimeType: file.type, data: base64Data } },
-                                { text: prompt }
-                            ]
-                        },
-                        config: { responseMimeType: 'application/json' }
-                    });
+            for (const chunk of chunks) {
+                const batch = writeBatch(db);
+                chunk.forEach(d => batch.delete(d.ref));
+                await batch.commit();
+            }
+            
+            setToast({msg: `تم حذف ${snap.size} سجل بنجاح`, type: 'success'});
+        } catch(e: any) {
+            setToast({msg: 'حدث خطأ: ' + e.message, type: 'error'});
+        } finally {
+            setIsCleanupProcessing(false);
+        }
+    };
 
-                    const result = JSON.parse(response.text || '{}');
-                    
-                    if (result.patientName) setPatientName(result.patientName);
-                    if (result.fileNumber) setFileNumber(result.fileNumber);
-                    if (result.examType && MODALITIES.some(m => m.id === result.examType)) {
-                        setExamType(result.examType);
-                    }
+    const handleCopyScript = () => {
+        const script = `
+(function() {
+    const APP_URL = "${window.location.href.split('#')[0]}#/appointments";
+    let syncWin = window.open(APP_URL, "SmartAppSyncWindow");
+    console.clear();
+    console.log("%c 📡 Bridge Active V9 (Splitting Enabled)... ", "background: #222; color: #0f0; font-size:16px;");
+    
+    setInterval(() => {
+        fetch(window.location.href, { method: 'HEAD' }).catch(()=>{});
+        document.dispatchEvent(new MouseEvent('mousemove'));
+    }, 60000);
 
-                    // Set default time to now if empty
-                    if (!apptTime) {
-                        const now = new Date();
-                        setApptTime(`${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`);
-                    }
+    const sendData = (data) => {
+        if (!data) return;
+        let payload = data;
+        if(data.d) payload = data.d;
+        if(data.result) payload = data.result;
+        
+        if (typeof payload === 'object' && !Array.isArray(payload)) {
+             payload = [payload];
+        }
 
-                    setToast({ msg: 'Data Extracted Successfully! ✨', type: 'success' });
-                };
-                reader.readAsDataURL(file);
-            } catch (error: any) {
-                console.error(error);
-                setToast({ msg: 'Scan Failed: ' + error.message, type: 'error' });
-            } finally {
-                setIsScanning(false);
-                // Reset input
-                if (fileInputRef.current) fileInputRef.current.value = '';
+        if (Array.isArray(payload) && payload.length > 0) {
+            // Check validity
+            if (payload[0].engName || payload[0].patientName || (payload[0].xrayPatientDetails && payload[0].xrayPatientDetails.length > 0)) {
+                if(!syncWin || syncWin.closed) syncWin = window.open(APP_URL, "SmartAppSyncWindow");
+                syncWin.postMessage({ type: 'SMART_SYNC_DATA', payload: payload }, '*');
             }
         }
     };
+
+    const origOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function() {
+        this.addEventListener('load', function() {
+            try {
+                if (this.responseText && (this.responseText.startsWith('{') || this.responseText.startsWith('['))) {
+                    const json = JSON.parse(this.responseText);
+                    sendData(json);
+                }
+            } catch(e) {}
+        });
+        origOpen.apply(this, arguments);
+    };
+    alert("✅ تم تفعيل الجسر الذكي! V9");
+})();
+        `;
+        navigator.clipboard.writeText(script);
+        setToast({ msg: 'تم نسخ الكود المحدث! V9', type: 'success' });
+    };
+
+    // Determine current host for QR code explanation
+    const appUrl = window.location.origin;
+    const isLocalhost = appUrl.includes('localhost') || appUrl.includes('127.0.0.1');
 
     return (
         <div className="min-h-screen bg-slate-50 pb-20 font-sans" dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
             
             {/* Header */}
-            <div className="bg-cyan-600 text-white p-6 shadow-lg">
-                <div className="max-w-7xl mx-auto flex justify-between items-center">
-                    <div className="flex items-center gap-4">
-                        <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 transition-colors">
+            <div className="bg-slate-900 text-white p-4 sticky top-0 z-30 shadow-2xl">
+                <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div className="flex items-center gap-4 w-full md:w-auto">
+                        <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
                             <i className="fas fa-arrow-left rtl:rotate-180"></i>
                         </button>
                         <div>
-                            <h1 className="text-2xl font-black">{t('appt.title')}</h1>
-                            <p className="text-cyan-100 text-sm opacity-90">{stats.total} Appointments • {stats.pending} Pending</p>
+                            <h1 className="text-xl font-black tracking-tight flex items-center gap-2">
+                                {t('appt.title')}
+                                {isListening && <span className="flex h-3 w-3 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span></span>}
+                            </h1>
+                            <div className="flex items-center gap-3 text-xs opacity-70 font-mono mt-1">
+                                {activeView === 'scheduled' ? <span>Scheduled Bookings</span> : <input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} className="bg-transparent border-none text-white p-0 text-xs font-bold focus:ring-0" />}
+                                {lastSyncTime && <span className="text-emerald-400 font-bold">• Sync: {lastSyncTime.toLocaleTimeString()}</span>}
+                            </div>
                         </div>
                     </div>
-                    <button onClick={() => setIsAddModalOpen(true)} className="bg-white text-cyan-600 px-6 py-3 rounded-xl font-bold shadow-md hover:bg-cyan-50 flex items-center gap-2 transition-all hover:scale-105">
-                        <i className="fas fa-plus"></i>
-                        <span className="hidden md:inline">{t('add')}</span>
-                    </button>
-                </div>
-            </div>
-
-            <div className="max-w-7xl mx-auto px-4 py-8">
-                <div className="flex flex-col lg:flex-row gap-8">
                     
-                    {/* --- MAIN CONTENT (LEFT/CENTER) --- */}
-                    <div className="flex-1 order-2 lg:order-1">
-                        
-                        {/* Mobile Date Filter (Visible only on small screens) */}
-                        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6 flex justify-between items-center lg:hidden">
-                            <h3 className="font-bold text-slate-700">{t('date')}:</h3>
+                    {/* Search Bar */}
+                    <div className="flex-1 w-full md:max-w-md mx-4">
+                        <div className="relative">
+                            <i className="fas fa-search absolute left-3 top-2.5 text-slate-400 text-sm"></i>
                             <input 
-                                type="date" 
-                                value={selectedDate} 
-                                onChange={(e) => setSelectedDate(e.target.value)} 
-                                className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 font-bold text-slate-600 outline-none focus:ring-2 focus:ring-cyan-100"
+                                className="w-full bg-slate-800 border border-slate-700 rounded-full py-2 pl-10 pr-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                                placeholder="بحث باسم المريض أو رقم الملف..."
+                                value={searchQuery}
+                                onChange={e => setSearchQuery(e.target.value)}
                             />
-                        </div>
-
-                        <div className="space-y-4">
-                            {loading ? <Loading /> : filteredAppointments.length === 0 ? (
-                                <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-slate-200">
-                                    <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
-                                        <i className="fas fa-calendar-day text-4xl"></i>
-                                    </div>
-                                    <p className="text-slate-500 font-bold">No appointments found</p>
-                                    <p className="text-slate-400 text-sm">Select a different date or department</p>
-                                </div>
-                            ) : (
-                                filteredAppointments.map(appt => {
-                                    const modInfo = MODALITIES.find(m => m.id === appt.examType) || MODALITIES[MODALITIES.length - 1];
-                                    return (
-                                        <div key={appt.id} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-center hover:shadow-md transition-all group relative overflow-hidden">
-                                            {/* Status Stripe */}
-                                            <div className={`absolute left-0 top-0 bottom-0 w-1 ${appt.status === 'done' ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
-                                            
-                                            <div className="flex gap-5 items-center w-full md:w-auto mb-4 md:mb-0 pl-3">
-                                                <div className="flex flex-col items-center justify-center min-w-[60px]">
-                                                    <div className="text-lg font-black text-slate-700">{appt.time}</div>
-                                                    <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase mt-1 ${appt.status === 'done' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
-                                                        {t(`appt.${appt.status}`)}
-                                                    </div>
-                                                </div>
-                                                
-                                                <div className="h-10 w-px bg-slate-100 hidden md:block"></div>
-
-                                                <div className="flex-1">
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <h4 className="font-bold text-slate-800 text-lg">{appt.patientName}</h4>
-                                                        {appt.fileNumber && (
-                                                            <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                                                                File: {appt.fileNumber}
-                                                            </span>
-                                                        )}
-                                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border flex items-center gap-1 ${modInfo.color}`}>
-                                                            <i className={`fas ${modInfo.icon}`}></i> {modInfo.label}
-                                                        </span>
-                                                    </div>
-                                                    {appt.notes && (
-                                                        <p className="text-xs text-slate-500 bg-slate-50 px-2 py-1 rounded inline-block max-w-full truncate mb-1">
-                                                            <i className="fas fa-microphone-alt mr-1 opacity-50"></i> {appt.notes}
-                                                        </p>
-                                                    )}
-                                                    {/* Display Who Performed & Who Booked */}
-                                                    <div className="text-[10px] text-slate-400 mt-1 flex flex-wrap gap-3">
-                                                        <span><i className="fas fa-edit"></i> Booked by: <strong className="text-slate-600">{appt.createdByName}</strong></span>
-                                                        {appt.status === 'done' && appt.performedByName && (
-                                                            <span className="text-emerald-600 bg-emerald-50 px-1 rounded"><i className="fas fa-check-double"></i> Exam by: <strong>{appt.performedByName}</strong></span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <div className="flex items-center gap-3 w-full md:w-auto justify-end pl-3">
-                                                
-                                                <button 
-                                                    onClick={() => handleStatusToggle(appt)}
-                                                    className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${appt.status === 'done' ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200' : 'bg-slate-100 text-slate-400 hover:bg-emerald-500 hover:text-white'}`}
-                                                    title={appt.status === 'done' ? "Mark Pending" : "Mark Done"}
-                                                >
-                                                    <i className="fas fa-check"></i>
-                                                </button>
-                                                
-                                                {/* Delete Button - Only for Supervisors */}
-                                                {isSupervisor && (
-                                                    <button onClick={() => handleDelete(appt.id)} className="w-10 h-10 rounded-xl bg-slate-50 text-slate-400 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition-colors">
-                                                        <i className="fas fa-trash"></i>
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    );
-                                })
+                            {searchQuery && (
+                                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-2.5 text-slate-500 hover:text-white">
+                                    <i className="fas fa-times text-xs"></i>
+                                </button>
                             )}
                         </div>
                     </div>
 
-                    {/* --- SIDEBAR (RIGHT) --- */}
-                    <div className="w-full lg:w-80 shrink-0 order-1 lg:order-2 space-y-6">
-                        
-                        {/* Calendar Card */}
-                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                                <i className="far fa-calendar-alt text-cyan-500"></i> {t('date')}
-                            </h3>
-                            <input 
-                                type="date" 
-                                value={selectedDate} 
-                                onChange={(e) => setSelectedDate(e.target.value)} 
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold text-slate-700 outline-none focus:ring-2 focus:ring-cyan-100 cursor-pointer"
-                            />
+                    <div className="flex items-center gap-2">
+                        <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700">
+                            <button onClick={() => setActiveView('pending')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activeView === 'pending' ? 'bg-amber-500 text-slate-900 shadow-md' : 'text-slate-400 hover:text-white'}`}>انتظار</button>
+                            <button onClick={() => setActiveView('scheduled')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activeView === 'scheduled' ? 'bg-blue-500 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}>مواعيد</button>
+                            <button onClick={() => setActiveView('done')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activeView === 'done' ? 'bg-emerald-500 text-slate-900 shadow-md' : 'text-slate-400 hover:text-white'}`}>منجز</button>
                         </div>
-
-                        {/* Departments Filter */}
-                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                                <i className="fas fa-filter text-cyan-500"></i> Departments
-                            </h3>
-                            <div className="space-y-2">
-                                <button 
-                                    onClick={() => setSelectedModality('ALL')}
-                                    className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-bold transition-all ${selectedModality === 'ALL' ? 'bg-slate-800 text-white shadow-lg' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
-                                >
-                                    <span>All Departments</span>
-                                    <span className="bg-white/20 px-2 py-0.5 rounded text-xs">{appointments.length}</span>
-                                </button>
-                                {MODALITIES.map(mod => {
-                                    const count = appointments.filter(a => a.examType === mod.id).length;
-                                    return (
-                                        <button 
-                                            key={mod.id}
-                                            onClick={() => setSelectedModality(mod.id)}
-                                            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-bold transition-all ${selectedModality === mod.id ? 'bg-cyan-600 text-white shadow-md' : 'bg-white border border-slate-100 text-slate-600 hover:border-cyan-200'}`}
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${selectedModality === mod.id ? 'bg-white/20 text-white' : mod.color}`}>
-                                                    <i className={`fas ${mod.icon}`}></i>
-                                                </div>
-                                                <span>{mod.label}</span>
-                                            </div>
-                                            {count > 0 && <span className={`text-xs px-2 py-0.5 rounded-full ${selectedModality === mod.id ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}`}>{count}</span>}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-
-                        {/* Daily Stats */}
-                        <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl p-6 text-white shadow-lg">
-                            <h3 className="font-bold mb-4 opacity-90">Daily Summary</h3>
-                            <div className="flex justify-between text-center divide-x divide-white/10 rtl:divide-x-reverse">
-                                <div className="flex-1">
-                                    <div className="text-3xl font-black text-emerald-400">{stats.done}</div>
-                                    <div className="text-[10px] uppercase tracking-wider opacity-60">Done</div>
-                                </div>
-                                <div className="flex-1">
-                                    <div className="text-3xl font-black text-amber-400">{stats.pending}</div>
-                                    <div className="text-[10px] uppercase tracking-wider opacity-60">Pending</div>
-                                </div>
-                            </div>
-                            <div className="mt-4 pt-4 border-t border-white/10">
-                                <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
-                                    <div 
-                                        className="bg-emerald-500 h-full transition-all duration-1000" 
-                                        style={{ width: `${stats.total > 0 ? (stats.done / stats.total) * 100 : 0}%` }}
-                                    ></div>
-                                </div>
-                                <div className="flex justify-between mt-1 text-[10px] opacity-50">
-                                    <span>Progress</span>
-                                    <span>{stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : 0}%</span>
-                                </div>
-                            </div>
-                        </div>
-
+                        <button onClick={() => setIsBridgeModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white w-9 h-9 rounded-lg flex items-center justify-center shadow-lg transition-all" title="Auto Sync">
+                            <i className={`fas fa-satellite-dish ${isListening ? 'animate-pulse' : ''}`}></i>
+                        </button>
+                        <button onClick={() => setIsSettingsModalOpen(true)} className="bg-slate-700 hover:bg-slate-600 text-white w-9 h-9 rounded-lg flex items-center justify-center shadow-lg transition-all" title="Quota Settings">
+                            <i className="fas fa-sliders-h"></i>
+                        </button>
+                        <button onClick={() => setIsAddModalOpen(true)} className="bg-white text-slate-900 w-9 h-9 rounded-lg flex items-center justify-center font-bold shadow-lg hover:bg-slate-200 transition-all">
+                            <i className="fas fa-plus"></i>
+                        </button>
                     </div>
                 </div>
             </div>
 
-            {/* Add Modal */}
-            <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title={t('appt.new')}>
-                <div className="mb-6 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600">
-                            {isScanning ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-camera"></i>}
-                        </div>
-                        <div>
-                            <h4 className="font-bold text-indigo-900 text-sm">Smart Scan</h4>
-                            <p className="text-xs text-indigo-500">Auto-fill from Request Form</p>
-                        </div>
-                    </div>
+            {/* Sub-Header: Modality Tabs */}
+            <div className="bg-white border-b border-slate-200 sticky top-[72px] z-20 shadow-sm overflow-x-auto no-scrollbar">
+                <div className="max-w-7xl mx-auto px-4 flex items-center gap-1 py-2 min-w-max">
                     <button 
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isScanning}
-                        className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md"
+                        onClick={() => setActiveModality('ALL')}
+                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeModality === 'ALL' ? 'bg-slate-800 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
                     >
-                        {isScanning ? 'Analyzing...' : 'Scan Now'}
+                        <i className="fas fa-layer-group"></i> All 
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${activeModality === 'ALL' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                            {appointments.length}
+                        </span>
                     </button>
-                    <input 
-                        type="file" 
-                        ref={fileInputRef} 
-                        className="hidden" 
-                        accept="image/*" 
-                        capture="environment"
-                        onChange={handleImageScan}
-                    />
-                </div>
-
-                <form onSubmit={handleSubmit} className="space-y-5">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="col-span-2 md:col-span-1">
-                            <label className="block text-xs font-bold text-slate-500 mb-1">{t('appt.patient')}</label>
-                            <VoiceInput value={patientName} onChange={setPatientName} onTranscript={setPatientName} placeholder="Full Name" />
-                        </div>
-                        <div className="col-span-2 md:col-span-1">
-                            <label className="block text-xs font-bold text-slate-500 mb-1">File Number</label>
-                            <input 
-                                type="text"
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-cyan-100 font-bold"
-                                value={fileNumber}
-                                onChange={e => setFileNumber(e.target.value)}
-                                placeholder="e.g. 12345"
-                            />
-                        </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1">{t('appt.exam')}</label>
-                            <select 
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-cyan-100 font-bold text-slate-700"
-                                value={examType}
-                                onChange={e => setExamType(e.target.value)}
+                    <div className="w-px h-6 bg-slate-200 mx-2"></div>
+                    {MODALITIES.filter(m => m.id !== 'OTHER').map(mod => {
+                        const count = appointments.filter(a => 
+                            mod.id === 'X-RAY' ? (a.examType === 'X-RAY' || a.examType === 'OTHER') : a.examType === mod.id
+                        ).length;
+                        return (
+                            <button 
+                                key={mod.id}
+                                onClick={() => setActiveModality(mod.id)}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 border ${activeModality === mod.id ? `${mod.color} ${mod.border}` : 'bg-white border-transparent text-slate-500 hover:bg-slate-50'}`}
                             >
-                                {MODALITIES.map(m => (
-                                    <option key={m.id} value={m.id}>{m.label}</option>
-                                ))}
-                            </select>
+                                <i className={`fas ${mod.icon}`}></i> {mod.label}
+                                <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${activeModality === mod.id ? 'bg-white/30 text-current' : 'bg-slate-100 text-slate-500'}`}>
+                                    {count}
+                                </span>
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* Content */}
+            <div className="max-w-7xl mx-auto px-4 py-6">
+                
+                {loading ? <Loading /> : filteredAppointments.length === 0 ? (
+                    <div className="text-center py-24 opacity-50">
+                        <div className="w-24 h-24 bg-slate-200 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl text-slate-400">
+                            {activeView === 'pending' ? <i className="fas fa-coffee"></i> : <i className="fas fa-check-double"></i>}
                         </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1">{t('time')}</label>
-                            <input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-cyan-100 font-bold" value={apptTime} onChange={e => setApptTime(e.target.value)} required />
-                        </div>
+                        <p className="font-bold text-slate-500 text-lg">
+                            {searchQuery ? 'لا توجد نتائج للبحث' : 'لا توجد حالات في هذه القائمة'}
+                        </p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {filteredAppointments.map(appt => {
+                            const mod = MODALITIES.find(m => m.id === appt.examType) || MODALITIES[MODALITIES.length - 1];
+                            const isScheduled = appt.status === 'scheduled';
+                            const addedTime = appt.createdAt ? appt.createdAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+                            
+                            return (
+                                <div key={appt.id} className={`relative bg-white rounded-2xl p-4 shadow-sm border-l-4 transition-all hover:-translate-y-1 animate-fade-in ${appt.status === 'done' ? 'border-l-emerald-500 opacity-80' : isScheduled ? 'border-l-blue-500' : 'border-l-amber-500 shadow-md'}`}>
+                                    
+                                    <div className="flex justify-between items-start mb-2">
+                                        <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-wider border ${mod.color} ${mod.border}`}>
+                                            <i className={`fas ${mod.icon} mr-1`}></i> {mod.label}
+                                        </span>
+                                        <div className="flex flex-col items-end">
+                                            {isScheduled ? (
+                                                <button 
+                                                    onClick={() => window.open(`#/ticket/${appt.id}`, '_blank')}
+                                                    className="font-mono text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-100 hover:bg-blue-100 flex items-center gap-1"
+                                                >
+                                                    📅 {appt.scheduledDate} <i className="fas fa-qrcode"></i>
+                                                </button>
+                                            ) : (
+                                                <div className="flex flex-col items-end">
+                                                    {/* Added Time vs Appointment Time Display */}
+                                                    <span className="text-[10px] text-slate-400 font-bold mb-0.5" title="Added to System">Added: {addedTime}</span>
+                                                    <span className="font-mono text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                                                        Appt: {appt.time}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <h3 className="font-bold text-slate-800 text-base leading-tight mb-1 truncate" title={appt.patientName}>{appt.patientName}</h3>
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <span className="text-[10px] font-bold text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">ID: {appt.fileNumber}</span>
+                                        {appt.patientAge && <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">Age: {appt.patientAge}</span>}
+                                    </div>
+
+                                    {/* Doctor Info */}
+                                    {appt.doctorName && (
+                                        <div className="mb-2 text-[10px] text-slate-600 flex items-center gap-1 font-medium bg-slate-50 p-1.5 rounded">
+                                            <i className="fas fa-user-md text-slate-400"></i> {appt.doctorName}
+                                        </div>
+                                    )}
+
+                                    {/* Exams List */}
+                                    <div className="mb-3 bg-slate-50 rounded-lg p-2 border border-slate-100 min-h-[40px]">
+                                        {appt.examList && appt.examList.length > 0 ? (
+                                            <div className="flex flex-wrap gap-1">
+                                                {appt.examList.map((exam, i) => (
+                                                    <span key={i} className="text-[10px] font-bold text-slate-700 bg-white border border-slate-200 px-2 py-1 rounded shadow-sm break-words max-w-full">
+                                                        {exam}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <p className="text-[10px] text-slate-400 italic">No exams listed</p>
+                                        )}
+                                    </div>
+                                    
+                                    {/* Room & Status Info for Scheduled */}
+                                    {isScheduled && appt.roomNumber && (
+                                        <div className="flex items-center gap-2 mb-2 text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-1 rounded border border-purple-100">
+                                            <i className="fas fa-door-open"></i> الغرفة: {appt.roomNumber}
+                                        </div>
+                                    )}
+
+                                    {/* Footer / Actions */}
+                                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-50">
+                                        {appt.status === 'pending' ? (
+                                            <>
+                                                <button 
+                                                    onClick={() => handleOpenBooking(appt)}
+                                                    className="flex-1 bg-white border border-blue-200 text-blue-600 py-2 rounded-lg font-bold text-xs hover:bg-blue-50 transition-colors"
+                                                >
+                                                    <i className="fas fa-calendar-alt"></i> حجز
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleAcceptPatient(appt)}
+                                                    className="flex-[2] bg-slate-800 text-white py-2 rounded-lg font-bold text-xs hover:bg-emerald-600 transition-colors shadow-sm flex items-center justify-center gap-1"
+                                                >
+                                                    <span>بدء الفحص</span>
+                                                    <i className="fas fa-check"></i>
+                                                </button>
+                                            </>
+                                        ) : appt.status === 'scheduled' ? (
+                                            <button 
+                                                onClick={() => handleAcceptPatient(appt)}
+                                                className="w-full bg-blue-600 text-white py-2 rounded-lg font-bold text-xs hover:bg-blue-700 transition-colors shadow-sm"
+                                            >
+                                                حضور المريض وبدء الفحص
+                                            </button>
+                                        ) : (
+                                            <div className="w-full flex items-center justify-between">
+                                                <div className="flex items-center gap-2 text-xs font-bold text-emerald-600">
+                                                    <i className="fas fa-check-circle text-lg"></i>
+                                                    <div className="flex flex-col">
+                                                        <span>تم الفحص</span>
+                                                        <span className="text-[9px] text-slate-400 font-normal truncate max-w-[100px]">{appt.performedByName}</span>
+                                                    </div>
+                                                </div>
+                                                <button onClick={() => handleUndo(appt)} className="text-slate-300 hover:text-red-500 px-2" title="Undo">
+                                                    <i className="fas fa-undo"></i>
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                    
+                                    {isSupervisor && (
+                                        <button onClick={() => handleDelete(appt.id)} className="absolute top-2 left-2 text-slate-200 hover:text-red-400 transition-colors">
+                                            <i className="fas fa-times text-xs"></i>
+                                        </button>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {/* Booking Modal */}
+            <Modal isOpen={isBookingModalOpen} onClose={() => setIsBookingModalOpen(false)} title="جدولة موعد">
+                <div className="space-y-4">
+                    <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
+                        <p className="text-xs text-blue-800 font-bold mb-1">المريض / الفحص:</p>
+                        <p className="font-bold text-lg text-slate-800">{bookingAppt?.patientName} ({bookingAppt?.examType})</p>
                     </div>
                     
-                    <div>
-                        <div className="flex justify-between items-center mb-1">
-                            <label className="block text-xs font-bold text-slate-500">{t('notes')}</label>
-                            <span className="text-[10px] bg-cyan-50 text-cyan-600 px-2 py-0.5 rounded font-bold">Voice Enabled <i className="fas fa-microphone"></i></span>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 mb-1 block">تاريخ الموعد</label>
+                            <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" value={bookingDate} onChange={e => setBookingDate(e.target.value)} />
                         </div>
-                        <VoiceInput 
-                            value={notes} 
-                            onChange={setNotes} 
-                            onTranscript={(txt) => setNotes(prev => prev ? `${prev} ${txt}` : txt)} 
-                            placeholder="Clinical notes, specific requirements..."
-                            isTextArea={true}
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 mb-1 block">وقت الموعد</label>
+                            {availableSlots.length > 0 ? (
+                                <select 
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700"
+                                    value={bookingTime}
+                                    onChange={e => setBookingTime(e.target.value)}
+                                >
+                                    <option value="">اختر الوقت...</option>
+                                    {availableSlots.map(slot => (
+                                        <option key={slot} value={slot}>{slot}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <input 
+                                    type="time" 
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" 
+                                    value={bookingTime} 
+                                    onChange={e => setBookingTime(e.target.value)} 
+                                    placeholder={availableSlots.length === 0 && modalitySettings[bookingAppt?.examType || '']?.slots?.length > 0 ? "اكتملت المواعيد" : ""}
+                                />
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Room and Prep Fields */}
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 mb-1 block">رقم الغرفة</label>
+                        <input 
+                            type="text" 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" 
+                            placeholder="مثال: غرفة 3, MRI Room 1"
+                            value={bookingRoom} 
+                            onChange={e => setBookingRoom(e.target.value)} 
                         />
                     </div>
-                    
-                    <button type="submit" className="w-full bg-cyan-600 text-white py-3.5 rounded-xl font-bold hover:bg-cyan-700 shadow-lg flex items-center justify-center gap-2">
-                        <i className="fas fa-check-circle"></i> {t('save')}
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 mb-1 block">التحضيرات المطلوبة</label>
+                        <textarea 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold min-h-[80px]" 
+                            placeholder="تعليمات الصيام، شرب الماء، إلخ..."
+                            value={bookingPrep} 
+                            onChange={e => setBookingPrep(e.target.value)} 
+                        />
+                    </div>
+
+                    {bookingWarning && (
+                        <div className={`text-xs font-bold p-3 rounded-lg border ${bookingWarning.includes('✅') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                            {bookingWarning}
+                        </div>
+                    )}
+
+                    <button onClick={confirmBooking} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-all">
+                        تأكيد الحجز وإنشاء التذكرة
                     </button>
+                </div>
+            </Modal>
+
+            {/* Ticket Success Modal */}
+            <Modal isOpen={isTicketModalOpen} onClose={() => setIsTicketModalOpen(false)} title="تم حجز الموعد بنجاح ✅">
+                <div className="space-y-6 text-center">
+                    <div className="bg-emerald-50 text-emerald-800 p-4 rounded-xl border border-emerald-100">
+                        <i className="fas fa-check-circle text-4xl mb-2 text-emerald-500"></i>
+                        <p className="font-bold text-lg">تم تأكيد الحجز!</p>
+                    </div>
+                    
+                    <div className="bg-white p-4 rounded-xl border-2 border-slate-100 flex flex-col items-center">
+                        <img 
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(window.location.origin + '/#/ticket/' + bookedTicketId)}`}
+                            alt="Appointment QR"
+                            className="w-48 h-48 rounded-lg shadow-sm mb-4"
+                        />
+                        <p className="text-sm text-slate-500 font-bold">امسح الكود لعرض التذكرة وتحميلها</p>
+                        {isLocalhost && <p className="text-[10px] text-red-400 mt-2 font-bold">تنبيه: أنت تعمل على Localhost. تأكد من أن المريض يستخدم نفس الشبكة أو أن النظام مرفوع online.</p>}
+                    </div>
+
+                    <button 
+                        onClick={() => window.open(`#/ticket/${bookedTicketId}`, '_blank')}
+                        className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 hover:bg-slate-800"
+                    >
+                        <i className="fas fa-print"></i> فتح التذكرة للطباعة
+                    </button>
+                </div>
+            </Modal>
+
+            {/* Add Modal */}
+            <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="إضافة يدوية">
+                <form onSubmit={handleManualSubmit} className="space-y-4">
+                    <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder="اسم المريض" value={patientName} onChange={e=>setPatientName(e.target.value)} />
+                    <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder="رقم الملف" value={fileNumber} onChange={e=>setFileNumber(e.target.value)} />
+                    <div className="grid grid-cols-2 gap-4">
+                        <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder="الطبيب" value={doctorName} onChange={e=>setDoctorName(e.target.value)} />
+                        <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder="العمر" value={patientAge} onChange={e=>setPatientAge(e.target.value)} />
+                    </div>
+                    <select className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" value={examType} onChange={e=>setExamType(e.target.value)}>
+                        {MODALITIES.filter(m => m.id !== 'ALL').map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                    </select>
+                    <textarea className="w-full bg-slate-50 border-none rounded-xl p-3" placeholder="ملاحظات" value={notes} onChange={e=>setNotes(e.target.value)} />
+                    <button className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold">حفظ</button>
                 </form>
+            </Modal>
+
+            {/* Settings Modal (Updated for Slots & Admin Bulk Actions) */}
+            <Modal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} title="الإعدادات والإدارة">
+                <div className="space-y-6 max-h-[70vh] overflow-y-auto p-1 custom-scrollbar">
+                    
+                    {/* Admin Actions (Supervisor Only) */}
+                    {isSupervisor && (
+                        <div className="bg-red-50 p-4 rounded-xl border border-red-100 space-y-3">
+                            <h4 className="font-bold text-red-800 text-sm flex items-center gap-2">
+                                <i className="fas fa-user-shield"></i> أدوات المشرف (Bulk Actions)
+                            </h4>
+                            
+                            <div className="grid grid-cols-2 gap-2">
+                                <button 
+                                    onClick={() => handleBulkAction('clean_old')}
+                                    disabled={isCleanupProcessing}
+                                    className="bg-white border border-red-200 text-red-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-red-100 disabled:opacity-50"
+                                >
+                                    <i className="fas fa-history mr-1"></i> حذف القديم
+                                </button>
+                                <button 
+                                    onClick={() => handleBulkAction('delete_done')}
+                                    disabled={isCleanupProcessing}
+                                    className="bg-white border border-emerald-200 text-emerald-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-emerald-50 disabled:opacity-50"
+                                >
+                                    <i className="fas fa-check-double mr-1"></i> حذف المنجز
+                                </button>
+                                <button 
+                                    onClick={() => handleBulkAction('delete_pending')}
+                                    disabled={isCleanupProcessing}
+                                    className="bg-white border border-amber-200 text-amber-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-amber-50 disabled:opacity-50"
+                                >
+                                    <i className="fas fa-clock mr-1"></i> حذف الانتظار
+                                </button>
+                                <button 
+                                    onClick={() => handleBulkAction('delete_all')}
+                                    disabled={isCleanupProcessing}
+                                    className="bg-red-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-red-700 disabled:opacity-50"
+                                >
+                                    <i className="fas fa-skull-crossbones mr-1"></i> حذف الكل
+                                </button>
+                            </div>
+                            {isCleanupProcessing && <p className="text-xs text-red-500 font-bold text-center animate-pulse">جاري التنفيذ...</p>}
+                        </div>
+                    )}
+
+                    <div className="border-t border-slate-100 my-2"></div>
+
+                    <p className="text-xs text-slate-500 font-bold">إعدادات الحصص والمواعيد (Slots)</p>
+                    <div className="space-y-4">
+                        {MODALITIES.filter(m => m.id !== 'ALL' && m.id !== 'OTHER').map(mod => (
+                            <div key={mod.id} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                <div className="flex justify-between items-center mb-2">
+                                    <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                                        <i className={`fas ${mod.icon} text-slate-400`}></i> {mod.label}
+                                    </label>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-slate-400 font-bold uppercase">Max Count</span>
+                                        <input 
+                                            type="number" 
+                                            className="w-16 bg-white border border-slate-200 rounded-lg p-1 font-bold text-center text-sm"
+                                            value={modalitySettings[mod.id]?.limit || 0}
+                                            onChange={(e) => {
+                                                const val = parseInt(e.target.value) || 0;
+                                                setModalitySettings(prev => ({
+                                                    ...prev,
+                                                    [mod.id]: { ...prev[mod.id], limit: val }
+                                                }));
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 block mb-1">Time Slots (HH:MM separated by comma)</label>
+                                    <textarea 
+                                        className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs font-mono font-medium h-16"
+                                        placeholder="e.g. 09:00, 09:30, 10:00"
+                                        value={(modalitySettings[mod.id]?.slots || []).join(', ')}
+                                        onChange={(e) => {
+                                            const slots = e.target.value.split(',').map(s => s.trim()).filter(s => s);
+                                            setModalitySettings(prev => ({
+                                                ...prev,
+                                                [mod.id]: { ...prev[mod.id], slots: slots }
+                                            }));
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <button onClick={handleSaveLimits} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-emerald-700 sticky bottom-0">
+                        حفظ الإعدادات
+                    </button>
+                </div>
+            </Modal>
+
+            {/* Bridge Modal */}
+            <Modal isOpen={isBridgeModalOpen} onClose={() => setIsBridgeModalOpen(false)} title="الربط الذكي (Live Sync)">
+                <div className="space-y-4 text-center">
+                    <div className="w-16 h-16 bg-gradient-to-br from-emerald-400 to-teal-600 rounded-full flex items-center justify-center mx-auto text-2xl text-white mb-2 shadow-lg shadow-emerald-200">
+                        <i className="fas fa-satellite-dish animate-pulse"></i>
+                    </div>
+                    <h3 className="font-bold text-slate-800">مراقب الشبكة الذكي V9</h3>
+                    <p className="text-sm text-slate-600 mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                        الكود الجديد يدعم <b>الفرز التلقائي للأقسام</b> (Auto-Split Multi-Exam Invoices).<br/>
+                        <b>انسخ الكود وضعه في الكونسول مرة واحدة.</b>
+                    </p>
+                    <button onClick={handleCopyScript} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition-all flex items-center justify-center gap-2">
+                        <i className="fas fa-copy"></i> نسخ كود المراقبة المحدث V9
+                    </button>
+                </div>
             </Modal>
         </div>
     );

@@ -296,12 +296,20 @@ export const calculateShiftStatus = (
 
         // 1. Shift Completed
         if (logIn && logOut) {
-            // Logic to stay in "Completed" state for a while before showing "Waiting" for next shift
+            // *** FIX FOR EARLY EXIT OVERRIDE ***
+            // If it's the LAST shift, we close the day immediately and persistently.
+            // We do NOT check for time buffers if it's the last shift. 
+            // If they punched out, they are done.
+            if (!hasNextShift) {
+                return { state: 'COMPLETED', message: 'SHIFT COMPLETE', sub: `Shift ${shiftNum} Done`, canPunch: false };
+            }
+
+            // For split shifts, we still need the buffer logic to transition to WAITING
             const outDate = getLogDate(logOut);
             let outMins = outDate.getHours() * 60 + outDate.getMinutes();
             if (outMins < start && outMins < 300) outMins += 1440; 
 
-            if (effectiveNow < outMins + 120 && !hasNextShift) {
+            if (effectiveNow < outMins + 120) {
                 return { state: 'COMPLETED', message: 'SHIFT COMPLETE', sub: `Shift ${shiftNum} Done`, canPunch: false };
             }
             continue; 

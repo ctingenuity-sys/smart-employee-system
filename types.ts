@@ -194,6 +194,25 @@ export interface Appointment {
   createdAt: any;
   scheduledDate?: string; // For bookings
   refNo?: string; // Unique Reference for deduplication
+  registrationNumber?: string; // NEW: Sequential number (MRI-101, CT-505)
+  panicDetails?: string; // NEW: If panic report exists
+  preparation?: string; // NEW: Instructions
+}
+
+// --- NEW: Panic Report ---
+export interface PanicReport {
+    id: string;
+    date: string;
+    time: string;
+    patientName: string;
+    fileNumber: string;
+    registrationNumber: string;
+    doctorName: string;
+    examType: string;
+    findings: string;
+    reportedBy: string; // Employee Name
+    reportedById: string;
+    createdAt: any;
 }
 
 // --- Visual Schedule Types ---

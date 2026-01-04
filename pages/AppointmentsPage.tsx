@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, addDoc, Timestamp, deleteDoc, doc, updateDoc, writeBatch, getDocs, orderBy, getCountFromServer, setDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, Timestamp, deleteDoc, doc, updateDoc, writeBatch, getDocs, orderBy, getCountFromServer, setDoc, runTransaction } from 'firebase/firestore';
 import { Appointment } from '../types';
 import Loading from '../components/Loading';
 import Toast from '../components/Toast';
@@ -390,17 +390,37 @@ const AppointmentsPage: React.FC = () => {
         return list;
     }, [appointments, activeModality, searchQuery]);
 
-    // --- ACTIONS ---
+    // --- ATOMIC ACTIONS (Prevent Double Count) ---
     const handleAcceptPatient = async (appt: ExtendedAppointment) => {
         try {
-            await updateDoc(doc(db, 'appointments', appt.id), {
-                status: 'done',
-                performedBy: currentUserId,
-                performedByName: currentUserName,
-                completedAt: Timestamp.now()
+            const apptRef = doc(db, 'appointments', appt.id);
+            
+            // Run transaction to ensure atomicity (No two people can take same patient)
+            await runTransaction(db, async (transaction) => {
+                const sfDoc = await transaction.get(apptRef);
+                if (!sfDoc.exists()) {
+                    throw "Document does not exist!";
+                }
+
+                const currentData = sfDoc.data();
+                if (currentData.status === 'done') {
+                    throw "عذراً، تم سحب الحالة بواسطة زميل آخر!";
+                }
+
+                transaction.update(apptRef, {
+                    status: 'done',
+                    performedBy: currentUserId,
+                    performedByName: currentUserName,
+                    completedAt: Timestamp.now()
+                });
             });
+
             setToast({ msg: `تم إنجاز ${appt.patientName} ✅`, type: 'success' });
-        } catch(e) { console.error(e); setToast({msg: 'خطأ', type: 'error'}); }
+        } catch(e: any) {
+            console.error(e);
+            // Show error if transaction failed (e.g., already taken)
+            setToast({msg: typeof e === 'string' ? e : 'خطأ في العملية', type: 'error'});
+        }
     };
 
     const handleOpenBooking = (appt: ExtendedAppointment) => {
@@ -607,14 +627,39 @@ const AppointmentsPage: React.FC = () => {
         const script = `
 (function() {
     const APP_URL = "${window.location.href.split('#')[0]}#/appointments";
-    let syncWin = window.open(APP_URL, "SmartAppSyncWindow");
     console.clear();
-    console.log("%c 📡 Bridge Active V9 (Splitting Enabled)... ", "background: #222; color: #0f0; font-size:16px;");
+    console.log("%c 📡 Bridge Active V11 (Auto-Refresh Mode)... ", "background: #222; color: #0f0; font-size:16px;");
     
+    // Persistent Storage Key
+    const BRIDGE_ACTIVE_KEY = 'ihms_bridge_active';
+    sessionStorage.setItem(BRIDGE_ACTIVE_KEY, 'true');
+
+    // --- KEEP ALIVE SYSTEM (Every 60 Seconds) ---
     setInterval(() => {
-        fetch(window.location.href, { method: 'HEAD' }).catch(()=>{});
+        // 1. Ping Server to keep session alive
+        fetch(window.location.href, { method: 'HEAD' })
+        .then(() => {
+             document.title = "✅ Active " + new Date().toLocaleTimeString();
+             console.log("💓 Pulse: Session Refreshed");
+        })
+        .catch(() => {
+             document.title = "⚠️ Disconnected";
+        });
+        
+        // 2. Simulate User Activity (Prevent Idle Logout)
         document.dispatchEvent(new MouseEvent('mousemove'));
-    }, 60000);
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift' }));
+        
+    }, 60000); // 60 Seconds Interval
+
+    let syncWin = null;
+
+    const openSyncWindow = () => {
+        if(!syncWin || syncWin.closed) {
+            syncWin = window.open(APP_URL, "SmartAppSyncWindow");
+        }
+        return syncWin;
+    };
 
     const sendData = (data) => {
         if (!data) return;
@@ -629,7 +674,7 @@ const AppointmentsPage: React.FC = () => {
         if (Array.isArray(payload) && payload.length > 0) {
             // Check validity
             if (payload[0].engName || payload[0].patientName || (payload[0].xrayPatientDetails && payload[0].xrayPatientDetails.length > 0)) {
-                if(!syncWin || syncWin.closed) syncWin = window.open(APP_URL, "SmartAppSyncWindow");
+                syncWin = openSyncWindow();
                 syncWin.postMessage({ type: 'SMART_SYNC_DATA', payload: payload }, '*');
             }
         }
@@ -638,6 +683,13 @@ const AppointmentsPage: React.FC = () => {
     const origOpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function() {
         this.addEventListener('load', function() {
+            // Check for Logout / 401
+            if (this.status === 401 || this.status === 403 || this.responseURL.includes('login')) {
+                const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2868/2868-preview.mp3');
+                audio.play().catch(()=>{});
+                alert("⚠️ IHMS Logged Out! Please Login Again to Keep Sync Active.");
+            }
+
             try {
                 if (this.responseText && (this.responseText.startsWith('{') || this.responseText.startsWith('['))) {
                     const json = JSON.parse(this.responseText);
@@ -647,11 +699,11 @@ const AppointmentsPage: React.FC = () => {
         });
         origOpen.apply(this, arguments);
     };
-    alert("✅ تم تفعيل الجسر الذكي! V9");
+    alert("✅ تم تفعيل الجسر الذكي V11 (Keep-Alive Mode)!");
 })();
         `;
         navigator.clipboard.writeText(script);
-        setToast({ msg: 'تم نسخ الكود المحدث! V9', type: 'success' });
+        setToast({ msg: 'تم نسخ الكود المحدث V11 (يحافظ على الاتصال)!', type: 'success' });
     };
 
     // Determine current host for QR code explanation
@@ -1101,13 +1153,13 @@ const AppointmentsPage: React.FC = () => {
                     <div className="w-16 h-16 bg-gradient-to-br from-emerald-400 to-teal-600 rounded-full flex items-center justify-center mx-auto text-2xl text-white mb-2 shadow-lg shadow-emerald-200">
                         <i className="fas fa-satellite-dish animate-pulse"></i>
                     </div>
-                    <h3 className="font-bold text-slate-800">مراقب الشبكة الذكي V9</h3>
+                    <h3 className="font-bold text-slate-800">مراقب الشبكة الذكي V11 (Keep-Alive Mode)</h3>
                     <p className="text-sm text-slate-600 mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
-                        الكود الجديد يدعم <b>الفرز التلقائي للأقسام</b> (Auto-Split Multi-Exam Invoices).<br/>
-                        <b>انسخ الكود وضعه في الكونسول مرة واحدة.</b>
+                        الكود المحدث V11 يحتوي على تقنية <b>"Keep-Alive"</b> للحفاظ على الاتصال.<br/>
+                        <b>يقوم بإنعاش الجلسة كل دقيقة لمنع تسجيل الخروج التلقائي.</b>
                     </p>
                     <button onClick={handleCopyScript} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition-all flex items-center justify-center gap-2">
-                        <i className="fas fa-copy"></i> نسخ كود المراقبة المحدث V9
+                        <i className="fas fa-copy"></i> نسخ كود المراقبة المحدث V11
                     </button>
                 </div>
             </Modal>

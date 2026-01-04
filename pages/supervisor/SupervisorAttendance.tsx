@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 // @ts-ignore
-import { doc, collection, query, where, getDocs, writeBatch, limit, orderBy, addDoc, Timestamp } from 'firebase/firestore';
+import { doc, collection, query, where, getDocs, writeBatch, limit, orderBy, addDoc, Timestamp, deleteDoc } from 'firebase/firestore';
 import { User, Schedule, AttendanceLog, ActionLog } from '../../types';
 import Toast from '../../components/Toast';
 import Modal from '../../components/Modal';
@@ -121,6 +121,12 @@ const SupervisorAttendance: React.FC = () => {
     // Map Modal
     const [mapModal, setMapModal] = useState<{isOpen: boolean, lat: number, lng: number, title: string}>({ isOpen: false, lat: 0, lng: 0, title: '' });
 
+    // Manual Log Modal State
+    const [manualModal, setManualModal] = useState<{isOpen: boolean, uid: string, name: string, date: string, type: 'IN' | 'OUT' | string}>({
+        isOpen: false, uid: '', name: '', date: '', type: 'IN'
+    });
+    const [manualTime, setManualTime] = useState('08:00');
+
     useEffect(() => {
         getDocs(collection(db, 'users')).then(snap => setUsers(snap.docs.map(d => ({id:d.id, ...d.data()} as User))));
     }, []);
@@ -152,26 +158,18 @@ const SupervisorAttendance: React.FC = () => {
         }));
 
         // --- 1. OPTIMIZED SCHEDULE FETCHING ---
-        // Instead of fetching by 'month', we fetch by 'validTo'.
-        // We want any schedule that is still valid AFTER the report start date.
-        // This captures schedules spanning Jan-Feb even if we filter for Feb.
         let qSch;
         if (attFilterUser) {
-            // If checking one user, just fetch all their schedules. It's fast.
             qSch = query(collection(db, 'schedules'), where('userId', '==', attFilterUser));
         } else {
-            // For all staff, fetch any schedule that hasn't expired before the start date.
-            // Note: This relies on 'validTo' string comparison.
             qSch = query(collection(db, 'schedules'), where('validTo', '>=', attFilterStart));
         }
         
         const snapSch = await getDocs(qSch);
-        // Client-side filter: Remove schedules that start AFTER the report ends
         const rawSchedules = snapSch.docs
             .map(doc => doc.data() as Schedule)
             .filter(s => !s.validFrom || s.validFrom <= attFilterEnd);
 
-        // Pre-process schedules into a Map for O(1) access
         const schedulesByUser = new Map<string, Schedule[]>();
         rawSchedules.forEach(s => {
             if (!schedulesByUser.has(s.userId)) schedulesByUser.set(s.userId, []);
@@ -187,7 +185,6 @@ const SupervisorAttendance: React.FC = () => {
         const snapLogs = await getDocs(qLogs);
         const allLogs = snapLogs.docs.map(doc => doc.data() as AttendanceLog);
         
-        // Pre-process logs into a Map for O(1) access [UserId_Date] -> Logs[]
         const logsMap = new Map<string, AttendanceLog[]>();
         allLogs.forEach(log => {
             const key = `${log.userId}_${log.date}`;
@@ -195,7 +192,6 @@ const SupervisorAttendance: React.FC = () => {
             logsMap.get(key)!.push(log);
         });
         
-        // Sort logs within map
         logsMap.forEach((logsList) => {
             logsList.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
         });
@@ -214,17 +210,13 @@ const SupervisorAttendance: React.FC = () => {
                 const summary = summaryMap.get(user.id)!;
                 let myShifts: { start: string, end: string }[] = [];
                 
-                // Get pre-filtered schedules for this user
                 const userSchedules = schedulesByUser.get(user.id) || [];
-                
-                // Find applicable schedule
                 const specific = userSchedules.find(s => s.date === dateStr);
                 if (specific) {
                     myShifts = specific.shifts || parseMultiShifts(specific.note || "");
                 } else {
-                    // Check recurring schedules
                     userSchedules.forEach(sch => {
-                        if (sch.date) return; // Skip specific dates
+                        if (sch.date) return;
                         let applies = false;
                         const isFri = (sch.locationId || '').toLowerCase().includes('friday');
                         
@@ -234,7 +226,6 @@ const SupervisorAttendance: React.FC = () => {
                             if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; 
                         }
                         
-                        // Strict Date Range Check
                         if (applies) {
                             if (sch.validFrom && dateStr < sch.validFrom) applies = false;
                             if (sch.validTo && dateStr > sch.validTo) applies = false;
@@ -247,7 +238,7 @@ const SupervisorAttendance: React.FC = () => {
                     });
                 }
 
-                // --- Match Logs (Optimized) ---
+                // --- Match Logs ---
                 const todayLogs = logsMap.get(`${user.id}_${dateStr}`) || [];
                 const insToday = todayLogs.filter(l => l.type === 'IN');
                 const outsToday = todayLogs.filter(l => l.type === 'OUT');
@@ -256,23 +247,18 @@ const SupervisorAttendance: React.FC = () => {
 
                 if (insToday.length > 0) {
                     in1 = insToday[0];
-                    // Look for OUT in same day...
                     out1 = outsToday.find(o => 
                         o.timestamp.seconds > in1!.timestamp.seconds &&
                         (o.timestamp.seconds - in1!.timestamp.seconds) < 57600
                     );
                     
-                    // ...OR look for OUT in NEXT day (Overnight shift)
                     if (!out1) {
                         const nextD = new Date(d);
                         nextD.setDate(d.getDate() + 1);
                         const nextDateStr = nextD.toISOString().split('T')[0];
                         const nextDayLogs = logsMap.get(`${user.id}_${nextDateStr}`) || [];
-                        
-                        // Find early morning OUT (before 12 PM next day)
                         out1 = nextDayLogs.find(o => 
                             o.type === 'OUT' &&
-                            // Ensure it's not too far (e.g. 16 hours max shift)
                             (o.timestamp.seconds - in1!.timestamp.seconds) < 57600 
                         );
                     }
@@ -283,29 +269,25 @@ const SupervisorAttendance: React.FC = () => {
                             o.timestamp.seconds > in2!.timestamp.seconds &&
                             o.timestamp.seconds !== out1?.timestamp.seconds
                         );
-                        // Check next day for 2nd shift? Rarely happens, logic omitted for simplicity
                     }
                 } 
 
-                // Case: OUT only (Forgot IN)
                 if (!in1 && outsToday.length > 0) {
-                    // Check if this OUT belongs to yesterday
                     const prevD = new Date(d);
                     prevD.setDate(d.getDate() - 1);
                     const prevDateStr = prevD.toISOString().split('T')[0];
                     const prevLogs = logsMap.get(`${user.id}_${prevDateStr}`) || [];
                     const lastInPrev = prevLogs.filter(l => l.type === 'IN').pop();
-                    
                     const isLinkedToPrev = lastInPrev && (outsToday[0].timestamp.seconds - lastInPrev.timestamp.seconds) < 57600;
-                    
                     if (!isLinkedToPrev) {
-                        out1 = outsToday[0]; // Orphaned OUT
+                        out1 = outsToday[0];
                     }
                 }
 
                 // --- Calculations ---
                 let status: 'Present'|'Absent'|'Incomplete'|'Off'|'Partial Absent' = 'Absent';
                 let lateMins = 0;
+                let earlyMins = 0;
                 let workMinutes = 0;
                 let absentValue = 0;
                 let flags: string[] = [];
@@ -316,7 +298,6 @@ const SupervisorAttendance: React.FC = () => {
 
                 if (myShifts.length > 0 && !isOnLeave) {
                     if (myShifts.length === 2) {
-                        // ** BROKEN SHIFT LOGIC (0.5 per shift) **
                         let shiftsMissed = 0;
                         if (!in1 && !out1) shiftsMissed += 0.5;
                         if (!in2 && !out2) shiftsMissed += 0.5;
@@ -327,7 +308,6 @@ const SupervisorAttendance: React.FC = () => {
                         else status = 'Absent';
 
                     } else {
-                        // ** STRAIGHT SHIFT LOGIC **
                         if (!in1 && !out1) {
                             absentValue = 1.0;
                             status = 'Absent';
@@ -346,19 +326,36 @@ const SupervisorAttendance: React.FC = () => {
                     if (in1 && out1) workMinutes += Math.round((out1.timestamp.seconds - in1.timestamp.seconds) / 60);
                     if (in2 && out2) workMinutes += Math.round((out2.timestamp.seconds - in2.timestamp.seconds) / 60);
 
-                    // Late Calc (Only Shift 1)
+                    // Late Logic (Shift 1)
                     if (myShifts[0] && in1) {
                         const schedStart = timeToMinutes(myShifts[0].start);
                         const actStart = timeToMinutes(fmtTime(in1)!);
-                        // Grace period logic (e.g., 15 mins)
                         if (actStart > schedStart + 15) lateMins += (actStart - schedStart);
+                    }
+                    
+                    // Early Logic (Shift 1 - only if out1 exists)
+                    if (myShifts[0] && out1) {
+                        const schedEnd = timeToMinutes(myShifts[0].end);
+                        let actEnd = timeToMinutes(fmtTime(out1)!);
+                        
+                        // Handle overnight crossing for accurate calculation
+                        if (schedEnd < timeToMinutes(myShifts[0].start)) {
+                             // Shift ends next day. 
+                             // If out1 is early morning (e.g. 02:00), treat as +1440
+                             if (actEnd < 720) actEnd += 1440;
+                             // schedEnd also +1440
+                             const adjSchedEnd = schedEnd + 1440;
+                             if (actEnd < adjSchedEnd - 15) earlyMins += (adjSchedEnd - actEnd);
+                        } else {
+                             if (actEnd < schedEnd - 15) earlyMins += (schedEnd - actEnd);
+                        }
                     }
                 }
 
                 summary.absentDays += absentValue;
                 summary.totalLateMinutes += lateMins;
+                summary.totalEarlyMinutes += earlyMins;
 
-                // Risk Analysis
                 [in1, out1, in2, out2].forEach(l => {
                     if (l) {
                         if (l.isSuspicious) {
@@ -384,9 +381,9 @@ const SupervisorAttendance: React.FC = () => {
                     in2Lat: in2?.locationLat, in2Lng: in2?.locationLng,
                     out2Lat: out2?.locationLat, out2Lng: out2?.locationLng,
                     lateMinutes: lateMins, 
+                    earlyMinutes: earlyMins,
                     serverTimestamp: in1?.timestamp,
                     clientTimestamp: in1?.clientTimestamp,
-                    earlyMinutes: 0,
                     dailyWorkMinutes: workMinutes, 
                     overtimeMinutes: workMinutes > 540 ? workMinutes - 540 : 0, 
                     status,
@@ -404,10 +401,8 @@ const SupervisorAttendance: React.FC = () => {
     }
 };
 
-    // --- Sync Logic: Write Absences to Actions Collection ---
     const handleSyncAbsences = async () => {
         if (attendanceSummaries.length === 0) return setToast({msg: 'Please calculate attendance first', type: 'info'});
-        
         if (!confirm(`Are you sure you want to register absences for the period ${attFilterStart} to ${attFilterEnd}? This will affect employee reports.`)) return;
 
         setIsSyncing(true);
@@ -416,16 +411,12 @@ const SupervisorAttendance: React.FC = () => {
             const actionRef = collection(db, 'actions');
             let count = 0;
 
-            // 1. Get existing absence records to prevent duplicates
-            // FIX: Removed multi-field inequality query (fromDate + toDate) to prevent index error.
-            // We query by start date and filter end date in memory.
             const qExist = query(
                 actionRef, 
                 where('type', '==', 'unjustified_absence'),
                 where('fromDate', '>=', attFilterStart)
             );
             const existSnap = await getDocs(qExist);
-            // Filter in memory for the upper bound
             const existingKeys = new Set(
                 existSnap.docs
                     .map(d => d.data())
@@ -445,7 +436,7 @@ const SupervisorAttendance: React.FC = () => {
                                 fromDate: day.date,
                                 toDate: day.date,
                                 description: `System Auto-Absent: ${day.absentValue} Day(s) (No Punch)`,
-                                weight: day.absentValue, // Store weight for report calculation (0.5 or 1)
+                                weight: day.absentValue,
                                 createdAt: Timestamp.now()
                             });
                             count++;
@@ -475,20 +466,19 @@ const SupervisorAttendance: React.FC = () => {
         try {
             const wb = window.XLSX.utils.book_new();
 
-            // 1. Summary Sheet
             const summaryData = attendanceSummaries.map(s => ({
                 "Employee Name": s.userName,
                 "Work Days": s.totalWorkDays,
                 "Fridays Worked": s.fridaysWorked,
                 "Absent Days": s.absentDays,
                 "Total Late (Mins)": s.totalLateMinutes,
+                "Total Early Leave (Mins)": s.totalEarlyMinutes,
                 "Total Overtime (Hrs)": s.totalOvertimeHours.toFixed(2),
                 "Risk Flags": s.riskCount
             }));
             const wsSummary = window.XLSX.utils.json_to_sheet(summaryData);
             window.XLSX.utils.book_append_sheet(wb, wsSummary, "Summary");
 
-            // 2. Detailed Sheet
             const detailedData: any[] = [];
             attendanceSummaries.forEach(s => {
                 s.details.forEach(d => {
@@ -502,6 +492,7 @@ const SupervisorAttendance: React.FC = () => {
                         "Shift 2 Out": d.actualOut2 || '--:--',
                         "Work (Mins)": d.dailyWorkMinutes,
                         "Late (Mins)": d.lateMinutes,
+                        "Early (Mins)": d.earlyMinutes,
                         "Status": d.status,
                         "Absence Value": d.absentValue,
                         "Risks": d.riskFlags.join(', ')
@@ -522,6 +513,34 @@ const SupervisorAttendance: React.FC = () => {
 
     const openMapModal = (lat: number, lng: number, title: string) => {
         setMapModal({ isOpen: true, lat, lng, title });
+    };
+
+    // --- MANUAL ENTRY FUNCTIONS ---
+    const openManualLog = (uid: string, name: string, date: string, type: 'IN'|'OUT') => {
+        setManualModal({ isOpen: true, uid, name, date, type });
+        setManualTime('08:00'); 
+    };
+
+    const submitManualLog = async () => {
+        if (!manualTime) return;
+        try {
+            const d = new Date(manualModal.date + 'T' + manualTime);
+            await addDoc(collection(db, 'attendance_logs'), {
+                userId: manualModal.uid,
+                userName: manualModal.name,
+                date: manualModal.date,
+                type: manualModal.type,
+                timestamp: Timestamp.fromDate(d),
+                clientTimestamp: Timestamp.fromDate(d),
+                method: 'supervisor_manual',
+                isSuspicious: false,
+                manualEntry: true
+            });
+            setToast({ msg: 'Log added successfully. Please Refresh.', type: 'success' });
+            setManualModal({ ...manualModal, isOpen: false });
+        } catch (e) {
+            setToast({ msg: 'Error adding log', type: 'error' });
+        }
     };
 
     const totalAbsent = attendanceSummaries.reduce((acc, curr) => acc + curr.absentDays, 0);
@@ -623,6 +642,7 @@ const SupervisorAttendance: React.FC = () => {
                                             <th className="p-3 text-center">Fridays</th>
                                             <th className="p-3 text-center text-red-600">Absent Days</th>
                                             <th className="p-3 text-center text-amber-600">Late (Mins)</th>
+                                            <th className="p-3 text-center text-orange-600">Early (Mins)</th>
                                             <th className="p-3 text-center text-emerald-600">Overtime (Hrs)</th>
                                             <th className="p-3 text-center text-purple-600">Risks</th>
                                             <th className="p-3 text-center print:hidden">Details</th>
@@ -630,7 +650,7 @@ const SupervisorAttendance: React.FC = () => {
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 print:divide-slate-300">
                                         {attendanceSummaries.length === 0 ? (
-                                            <tr><td colSpan={9} className="p-8 text-center text-slate-400">Click 'Refresh' to calculate.</td></tr>
+                                            <tr><td colSpan={10} className="p-8 text-center text-slate-400">Click 'Refresh' to calculate.</td></tr>
                                         ) : (
                                             attendanceSummaries
                                             .filter(s => showOnlySuspicious ? s.riskCount > 0 : true)
@@ -642,6 +662,7 @@ const SupervisorAttendance: React.FC = () => {
                                                         <td className="p-3 text-center font-mono">{summary.fridaysWorked}</td>
                                                         <td className="p-3 text-center font-bold text-red-600">{summary.absentDays}</td>
                                                         <td className="p-3 text-center font-bold text-amber-600">{summary.totalLateMinutes}</td>
+                                                        <td className="p-3 text-center font-bold text-orange-600">{summary.totalEarlyMinutes}</td>
                                                         <td className="p-3 text-center font-bold text-emerald-600">{summary.totalOvertimeHours > 0 ? summary.totalOvertimeHours.toFixed(1) : '-'}</td>
                                                         <td className="p-3 text-center font-bold text-purple-600">
                                                             {summary.riskCount > 0 ? <span className="bg-red-500 text-white px-2 py-0.5 rounded-full shadow-sm animate-pulse text-[10px]">{summary.riskCount} ALERTS</span> : '-'}
@@ -658,7 +679,7 @@ const SupervisorAttendance: React.FC = () => {
                                                     {/* Expanded Details */}
                                                     {(expandedUser === summary.userId || showOnlySuspicious) && (
                                                         <tr>
-                                                            <td colSpan={9} className="p-0 bg-slate-50/50">
+                                                            <td colSpan={10} className="p-0 bg-slate-50/50">
                                                                 <div className="p-2 border-b border-slate-200">
                                                                     <table className="w-full text-[10px]">
                                                                         <thead className="bg-slate-200 text-slate-600 uppercase">
@@ -670,6 +691,8 @@ const SupervisorAttendance: React.FC = () => {
                                                                                 <th className="p-2 text-center text-indigo-700 border-l border-slate-300">Shift 2 In</th>
                                                                                 <th className="p-2 text-center text-indigo-700">Shift 2 Out</th>
                                                                                 <th className="p-2 text-center border-l border-slate-300">Work (Mins)</th>
+                                                                                <th className="p-2 text-center text-amber-700">Late</th>
+                                                                                <th className="p-2 text-center text-orange-700">Early</th>
                                                                                 <th className="p-2 text-center">Status</th>
                                                                                 <th className="p-2 text-center">Risk</th>
                                                                             </tr>
@@ -683,26 +706,53 @@ const SupervisorAttendance: React.FC = () => {
                                                                                     <td className="p-2">{detail.day}</td>
                                                                                     
                                                                                     {/* Shift 1 */}
-                                                                                    <td className="p-2 text-center font-mono text-emerald-600 border-l border-slate-100">
-                                                                                        {detail.actualIn1 || '-'}
+                                                                                    <td className="p-2 text-center font-mono text-emerald-600 border-l border-slate-100 group relative">
+                                                                                        {detail.actualIn1 || (
+                                                                                            <button 
+                                                                                                onClick={() => openManualLog(summary.userId, summary.userName, detail.date, 'IN')}
+                                                                                                className="hidden group-hover:inline-block bg-emerald-100 text-emerald-700 text-[9px] px-1 rounded hover:bg-emerald-200"
+                                                                                                title="Add IN Punch"
+                                                                                            >+ IN</button>
+                                                                                        )}
                                                                                         {detail.in1Lat && <button onClick={() => openMapModal(detail.in1Lat!, detail.in1Lng!, 'IN 1')} className="ml-1 text-blue-400"><i className="fas fa-map-marker-alt"></i></button>}
                                                                                     </td>
-                                                                                    <td className="p-2 text-center font-mono text-red-500">
-                                                                                        {detail.actualOut1 || '-'}
+                                                                                    <td className="p-2 text-center font-mono text-red-500 group relative">
+                                                                                        {detail.actualOut1 || (
+                                                                                            <button 
+                                                                                                onClick={() => openManualLog(summary.userId, summary.userName, detail.date, 'OUT')}
+                                                                                                className="hidden group-hover:inline-block bg-red-100 text-red-700 text-[9px] px-1 rounded hover:bg-red-200"
+                                                                                                title="Add OUT Punch"
+                                                                                            >+ OUT</button>
+                                                                                        )}
                                                                                         {detail.out1Lat && <button onClick={() => openMapModal(detail.out1Lat!, detail.out1Lng!, 'OUT 1')} className="ml-1 text-red-400"><i className="fas fa-map-marker-alt"></i></button>}
                                                                                     </td>
 
                                                                                     {/* Shift 2 */}
-                                                                                    <td className="p-2 text-center font-mono text-emerald-600 border-l border-slate-100">
-                                                                                        {detail.actualIn2 || '-'}
+                                                                                    <td className="p-2 text-center font-mono text-emerald-600 border-l border-slate-100 group relative">
+                                                                                        {detail.actualIn2 || (
+                                                                                            <button 
+                                                                                                onClick={() => openManualLog(summary.userId, summary.userName, detail.date, 'IN')}
+                                                                                                className="hidden group-hover:inline-block bg-emerald-100 text-emerald-700 text-[9px] px-1 rounded hover:bg-emerald-200"
+                                                                                                title="Add IN Punch"
+                                                                                            >+ IN</button>
+                                                                                        )}
                                                                                         {detail.in2Lat && <button onClick={() => openMapModal(detail.in2Lat!, detail.in2Lng!, 'IN 2')} className="ml-1 text-blue-400"><i className="fas fa-map-marker-alt"></i></button>}
                                                                                     </td>
-                                                                                    <td className="p-2 text-center font-mono text-red-500">
-                                                                                        {detail.actualOut2 || '-'}
+                                                                                    <td className="p-2 text-center font-mono text-red-500 group relative">
+                                                                                        {detail.actualOut2 || (
+                                                                                            <button 
+                                                                                                onClick={() => openManualLog(summary.userId, summary.userName, detail.date, 'OUT')}
+                                                                                                className="hidden group-hover:inline-block bg-red-100 text-red-700 text-[9px] px-1 rounded hover:bg-red-200"
+                                                                                                title="Add OUT Punch"
+                                                                                            >+ OUT</button>
+                                                                                        )}
                                                                                         {detail.out2Lat && <button onClick={() => openMapModal(detail.out2Lat!, detail.out2Lng!, 'OUT 2')} className="ml-1 text-red-400"><i className="fas fa-map-marker-alt"></i></button>}
                                                                                     </td>
 
                                                                                     <td className="p-2 text-center font-mono border-l border-slate-100">{detail.dailyWorkMinutes > 0 ? detail.dailyWorkMinutes : '-'}</td>
+                                                                                    <td className="p-2 text-center text-amber-600 font-bold">{detail.lateMinutes > 0 ? detail.lateMinutes : '-'}</td>
+                                                                                    <td className="p-2 text-center text-orange-600 font-bold">{detail.earlyMinutes > 0 ? detail.earlyMinutes : '-'}</td>
+                                                                                    
                                                                                     <td className="p-2 text-center">
                                                                                         <span className={`px-2 py-0.5 rounded ${detail.status === 'Present' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{detail.status}</span>
                                                                                     </td>
@@ -740,7 +790,7 @@ const SupervisorAttendance: React.FC = () => {
                 <PrintFooter />
             </div>
 
-            {/* Map Modal with Embedded Iframe */}
+            {/* Map Modal */}
             <Modal isOpen={mapModal.isOpen} onClose={() => setMapModal({...mapModal, isOpen: false})} title={mapModal.title}>
                 <div className="p-2">
                     <p className="text-xs text-slate-500 mb-2">Coordinates: {mapModal.lat}, {mapModal.lng}</p>
@@ -766,6 +816,37 @@ const SupervisorAttendance: React.FC = () => {
                             <i className="fas fa-external-link-alt"></i> Open in Google Maps App
                         </a>
                     </div>
+                </div>
+            </Modal>
+
+            {/* Manual Entry Modal */}
+            <Modal isOpen={manualModal.isOpen} onClose={() => setManualModal({...manualModal, isOpen: false})} title="Add Manual Log">
+                <div className="space-y-4">
+                    <div className="bg-amber-50 p-3 rounded-lg border border-amber-200 text-xs text-amber-800 font-bold">
+                        Adding manual log for {manualModal.name} on {manualModal.date}
+                    </div>
+                    
+                    <div>
+                        <label className="text-xs font-bold text-slate-500">Punch Type</label>
+                        <div className="flex gap-2 mt-1">
+                            <button onClick={() => setManualModal({...manualModal, type: 'IN'})} className={`flex-1 py-2 rounded-lg font-bold text-xs ${manualModal.type === 'IN' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'}`}>IN</button>
+                            <button onClick={() => setManualModal({...manualModal, type: 'OUT'})} className={`flex-1 py-2 rounded-lg font-bold text-xs ${manualModal.type === 'OUT' ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-600'}`}>OUT</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="text-xs font-bold text-slate-500">Time (HH:MM)</label>
+                        <input 
+                            type="time" 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-mono font-bold"
+                            value={manualTime}
+                            onChange={e => setManualTime(e.target.value)}
+                        />
+                    </div>
+
+                    <button onClick={submitManualLog} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-slate-800">
+                        Save Log
+                    </button>
                 </div>
             </Modal>
         </div>

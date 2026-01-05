@@ -3,18 +3,21 @@ import React, { useState, useEffect, useMemo, useRef, memo } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
 import { collection, addDoc, onSnapshot, query, where, Timestamp, serverTimestamp, doc, updateDoc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
-import { AttendanceLog, Schedule } from '../types';
+import { AttendanceLog, Schedule, LocationCheckRequest, ActionLog } from '../types';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
+import { calculateShiftStatus } from '../utils/attendanceLogic';
+// @ts-ignore
+import { onAuthStateChanged } from 'firebase/auth';
 
 const HOSPITAL_LAT = 21.584135549676002;
 const HOSPITAL_LNG = 39.208052479784165; 
 const ALLOWED_RADIUS_KM = 0.08; 
-const MAX_GPS_ACCURACY_METERS = 80; 
 
-// --- Helpers (Pure Functions) ---
+
+// --- Helpers ---
 const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
   var R = 6371; 
   var dLat = deg2rad(lat2-lat1); 
@@ -25,14 +28,77 @@ const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon
 }
 const deg2rad = (deg: number) => deg * (Math.PI/180);
 
-const getUniqueDeviceId = () => {
-    const key = 'app_unique_device_id';
-    let id = localStorage.getItem(key);
-    if (!id) {
-        id = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-        localStorage.setItem(key, id);
+// --- ADVANCED HYBRID FINGERPRINTING ---
+// Combines Hardware Traits (for stability) + Persistent Token (for uniqueness)
+const getStableDeviceFingerprint = async (): Promise<string> => {
+    try {
+        // 1. Hardware/Browser Signature (Shared across identical devices)
+        const nav = window.navigator as any;
+        const screen = window.screen;
+        
+        const hardwareInfo = [
+            nav.userAgent,
+            nav.language,
+            screen.colorDepth,
+            screen.width + 'x' + screen.height,
+            nav.hardwareConcurrency,
+            nav.deviceMemory,
+            Intl.DateTimeFormat().resolvedOptions().timeZone
+        ].join('||');
+
+        // Canvas Fingerprinting
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        let canvasHash = 'no-canvas';
+        
+        if (ctx) {
+            canvas.width = 200;
+            canvas.height = 50;
+            ctx.textBaseline = "top";
+            ctx.font = "16px Arial";
+            ctx.fillStyle = "#f60";
+            ctx.fillRect(125, 1, 62, 20);
+            ctx.fillStyle = "#069";
+            ctx.fillText("AJ_SMART_SYSTEM_v1", 2, 15);
+            ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
+            ctx.fillText("AJ_SMART_SYSTEM_v1", 4, 17);
+            
+            ctx.beginPath();
+            ctx.arc(50, 50, 50, 0, Math.PI * 2, true);
+            ctx.closePath();
+            ctx.fill();
+
+            canvasHash = canvas.toDataURL();
+        }
+
+        const hardwareString = `${hardwareInfo}###${canvasHash}`;
+        const msgBuffer = new TextEncoder().encode(hardwareString);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hardwareHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        
+        // 2. Persistent Installation Token (Unique per browser instance)
+        // This solves the "Identical Device" problem.
+        let installToken = localStorage.getItem('aj_device_install_token');
+        if (!installToken) {
+            // Generate a random unique ID for this specific browser installation
+            installToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+            localStorage.setItem('aj_device_install_token', installToken);
+        }
+
+        // 3. Combine: HardwareHash_InstallToken
+        // Example: a1b2c3d4_xyz987
+        return `${hardwareHex}_${installToken}`; 
+
+    } catch (e) {
+        console.error("Fingerprint generation failed, falling back to simple ID", e);
+        let id = localStorage.getItem('app_device_fallback');
+        if (!id) {
+            id = 'fallback_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+            localStorage.setItem('app_device_fallback', id);
+        }
+        return id;
     }
-    return id;
 };
 
 const convertTo24Hour = (timeStr: string): string => {
@@ -42,7 +108,7 @@ const convertTo24Hour = (timeStr: string): string => {
     if (s.includes('mn') || s.includes('midnight') || s === '24:00') return '24:00';
     if (s.includes('noon')) return '12:00';
     let modifier = null;
-    if (s.includes('pm')) modifier = 'pm'; else if (s.includes('am')) modifier = 'am';
+    if (s.includes('pm') || s.includes('p.m') || s.includes('م') || s.includes('مساء')) modifier = 'pm'; else if (s.includes('am') || s.includes('a.m') || s.includes('ص') || s.includes('صباح')) modifier = 'am';
     const cleanTime = s.replace(/[^\d:]/g, ''); 
     const parts = cleanTime.split(':');
     let h = parseInt(parts[0], 10);
@@ -80,7 +146,7 @@ const getLocalDateKey = (dateObj: Date) => {
     return `${year}-${month}-${day}`;
 };
 
-// --- STYLES INJECTION (For Advanced Animations) ---
+// --- STYLES INJECTION ---
 const styles = `
 @keyframes float {
     0% { transform: translateY(0px); }
@@ -97,7 +163,7 @@ const styles = `
     to { transform: rotate(360deg); }
 }
 .animate-float { animation: float 6s ease-in-out infinite; }
-.animate-pulse-ring { animation: pulse-ring 3s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.animate-pulse-ring { animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 .animate-rotate-slow { animation: rotate-slow 20s linear infinite; }
 .glass-panel {
     background: rgba(255, 255, 255, 0.03);
@@ -155,47 +221,52 @@ const AttendancePage: React.FC = () => {
     const [showHistory, setShowHistory] = useState(false);
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
  
-// Data State
+    // Data State
     const [todayLogs, setTodayLogs] = useState<AttendanceLog[]>([]);
-    const [yesterdayLogs, setYesterdayLogs] = useState<AttendanceLog[]>([]); // <--- إضافة جديدة
+    const [yesterdayLogs, setYesterdayLogs] = useState<AttendanceLog[]>([]);
     const [todayShifts, setTodayShifts] = useState<{ start: string, end: string }[]>([]);
+    const [yesterdayShifts, setYesterdayShifts] = useState<{ start: string, end: string }[]>([]);
+    const [tomorrowShifts, setTomorrowShifts] = useState<{ start: string, end: string }[]>([]);
+    
+    // NEW: Action/Leave State
+    const [todayAction, setTodayAction] = useState<string | null>(null);
+    
     const [overrideExpiries, setOverrideExpiries] = useState<Date[]>([]);
     const [hasOverride, setHasOverride] = useState(false);
     const [userProfile, setUserProfile] = useState<any>(null);
     const [schedules, setSchedules] = useState<Schedule[]>([]);
+    const [activeLiveCheck, setActiveLiveCheck] = useState<LocationCheckRequest | null>(null);
+    const [isLiveCheckProcessing, setIsLiveCheckProcessing] = useState(false);
     
+    // --- Stable Hardware Device ID ---
+    const [localDeviceId, setLocalDeviceId] = useState<string>('');
+
     const currentUserId = auth.currentUser?.uid;
     const currentUserName = localStorage.getItem('username') || 'User';
-    const localDeviceId = getUniqueDeviceId();
     const isProcessingRef = useRef(false);
+    const [realUserId, setRealUserId] = useState<string | null>(null);
 
+    // --- 0. Initialize Device Fingerprint & GPS ---
+    useEffect(() => {
+        // Generate stable fingerprint
+        getStableDeviceFingerprint().then(id => {
+            console.log("Device Fingerprint Generated:", id);
+            setLocalDeviceId(id);
+        });
 
-function toMins(time: string): number {
-    if (!time) return 0;
+        let watchId: number;
+        if ('geolocation' in navigator) {
+            watchId = navigator.geolocation.watchPosition(
+                () => {}, 
+                () => {}, 
+                { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 }
+            );
+        }
+        return () => {
+            if (watchId !== undefined) navigator.geolocation.clearWatch(watchId);
+        };
+    }, []);
 
-    const [h, m] = time.split(':').map(Number);
-    return (h * 60) + (m || 0);
-}
-
-
-const hasNightInFromYesterday = useMemo(() => {
-    if (yesterdayLogs.length === 0 || todayShifts.length === 0) return false;
-
-    const last = yesterdayLogs[yesterdayLogs.length - 1];
-    if (last.type !== 'IN') return false;
-
-    const shiftIdx = last.shiftIndex || 1;
-    const shift = todayShifts[shiftIdx - 1];
-    if (!shift) return false;
-
-    const s = toMins(shift.start);
-    const e = toMins(shift.end);
-
-    return e < s; // وردية ليلية فقط
-}, [yesterdayLogs, todayShifts]);
-
-
-    
     // 1. SYNC SERVER TIME
     useEffect(() => {
         const syncServerTime = async () => {
@@ -221,55 +292,61 @@ const hasNightInFromYesterday = useMemo(() => {
         syncServerTime();
     }, []);
 
-    
     // 2. Clock Logic
-useEffect(() => {
-    if (!isTimeSynced) return;
-    const timer = setInterval(() => {
-        const now = new Date(Date.now() + timeOffset);
-        setCurrentTime(now);
+    useEffect(() => {
+        const timer = setInterval(() => {
+            const now = new Date(Date.now() + timeOffset);
+            setCurrentTime(now);
 
-        // --- حساب العداد التنازلي ---
-        // نبحث عن أقرب وقت انتهاء مستقبلي
-        const activeExpiry = overrideExpiries.find(expiry => expiry > now);
-        
-        if (activeExpiry) {
-            setHasOverride(true);
-            // حساب الفرق بالثواني
-            const seconds = Math.max(0, Math.round((activeExpiry.getTime() - now.getTime()) / 1000));
-            setTimeLeft(seconds);
-        } else {
-            setHasOverride(false);
-            setTimeLeft(null);
-        }
+            // --- Override Countdown ---
+            const activeExpiry = overrideExpiries.find(expiry => expiry > now);
+            
+            if (activeExpiry) {
+                setHasOverride(true);
+                const diffSeconds = Math.round((activeExpiry.getTime() - now.getTime()) / 1000);
+                const displayedSeconds = Math.min(30, Math.max(0, diffSeconds));
+                if (displayedSeconds <= 0) {
+                    setHasOverride(false);
+                    setTimeLeft(null);
+                } else {
+                    setTimeLeft(displayedSeconds);
+                }
+            } else {
+                setHasOverride(false);
+                setTimeLeft(null);
+            }
 
-        if (now.getSeconds() === 0) {
-            setLogicTicker(prev => prev + 1);
-        }
-    }, 1000);
-    return () => clearInterval(timer);
-}, [isTimeSynced, timeOffset, overrideExpiries]);
+            if (now.getSeconds() === 0) {
+                setLogicTicker(prev => prev + 1);
+            }
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [isTimeSynced, timeOffset, overrideExpiries]);
 
 
-    // 3. Data Subscriptions (MODIFIED FOR NIGHT SHIFT)
-
-useEffect(() => {
+    // 3. Data Subscriptions
+    useEffect(() => {
         if (!currentUserId || !currentTime) return;
 
         const unsubUser = onSnapshot(doc(db, 'users', currentUserId), (docSnap) => {
             if(docSnap.exists()) setUserProfile(docSnap.data());
         });
 
-        // جلب سجلات اليوم
         const todayStr = getLocalDateKey(currentTime);
         const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', todayStr));
         const unsubLogs = onSnapshot(qLogs, (snap) => {
             const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
-            logs.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+            
+            // Fix: Sort with safe timestamp check to prevent crash on pending writes
+            logs.sort((a, b) => {
+                const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
+                const tB = b.timestamp?.seconds || b.clientTimestamp?.seconds || 0;
+                return tA - tB;
+            });
+            
             setTodayLogs(logs);
         });
 
-        // --- إضافة جديدة: جلب سجلات الأمس لمعالجة الدوام الليلي ---
         const yesterdayDate = new Date(currentTime);
         yesterdayDate.setDate(yesterdayDate.getDate() - 1);
         const yesterdayStr = getLocalDateKey(yesterdayDate);
@@ -277,396 +354,109 @@ useEffect(() => {
         const qLogsYesterday = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', yesterdayStr));
         const unsubLogsYesterday = onSnapshot(qLogsYesterday, (snap) => {
             const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
-            logs.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+            logs.sort((a, b) => {
+                const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
+                const tB = b.timestamp?.seconds || b.clientTimestamp?.seconds || 0;
+                return tA - tB;
+            });
             setYesterdayLogs(logs);
         });
-        // -------------------------------------------------------
 
-// داخل الـ useEffect الثالث الخاص بالبيانات
-const qOverride = query(collection(db, 'attendance_overrides'), where('userId', '==', currentUserId));
-const unsubOver = onSnapshot(qOverride, (snap) => {
-    // جلب كل التواريخ المتاحة للأذونات
-    const expiries = snap.docs
-        .map(d => d.data().validUntil?.toDate())
-        .filter(date => date != null);
-    
-    setOverrideExpiries(
-  expiries.sort((a, b) => a.getTime() - b.getTime())
-);
-});
+        const qOverride = query(collection(db, 'attendance_overrides'), where('userId', '==', currentUserId));
+        const unsubOver = onSnapshot(qOverride, (snap) => {
+            const expiries = snap.docs
+                .map(d => d.data().validUntil?.toDate())
+                .filter(date => date != null);
+            setOverrideExpiries(expiries.sort((a, b) => a.getTime() - b.getTime()));
+        });
+
+        // NEW: Fetch Actions/Leaves for Today to Lock Attendance
+        const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
+        const unsubActions = onSnapshot(qActions, (snap) => {
+            const actions = snap.docs.map(d => d.data() as ActionLog);
+            // Check if any active action covers today
+            const active = actions.find(a => a.fromDate <= todayStr && a.toDate >= todayStr);
+            
+            if (active) {
+                // Ignore 'positive' or simple notes, prioritize absence/leave types
+                if (['annual_leave', 'sick_leave', 'unjustified_absence', 'justified_absence', 'mission'].includes(active.type)) {
+                    setTodayAction(active.type);
+                } else {
+                    setTodayAction(null);
+                }
+            } else {
+                setTodayAction(null);
+            }
+        });
+
+        // UPDATED LOGIC: Fetch Previous, Current, AND Next Month to cover all recurring bases
         const currentMonth = currentTime.toISOString().slice(0, 7);
-        const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', '==', currentMonth));
+        const prevDate = new Date(currentTime); prevDate.setMonth(prevDate.getMonth() - 1);
+        const prevMonth = prevDate.toISOString().slice(0, 7);
+        const nextDate = new Date(currentTime); nextDate.setMonth(nextDate.getMonth() + 1);
+        const nextMonth = nextDate.toISOString().slice(0, 7);
+
+        const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
         const unsubSch = onSnapshot(qSch, (snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
 
-        return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); };
+        return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); unsubActions(); };
     }, [currentUserId, isTimeSynced, currentTime?.toDateString()]);
-
 
 
     // 4. Calculate Shifts (Data layer)
     useEffect(() => {
         if (!currentTime) return;
-        const dateStr = getLocalDateKey(currentTime);
-        const dayOfWeek = currentTime.getDay(); 
-
-        let myShifts: { start: string, end: string }[] = [];
-        const specific = schedules.find(s => s.date === dateStr);
         
-        if (specific) {
-            myShifts = specific.shifts || parseMultiShifts(specific.note || "");
-        } else {
-            schedules.forEach(sch => {
-                if (sch.date) return;
-                let applies = false;
-                const isFri = (sch.locationId || '').toLowerCase().includes('friday') || (sch.note || '').toLowerCase().includes('friday');
-                if (dayOfWeek === 5) { if (isFri) applies = true; } else { if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; }
-                
-                if (applies) {
-                    if (sch.validFrom && dateStr < sch.validFrom) applies = false;
-                    if (sch.validTo && dateStr > sch.validTo) applies = false;
-                }
-                if (applies) {
-                    const parsed = sch.shifts || parseMultiShifts(sch.note || "");
-                    if (parsed.length > 0) myShifts = parsed;
-                }
-            });
-        }
-        setTodayShifts(myShifts);
+        const getShiftsForDate = (targetDate: Date) => {
+            const dateStr = getLocalDateKey(targetDate);
+            const dayOfWeek = targetDate.getDay();
+            let resultShifts: { start: string, end: string }[] = [];
+            
+            const specific = schedules.find(s => s.date === dateStr);
+            if (specific) {
+                resultShifts = specific.shifts || parseMultiShifts(specific.note || "");
+            } else {
+                schedules.forEach(sch => {
+                    if (sch.date) return;
+                    let applies = false;
+                    const isFri = (sch.locationId || '').toLowerCase().includes('friday') || (sch.note || '').toLowerCase().includes('friday');
+                    if (dayOfWeek === 5) { if (isFri) applies = true; } else { if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; }
+                    
+                    if (applies) {
+                        if (sch.validFrom && dateStr < sch.validFrom) applies = false;
+                        if (sch.validTo && dateStr > sch.validTo) applies = false;
+                    }
+                    
+                    if (applies) {
+                        const parsed = sch.shifts || parseMultiShifts(sch.note || "");
+                        if (parsed.length > 0) resultShifts = parsed;
+                    }
+                });
+            }
+            return resultShifts;
+        };
+
+        // Today
+        setTodayShifts(getShiftsForDate(currentTime));
+
+        // Yesterday
+        const yestDate = new Date(currentTime);
+        yestDate.setDate(yestDate.getDate() - 1);
+        setYesterdayShifts(getShiftsForDate(yestDate));
+
+        // Tomorrow
+        const tomDate = new Date(currentTime);
+        tomDate.setDate(tomDate.getDate() + 1);
+        setTomorrowShifts(getShiftsForDate(tomDate));
+
     }, [schedules, currentTime]);
 
-    // --- 5. THE ULTIMATE SHIFT LOGIC (GENIUS EDITION V5.0 - AUTO SKIP & RELATIVE GATING) ---
-const shiftLogic = useMemo(() => {
-    if (!currentTime) return { state: 'LOADING', message: 'SYNCING', sub: 'Server Time', canPunch: false };
-
-    const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
-    let effectiveLogs = [...todayLogs];
-    let isContinuationFromYesterday = false;
-
-    // --- 1. المنطق الذكي لمعالجة خروج الوردية الليلية ---
-    if (
-        todayLogs.length === 1 &&
-        todayLogs[0]?.type === 'OUT' &&
-        yesterdayLogs.length > 0 &&
-        yesterdayLogs[yesterdayLogs.length - 1]?.type === 'IN'
-    ) {
-        const outMinutes = toMins(todayLogs[0].time);
-        
-        // إظهار رسالة الإتمام لمدة ساعتين فقط (120 دقيقة)
-        if (currentMinutes >= outMinutes && currentMinutes < outMinutes + 120) {
-            return {
-                state: 'COMPLETED',
-                message: 'DONE',
-                sub: 'Night shift completed',
-                canPunch: false
-            };
-        }
-        // بعد ساعتين، نعتبر السجلات "فارغة" لنسمح بظهور الوردية القادمة (TOO EARLY)
-        effectiveLogs = []; 
-    }
-
-    // --- 2. التحقق من استمرارية وردية الأمس (إذا لم يبصم خروج بعد) ---
-    if (effectiveLogs.length === 0 && yesterdayLogs.length > 0) {
-        const lastYesterday = yesterdayLogs[yesterdayLogs.length - 1];
-        if (lastYesterday.type === 'IN') {
-            const yShiftIdx = lastYesterday.shiftIndex || 1;
-            const yShiftDef = todayShifts[yShiftIdx - 1] || todayShifts[0];
-
-            if (yShiftDef) {
-                const yEnd = toMins(yShiftDef.end);
-                const yStart = toMins(yShiftDef.start);
-                let isExpired = false;
-                
-                if (yEnd < yStart) { // وردية ليلية
-                    if (currentMinutes > (yEnd + 60)) isExpired = true; 
-                } else { // وردية نهارية
-                    isExpired = true;
-                }
-
-                if (!isExpired) {
-                    effectiveLogs = [lastYesterday];
-                    isContinuationFromYesterday = true;
-                } 
-            }
-        }
-    }
-
-    const logsCount = effectiveLogs.length;
-    const lastLog = logsCount > 0 ? effectiveLogs[logsCount - 1] : null;
-
-    // --- المرحلة 0: لا توجد سجلات (انتظار الوردية القادمة) ---
-    if (logsCount === 0) {
-        if (todayShifts.length > 0) {
-            const firstShift = todayShifts[0];
-            const sStart = toMins(firstShift.start);
-            let sEnd = toMins(firstShift.end);
-            if (sEnd < sStart) sEnd += 1440;
-
-            let adjustedCurrent = currentMinutes;
-            // إذا كانت الوردية ليلية ونحن في الصباح الباكر، نعدل الوقت الحالي للمقارنة
-            if (sStart > 720 && currentMinutes < 720) adjustedCurrent += 1440;
-
-            const windowOpen = sStart - 15;
-            const missedWindowEnd = sEnd + 75;
-
-            // إذا فات موعد الوردية تماماً
-            if (!hasOverride && adjustedCurrent > missedWindowEnd) {
-                // ملاحظة: هنا حذفنا المتغير غير المعرف واستبدلناه بالمنطق الافتراضي
-                return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
-            }
-
-            // وقت الدخول (START)
-            if (hasOverride || currentMinutes >= windowOpen) {
-                 // إضافة شرط: لا تفتح START إذا كنا لسه في وقت الصباح الباكر جداً لوردية بالليل
-                 // هذا يمنع تداخل الـ 10 مساءً مع الـ 10 صباحاً
-                 return { state: 'READY_IN', message: 'START', sub: 'Shift 1', canPunch: true, shiftIdx: 1 };
-            } 
-            
-            // حالة TOO EARLY
-            let diff = windowOpen - currentMinutes;
-            if (diff < 0) diff += 1440;
-            const h = Math.floor(diff / 60);
-            const m = diff % 60;
-
-            return { 
-                state: 'LOCKED', 
-                message: 'TOO EARLY', 
-                sub: h > 0 ? `Starts in ${h}h ${m}m` : `Starts in ${m}m`, 
-                canPunch: false 
-            };
-        }
-    }
-// --- PHASE 1: LOGGED IN ONCE ---
-if (logsCount === 1 && lastLog?.type === 'IN') {
-    const currentShiftIndex = lastLog.shiftIndex || 1;
-    let shiftDef = todayShifts[currentShiftIndex - 1];
-    
-    // معالجة حالة الاستمرار من الأمس (Night Shift Continuation)
-    if (!shiftDef && isContinuationFromYesterday) {
-         shiftDef = todayShifts[0]; // محاولة الحصول على تعريف الوردية الأولى
-    }
-    
-    if (!shiftDef) return { state: 'ERROR', message: 'ERR', sub: 'Invalid Shift', canPunch: false };
-
-    const shiftStart = toMins(shiftDef.start);
-    let shiftEnd = toMins(shiftDef.end);
-    
-    let adjustedEnd = shiftEnd;
-    let adjustedCurrent = currentMinutes;
-    
-    // --- منطق معالجة الدوام الليلي (المطور) ---
-    const isOvernight = shiftEnd < shiftStart;
-
-    if (isOvernight) {
-        // إذا كان الدوام ليللي ونحن الآن في ساعات الصباح (حتى الظهر 720 دقيقة)
-        // نعتبر الوقت الحالي ممتداً من اليوم السابق (+1440)
-        if (currentMinutes < 720) {
-            adjustedCurrent += 1440;
-        }
-        adjustedEnd += 1440;
-    }
-
-    // تصحيح إضافي في حالة الاستمرار من الأمس لضمان دقة المقارنة
-    if (isContinuationFromYesterday && !isOvernight) {
-        // إذا لم يكن لولياً ولكنه قادم من الأمس (نادر الحدوث برمجياً لكن للاحتياط)
-        adjustedCurrent += 1440;
-    }
-
-    const GRACE_PERIOD_MINUTES = 60; // ساعة سماحية بعد انتهاء الدوام
-    const autoCloseTime = adjustedEnd + GRACE_PERIOD_MINUTES;
-    
-    const hasSecondShift = todayShifts.length > currentShiftIndex;
-
-    // --- سيناريو انتهاء وقت الخروج (Auto-Close or Next Shift Transition) ---
-    if (!hasOverride && adjustedCurrent > autoCloseTime) {
-        // التحقق من وجود وردية ثانية للانتقال إليها
-        if (hasSecondShift) {
-            let s2Start = toMins(todayShifts[currentShiftIndex].start); // الوردية التالية
-            let adjustedS2Window = s2Start - 15;
-            let adjustedCurrentForS2 = currentMinutes;
-
-            // معالجة التفاف الوقت للوردية الثانية
-            if (adjustedS2Window < adjustedCurrentForS2 && (adjustedCurrentForS2 - adjustedS2Window) > 720) {
-                 adjustedS2Window += 1440;
-            }
-            
-            // إذا حان وقت الوردية الثانية
-            if (adjustedCurrentForS2 >= adjustedS2Window) {
-                 return { 
-                    state: 'READY_IN', 
-                    message: 'START', 
-                    sub: `Shift ${currentShiftIndex + 1}`, 
-                    canPunch: true, 
-                    shiftIdx: currentShiftIndex + 1 
-                };
-            }
-
-            // إذا كنا في وقت الاستراحة بين الورديتين
-            let diff = adjustedS2Window - adjustedCurrentForS2;
-            if (diff < 0) diff += 1440;
-            const h = Math.floor(diff / 60);
-            const m = diff % 60;
-
-            return {
-                state: 'DISABLED',
-                message: 'BREAK',
-                sub: `Next shift in ${h}h ${m}m`,
-                canPunch: false,
-                isBreak: true
-            };
-        }
-
-        // لا توجد وردية ثانية والوقت انتهى
-        return {
-            state: 'COMPLETED',
-            message: 'CLOSED',
-            sub: 'Checkout time expired',
-            canPunch: false
-        };
-    }
-
-    // --- سيناريو نافذة الخروج العادية ---
-    const windowOpen = adjustedEnd - 15; // تفتح قبل نهاية الدوام بـ 15 دقيقة
-
-    if (hasOverride || adjustedCurrent >= windowOpen) {
-        return { 
-            state: 'READY_OUT', 
-            message: 'END', 
-            sub: `Shift ${currentShiftIndex}`, 
-            canPunch: true, 
-            shiftIdx: currentShiftIndex 
-        };
-    } else {
-        // الموظف لا يزال داخل وقت الدوام
-        return { 
-            state: 'LOCKED', 
-            message: 'ON DUTY', 
-            sub: `Ends at ${shiftDef.end}`, 
-            canPunch: false 
-        };
-    }
-}
-// --- PHASE 2: TWO LOGS ---
-if (logsCount === 2) {
-
-    if (!todayShifts || todayShifts.length < 2) {
-        return {
-            state: 'COMPLETED',
-            message: 'DONE',
-            sub: 'Day Complete',
-            canPunch: false
-        };
-    }
-    // 🔒 AUTO-CLOSE SHIFT 2 IF MISSED
-    const s2Def = todayShifts[1];
-    const s2Start = toMins(s2Def.start);
-    let s2End = toMins(s2Def.end);
-
-    // Handle overnight shift
-    if (s2End < s2Start) s2End += 1440;
-
-    let adjustedCurrent = currentMinutes;
-    if (s2End > 1440 && currentMinutes < 720) {
-        adjustedCurrent += 1440;
-    }
-
-    const GRACE_MINUTES = 60;
-    const autoCloseTime = s2End + GRACE_MINUTES;
-
-    // ❌ لم يحدث IN للوردية الثانية وانتهى وقتها
-    if (!hasOverride && adjustedCurrent > autoCloseTime) {
-        return {
-            state: 'COMPLETED',
-            message: 'DONE',
-            sub: 'Shift 2 missed',
-            canPunch: false
-        };
-    }
-
-    // ================================
-    // المنطق الطبيعي بعد ذلك
-    // ================================
-
-    const lastLogIdx = lastLog?.shiftIndex || 1;
-    if (lastLogIdx >= todayShifts.length) {
-        return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
-    }
-
-    if (todayShifts.length < 2) {
-        return { state: 'COMPLETED', message: 'DONE', sub: 'Day Complete', canPunch: false };
-    }
-
-    let normalizedS2Start = s2Start;
-    let s1End = toMins(todayShifts[0].end);
-    if (s1End > normalizedS2Start) normalizedS2Start += 1440;
-
-    const windowOpen = normalizedS2Start - 15;
-
-    if (hasOverride || currentMinutes >= windowOpen) {
-        return {
-            state: 'READY_IN',
-            message: 'START',
-            sub: 'Shift 2',
-            canPunch: true,
-            shiftIdx: 2
-        };
-    } else {
-        let diff = windowOpen - currentMinutes;
-        if (diff < 0) diff += 1440;
-
-        const h = Math.floor(diff / 60);
-        const m = diff % 60;
-
-        return {
-            state: 'DISABLED',
-            message: 'BREAK',
-            sub: `Next shift in ${h}h ${m}m`,
-            timeRemaining: `${h}:${m}`,
-            canPunch: false,
-            isBreak: true
-        };
-    }
-}
-
-
-        // --- PHASE 3: THREE LOGS ---
-        if (logsCount === 3) {
-            let s2End = toMins(todayShifts[1].end);
-            let s2Start = toMins(todayShifts[1].start);
-            if (s2End < s2Start) s2End += 1440;
-
-            let adjustedCurrent = currentMinutes;
-            if (s2End > 1440 && currentMinutes < 720) adjustedCurrent += 1440;
-
-            // ============================================================
-            // 🛑 التعديل الجديد للوردية الثانية
-            // ============================================================
-            const GRACE_PERIOD_MINUTES = 60;
-            const autoCloseTime = s2End + GRACE_PERIOD_MINUTES;
-
-            if (!hasOverride && adjustedCurrent > autoCloseTime) {
-                return { 
-                    state: 'COMPLETED', 
-                    message: 'CLOSED', 
-                    sub: 'S2 Timeout', 
-                    canPunch: false 
-                };
-            }
-            // ============================================================
-
-            const windowOpen = s2End - 15;
-
-            if (hasOverride || adjustedCurrent >= windowOpen) {
-                return { state: 'READY_OUT', message: 'END', sub: 'Shift 2', canPunch: true, shiftIdx: 2 };
-            } else {
-                return { state: 'LOCKED', message: 'ON DUTY', sub: `Ends at ${todayShifts[1].end}`, canPunch: false };
-            }
-        }
-
-        return { state: 'COMPLETED', message: 'DONE', sub: 'See you tomorrow!', canPunch: false };
-
-    }, [todayLogs, yesterdayLogs, todayShifts, hasOverride, logicTicker, currentTime]);
-
-
+    // Use the logic from separate file
+    const shiftLogic = useMemo(() => {
+        // Pass yesterdayShifts to support overnight logic
+        // NEW: Pass todayAction to logic so it returns ON_LEAVE state
+        return calculateShiftStatus(currentTime, todayLogs, yesterdayLogs, todayShifts, hasOverride, yesterdayShifts, todayAction);
+    }, [todayLogs, yesterdayLogs, todayShifts, yesterdayShifts, hasOverride, logicTicker, currentTime, todayAction]);
 
     // --- ACTIONS ---
     const playSound = (type: 'success' | 'error' | 'click') => {
@@ -700,161 +490,329 @@ if (logsCount === 2) {
         }
         return true; 
     };
+    
 
     const handlePunch = async () => {
-    // 1. المنع الفوري إذا كانت العملية قيد التنفيذ أو البصمة غير مسموحة
-    if (isProcessingRef.current || !shiftLogic.canPunch) return;
-
-    isProcessingRef.current = true; // قفل العملية فوراً
-    
-    playSound('click');
-    setErrorDetails({title:'', msg:''});
-
-    // دالة مساعدة لفتح القفل بعد وقت معين (لتجنب النقرات السريعة جداً)
-    const releaseLock = (delay = 2000) => {
-        setTimeout(() => {
-            isProcessingRef.current = false;
-        }, delay);
-    };
-
-    if (!navigator.onLine) {
-        setStatus('ERROR');
-        setErrorDetails({ title: 'No Internet', msg: 'Check connection.' });
-        playSound('error');
-        releaseLock(); // فتح القفل للمحاولة لاحقاً
-        return;
-    }
-
-    if (!hasOverride) {
-        if (userProfile?.biometricId && userProfile.biometricId !== localDeviceId) {
-            setStatus('ERROR');
-            setErrorDetails({ title: 'Invalid Device', msg: 'Use registered device.' });
-            playSound('error');
-            releaseLock();
+        if (activeLiveCheck) {
+            handleLiveCheck();
             return;
         }
-    }
 
-    try {
-        await authenticateUser();
-        setStatus('SCANNING_LOC');
+        if (isProcessingRef.current || !shiftLogic.canPunch) return;
 
-        if (!navigator.geolocation) {
-            throw new Error('GPS not supported');
+        isProcessingRef.current = true; 
+        playSound('click');
+        setErrorDetails({title:'', msg:''});
+
+        const releaseLock = (delay = 2000) => {
+            setTimeout(() => {
+                isProcessingRef.current = false;
+            }, delay);
+        };
+
+        if (!navigator.onLine) {
+            setStatus('ERROR');
+            setErrorDetails({ title: 'No Internet', msg: 'Check connection.' });
+            playSound('error');
+            releaseLock(); 
+            return;
         }
+
+        if (!localDeviceId) {
+             setStatus('ERROR');
+             setErrorDetails({ title: 'Device Error', msg: 'Identifying Device...' });
+             // Try to regenerate fingerprint if missing
+             getStableDeviceFingerprint().then(setLocalDeviceId);
+             releaseLock();
+             return;
+        }
+
+        if (!hasOverride) {
+            if (userProfile?.biometricId && userProfile.biometricId !== localDeviceId) {
+                setStatus('ERROR');
+                setErrorDetails({ title: 'Invalid Device', msg: 'Please use your registered device.' });
+                playSound('error');
+                releaseLock();
+                return;
+            }
+        }
+
+        try {
+            await authenticateUser();
+            setStatus('SCANNING_LOC');
+
+            if (!navigator.geolocation) {
+                throw new Error('GPS not supported');
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                async (pos) => {
+                    try {
+                        const { latitude, longitude, accuracy } = pos.coords;
+                        // @ts-ignore
+                        const isMocked = pos.coords.mocked || false; 
+
+                        const deviceTime = Date.now();
+                        const serverTimeFromOffset = deviceTime + timeOffset;
+                        const timeDiffMinutes = Math.abs(deviceTime - serverTimeFromOffset) / (1000 * 60);
+                        
+                        let isSuspicious = false;
+                        let violationType = '';
+
+                        if (timeDiffMinutes > 5) { 
+                            isSuspicious = true;
+                            violationType = 'MANUAL_TIME_CHANGE';
+                        }
+
+                        if (isMocked) {
+                            isSuspicious = true;
+                            violationType = 'MOCK_LOCATION_DETECTED';
+                        }
+
+                        const dist = getDistanceFromLatLonInKm(latitude, longitude, HOSPITAL_LAT, HOSPITAL_LNG);
+
+                        if (dist > ALLOWED_RADIUS_KM && !hasOverride) {
+                            setStatus('ERROR');
+                            setErrorDetails({ title: 'Out of Range', msg: `You are ${(dist * 1000).toFixed(0)}m away.` });
+                            playSound('error');
+                            releaseLock();
+                            return;
+                        }
+
+                        setStatus('PROCESSING');
+                        
+                        const localDateStr = getLocalDateKey(currentTime!);
+                        const nextType = shiftLogic.state === 'READY_IN' ? 'IN' : 'OUT';
+                        
+                        const currentShiftIdx = (shiftLogic as any).shiftIdx || 1;
+
+                        await addDoc(collection(db, 'attendance_logs'), {
+                            userId: currentUserId,
+                            userName: currentUserName,
+                            type: nextType,
+                            timestamp: serverTimestamp(),
+                            clientTimestamp: Timestamp.now(),
+                            date: localDateStr,
+                            locationLat: latitude,
+                            locationLng: longitude,
+                            distanceKm: dist,
+                            accuracy: accuracy,
+                            deviceInfo: navigator.userAgent,
+                            deviceId: localDeviceId, // Using the new Stable Fingerprint
+                            status: isSuspicious ? 'flagged' : 'verified', 
+                            shiftIndex: currentShiftIdx, 
+                            isSuspicious: isSuspicious, 
+                            violationType: violationType 
+                        });
+
+                        if (!userProfile?.biometricId) {
+                            await updateDoc(doc(db, 'users', currentUserId), {
+                                biometricId: localDeviceId,
+                                biometricRegisteredAt: Timestamp.now()
+                            });
+                        }
+
+                        setStatus('SUCCESS');
+                        playSound('success');
+                        if (navigator.vibrate) navigator.vibrate([100]);
+                        
+                        setTimeout(() => setStatus('IDLE'), 2000);
+                        releaseLock(3000); 
+
+                    } catch (innerError: any) {
+                        console.error(innerError);
+                        setStatus('ERROR');
+                        setErrorDetails({ title: 'Process Error', msg: innerError.message });
+                        releaseLock();
+                    }
+                },
+                (err) => {
+                    let errorMsg = "حدث خطأ في تحديد الموقع";
+                    if (err.code === 1) errorMsg = "يرجى تفعيل صلاحية الموقع للمتصفح";
+                    if (err.code === 2) errorMsg = "إشارة الـ GPS ضعيفة جداً (حاول الاقتراب من نافذة أو فتح الواي فاي)";
+                    if (err.code === 3) errorMsg = "استغرق تحديد الموقع وقتاً طويلاً، حاول مرة أخرى";
+                    setStatus('ERROR');
+                    setErrorDetails({ title: 'GPS Failed', msg: err.message });
+                    playSound('error');
+                    setTimeout(() => setStatus('IDLE'), 3000);
+                    releaseLock();
+                },
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+            );
+
+        } catch (e: any) {
+            setStatus('ERROR');
+            setErrorDetails({ title: 'Auth Failed', msg: e.message || "Unknown error" });
+            playSound('error');
+            releaseLock();
+        }
+    };
+
+    // --- LIVE CHECK LISTENER ---
+    useEffect(() => {
+        const unsubAuth = onAuthStateChanged(auth, (user: any) => {
+            if (user) {
+                setRealUserId(user.uid);
+            } else {
+                setRealUserId(null);
+            }
+        });
+        return () => unsubAuth();
+    }, []);
+
+    useEffect(() => {
+        if (!realUserId) return;
+
+        const qLiveCheck = query(
+            collection(db, 'location_checks'), 
+            where('targetUserId', '==', realUserId), 
+            where('status', '==', 'pending')
+        );
+
+        const unsubLiveCheck = onSnapshot(qLiveCheck, async (snap) => {
+            if (!snap.empty) {
+                const docRef = snap.docs[0];
+                const docData = docRef.data();
+                const req = { id: docRef.id, ...docData } as LocationCheckRequest;
+                
+                try {
+                    const userSnap = await getDoc(doc(db, 'users', realUserId));
+                    if (userSnap.exists()) {
+                        const registeredDevice = userSnap.data().biometricId;
+                        const regClean = (registeredDevice || '').trim();
+                        const localClean = (localDeviceId || '').trim();
+
+                        if (regClean && regClean !== localClean && !hasOverride) {
+                            await updateDoc(doc(db, 'location_checks', req.id), {
+                                status: 'rejected',
+                                reason: 'Unauthorized Device Attempt',
+                                completedAt: serverTimestamp(),
+                                deviceMismatch: true
+                            });
+                            setToast({ msg: 'Live Check skipped: Unauthorized Device', type: 'error' });
+                            return; 
+                        }
+                    }
+                } catch (e) {
+                    console.error("Error verifying device for check", e);
+                }
+
+                setActiveLiveCheck(req);
+                new Audio('https://assets.mixkit.co/active_storage/sfx/2868/2868-preview.mp3').play().catch(()=>{});
+            } else {
+                setActiveLiveCheck(null);
+            }
+        });
+
+        return () => unsubLiveCheck();
+    }, [realUserId, localDeviceId, hasOverride]);
+
+    const handleLiveCheck = async () => {
+        if(!activeLiveCheck) return;
+        setIsLiveCheckProcessing(true);
+        setStatus('SCANNING_LOC');
 
         navigator.geolocation.getCurrentPosition(
             async (pos) => {
-                try {
-                    const { latitude, longitude, accuracy } = pos.coords;
-                    // @ts-ignore (لفحص ميزة mocked إذا كانت متاحة في المتصفح)
-                    const isMocked = pos.coords.mocked || false; 
-
-                    // 1. فحص التلاعب بالوقت (الفرق بين وقت الجهاز ووقت السيرفر المزامَن)
-                    const deviceTime = Date.now();
-                    const serverTimeFromOffset = deviceTime + timeOffset;
-                    const timeDiffMinutes = Math.abs(deviceTime - serverTimeFromOffset) / (1000 * 60);
-                    
-                    let isSuspicious = false;
-                    let violationType = '';
-
-                    // كشف تغيير وقت الجهاز يدوياً
-                    if (timeDiffMinutes > 5) { 
-                        isSuspicious = true;
-                        violationType = 'MANUAL_TIME_CHANGE';
-                    }
-
-                    // كشف المواقع الوهمية (Mock Location)
-                    if (isMocked) {
-                        isSuspicious = true;
-                        violationType = 'MOCK_LOCATION_DETECTED';
-                    }
-
-                    const dist = getDistanceFromLatLonInKm(latitude, longitude, HOSPITAL_LAT, HOSPITAL_LNG);
-
-                    // المنع الفوري إذا كان الموقع خارج النطاق وبدون إذن (Override)
-                    if (dist > ALLOWED_RADIUS_KM && !hasOverride) {
-                        setStatus('ERROR');
-                        setErrorDetails({ title: 'Out of Range', msg: `You are ${(dist * 1000).toFixed(0)}m away.` });
-                        playSound('error');
-                        releaseLock();
-                        return;
-                    }
-
-                    setStatus('PROCESSING');
-                    
-                    const localDateStr = getLocalDateKey(currentTime!);
-                    const nextType = shiftLogic.state === 'READY_IN' ? 'IN' : 'OUT';
-                    
-                    // إرسال البيانات مع علامات التحذير للمشرف
-                    await addDoc(collection(db, 'attendance_logs'), {
-                        userId: currentUserId,
-                        userName: currentUserName,
-                        type: nextType,
-                        timestamp: serverTimestamp(),
-                        clientTimestamp: Timestamp.now(),
-                        date: localDateStr,
-                        locationLat: latitude,
-                        locationLng: longitude,
-                        distanceKm: dist,
-                        accuracy: accuracy,
-                        deviceInfo: navigator.userAgent,
-                        deviceId: localDeviceId,
-                        status: isSuspicious ? 'flagged' : 'verified', // تعليم السجل للمشرف
-                        shiftIndex: (shiftLogic as any).shiftIdx || 1,
-                        isSuspicious: isSuspicious, // سيظهر عند المشرف باللون الأحمر
-                        violationType: violationType // نوع المخالفة (وقت أم موقع)
-                    });
-
-                    if (!userProfile?.biometricId) {
-                        await updateDoc(doc(db, 'users', currentUserId), {
-                            biometricId: localDeviceId,
-                            biometricRegisteredAt: Timestamp.now()
-                        });
-                    }
-
-                    setStatus('SUCCESS');
-                    playSound('success');
-                    if (navigator.vibrate) navigator.vibrate([100]);
-                    
-                    // في حالة النجاح ننتظر قليلاً قبل السماح ببصمة أخرى
-                    setTimeout(() => setStatus('IDLE'), 2000);
-                    releaseLock(3000); // تأخير إضافي بعد النجاح للأمان
-
-                } catch (innerError: any) {
-                    console.error(innerError);
-                    setStatus('ERROR');
-                    setErrorDetails({ title: 'Process Error', msg: innerError.message });
-                    releaseLock();
-                }
+                await updateDoc(doc(db, 'location_checks', activeLiveCheck.id), {
+                    status: 'completed',
+                    userName: currentUserName,
+                    locationLat: pos.coords.latitude,
+                    locationLng: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy,
+                    completedAt: serverTimestamp(),
+                    deviceId: localDeviceId
+                });
+                
+                setToast({msg: 'تم إرسال الموقع بنجاح ✅', type: 'success'});
+                setActiveLiveCheck(null);
+                setIsLiveCheckProcessing(false);
+                setStatus('SUCCESS');
+                setTimeout(() => setStatus('IDLE'), 2000);
             },
-            (err) => {
-                setStatus('ERROR');
-                setErrorDetails({ title: 'GPS Failed', msg: err.message });
-                playSound('error');
-                setTimeout(() => setStatus('IDLE'), 3000);
-                releaseLock();
+            async (err) => {
+                setToast({msg: 'فشل تحديد الموقع، حاول مرة أخرى', type: 'error'});
+                setIsLiveCheckProcessing(false);
+                setStatus('IDLE');
             },
-            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
+    };
 
-    } catch (e: any) {
-        setStatus('ERROR');
-        setErrorDetails({ title: 'Auth Failed', msg: e.message || "Unknown error" });
-        playSound('error');
-        releaseLock();
-    }
-};
-    // --- VISUAL CONFIGURATION (Cyberpunk/Glassmorphism) ---
+    // --- VISUAL CONFIGURATION ---
     const visualState = useMemo(() => {
+        if (activeLiveCheck) {
+            return {
+                theme: 'rose',
+                mainText: isLiveCheckProcessing ? 'SENDING...' : 'CONFIRM LOCATION',
+                subText: 'Supervisor Requested',
+                icon: 'fa-map-marker-alt',
+                ringClass: 'border-red-500 shadow-[0_0_80px_rgba(239,68,68,0.6)] animate-pulse-ring',
+                btnClass: 'bg-red-600 text-white hover:bg-red-700 animate-pulse',
+                pulse: true
+            };
+        }
+
+        // Logic Override for "OFF DUTY" -> Show Next Shift
+        if (shiftLogic.state === 'OFF' && tomorrowShifts.length > 0) {
+            const nextShift = tomorrowShifts[0];
+            return {
+                theme: 'sky',
+                mainText: 'NEXT SHIFT',
+                subText: `Tomorrow ${nextShift.start}`,
+                icon: 'fa-calendar-day',
+                ringClass: 'border-sky-500/20 shadow-[0_0_50px_rgba(56,189,248,0.1)]',
+                btnClass: 'bg-sky-900/10 text-sky-500',
+                pulse: false
+            };
+        }
+
+        // NEW: Specific Handling for Leave State (Robust Check)
+        if (shiftLogic.state === 'ON_LEAVE') {
+            const colorStr = shiftLogic.color || '';
+            const isRed = colorStr.includes('red') || colorStr.includes('rose');
+            
+            return {
+                theme: isRed ? 'rose' : 'purple',
+                mainText: shiftLogic.message,
+                subText: shiftLogic.sub,
+                icon: 'fa-umbrella-beach',
+                ringClass: `border-${isRed ? 'red' : 'purple'}-500/20 shadow-[0_0_50px_rgba(200,200,200,0.1)]`,
+                btnClass: `${colorStr || 'bg-purple-900/40 text-purple-400'} cursor-not-allowed`,
+                pulse: false
+            };
+        }
+
         const isBreak = (shiftLogic as any).isBreak;
         
         if (!shiftLogic.canPunch) {
-            if (shiftLogic.state === 'MISSED') {
+            if (shiftLogic.state === 'MISSED_OUT') {
                 return {
-                    theme: 'rose', // Red Theme for missed
-                    mainText: 'MISSED',
-                    subText: 'Shift Expired',
+                    theme: 'rose',
+                    mainText: 'MISSED OUT',
+                    subText: shiftLogic.sub,
+                    icon: 'fa-user-clock',
+                    ringClass: 'border-rose-500/20 shadow-[0_0_50px_rgba(244,63,94,0.1)]',
+                    btnClass: 'bg-rose-900/10 text-rose-500 animate-pulse',
+                    pulse: true
+                };
+            }
+            if (shiftLogic.state === 'NEXT_SHIFT') {
+                return {
+                    theme: 'slate',
+                    mainText: 'NEXT SHIFT',
+                    subText: shiftLogic.sub,
+                    icon: 'fa-moon',
+                    ringClass: 'border-slate-500/20 shadow-[0_0_50px_rgba(100,116,139,0.1)]',
+                    btnClass: 'bg-slate-900/10 text-slate-500',
+                    pulse: false
+                };
+            }
+            if (shiftLogic.state === 'ABSENT') {
+                return {
+                    theme: 'rose', 
+                    mainText: 'ABSENT', 
+                    subText: shiftLogic.sub,
                     icon: 'fa-user-slash',
                     ringClass: 'border-rose-500/20 shadow-[0_0_50px_rgba(244,63,94,0.1)]',
                     btnClass: 'bg-rose-900/10 text-rose-500',
@@ -864,24 +822,24 @@ if (logsCount === 2) {
             if (shiftLogic.state === 'COMPLETED') {
                 return {
                     theme: 'emerald',
-                    mainText: 'DONE',
-                    subText: shiftLogic.sub || 'SHIFT COMPLETE',
+                    mainText: shiftLogic.message, 
+                    subText: shiftLogic.sub,
                     icon: 'fa-check-circle',
                     ringClass: 'border-emerald-500/20 shadow-[0_0_50px_rgba(16,185,129,0.1)]',
                     btnClass: 'bg-emerald-900/10 text-emerald-500',
                     pulse: false
                 };
             }
-            if (isBreak) {
+            if (isBreak || shiftLogic.state === 'WAITING') {
                 return {
                     theme: 'amber',
-                    mainText: 'BREAK',
+                    mainText: shiftLogic.state === 'WAITING' ? 'WAITING' : 'BREAK',
                     subText: shiftLogic.sub,
                     extraText: (shiftLogic as any).timeRemaining,
                     icon: 'fa-coffee',
                     ringClass: 'border-amber-500/20 shadow-[0_0_30px_rgba(245,158,11,0.1)]',
                     btnClass: 'bg-amber-900/10 text-amber-500',
-                    pulse: true // Slow pulse
+                    pulse: true 
                 };
             }
             return {
@@ -898,7 +856,7 @@ if (logsCount === 2) {
         const isCheckIn = shiftLogic.state === 'READY_IN';
         return {
             theme: isCheckIn ? 'cyan' : 'rose',
-            mainText: isCheckIn ? 'START' : 'FINISH',
+            mainText: shiftLogic.message,
             subText: shiftLogic.sub,
             icon: isCheckIn ? 'fa-fingerprint' : 'fa-sign-out-alt',
             ringClass: isCheckIn 
@@ -909,9 +867,8 @@ if (logsCount === 2) {
                 : 'bg-rose-600 text-white hover:bg-rose-500',
             pulse: true
         };
-    }, [shiftLogic]);
+    }, [shiftLogic, activeLiveCheck, isLiveCheckProcessing, tomorrowShifts]);
 
-    // Circular Progress for Seconds (Visual Candy)
     const radius = 140;
     const circumference = 2 * Math.PI * radius;
     const displayTime = currentTime || new Date();
@@ -921,10 +878,9 @@ if (logsCount === 2) {
         <div className="min-h-screen bg-[#050505] text-white font-sans flex flex-col relative overflow-hidden selection:bg-cyan-500/30" dir={dir}>
             <style>{styles}</style>
             
-            {/* --- LIVE AMBIENT BACKGROUND --- */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
                 <div className={`absolute top-[-20%] left-[-10%] w-[70vw] h-[70vw] rounded-full mix-blend-screen filter blur-[120px] opacity-20 animate-float transition-colors duration-[2000ms]
-                    ${visualState.theme === 'cyan' ? 'bg-cyan-600' : visualState.theme === 'rose' ? 'bg-rose-600' : visualState.theme === 'amber' ? 'bg-amber-600' : 'bg-slate-800'}`}>
+                    ${visualState.theme === 'cyan' ? 'bg-cyan-600' : visualState.theme === 'rose' ? 'bg-rose-600' : visualState.theme === 'amber' ? 'bg-amber-600' : visualState.theme === 'purple' ? 'bg-purple-600' : 'bg-slate-800'}`}>
                 </div>
                 <div className={`absolute bottom-[-20%] right-[-10%] w-[60vw] h-[60vw] rounded-full mix-blend-screen filter blur-[100px] opacity-10 animate-float transition-colors duration-[2000ms] delay-1000
                     ${visualState.theme === 'cyan' ? 'bg-blue-600' : visualState.theme === 'rose' ? 'bg-orange-600' : 'bg-slate-700'}`}>
@@ -934,7 +890,6 @@ if (logsCount === 2) {
 
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
-            {/* --- Header --- */}
             <div className="relative z-30 flex justify-between items-center p-6 glass-panel border-b border-white/5">
                 <button onClick={() => navigate('/user')} className="group flex items-center gap-3 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 transition-all backdrop-blur-md">
                     <i className="fas fa-chevron-left text-white/70 group-hover:text-white transition-colors rtl:rotate-180"></i>
@@ -955,43 +910,36 @@ if (logsCount === 2) {
                 </div>
             </div>
 
-                {/* ✅ ضع الكود هنا بالظبط (تحت الهيدر مباشرة) ✅ */}
           {hasOverride && timeLeft !== null && (
-    <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 w-full max-w-[280px] transition-all duration-500 ${timeLeft <= 10 ? 'scale-110' : 'scale-100'}`}>
-        <div className={`
-            flex items-center justify-center gap-3 px-6 py-3 rounded-2xl shadow-2xl border backdrop-blur-xl transition-colors duration-300
-            ${timeLeft <= 10 
-                ? 'bg-red-600/90 border-red-400 animate-shake' // تأثير الاهتزاز في آخر 5 ثواني
-                : 'bg-orange-600/80 border-white/20 animate-bounce'
-            } text-white`}
-        >
-            <i className={`fas ${timeLeft <= 10 ? 'fa-triangle-exclamation' : 'fa-clock-rotate-left'} text-xl`}></i>
-            <div className="flex flex-col">
-                <span className="text-[10px] uppercase font-black tracking-widest opacity-80 leading-none">
-                    {timeLeft <= 10 ? 'Hurry Up!' : 'Access Window'}
-                </span>
-                <span className="text-lg font-black tabular-nums leading-none mt-1">
-                    Closing in: <span className="underline decoration-2 underline-offset-4">{timeLeft}s</span>
-                </span>
+            <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 w-full max-w-[280px] transition-all duration-500 ${timeLeft <= 10 ? 'scale-110' : 'scale-100'}`}>
+                <div className={`
+                    flex items-center justify-center gap-3 px-6 py-3 rounded-2xl shadow-2xl border backdrop-blur-xl transition-colors duration-300
+                    ${timeLeft <= 10 
+                        ? 'bg-red-600/90 border-red-400 animate-shake' 
+                        : 'bg-orange-600/80 border-white/20 animate-bounce'
+                    } text-white`}
+                >
+                    <i className={`fas ${timeLeft <= 10 ? 'fa-triangle-exclamation' : 'fa-clock-rotate-left'} text-xl`}></i>
+                    <div className="flex flex-col">
+                        <span className="text-[10px] uppercase font-black tracking-widest opacity-80 leading-none">
+                            {timeLeft <= 10 ? 'Hurry Up!' : 'Access Window'}
+                        </span>
+                        <span className="text-lg font-black tabular-nums leading-none mt-1">
+                            Closing in: <span className="underline decoration-2 underline-offset-4">{timeLeft}s</span>
+                        </span>
+                    </div>
+                </div>
             </div>
-        </div>
-    </div>
-)}
-            {/* --- Main Content --- */}
+        )}
             <div className="flex-1 flex flex-col items-center justify-center relative z-20 px-4 pb-24">
                 
-                {/* --- CLOCK --- */}
                 {currentTime && <DigitalClock date={currentTime} />}
 
-                {/* --- THE REACTOR BUTTON --- */}
 <div className="relative group scale-90 md:scale-100 transition-transform duration-500 flex items-center justify-center">
     
-    {/* 1. الخلفية: حلقات الزينة (Dashed & Glow) */}
     <div className="absolute inset-[-40px] border border-dashed border-white/10 rounded-full animate-rotate-slow pointer-events-none"></div>
     <div className={`absolute w-[340px] h-[340px] rounded-full border-2 ${visualState.ringClass} transition-all duration-700 pointer-events-none`}></div>
     
-    {/* 2. الطبقة الوسطى: الخط الدائري المتحرك (SVG) */}
-    {/* نضع z-10 ليكون فوق الخلفية وتحت محتوى الزر */}
     <svg 
         viewBox="0 0 340 340" 
         className="absolute w-[340px] h-[340px] -rotate-90 pointer-events-none z-10 overflow-visible"
@@ -1010,47 +958,49 @@ if (logsCount === 2) {
             className={`transition-all duration-1000 ease-linear ${
                 visualState.theme === 'cyan' ? 'text-cyan-400' : 
                 visualState.theme === 'rose' ? 'text-rose-500' : 
-                visualState.theme === 'amber' ? 'text-amber-500' : 'text-slate-600'
+                visualState.theme === 'amber' ? 'text-amber-500' : 
+                visualState.theme === 'purple' ? 'text-purple-500' : 
+                visualState.theme === 'sky' ? 'text-sky-400' : 'text-slate-600'
             }`}
         />
     </svg>
 
-    {/* 3. الطبقة العليا: الزر الفعلي (الذي يحتوي على النص والأيقونة) */}
-    {/* نضع z-20 لضمان أن النص فوق الخط تماماً ولا يتم تغطيته */}
     <div className="relative z-20">
        <button
-    onClick={handlePunch}
-    disabled={status !== 'IDLE' && status !== 'ERROR' || !shiftLogic.canPunch} // السماح بالضغط حتى لو كان هناك خطأ سابق للمحاولة مرة أخرى
-    className={`
-        relative w-64 h-64 rounded-full flex flex-col items-center justify-center 
-        transition-all duration-500 transform active:scale-95 
-        ${visualState.theme === 'rose' && status === 'ERROR' ? 'bg-red-900/40 text-red-500 border-red-500/50' : visualState.btnClass} 
-        glass-panel border-4 border-white/5 shadow-2xl
-        ${(status !== 'IDLE' && status !== 'ERROR') ? 'opacity-50 cursor-not-allowed' : ''}
-    `}
->
-    {/* محتوى الزر (أيقونة، نص رئيسي، نص فرعي) */}
-    <i className={`fas ${status === 'ERROR' ? 'fa-exclamation-triangle' : visualState.icon} text-5xl mb-4 neon-text-glow`}></i>
-    
-    <span className="text-2xl font-black tracking-tighter uppercase leading-none text-center px-4">
-        {status === 'IDLE' ? visualState.mainText : 
-         status === 'ERROR' ? errorDetails.title : // هنا يظهر عنوان الخطأ بدلاً من كلمة ERROR
-         status} 
-    </span>
+            onClick={handlePunch}
+            disabled={status !== 'IDLE' && status !== 'ERROR' && !activeLiveCheck && !shiftLogic.canPunch}
+            className={`
+                relative w-64 h-64 rounded-full flex flex-col items-center justify-center 
+                transition-all duration-500 transform active:scale-95 
+                ${visualState.theme === 'rose' && status === 'ERROR' ? 'bg-red-900/40 text-red-500 border-red-500/50' : visualState.btnClass} 
+                glass-panel border-4 border-white/5 shadow-2xl
+                ${(status !== 'IDLE' && status !== 'ERROR' && !activeLiveCheck && !shiftLogic.canPunch) ? 'opacity-90 cursor-not-allowed' : ''}
+            `}
+        >
+            <i className={`fas ${status === 'ERROR' ? 'fa-exclamation-triangle' : visualState.icon} text-5xl mb-4 neon-text-glow`}></i>
+            
+            <span className="text-2xl font-black tracking-tighter uppercase leading-none text-center px-4">
+                {status === 'IDLE' ? visualState.mainText : 
+                status === 'ERROR' ? errorDetails.title : 
+                status} 
+            </span>
 
-    <span className="text-[10px] mt-2 font-bold tracking-[0.2em] opacity-60 uppercase text-center px-4">
-        {status === 'ERROR' ? errorDetails.msg : visualState.subText}
-    </span>
-</button>
+            <span className="text-[10px] mt-2 font-bold tracking-[0.2em] opacity-60 uppercase text-center px-4">
+                {status === 'ERROR' ? errorDetails.msg : visualState.subText}
+            </span>
+        </button>
     </div>
 </div>
 
-                {/* Shift HUD */}
 {todayShifts.length > 0 && (
     <div className="mt-10 w-full max-w-2xl flex flex-col gap-6 px-4">
         {todayShifts.map((s, i) => {
             const isCurrent = (shiftLogic as any).shiftIdx === (i + 1);
-            const isMissed = (shiftLogic as any).shiftIdx > (i + 1) && todayLogs.length < (i + 1) * 2;
+            const isMissed = (shiftLogic as any).shiftIdx > (i + 1) && todayLogs.length < (i + 1) * 2; 
+            
+            const startH = parseInt(s.start.split(':')[0]);
+            const endH = parseInt(s.end.split(':')[0]);
+            const isOvernight = endH < startH;
 
             let borderColor = 'border-white/10';
             let bgColor = 'bg-white/5';
@@ -1069,10 +1019,9 @@ if (logsCount === 2) {
                     key={i} 
                     className={`glass-panel p-6 rounded-3xl flex flex-col gap-4 transition-all duration-500 border-2 ${borderColor} ${bgColor} ${isCurrent ? 'shadow-2xl scale-[1.03]' : 'opacity-70'}`}
                 >
-                    {/* العنوان العلوي */}
                     <div className="flex justify-between items-center border-b border-white/5 pb-2">
                         <span className="text-xs font-black text-white/30 uppercase tracking-[0.3em]">
-                            Shift {i + 1}
+                            Shift {i + 1} {isOvernight ? '(OVERNIGHT)' : ''}
                         </span>
                         {isCurrent && (
                             <span className="flex items-center gap-2 text-[10px] bg-cyan-500 text-black px-3 py-1 rounded-full font-bold">
@@ -1082,7 +1031,6 @@ if (logsCount === 2) {
                         )}
                     </div>
 
-                    {/* عرض الوقت: واحد في الأول وواحد في الآخر */}
                     <div className={`flex justify-between items-center ${textColor}`}>
                         <div className="flex flex-col">
                             <span className="text-[10px] text-white/20 mb-1 uppercase">Start</span>
@@ -1091,7 +1039,6 @@ if (logsCount === 2) {
                             </span>
                         </div>
 
-                        {/* خط واصل جمالي في المنتصف */}
                         <div className="flex-grow mx-8 h-[2px] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
 
                         <div className="flex flex-col items-end">
@@ -1099,6 +1046,7 @@ if (logsCount === 2) {
                             <span className="text-3xl md:text-4xl font-black font-mono tracking-tighter">
                                 {s.end}
                             </span>
+                            {isOvernight && <span className="text-[9px] text-white/40 mt-1 uppercase">+1 Day</span>}
                         </div>
                     </div>
                 </div>
@@ -1108,7 +1056,6 @@ if (logsCount === 2) {
 )}
             </div>
 
-            {/* --- History Drawer (Bottom Sheet) --- */}
             <div className={`fixed bottom-0 left-0 right-0 glass-panel border-t border-white/10 transition-transform duration-500 z-40 flex flex-col rounded-t-[2.5rem] shadow-[0_-10px_60px_rgba(0,0,0,0.5)] ${showHistory ? 'translate-y-0 h-[75vh]' : 'translate-y-[calc(100%-90px)] h-[75vh]'}`}>
                 <div 
                     onClick={() => setShowHistory(!showHistory)}

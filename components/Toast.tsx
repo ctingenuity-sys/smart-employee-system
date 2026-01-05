@@ -8,36 +8,59 @@ interface ToastProps {
   onClose: () => void;
 }
 
-const Toast: React.FC<ToastProps> = ({ message, type, duration = 1000, onClose }) => {
+// Sound Synthesis Logic (Instant, Offline, No Errors)
+const playSystemSound = (type: 'success' | 'error' | 'info') => {
+  try {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContext) return;
+    
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    if (type === 'success') {
+      // Success Chime (Rising)
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+      osc.frequency.exponentialRampToValueAtTime(1174.66, ctx.currentTime + 0.1); // D6
+      
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+      
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.5);
+    } else if (type === 'error') {
+      // Error Buzz (Sawtooth)
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(150, ctx.currentTime);
+      
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+      
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
+    } else {
+      // Info Ping (Simple Sine)
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
+      
+      gain.gain.setValueAtTime(0.05, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.5);
+    }
+  } catch (e) {
+    // Silently ignore audio context errors (e.g. user didn't interact with page yet)
+  }
+};
+
+const Toast: React.FC<ToastProps> = ({ message, type, duration = 4000, onClose }) => {
   useEffect(() => {
-    // Sound Logic - استخدام نفس المكتبة الصوتية لتوحيد التجربة
-    const playSound = () => {
-        let audioSrc = '';
-        switch (type) {
-            case 'success':
-                // Success Chime
-                audioSrc = 'https://assets.mixkit.co/active_storage/sfx/3005/3005-preview.mp3'; 
-                break;
-            case 'error':
-                // Error Alert
-                audioSrc = 'https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3'; 
-                break;
-            case 'info':
-            default:
-                // Info Notification (Crystal Bell)
-                audioSrc = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'; 
-                break;
-        }
-        
-        if (audioSrc) {
-            const audio = new Audio(audioSrc);
-            audio.volume = 1.0; 
-            audio.play().catch(e => console.warn('Toast audio blocked:', e));
-        }
-    };
-
-    playSound();
-
+    playSystemSound(type);
     const timer = setTimeout(onClose, duration);
     return () => clearTimeout(timer);
   }, [type, onClose, duration]);
@@ -54,12 +77,12 @@ const Toast: React.FC<ToastProps> = ({ message, type, duration = 1000, onClose }
   };
 
   return (
-    <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-[100] flex items-center gap-3 px-6 py-4 rounded-full shadow-xl text-white ${styles[type]} animate-bounce-in min-w-[320px] backdrop-blur-md bg-opacity-95`}>
+    <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-[100] flex items-center gap-3 px-6 py-4 rounded-full shadow-xl text-white ${styles[type]} animate-bounce-in min-w-[320px] backdrop-blur-md bg-opacity-95 cursor-pointer`} onClick={onClose}>
       <i className={`fas ${icons[type]} text-xl`}></i>
       <div className="flex-1">
         <p className="font-bold text-sm tracking-wide">{message}</p>
       </div>
-      <button onClick={onClose} className="text-white/80 hover:text-white hover:bg-white/20 rounded-full p-1 transition-colors">
+      <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="text-white/80 hover:text-white hover:bg-white/20 rounded-full p-1 transition-colors">
         <i className="fas fa-times"></i>
       </button>
     </div>

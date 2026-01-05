@@ -204,11 +204,43 @@ const SupervisorEmployees: React.FC = () => {
     };
 
     const handleResetBiometric = async (user: User) => {
-        if (!confirm(`Reset biometric binding for ${user.name}?`)) return;
+        if (!confirm(`هل أنت متأكد من فك ارتباط الجهاز للموظف ${user.name}؟ سيتمكن من تسجيل الدخول من جهاز جديد.`)) return;
         try {
             await updateDoc(doc(db, 'users', user.id), { biometricId: null, biometricRegisteredAt: null });
-            setToast({ msg: 'Biometric Reset', type: 'success' });
+            setToast({ msg: 'تم فك ارتباط الجهاز بنجاح', type: 'success' });
         } catch (e) { setToast({ msg: 'Error', type: 'error' }); }
+    };
+
+    const handleResetAllDevices = async () => {
+        if (!confirm("⚠️ تحذير: هذا الإجراء سيقوم بفك ارتباط جميع الموظفين بأجهزتهم الحالية. سيحتاج الجميع لإعادة التسجيل عند الدخول القادم. هل أنت متأكد؟")) return;
+        
+        setLoading(true);
+        try {
+            const batch = writeBatch(db);
+            // Get all users
+            const snap = await getDocs(collection(db, 'users'));
+            let count = 0;
+            
+            snap.docs.forEach(doc => {
+                batch.update(doc.ref, { 
+                    biometricId: null, 
+                    biometricRegisteredAt: null 
+                });
+                count++;
+            });
+            
+            if (count > 0) {
+                await batch.commit();
+                setToast({ msg: `تم تصفير الأجهزة لـ ${count} موظف بنجاح`, type: 'success' });
+            } else {
+                setToast({ msg: 'لا يوجد موظفين لتحديثهم', type: 'info' });
+            }
+        } catch(e: any) {
+            console.error(e);
+            setToast({ msg: 'حدث خطأ: ' + e.message, type: 'error' });
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleUnlockAttendance = async (user: User) => {
@@ -289,6 +321,13 @@ const handleSendLiveCheck = async (user: User) => {
                     </button>
                     <h1 className="text-2xl font-black text-slate-800">{t('sup.tab.users')}</h1>
                 </div>
+                {/* GLOBAL RESET BUTTON */}
+                <button 
+                    onClick={handleResetAllDevices}
+                    className="bg-red-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg hover:bg-red-700 transition-all flex items-center gap-2"
+                >
+                    <i className="fas fa-biohazard"></i> تصفير جميع الأجهزة
+                </button>
             </div>
             <div className="grid lg:grid-cols-3 gap-8 items-start">
                 {/* Right/Side Column: Forms (Accordions) */}
@@ -424,7 +463,7 @@ const handleSendLiveCheck = async (user: User) => {
                                             <td className="p-4">
                                                 <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button onClick={() => handleSendLiveCheck(user)} className="text-red-600 hover:bg-red-50 p-1 rounded animate-pulse" title="Live Check"><i className="fas fa-map-marker-alt"></i></button>
-                                                    {user.biometricId && <button onClick={() => handleResetBiometric(user)} className="text-orange-500 hover:bg-orange-50 p-1 rounded" title="Reset Bio"><i className="fas fa-unlock-alt"></i></button>}
+                                                    {user.biometricId && <button onClick={() => handleResetBiometric(user)} className="text-orange-500 hover:bg-orange-50 p-1 rounded" title="فك ارتباط الجهاز (Reset Device)"><i className="fas fa-unlock-alt"></i></button>}
                                                     <button onClick={() => handleUnlockAttendance(user)} className="text-purple-500 hover:bg-purple-50 p-1 rounded" title="Unlock Att"><i className="fas fa-history"></i></button>
                                                     <button onClick={() => handleDiagnoseUser(user)} className="text-indigo-500 hover:bg-indigo-50 p-1 rounded" title="Diagnose"><i className="fas fa-stethoscope"></i></button>
                                                     <button onClick={() => { setEditForm(user); setIsEditModalOpen(true); }} className="text-blue-500 hover:bg-blue-50 p-1 rounded"><i className="fas fa-pen"></i></button>

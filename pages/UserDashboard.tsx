@@ -100,7 +100,7 @@ const UserDashboard: React.FC = () => {
   const [incomingCount, setIncomingCount] = useState(0);
   const [currentSchedules, setCurrentSchedules] = useState<Schedule[]>([]);
   const [todayLogs, setTodayLogs] = useState<any[]>([]);
-  const [allTodayLogs, setAllTodayLogs] = useState<AttendanceLog[]>([]); // For "Who's on shift" accuracy
+  const [allTodayLogs, setAllTodayLogs] = useState<AttendanceLog[]>([]); // For "Who's on shift" widget accuracy
   const [hasAttendanceOverride, setHasAttendanceOverride] = useState(false);
   
   // NEW: Store Actions (Leaves, Absences)
@@ -559,10 +559,18 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
       { 
           id: 'profile', 
           title: t('user.tab.profile'), 
-          subtitle: 'الأداء والتقييم',
+          subtitle: 'ملفي الشخصي',
           icon: 'fa-id-card', 
           gradient: 'from-cyan-500 to-blue-600', 
           path: '/user/profile',
+      },
+      { 
+          id: 'performance', // NEW ITEM
+          title: 'أدائي (إحصائيات)', 
+          subtitle: 'مؤشرات الأداء',
+          icon: 'fa-chart-line', 
+          gradient: 'from-violet-500 to-purple-600', 
+          path: '/user/performance',
       },
       {
           id: 'tasks',

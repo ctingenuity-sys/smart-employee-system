@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, getDocs, orderBy, limit, Timestamp, addDoc, writeBatch, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getDocs, orderBy, limit, Timestamp, addDoc, writeBatch, doc, QuerySnapshot, DocumentData } from 'firebase/firestore';
 import { User, SwapRequest, LeaveRequest, AttendanceLog, Schedule } from '../types';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
@@ -88,22 +88,22 @@ const SupervisorDashboard: React.FC = () => {
 
       // 2. Pending Requests Counts
       const qSwaps = query(collection(db, 'swapRequests'), where('status', 'in', ['pending', 'approvedByUser']));
-      const unsubSwaps = onSnapshot(qSwaps, snap => setSwapRequestsCount(snap.size));
+      const unsubSwaps = onSnapshot(qSwaps, (snap: QuerySnapshot<DocumentData>) => setSwapRequestsCount(snap.size));
 
       const qLeaves = query(collection(db, 'leaveRequests'), where('status', '==', 'pending'));
-      const unsubLeaves = onSnapshot(qLeaves, snap => setLeaveRequestsCount(snap.size));
+      const unsubLeaves = onSnapshot(qLeaves, (snap: QuerySnapshot<DocumentData>) => setLeaveRequestsCount(snap.size));
 
       const qMarket = query(collection(db, 'openShifts'), where('status', '==', 'claimed'));
-      const unsubMarket = onSnapshot(qMarket, snap => setOpenShiftsCount(snap.size));
+      const unsubMarket = onSnapshot(qMarket, (snap: QuerySnapshot<DocumentData>) => setOpenShiftsCount(snap.size));
 
       // 3. Today's Appointments
       const todayDate = new Date().toISOString().split('T')[0];
       const qAppt = query(collection(db, 'appointments'), where('date', '==', todayDate));
-      const unsubAppt = onSnapshot(qAppt, snap => setTodayApptCount(snap.size));
+      const unsubAppt = onSnapshot(qAppt, (snap: QuerySnapshot<DocumentData>) => setTodayApptCount(snap.size));
 
       // 4. Live Logs (Fetch ALL for today to calculate presence)
       const qLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayDate)); 
-      const unsubLogs = onSnapshot(qLogs, snap => {
+      const unsubLogs = onSnapshot(qLogs, (snap: QuerySnapshot<DocumentData>) => {
           const logs = snap.docs.map(d => d.data() as AttendanceLog);
           // Sort for the feed
           const sortedLogs = [...logs].sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
@@ -288,9 +288,11 @@ const SupervisorDashboard: React.FC = () => {
       { id: 'attendance', title: 'Smart Analyzer', icon: 'fa-chart-pie', path: '/supervisor/attendance', color: 'bg-indigo-600' },
       { id: 'appointments', title: t('nav.appointments'), icon: 'fa-calendar-check', path: '/appointments', badge: todayApptCount, color: 'bg-cyan-600' },
       { id: 'employees', title: t('sup.tab.users'), icon: 'fa-users', path: '/supervisor/employees', color: 'bg-blue-600' },
+      { id: 'performance', title: 'Performance', icon: 'fa-chart-bar', path: '/supervisor/performance', color: 'bg-violet-600' }, // NEW
       { id: 'swaps', title: t('sup.tab.swaps'), icon: 'fa-exchange-alt', path: '/supervisor/swaps', badge: swapRequestsCount, color: 'bg-purple-600' },
       { id: 'leaves', title: t('sup.tab.leaves'), icon: 'fa-umbrella-beach', path: '/supervisor/leaves', badge: leaveRequestsCount, color: 'bg-rose-600' },
       { id: 'market', title: t('sup.tab.market'), icon: 'fa-store', path: '/supervisor/market', badge: openShiftsCount, color: 'bg-amber-500' },
+      { id: 'panic', title: 'Panic Reports', icon: 'fa-exclamation-triangle', path: '/supervisor/panic-reports', color: 'bg-red-600' }, // NEW
       { id: 'locations', title: t('sup.tab.locations'), icon: 'fa-map-marker-alt', path: '/supervisor/locations', color: 'bg-emerald-600' },
       { id: 'history', title: 'History', icon: 'fa-history', path: '/supervisor/history', color: 'bg-slate-600' },
   ];
@@ -368,7 +370,7 @@ const SupervisorDashboard: React.FC = () => {
             </div>
 
             {/* 2. Navigation Menu */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-4 mb-8">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-8">
                 {menuItems.map((item) => (
                     <button
                         key={item.id}

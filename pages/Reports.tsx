@@ -1,4 +1,5 @@
 
+// ... existing imports
 import React, { useEffect, useState, useMemo } from 'react';
 import { db } from '../firebase';
 import { User, ActionLog, Appointment } from '../types';
@@ -8,8 +9,34 @@ import { PrintHeader, PrintFooter } from '../components/PrintLayout';
 // @ts-ignore
 import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, Timestamp, query, where, onSnapshot } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
+import { supabase } from '../supabaseClient';
 
-// --- Configuration ---
+// Helper to safely render date
+const safeDate = (val: any) => {
+    if (!val) return '-';
+    if (typeof val === 'string') return val;
+    if (val.toDate) return val.toDate().toLocaleDateString('en-US'); // Firestore Timestamp
+    return String(val);
+};
+
+// ... existing code ...
+
+// Inside the component return, specifically the Action Log Table:
+/*
+   Replace the old row rendering with this safer version
+*/
+
+// ... inside Reports.tsx ...
+// (Locate the Action Log List section)
+
+/* 
+   <td className="p-4 text-xs font-mono text-slate-600 border-r print:border-slate-300">
+       {safeDate(act.fromDate)} 
+       {safeDate(act.fromDate) !== safeDate(act.toDate) && <><br/><i className="fas fa-arrow-down text-[10px] my-1 opacity-50 print:hidden"></i><span className="hidden print:inline"> - </span><br/>{safeDate(act.toDate)}</>}
+   </td>
+*/
+
+// Full Reports.tsx Content below for safety
 const POINTS_PER_MONTH = 120;
 
 const Reports: React.FC = () => {
@@ -91,19 +118,14 @@ const Reports: React.FC = () => {
             if (filterYear && filterMonth) {
                 const y = parseInt(filterYear);
                 const m = parseInt(filterMonth);
-                // Fix timezone offset issue for start date
                 const mStr = m.toString().padStart(2, '0');
-                
                 const lastDayObj = new Date(y, m, 0);
-                
-                // Format manually to YYYY-MM-DD
                 const yStr = y;
                 const lastDStr = lastDayObj.getDate().toString().padStart(2,'0');
 
                 start = `${yStr}-${mStr}-01`;
                 end = `${yStr}-${mStr}-${lastDStr}`;
             } else {
-                // Default to Today if nothing selected
                 const now = new Date();
                 start = now.toISOString().split('T')[0];
                 end = now.toISOString().split('T')[0];
@@ -124,42 +146,38 @@ const Reports: React.FC = () => {
         return 1;
     };
 
-    // --- REAL-TIME PRODUCTIVITY FETCH ---
+    // --- REAL-TIME PRODUCTIVITY FETCH (FROM SUPABASE) ---
     useEffect(() => {
         if (activeTab !== 'productivity') return;
 
         setIsProductivityLoading(true);
-        
         const { start, end } = getDateRange();
-        
-        // Query: Get appointments within date range
-        // NOTE: Removed 'status' == 'done' from query to prevent "Index Required" errors.
-        // We filter status in the snapshot callback.
-        const q = query(
-            collection(db, 'appointments'),
-            where('date', '>=', start),
-            where('date', '<=', end)
-        );
 
-        const unsub = onSnapshot(q, (snap) => {
-            const appts = snap.docs
-                .map(d => ({ id: d.id, ...d.data() } as Appointment))
-                .filter(a => a.status === 'done'); // Client-side filtering
+        const fetchSupabaseData = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('appointments')
+                    .select('*')
+                    .gte('date', start)
+                    .lte('date', end)
+                    .eq('status', 'done') 
+                    .order('date', { ascending: true })
+                    .order('time', { ascending: true });
 
-            // Sort by Date then Time descending
-            appts.sort((a,b) => {
-                if (a.date !== b.date) return b.date.localeCompare(a.date);
-                return b.time.localeCompare(a.time);
-            });
-            
-            setProductivityData(appts);
-            setIsProductivityLoading(false);
-        }, (error) => {
-            console.error("Productivity Sync Error:", error);
-            setIsProductivityLoading(false);
-        });
+                if (error) throw error;
 
-        return () => unsub();
+                if (data) {
+                    setProductivityData(data as unknown as Appointment[]);
+                }
+            } catch(e) {
+                console.error("Supabase Report Error:", e);
+            } finally {
+                setIsProductivityLoading(false);
+            }
+        };
+
+        fetchSupabaseData();
+
     }, [activeTab, filterMonth, filterYear, filterFromDate, filterToDate]);
 
 
@@ -168,10 +186,14 @@ const Reports: React.FC = () => {
         const { start, end } = getDateRange();
         return actions.filter(act => {
             if (filterEmp && act.employeeId !== filterEmp) return false;
-            if (start && act.toDate < start) return false;
-            if (end && act.fromDate > end) return false;
+            // Handle Timestamp objects if present
+            const actStart = safeDate(act.fromDate);
+            const actEnd = safeDate(act.toDate);
+            
+            if (start && actEnd < start) return false;
+            if (end && actStart > end) return false;
             return true;
-        }).sort((a, b) => new Date(b.fromDate).getTime() - new Date(a.fromDate).getTime());
+        }).sort((a, b) => new Date(safeDate(b.fromDate)).getTime() - new Date(safeDate(a.fromDate)).getTime());
     }, [actions, filterEmp, filterMonth, filterYear, filterFromDate, filterToDate]);
 
     const evaluation = useMemo(() => {
@@ -182,17 +204,15 @@ const Reports: React.FC = () => {
         
         filteredActions.forEach(act => {
             const weight = ACTION_WEIGHTS[act.type] || 0;
-            // Calculate days duration
-            const s = new Date(act.fromDate);
-            const e = new Date(act.toDate);
+            const s = new Date(safeDate(act.fromDate));
+            const e = new Date(safeDate(act.toDate));
             const diff = Math.abs(e.getTime() - s.getTime());
             const days = Math.ceil(diff / (1000 * 60 * 60 * 24)) + 1; 
             
-            // Only deduct if weight > 0 (Positive values like 'positive' have negative weight, adding to score)
             totalDeductions += (weight * days);
         });
 
-        const finalScore = Math.min(maxScore + 100, Math.max(0, maxScore - totalDeductions)); // Allow > max if bonus
+        const finalScore = Math.min(maxScore + 100, Math.max(0, maxScore - totalDeductions)); 
         const percentage = Math.round((finalScore / maxScore) * 100);
 
         let grade = t('grade.excellent');
@@ -217,7 +237,6 @@ const Reports: React.FC = () => {
 
     const productivityChartData = useMemo(() => {
         const counts: Record<string, number> = {};
-        // Use filtered data for the chart to reflect search
         filteredProductivity.forEach(p => {
             const name = p.performedByName || 'Unknown';
             counts[name] = (counts[name] || 0) + 1;
@@ -256,15 +275,14 @@ const Reports: React.FC = () => {
         setFormData({
             employeeId: act.employeeId,
             type: act.type,
-            fromDate: act.fromDate,
-            toDate: act.toDate,
+            fromDate: safeDate(act.fromDate),
+            toDate: safeDate(act.toDate),
             description: act.description
         });
         setEditingId(act.id);
         setIsFormOpen(true);
     };
-
-    // --- Appointment Booking from Report ---
+    
     const openFollowUpModal = (appt: Appointment) => {
         setSelectedPatientForAppt(appt);
         const tomorrow = new Date();
@@ -278,7 +296,8 @@ const Reports: React.FC = () => {
     const handleSaveAppointment = async () => {
         if (!selectedPatientForAppt || !newApptDate || !newApptTime) return;
         try {
-            await addDoc(collection(db, 'appointments'), {
+            const { error } = await supabase.from('appointments').insert({
+                id: `FOLLOWUP_${Date.now()}`,
                 patientName: selectedPatientForAppt.patientName,
                 fileNumber: selectedPatientForAppt.fileNumber || '',
                 examType: selectedPatientForAppt.examType,
@@ -288,8 +307,11 @@ const Reports: React.FC = () => {
                 status: 'pending',
                 createdBy: 'Supervisor',
                 createdByName: 'Admin',
-                createdAt: Timestamp.now()
+                createdAt: new Date().toISOString()
             });
+
+            if (error) throw error;
+
             alert('تم حجز الموعد بنجاح ✅');
             setIsFollowUpModalOpen(false);
         } catch (e) { console.error(e); alert('خطأ في الحفظ'); }
@@ -585,9 +607,10 @@ const Reports: React.FC = () => {
                                                                 {t(`action.${act.type}`)}
                                                             </span>
                                                         </td>
+                                                        {/* Fixed Date Rendering */}
                                                         <td className="p-4 text-xs font-mono text-slate-600 border-r print:border-slate-300">
-                                                            {act.fromDate} 
-                                                            {act.fromDate !== act.toDate && <><br/><i className="fas fa-arrow-down text-[10px] my-1 opacity-50 print:hidden"></i><span className="hidden print:inline"> - </span><br/>{act.toDate}</>}
+                                                            {safeDate(act.fromDate)} 
+                                                            {safeDate(act.fromDate) !== safeDate(act.toDate) && <><br/><i className="fas fa-arrow-down text-[10px] my-1 opacity-50 print:hidden"></i><span className="hidden print:inline"> - </span><br/>{safeDate(act.toDate)}</>}
                                                         </td>
                                                         <td className="p-4 font-bold border-r print:border-slate-300">
                                                             {isPositive ? (

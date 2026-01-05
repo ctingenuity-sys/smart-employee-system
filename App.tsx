@@ -20,6 +20,8 @@ const SupervisorLeaves = React.lazy(() => import('./pages/supervisor/SupervisorL
 const SupervisorMarket = React.lazy(() => import('./pages/supervisor/SupervisorMarket'));
 const SupervisorLocations = React.lazy(() => import('./pages/supervisor/SupervisorLocations'));
 const SupervisorHistory = React.lazy(() => import('./pages/supervisor/SupervisorHistory'));
+const SupervisorPerformance = React.lazy(() => import('./pages/supervisor/SupervisorPerformance'));
+const PanicReportsPage = React.lazy(() => import('./pages/supervisor/PanicReportsPage'));
 
 const UserDashboard = React.lazy(() => import('./pages/UserDashboard'));
 const UserSchedule = React.lazy(() => import('./pages/UserSchedule'));
@@ -28,6 +30,7 @@ const UserMarket = React.lazy(() => import('./pages/UserMarket'));
 const UserIncoming = React.lazy(() => import('./pages/UserIncoming'));
 const UserHistory = React.lazy(() => import('./pages/UserHistory'));
 const UserProfile = React.lazy(() => import('./pages/UserProfile'));
+const UserPerformance = React.lazy(() => import('./pages/UserPerformance'));
 
 const ScheduleBuilder = React.lazy(() => import('./pages/ScheduleBuilder'));
 const Reports = React.lazy(() => import('./pages/Reports'));
@@ -174,6 +177,10 @@ const AppRoutes: React.FC = () => {
         <Route path="/supervisor/market" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorMarket /></ProtectedRoute>} />
         <Route path="/supervisor/locations" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorLocations /></ProtectedRoute>} />
         <Route path="/supervisor/history" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorHistory /></ProtectedRoute>} />
+        
+        {/* NEW SUPERVISOR ROUTES */}
+        <Route path="/supervisor/performance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorPerformance /></ProtectedRoute>} />
+        <Route path="/supervisor/panic-reports" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><PanicReportsPage /></ProtectedRoute>} />
 
         {/* User Routes */}
         <Route path="/user" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><UserDashboard /></ProtectedRoute>} />
@@ -183,6 +190,9 @@ const AppRoutes: React.FC = () => {
         <Route path="/user/incoming" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><UserIncoming /></ProtectedRoute>} />
         <Route path="/user/history" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><UserHistory /></ProtectedRoute>} />
         <Route path="/user/profile" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><UserProfile /></ProtectedRoute>} />
+        
+        {/* NEW USER ROUTE */}
+        <Route path="/user/performance" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><UserPerformance /></ProtectedRoute>} />
 
         {/* Other Routes */}
         <Route path="/schedule-builder" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ScheduleBuilder /></ProtectedRoute>} />

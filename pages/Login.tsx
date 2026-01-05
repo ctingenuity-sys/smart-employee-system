@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { auth } from '../firebase';
 // @ts-ignore
@@ -26,14 +27,10 @@ const Login: React.FC = () => {
     setLoading(true);
 
     try {
-      // Just sign in. App.tsx listens to onAuthStateChanged and handles the redirect & data fetching.
       await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
+      // Success - App.tsx or Layout will handle redirection/device check
     } catch (err: any) {
-      // Only log unexpected errors to console
-      if (err.code !== 'auth/invalid-credential' && err.code !== 'auth/user-not-found' && err.code !== 'auth/wrong-password') {
-          console.error("Login Error:", err);
-      }
-
+      console.error("Login Error:", err);
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
         setError(t('login.error'));
       } else if (err.code === 'auth/too-many-requests') {
@@ -43,8 +40,6 @@ const Login: React.FC = () => {
       }
       setLoading(false);
     }
-    // Do not set loading(false) on success, because App.tsx will trigger a full page reload/redirect
-    // and we want to prevent the form from becoming interactive again during that split second.
   };
 
   const iconPosition = dir === 'rtl' ? 'right-3' : 'left-3';
@@ -56,10 +51,8 @@ const Login: React.FC = () => {
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute bottom-[-50px] left-[10%] w-10 h-10 bg-white/10 rounded-full animate-bounce duration-[10s]"></div>
         <div className="absolute bottom-[-100px] left-[20%] w-20 h-20 bg-white/5 rounded-full animate-bounce duration-[15s]"></div>
-        <div className="absolute bottom-[-80px] left-[70%] w-16 h-16 bg-white/10 rounded-full animate-bounce duration-[12s]"></div>
       </div>
 
-      {/* Language Toggle Fixed Top */}
       <button 
         onClick={toggleLanguage} 
         className="absolute top-6 right-6 z-20 bg-white/10 text-white px-4 py-2 rounded-full backdrop-blur-sm border border-white/20 hover:bg-white/20 transition-colors font-bold text-sm"
@@ -69,7 +62,6 @@ const Login: React.FC = () => {
       </button>
 
       <div className="bg-white/10 backdrop-blur-lg p-8 rounded-2xl shadow-2xl w-full max-w-md border border-white/20 z-10 mx-4">
-
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-500/50">
             <i className="fas fa-user-lock text-2xl text-white"></i>
@@ -117,7 +109,6 @@ const Login: React.FC = () => {
             {loading ? <i className="fas fa-spinner fa-spin"></i> : t('login.button')}
           </button>
         </form>
-
       </div>
     </div>
   );

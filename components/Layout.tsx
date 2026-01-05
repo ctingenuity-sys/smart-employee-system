@@ -6,11 +6,12 @@ import { auth, db } from '../firebase';
 // @ts-ignore
 import { signOut, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 // @ts-ignore
-import { collection, onSnapshot, query, where, orderBy, limit, Timestamp, doc, getDoc, QuerySnapshot, DocumentData } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, orderBy, limit, Timestamp, doc, getDoc, updateDoc, serverTimestamp, QuerySnapshot, DocumentData } from 'firebase/firestore';
 import { UserRole } from '../types';
 import Modal from './Modal';
 import Toast from './Toast';
 import { useLanguage } from '../contexts/LanguageContext';
+import { getStableDeviceFingerprint } from '../utils/device';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -37,7 +38,6 @@ const playNotificationSound = (type: 'normal' | 'alert' = 'normal') => {
 
 // Helper to show browser notification
 const showBrowserNotification = (title: string, body: string, type: 'normal' | 'alert' = 'normal') => {
-  // تشغيل الصوت دائماً مرة واحدة فقط
   playNotificationSound(type);
 
   if (!('Notification' in window)) return;
@@ -68,7 +68,6 @@ const showBrowserNotification = (title: string, body: string, type: 'normal' | '
 };
 
 const getRecentMonths = () => {
-    // OPTIMIZED: Only fetch current month to save reads
     const date = new Date();
     return [date.toISOString().slice(0, 7)];
 };
@@ -175,11 +174,10 @@ const GlobalNotificationListener: React.FC<{ userId: string, userRole: string }>
         let unsubSupSwaps = () => {};
         let unsubSupLeaves = () => {};
         let unsubSupMarket = () => {};
-        let unsubSuspicious = () => {}; // NEW
+        let unsubSuspicious = () => {}; 
 
         if (userRole === 'admin' || userRole === 'supervisor') {
             
-            // ... existing supervisor listeners ...
             const qSupSwaps = query(collection(db, 'swapRequests'), where('status', 'in', ['approvedByUser', 'pending']));
             unsubSupSwaps = onSnapshot(qSupSwaps, (snap: QuerySnapshot<DocumentData>) => {
                 if (isFirstRun.current) return;
@@ -213,18 +211,15 @@ const GlobalNotificationListener: React.FC<{ userId: string, userRole: string }>
                 });
             });
 
-            // --- NEW: SUSPICIOUS ACTIVITY LISTENER ---
-            // Listen to recent logs where isSuspicious is true
-            // We use a timestamp query to ensure we only get new ones
             const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000); 
             const qSuspicious = query(
                 collection(db, 'attendance_logs'), 
                 where('isSuspicious', '==', true),
                 where('clientTimestamp', '>=', Timestamp.fromDate(tenMinutesAgo)),
-                limit(1) // Just need to know if one exists recently
+                limit(1) 
             );
             
-            unsubSuspicious = onSnapshot(qSuspicious, (snap) => {
+            unsubSuspicious = onSnapshot(qSuspicious, (snap: QuerySnapshot<DocumentData>) => {
                 if (isFirstRun.current) return;
                 snap.docChanges().forEach(change => {
                     if (change.type === 'added') {
@@ -270,7 +265,86 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName }) => {
   const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
   const [isPwLoading, setIsPwLoading] = useState(false);
 
+  // --- SECURITY CHECK STATE ---
+  const [isDeviceLocked, setIsDeviceLocked] = useState(false);
+  
+  // Ref to hold the audio object so we can stop it later
+  const lockAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // --- DEVICE VERIFICATION EFFECT ---
+  useEffect(() => {
+      const verifyDevice = async () => {
+          // 1. Only enforce for 'user' role. Skip admins/supervisors/doctors.
+          if (!currentUserId || userRole !== 'user') return;
+
+          try {
+              // 2. Get current device fingerprint
+              const currentDeviceId = await getStableDeviceFingerprint();
+              console.log("Layout: Checking Device...", currentDeviceId);
+
+              // 3. Get registered device from Firestore
+              const userRef = doc(db, 'users', currentUserId);
+              const userSnap = await getDoc(userRef);
+
+              if (userSnap.exists()) {
+                  const userData = userSnap.data();
+                  const registeredDevice = userData.biometricId;
+
+                  if (!registeredDevice) {
+                      // First time? Bind it automatically.
+                      console.log("Layout: Binding new device.");
+                      await updateDoc(userRef, {
+                          biometricId: currentDeviceId,
+                          biometricRegisteredAt: serverTimestamp()
+                      });
+                  } else if (registeredDevice !== currentDeviceId) {
+                      // MISMATCH DETECTED!
+                      console.warn("Layout: Device Mismatch! Locked.");
+                      setIsDeviceLocked(true);
+                      
+                      // Trigger audio if locked
+                      playLockAudio();
+                  }
+              }
+          } catch (e) {
+              console.error("Device verification failed", e);
+          }
+      };
+
+      verifyDevice();
+      
+      // Cleanup audio when component unmounts
+      return () => {
+          if (lockAudioRef.current) {
+              lockAudioRef.current.pause();
+              lockAudioRef.current = null;
+          }
+      };
+  }, [currentUserId, userRole]);
+
+  const playLockAudio = () => {
+      try {
+          if (lockAudioRef.current) return; // Already playing
+
+          // Using a funny laugh/cartoon sound
+          // You can replace this URL with your uploaded file in 'public' folder e.g., '/wahid.mp3'
+          const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2044/2044-preview.mp3'); 
+          audio.volume = 1.0;
+          audio.loop = true; // Make it annoying/looping until they leave
+          audio.play().catch(e => console.log("Auto-play blocked, waiting for interaction"));
+          
+          lockAudioRef.current = audio;
+      } catch(e) {}
+  };
+
   const handleLogout = async () => {
+    // STOP AUDIO IMMEDIATELY
+    if (lockAudioRef.current) {
+        lockAudioRef.current.pause();
+        lockAudioRef.current.currentTime = 0;
+        lockAudioRef.current = null;
+    }
+    
     await signOut(auth);
     localStorage.clear();
     navigate('/login');
@@ -312,6 +386,66 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName }) => {
       setIsPwLoading(false);
   };
 
+  // --- SARCASTIC LOCK SCREEN RENDER ---
+if (isDeviceLocked) {
+      return (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-slate-900 overflow-hidden" dir="rtl">
+            
+            {/* Background Effects */}
+            <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none opacity-20">
+                <div className="absolute top-10 left-10 text-6xl md:text-9xl animate-bounce duration-1000">🤬</div>
+                <div className="absolute bottom-10 right-10 text-6xl md:text-9xl animate-pulse">🚫</div>
+            </div>
+
+            <div className="relative bg-slate-800 p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] shadow-2xl border-4 border-red-500/50 text-center w-[90%] max-w-lg mx-auto transform transition-all hover:scale-105 duration-300 flex flex-col items-center justify-center">
+                
+                {/* 
+                   Expressive Image (Angry 3D Emoji) - Centered Fix
+                */}
+                <div className="mb-6 relative group w-48 h-48 md:w-60 md:h-60 mx-auto flex items-center justify-center">
+                    {/* Red Glow */}
+                    <div className="absolute inset-0 bg-red-600 rounded-full blur-2xl opacity-50 animate-pulse"></div>
+                    
+                    {/* Circle Container */}
+                <div className="relative z-10 w-full h-full bg-slate-900 rounded-full border-4 border-red-500 shadow-[0_0_50px_rgba(239,68,68,0.3)] overflow-hidden ring-4 ring-red-900/30 flex items-center justify-center">
+    <img 
+        src="https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji@latest/assets/Angry%20face/3D/angry_face_3d.png"
+        alt="Security Alert"
+        className="w-[75%] h-[75%] object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.5)] animate-pulse"
+    />
+</div>
+                </div>
+
+                <h2 className="text-2xl md:text-4xl font-black text-amber-400 mb-4 font-sans tracking-tight leading-tight">
+                     خد تعالا! 👮‍♂️
+                </h2>
+
+                <div className="bg-white/5 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-white/10 mb-6 backdrop-blur-sm w-full">
+                    <p className="text-lg md:text-xl text-white font-bold leading-relaxed mb-2">
+                        "مش قولتلك ما تفتحش من جهاز تاني"
+                    </p>
+                    <p className="text-xl md:text-2xl text-cyan-300 font-black leading-relaxed animate-pulse">
+            يالا بقي كلم المشرف  😡
+                    </p>
+                </div>
+
+                <p className="text-slate-400 text-xs md:text-sm font-bold mb-6">
+                    ( تاني يا زكي تاااني🐶)
+                </p>
+
+                <button 
+                    onClick={handleLogout}
+                    className="w-full bg-gradient-to-r from-red-600 to-rose-600 text-white font-black py-3 md:py-4 rounded-xl md:rounded-2xl shadow-lg hover:shadow-red-500/50 hover:scale-[1.02] transition-all duration-300 text-base md:text-lg flex items-center justify-center gap-2"
+                >
+                    <i className="fas fa-sign-out-alt"></i> خلاص اسكت (خروج)
+                </button>
+            </div>
+        </div>
+      );
+  }
+
+
+  // --- NORMAL LAYOUT RENDER ---
   const isActive = (path: string) => location.pathname === path ? 'bg-primary text-white shadow-lg' : 'text-slate-300 hover:bg-slate-700 hover:text-white';
 
   const sidebarPosition = dir === 'rtl' ? 'right-0' : 'left-0';

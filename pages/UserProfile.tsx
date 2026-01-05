@@ -2,13 +2,22 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, addDoc, Timestamp, getCountFromServer } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, Timestamp } from 'firebase/firestore';
 import { ActionLog, PeerRecognition, User } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../supabaseClient';
+
+// Helper for safe dates
+const safeDate = (val: any) => {
+    if (!val) return '-';
+    if (typeof val === 'string') return val;
+    if (val.toDate) return val.toDate().toLocaleDateString('en-US');
+    return String(val);
+};
 
 const UserProfile: React.FC = () => {
     const { t, dir } = useLanguage();
@@ -46,17 +55,18 @@ const UserProfile: React.FC = () => {
             setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
         });
 
-        // Get Patients Count (Async once)
+        // Get Patients Count from Supabase
         const fetchPatientCount = async () => {
             try {
-                const q = query(
-                    collection(db, 'appointments'), 
-                    where('performedBy', '==', currentUserId),
-                    where('status', '==', 'done')
-                );
-                const snapshot = await getCountFromServer(q);
-                setPatientsCount(snapshot.data().count);
-            } catch (e) { console.error(e); }
+                const { count, error } = await supabase
+                    .from('appointments')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('performedBy', currentUserId)
+                    .eq('status', 'done');
+
+                if (error) throw error;
+                setPatientsCount(count || 0);
+            } catch (e) { console.error("Supabase count error:", e); }
         };
         fetchPatientCount();
 
@@ -162,7 +172,7 @@ const UserProfile: React.FC = () => {
                                                 {t(`kudos.${k.type}`)}
                                             </span>
                                             <span className="text-[10px] text-slate-400 font-mono">
-                                                {k.createdAt?.toDate ? k.createdAt.toDate().toLocaleDateString() : ''}
+                                                {safeDate(k.createdAt)}
                                             </span>
                                         </div>
                                         <p className="text-sm text-slate-700 font-medium italic">"{k.message}"</p>
@@ -191,7 +201,8 @@ const UserProfile: React.FC = () => {
                                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${act.type === 'positive' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
                                             {t(`action.${act.type}`) || act.type}
                                         </span>
-                                        <p className="text-xs text-slate-500 mt-1 font-mono">{act.fromDate}</p>
+                                        {/* SAFE DATE RENDERING */}
+                                        <p className="text-xs text-slate-500 mt-1 font-mono">{safeDate(act.fromDate)}</p>
                                     </div>
                                     <p className="text-xs text-slate-700 font-medium max-w-[50%] text-right">{act.description}</p>
                                 </div>

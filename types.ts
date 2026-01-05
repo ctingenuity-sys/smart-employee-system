@@ -186,7 +186,7 @@ export interface Appointment {
   date: string; // YYYY-MM-DD
   time: string; // HH:mm
   notes?: string;
-  status: 'pending' | 'done' | 'cancelled' | 'scheduled'; // Added 'scheduled'
+  status: 'pending' | 'done' | 'cancelled' | 'scheduled' | 'processing'; // Added 'scheduled' and 'processing'
   createdBy: string; // User ID
   createdByName: string;
   performedBy?: string; // NEW: User ID who did the exam
@@ -197,6 +197,15 @@ export interface Appointment {
   registrationNumber?: string; // NEW: Sequential number (MRI-101, CT-505)
   panicDetails?: string; // NEW: If panic report exists
   preparation?: string; // NEW: Instructions
+  roomNumber?: string; // Added for ExtendedAppointment compatibility
+  completedAt?: any; // Added for sorting/reporting
+  isPanic?: boolean; // Added for panic reporting
+}
+
+// Added ExtendedAppointment here to be globally accessible
+export interface ExtendedAppointment extends Appointment {
+    roomNumber?: string;
+    preparation?: string;
 }
 
 // --- NEW: Panic Report ---
@@ -392,6 +401,7 @@ export interface EmployeeSummary {
   totalLatenessMinutes: number;
   totalEarlyDepartureMinutes: number;
   records: ProcessedRecord[];
+  riskCount?: number;
 }
 
 // --- Inventory System Types ---

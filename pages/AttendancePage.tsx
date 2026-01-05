@@ -1,1106 +1,1237 @@
 
-import React, { useState, useEffect, useMemo, useRef, memo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, addDoc, onSnapshot, query, where, Timestamp, serverTimestamp, doc, updateDoc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
-import { AttendanceLog, Schedule, LocationCheckRequest, ActionLog } from '../types';
+import { collection, query, where, onSnapshot, addDoc, Timestamp, deleteDoc, doc, updateDoc, writeBatch, getDocs, orderBy, getCountFromServer, setDoc, limit, serverTimestamp } from 'firebase/firestore';
+import { Appointment } from '../types';
+import Loading from '../components/Loading';
 import Toast from '../components/Toast';
+import Modal from '../components/Modal';
 import { useLanguage } from '../contexts/LanguageContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
-import { calculateShiftStatus } from '../utils/attendanceLogic';
-// @ts-ignore
-import { onAuthStateChanged } from 'firebase/auth';
 
-const HOSPITAL_LAT = 21.584135549676002;
-const HOSPITAL_LNG = 39.208052479784165; 
-const ALLOWED_RADIUS_KM = 0.08; 
-
-
-// --- Helpers ---
-const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-  var R = 6371; 
-  var dLat = deg2rad(lat2-lat1); 
-  var dLon = deg2rad(lon2-lon1); 
-  var a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon/2) * Math.sin(dLon/2); 
-  var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-  return R * c;
-}
-const deg2rad = (deg: number) => deg * (Math.PI/180);
-
-// --- ADVANCED HYBRID FINGERPRINTING ---
-// Combines Hardware Traits (for stability) + Persistent Token (for uniqueness)
-const getStableDeviceFingerprint = async (): Promise<string> => {
-    try {
-        // 1. Hardware/Browser Signature (Shared across identical devices)
-        const nav = window.navigator as any;
-        const screen = window.screen;
-        
-        const hardwareInfo = [
-            nav.userAgent,
-            nav.language,
-            screen.colorDepth,
-            screen.width + 'x' + screen.height,
-            nav.hardwareConcurrency,
-            nav.deviceMemory,
-            Intl.DateTimeFormat().resolvedOptions().timeZone
-        ].join('||');
-
-        // Canvas Fingerprinting
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        let canvasHash = 'no-canvas';
-        
-        if (ctx) {
-            canvas.width = 200;
-            canvas.height = 50;
-            ctx.textBaseline = "top";
-            ctx.font = "16px Arial";
-            ctx.fillStyle = "#f60";
-            ctx.fillRect(125, 1, 62, 20);
-            ctx.fillStyle = "#069";
-            ctx.fillText("AJ_SMART_SYSTEM_v1", 2, 15);
-            ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
-            ctx.fillText("AJ_SMART_SYSTEM_v1", 4, 17);
-            
-            ctx.beginPath();
-            ctx.arc(50, 50, 50, 0, Math.PI * 2, true);
-            ctx.closePath();
-            ctx.fill();
-
-            canvasHash = canvas.toDataURL();
-        }
-
-        const hardwareString = `${hardwareInfo}###${canvasHash}`;
-        const msgBuffer = new TextEncoder().encode(hardwareString);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hardwareHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-        
-        // 2. Persistent Installation Token (Unique per browser instance)
-        // This solves the "Identical Device" problem.
-        let installToken = localStorage.getItem('aj_device_install_token');
-        if (!installToken) {
-            // Generate a random unique ID for this specific browser installation
-            installToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
-            localStorage.setItem('aj_device_install_token', installToken);
-        }
-
-        // 3. Combine: HardwareHash_InstallToken
-        // Example: a1b2c3d4_xyz987
-        return `${hardwareHex}_${installToken}`; 
-
-    } catch (e) {
-        console.error("Fingerprint generation failed, falling back to simple ID", e);
-        let id = localStorage.getItem('app_device_fallback');
-        if (!id) {
-            id = 'fallback_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
-            localStorage.setItem('app_device_fallback', id);
-        }
-        return id;
+// Enhanced Keywords based on specific IHMS formats
+const MODALITIES = [
+    { 
+        id: 'MRI', 
+        label: 'MRI', 
+        icon: 'fa-magnet', 
+        color: 'text-blue-600 bg-blue-50', 
+        border: 'border-blue-200', 
+        keywords: ['MRI', 'MR ', 'MAGNETIC', 'M.R.I'],
+        defaultPrep: 'إزالة المعادن، المجوهرات، والهاتف. الحضور قبل الموعد بـ 15 دقيقة.'
+    },
+    { 
+        id: 'CT', 
+        label: 'CT Scan', 
+        icon: 'fa-ring', 
+        color: 'text-emerald-600 bg-emerald-50', 
+        border: 'border-emerald-200', 
+        keywords: ['C.T.', 'CT ', 'COMPUTED', 'CAT ', 'MDCT'],
+        defaultPrep: 'صيام 4 ساعات قبل الفحص (في حال الصبغة). إحضار وظائف الكلى.'
+    },
+    { 
+        id: 'US', 
+        label: 'Ultrasound', 
+        icon: 'fa-wave-square', 
+        color: 'text-indigo-600 bg-indigo-50', 
+        border: 'border-indigo-200', 
+        keywords: ['US ', 'U.S', 'ULTRASOUND', 'SONO', 'DOPPLER', 'ECHO', 'DUPLEX'],
+        defaultPrep: 'شرب لتر ماء قبل ساعة وحبس البول (للحوض/البطن). صيام 6 ساعات (للمرارة).'
+    },
+    { 
+        id: 'X-RAY', 
+        label: 'X-Ray & General', 
+        icon: 'fa-x-ray', 
+        color: 'text-slate-600 bg-slate-50', 
+        border: 'border-slate-200', 
+        keywords: ['X-RAY', 'XRAY', 'XR ', 'MAMMO', 'CR ', 'DR ', 'CHEST', 'PLAIN', 'SPINE', 'KNEE', 'FOOT', 'HAND'],
+        defaultPrep: 'إزالة المجوهرات والمعادن من منطقة الفحص.'
+    },
+    { 
+        id: 'FLUO', 
+        label: 'Fluoroscopy', 
+        icon: 'fa-video', 
+        color: 'text-amber-600 bg-amber-50', 
+        border: 'border-amber-200', 
+        keywords: ['FLUO', 'BARIUM', 'CONTRAST', 'HSG', 'MCUG'],
+        defaultPrep: 'صيام كامل لمدة 8 ساعات.'
+    },
+    { 
+        id: 'OTHER', 
+        label: 'General', 
+        icon: 'fa-notes-medical', 
+        color: 'text-gray-600 bg-gray-50', 
+        border: 'border-gray-200', 
+        keywords: [],
+        defaultPrep: 'اتباع تعليمات الطبيب.'
     }
+];
+
+// Type definition for Settings
+interface ModalitySettings {
+    limit: number;
+    slots: string[]; // Array of time strings "09:00", "10:00"
+    currentCounter: number; // NEW: Sequential Counter
+}
+
+// Default Settings
+const DEFAULT_SETTINGS: Record<string, ModalitySettings> = {
+    'MRI': { limit: 15, slots: ['09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '17:00', '17:30', '18:00', '18:30', '19:00', '19:30'], currentCounter: 1 },
+    'CT': { limit: 20, slots: ['09:00', '09:20', '09:40', '10:00', '10:20', '10:40', '11:00', '11:20', '11:40', '12:00'], currentCounter: 1 },
+    'US': { limit: 30, slots: [], currentCounter: 1 },
+    'X-RAY': { limit: 50, slots: [], currentCounter: 1 },
+    'FLUO': { limit: 10, slots: ['08:00', '09:00', '10:00'], currentCounter: 1 },
+    'OTHER': { limit: 100, slots: [], currentCounter: 1 }
 };
 
-const convertTo24Hour = (timeStr: string): string => {
-    if (!timeStr) return '00:00';
-    let s = timeStr.toLowerCase().trim();
-    s = s.replace(/(\d+)\.(\d+)/, '$1:$2');
-    if (s.includes('mn') || s.includes('midnight') || s === '24:00') return '24:00';
-    if (s.includes('noon')) return '12:00';
-    let modifier = null;
-    if (s.includes('pm') || s.includes('p.m') || s.includes('م') || s.includes('مساء')) modifier = 'pm'; else if (s.includes('am') || s.includes('a.m') || s.includes('ص') || s.includes('صباح')) modifier = 'am';
-    const cleanTime = s.replace(/[^\d:]/g, ''); 
-    const parts = cleanTime.split(':');
-    let h = parseInt(parts[0], 10);
-    let m = parts[1] ? parseInt(parts[1], 10) : 0;
-    if (modifier) {
-        if (modifier === 'pm' && h < 12) h += 12;
-        if (modifier === 'am' && h === 12) h = 0;
-    }
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-};
-
-const parseMultiShifts = (text: string) => {
-    if (!text) return [];
-    let cleanText = text.replace(/[()]/g, '').trim();
-    const segments = cleanText.split(/[\/,]|\s+and\s+|&|\s+(?=\d{1,2}(?::\d{2})?\s*(?:am|pm|mn|noon))/i);
-    const shifts: { start: string, end: string }[] = [];
-    segments.forEach(seg => {
-        const trimmed = seg.trim();
-        const rangeParts = trimmed.split(/\s*(?:[-–—]|\bto\b)\s*/i);
-        if (rangeParts.length >= 2) {
-            const startStr = rangeParts[0].trim();
-            const endStr = rangeParts[rangeParts.length - 1].trim(); 
-            const s = convertTo24Hour(startStr);
-            const e = convertTo24Hour(endStr);
-            if (s && e) shifts.push({ start: s, end: e });
+// Helper to find value in object case-insensitively and recursively
+const findValue = (obj: any, keys: string[]): any => {
+    if (!obj) return null;
+    const lowerKeys = keys.map(k => k.toLowerCase());
+    for (const key of Object.keys(obj)) {
+        if (lowerKeys.includes(key.toLowerCase()) && obj[key]) {
+            return obj[key];
         }
-    });
-    return shifts;
+    }
+    return null;
 };
 
-const getLocalDateKey = (dateObj: Date) => {
-    const year = dateObj.getFullYear();
-    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-    const day = String(dateObj.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-};
-
-// --- STYLES INJECTION ---
-const styles = `
-@keyframes float {
-    0% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
-    100% { transform: translateY(0px); }
+interface ExtendedAppointment extends Appointment {
+    roomNumber?: string;
+    preparation?: string;
 }
-@keyframes pulse-ring {
-    0% { transform: scale(0.8); opacity: 0; }
-    50% { opacity: 0.5; }
-    100% { transform: scale(1.3); opacity: 0; }
-}
-@keyframes rotate-slow {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-.animate-float { animation: float 6s ease-in-out infinite; }
-.animate-pulse-ring { animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-.animate-rotate-slow { animation: rotate-slow 20s linear infinite; }
-.glass-panel {
-    background: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-}
-.neon-text-glow {
-    text-shadow: 0 0 20px currentColor;
-}
-`;
 
-// --- MEMOIZED COMPONENTS ---
-
-const DigitalClock = memo(({ date }: { date: Date }) => {
-    const hours = date.getHours().toString().padStart(2, '0');
-    const minutes = date.getMinutes().toString().padStart(2, '0');
-    const seconds = date.getSeconds().toString().padStart(2, '0');
-    const dayName = date.toLocaleDateString('en-US', {weekday: 'long'});
-    const dateStr = date.toLocaleDateString('en-US', {day: 'numeric', month: 'long', year: 'numeric'});
-
-    return (
-        <div className="mb-10 relative flex flex-col items-center z-10 select-none pointer-events-none">
-            <div className="flex items-baseline gap-2">
-                <span className="text-[6rem] md:text-[8.5rem] font-black leading-none tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-white/50 drop-shadow-2xl tabular-nums font-sans">
-                    {hours}:{minutes}
-                </span>
-                <span className="text-2xl md:text-3xl font-bold text-white/30 tabular-nums">
-                    {seconds}
-                </span>
-            </div>
-            <div className="flex items-center gap-4 mt-2 bg-black/20 px-6 py-2 rounded-full backdrop-blur-md border border-white/5">
-                <span className="text-cyan-400 font-bold uppercase tracking-[0.2em] text-xs">{dayName}</span>
-                <span className="w-1 h-1 bg-white/20 rounded-full"></span>
-                <span className="text-slate-300 font-medium text-xs tracking-widest uppercase">{dateStr}</span>
-            </div>
-        </div>
-    );
-});
-
-const AttendancePage: React.FC = () => {
+const AppointmentsPage: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
     
-    // UI State
-    const [currentTime, setCurrentTime] = useState<Date | null>(null);
-    const [logicTicker, setLogicTicker] = useState(0); 
-    const [timeOffset, setTimeOffset] = useState<number>(0);
-    const [isTimeSynced, setIsTimeSynced] = useState(false);
-    
-    const [status, setStatus] = useState<'IDLE' | 'AUTH_DEVICE' | 'SCANNING_LOC' | 'PROCESSING' | 'SUCCESS' | 'ERROR'>('IDLE');
-    const [errorDetails, setErrorDetails] = useState<{title: string, msg: string}>({title: '', msg: ''});
-    const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
-    const [showHistory, setShowHistory] = useState(false);
-    const [timeLeft, setTimeLeft] = useState<number | null>(null);
- 
     // Data State
-    const [todayLogs, setTodayLogs] = useState<AttendanceLog[]>([]);
-    const [yesterdayLogs, setYesterdayLogs] = useState<AttendanceLog[]>([]);
-    const [todayShifts, setTodayShifts] = useState<{ start: string, end: string }[]>([]);
-    const [yesterdayShifts, setYesterdayShifts] = useState<{ start: string, end: string }[]>([]);
-    const [tomorrowShifts, setTomorrowShifts] = useState<{ start: string, end: string }[]>([]);
+    const [appointments, setAppointments] = useState<ExtendedAppointment[]>([]);
+    const appointmentsRef = useRef<ExtendedAppointment[]>([]); 
     
-    // NEW: Action/Leave State
-    const [todayAction, setTodayAction] = useState<string | null>(null);
+    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [activeView, setActiveView] = useState<'pending' | 'processing' | 'done' | 'scheduled'>('pending');
+    const [activeModality, setActiveModality] = useState<string>('ALL');
+    const [searchQuery, setSearchQuery] = useState(''); 
     
-    const [overrideExpiries, setOverrideExpiries] = useState<Date[]>([]);
-    const [hasOverride, setHasOverride] = useState(false);
-    const [userProfile, setUserProfile] = useState<any>(null);
-    const [schedules, setSchedules] = useState<Schedule[]>([]);
-    const [activeLiveCheck, setActiveLiveCheck] = useState<LocationCheckRequest | null>(null);
-    const [isLiveCheckProcessing, setIsLiveCheckProcessing] = useState(false);
+    // UI State
+    const [loading, setLoading] = useState(true);
+    const [processingId, setProcessingId] = useState<string | null>(null); // New: Track processing item
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isBridgeModalOpen, setIsBridgeModalOpen] = useState(false);
+    const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+    const [isLogBookOpen, setIsLogBookOpen] = useState(false); // NEW: Local Logbook
     
-    // --- Stable Hardware Device ID ---
-    const [localDeviceId, setLocalDeviceId] = useState<string>('');
+    // Quota & Slots State
+    const [modalitySettings, setModalitySettings] = useState<Record<string, ModalitySettings>>(DEFAULT_SETTINGS);
+
+    // Booking Modal
+    const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+    const [bookingAppt, setBookingAppt] = useState<ExtendedAppointment | null>(null);
+    const [bookingDate, setBookingDate] = useState('');
+    const [bookingTime, setBookingTime] = useState('');
+    const [bookingRoom, setBookingRoom] = useState(''); 
+    const [bookingPrep, setBookingPrep] = useState(''); 
+    const [bookingWarning, setBookingWarning] = useState(''); 
+    const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+
+    // Panic & Completion Modal
+    const [isPanicModalOpen, setIsPanicModalOpen] = useState(false);
+    const [finishingAppt, setFinishingAppt] = useState<ExtendedAppointment | null>(null);
+    const [panicDescription, setPanicDescription] = useState('');
+
+    // Reg Number Modal (Success Start)
+    const [isRegModalOpen, setIsRegModalOpen] = useState(false);
+    const [currentRegNo, setCurrentRegNo] = useState('');
+
+    // Success/QR Modal
+    const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
+    const [bookedTicketId, setBookedTicketId] = useState('');
+
+    // Logbook Range State
+    const [logStartDate, setLogStartDate] = useState(new Date().toISOString().split('T')[0]);
+    const [logEndDate, setLogEndDate] = useState(new Date().toISOString().split('T')[0]);
+    const [logbookData, setLogbookData] = useState<ExtendedAppointment[]>([]);
+    const [isLogLoading, setIsLogLoading] = useState(false);
+
+    const [toast, setToast] = useState<{msg: string, type: 'success'|'info'|'error'} | null>(null);
+    const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+    const [isListening, setIsListening] = useState(false);
+
+    // Manual Add State
+    const [patientName, setPatientName] = useState('');
+    const [fileNumber, setFileNumber] = useState(''); 
+    const [examType, setExamType] = useState('MRI');
+    const [doctorName, setDoctorName] = useState('');
+    const [patientAge, setPatientAge] = useState('');
+    const [notes, setNotes] = useState('');
 
     const currentUserId = auth.currentUser?.uid;
     const currentUserName = localStorage.getItem('username') || 'User';
-    const isProcessingRef = useRef(false);
-    const [realUserId, setRealUserId] = useState<string | null>(null);
+    const isSupervisor = localStorage.getItem('role') === 'admin' || localStorage.getItem('role') === 'supervisor';
 
-    // --- 0. Initialize Device Fingerprint & GPS ---
+    // Cleanup Logic
+    const [isCleanupProcessing, setIsCleanupProcessing] = useState(false);
+
     useEffect(() => {
-        // Generate stable fingerprint
-        getStableDeviceFingerprint().then(id => {
-            console.log("Device Fingerprint Generated:", id);
-            setLocalDeviceId(id);
-        });
+        appointmentsRef.current = appointments;
+    }, [appointments]);
 
-        let watchId: number;
-        if ('geolocation' in navigator) {
-            watchId = navigator.geolocation.watchPosition(
-                () => {}, 
-                () => {}, 
-                { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 }
-            );
+    // Load Settings
+    useEffect(() => {
+        const savedSettings = localStorage.getItem('appt_settings_v3'); // Changed version to v3
+        if (savedSettings) {
+            try {
+                const parsed = JSON.parse(savedSettings);
+                // Merge with default to ensure new fields like currentCounter exist
+                const merged = { ...DEFAULT_SETTINGS };
+                Object.keys(parsed).forEach(k => {
+                    if (merged[k]) {
+                        merged[k] = { ...merged[k], ...parsed[k] };
+                    }
+                });
+                setModalitySettings(merged);
+            } catch(e) { console.error(e); }
         }
-        return () => {
-            if (watchId !== undefined) navigator.geolocation.clearWatch(watchId);
-        };
     }, []);
 
-    // 1. SYNC SERVER TIME
+    const saveSettings = (newSettings: any) => {
+        setModalitySettings(newSettings);
+        localStorage.setItem('appt_settings_v3', JSON.stringify(newSettings));
+    };
+
+    // --- 1. INTELLIGENT EXAM SPLITTER (Bridge Logic) ---
     useEffect(() => {
-        const syncServerTime = async () => {
-            try {
-                const tempDocRef = doc(collection(db, 'system_sync'));
-                await setDoc(tempDocRef, { timestamp: serverTimestamp() });
-                const snap = await getDoc(tempDocRef);
+        const handleMessage = async (event: MessageEvent) => {
+            if (!event.data || event.data.type !== 'SMART_SYNC_DATA') return;
+
+            setIsListening(true);
+            const rawPayload = event.data.payload; 
+            
+            let payload: any[] = [];
+            if (Array.isArray(rawPayload)) {
+                payload = rawPayload;
+            } else if (rawPayload && typeof rawPayload === 'object') {
+                payload = [rawPayload];
+            }
+
+            if (payload.length === 0) return;
+
+            const batch = writeBatch(db);
+            let processedCount = 0;
+
+            const detectModality = (serviceName: string) => {
+                const sNameUpper = serviceName.toUpperCase();
+                for (const mod of MODALITIES) {
+                    if (mod.id === 'OTHER') continue;
+                    if (mod.keywords.some(k => sNameUpper.includes(k))) {
+                        return mod.id;
+                    }
+                }
+                return 'OTHER';
+            };
+
+            const cleanTime = (t: any) => {
+                if(!t) return '';
+                const s = String(t).trim();
+                return s.substring(0, 5); 
+            };
+
+            const cleanDate = (d: any) => {
+                if(!d) return new Date().toISOString().split('T')[0];
+                return String(d).split('T')[0];
+            };
+
+            payload.forEach((p: any) => {
+                const pName = findValue(p, ['patientName', 'engName', 'name', 'patName', 'fullName']) || 'Unknown';
+                const cleanName = pName.includes(' - ') ? pName.split(' - ')[1] : pName;
+                const fNum = findValue(p, ['fileNumber', 'fileNo', 'mrn', 'patientId', 'pid']) || '';
+                const age = findValue(p, ['ageYear', 'age', 'patientAge', 'dob']);
                 
-                if (snap.exists()) {
-                    const serverTime = snap.data().timestamp.toDate().getTime();
-                    const deviceTime = Date.now();
-                    const offset = serverTime - deviceTime;
+                const rawQueTime = findValue(p, ['queTime', 'time', 'visitTime']) || '';
+                const qTime = cleanTime(rawQueTime) || '00:00';
+                
+                const commonInfo = {
+                    patientName: cleanName,
+                    fileNumber: String(fNum),
+                    patientAge: age ? String(age) : '',
+                    status: 'pending',
+                    createdBy: 'Bridge',
+                    createdByName: 'System',
+                    notes: ''
+                };
+
+                const detailsArr = p.xrayPatientDetails || p.orderDetails || p.services || [];
+
+                if (Array.isArray(detailsArr) && detailsArr.length > 0) {
+                    const modalityGroups: Record<string, { exams: string[], time: string, date: string, doc: string, ref: string }> = {};
+
+                    detailsArr.forEach((det: any) => {
+                        const sName = findValue(det, ['serviceName', 'examName', 'procedure', 'xrayName']);
+                        if (!sName) return;
+
+                        const modId = detectModality(sName);
+                        const detTimeRaw = findValue(det, ['queTime', 'time']) || rawQueTime;
+                        const detTime = cleanTime(detTimeRaw);
+                        const detDate = cleanDate(det.queDate || p.queDate);
+                        
+                        const docName = det.doctorName || p.doctorName || 'Unknown Dr';
+                        const refNo = String(det.queRefNo || det.refNo || p.refNo || '');
+
+                        if (!modalityGroups[modId]) {
+                            modalityGroups[modId] = {
+                                exams: [],
+                                time: detTime || '00:00',
+                                date: detDate,
+                                doc: docName,
+                                ref: refNo
+                            };
+                        }
+                        modalityGroups[modId].exams.push(sName);
+                    });
+
+                    Object.keys(modalityGroups).forEach(modId => {
+                        const group = modalityGroups[modId];
+                        const uniqueId = `${group.date}_${commonInfo.fileNumber}_${modId}`.replace(/[^a-zA-Z0-9_]/g, '');
+                        
+                        const docRef = doc(db, 'appointments', uniqueId);
+                        batch.set(docRef, {
+                            ...commonInfo,
+                            examType: modId, 
+                            examList: group.exams, 
+                            doctorName: group.doc,
+                            refNo: group.ref,
+                            date: group.date, 
+                            time: group.time,
+                            createdAt: Timestamp.now() 
+                        }, { merge: true });
+                        processedCount++;
+                    });
+
+                } else {
+                    const sName = findValue(p, ['serviceName', 'examName']) || 'General Exam';
+                    const modId = detectModality(sName);
+                    const uniqueId = `${cleanDate(p.queDate)}_${commonInfo.fileNumber}_${modId}`.replace(/[^a-zA-Z0-9_]/g, '');
                     
-                    setTimeOffset(offset);
-                    setIsTimeSynced(true);
-                    await deleteDoc(tempDocRef);
+                    const docRef = doc(db, 'appointments', uniqueId);
+                    batch.set(docRef, {
+                        ...commonInfo,
+                        examType: modId,
+                        examList: [sName],
+                        doctorName: p.doctorName || 'Unknown Dr',
+                        refNo: String(p.refNo || ''),
+                        date: cleanDate(p.queDate),
+                        time: qTime,
+                        createdAt: Timestamp.now()
+                    }, { merge: true });
+                    processedCount++;
+                }
+            });
+
+            try {
+                if (processedCount > 0) {
+                    await batch.commit();
+                    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+                    audio.play().catch(e => {});
+                    setToast({ msg: `تم استقبال ${processedCount} فحوصات! 📥`, type: 'success' });
+                    setLastSyncTime(new Date());
+                    
+                    if(activeView !== 'pending') setActiveView('pending');
                 }
             } catch (e) {
-                console.error("Sync fallback", e);
-                setIsTimeSynced(true);
+                console.error("Sync Write Error:", e);
             }
+            setTimeout(() => setIsListening(false), 2000);
         };
-        syncServerTime();
-    }, []);
 
-    // 2. Clock Logic
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+    }, [selectedDate]); 
+
+    // Firestore Listener with LIMIT
     useEffect(() => {
-        const timer = setInterval(() => {
-            const now = new Date(Date.now() + timeOffset);
-            setCurrentTime(now);
+        setLoading(true);
+        let q;
+        if (activeView === 'scheduled') {
+             q = query(collection(db, 'appointments'), where('status', '==', 'scheduled'), limit(300));
+        } else {
+             q = query(collection(db, 'appointments'), where('date', '==', selectedDate), limit(300));
+        }
 
-            // --- Override Countdown ---
-            const activeExpiry = overrideExpiries.find(expiry => expiry > now);
+        const unsub = onSnapshot(q, (snap) => {
+            const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as ExtendedAppointment));
+            let filtered = list;
             
-            if (activeExpiry) {
-                setHasOverride(true);
-                const diffSeconds = Math.round((activeExpiry.getTime() - now.getTime()) / 1000);
-                const displayedSeconds = Math.min(30, Math.max(0, diffSeconds));
-                if (displayedSeconds <= 0) {
-                    setHasOverride(false);
-                    setTimeLeft(null);
-                } else {
-                    setTimeLeft(displayedSeconds);
+            if (activeView !== 'scheduled') {
+                filtered = list.filter(a => a.status === activeView);
+            }
+            
+            // Sort logic
+            filtered.sort((a: any, b: any) => {
+                // If done, sort by completedAt (newest finished top)
+                if (activeView === 'done' && a.completedAt && b.completedAt) {
+                    return b.completedAt.seconds - a.completedAt.seconds;
                 }
-            } else {
-                setHasOverride(false);
-                setTimeLeft(null);
-            }
-
-            if (now.getSeconds() === 0) {
-                setLogicTicker(prev => prev + 1);
-            }
-        }, 1000);
-        return () => clearInterval(timer);
-    }, [isTimeSynced, timeOffset, overrideExpiries]);
-
-
-    // 3. Data Subscriptions
-    useEffect(() => {
-        if (!currentUserId || !currentTime) return;
-
-        const unsubUser = onSnapshot(doc(db, 'users', currentUserId), (docSnap) => {
-            if(docSnap.exists()) setUserProfile(docSnap.data());
-        });
-
-        const todayStr = getLocalDateKey(currentTime);
-        const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', todayStr));
-        const unsubLogs = onSnapshot(qLogs, (snap) => {
-            const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
-            
-            // Fix: Sort with safe timestamp check to prevent crash on pending writes
-            logs.sort((a, b) => {
-                const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
-                const tB = b.timestamp?.seconds || b.clientTimestamp?.seconds || 0;
-                return tA - tB;
+                // Default: Queue Time Descending
+                return b.time.localeCompare(a.time); 
             });
             
-            setTodayLogs(logs);
+            setAppointments(filtered);
+            setLoading(false);
         });
+        return () => unsub();
+    }, [selectedDate, activeView]);
 
-        const yesterdayDate = new Date(currentTime);
-        yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-        const yesterdayStr = getLocalDateKey(yesterdayDate);
-        
-        const qLogsYesterday = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', yesterdayStr));
-        const unsubLogsYesterday = onSnapshot(qLogsYesterday, (snap) => {
-            const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
-            logs.sort((a, b) => {
-                const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
-                const tB = b.timestamp?.seconds || b.clientTimestamp?.seconds || 0;
-                return tA - tB;
-            });
-            setYesterdayLogs(logs);
-        });
-
-        const qOverride = query(collection(db, 'attendance_overrides'), where('userId', '==', currentUserId));
-        const unsubOver = onSnapshot(qOverride, (snap) => {
-            const expiries = snap.docs
-                .map(d => d.data().validUntil?.toDate())
-                .filter(date => date != null);
-            setOverrideExpiries(expiries.sort((a, b) => a.getTime() - b.getTime()));
-        });
-
-        // NEW: Fetch Actions/Leaves for Today to Lock Attendance
-        const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
-        const unsubActions = onSnapshot(qActions, (snap) => {
-            const actions = snap.docs.map(d => d.data() as ActionLog);
-            // Check if any active action covers today
-            const active = actions.find(a => a.fromDate <= todayStr && a.toDate >= todayStr);
-            
-            if (active) {
-                // Ignore 'positive' or simple notes, prioritize absence/leave types
-                if (['annual_leave', 'sick_leave', 'unjustified_absence', 'justified_absence', 'mission'].includes(active.type)) {
-                    setTodayAction(active.type);
-                } else {
-                    setTodayAction(null);
-                }
+    const filteredAppointments = useMemo(() => {
+        let list = appointments;
+        if (activeModality !== 'ALL') {
+            if (activeModality === 'X-RAY') {
+                list = list.filter(a => a.examType === 'X-RAY' || a.examType === 'OTHER');
             } else {
-                setTodayAction(null);
-            }
-        });
-
-        // UPDATED LOGIC: Fetch Previous, Current, AND Next Month to cover all recurring bases
-        const currentMonth = currentTime.toISOString().slice(0, 7);
-        const prevDate = new Date(currentTime); prevDate.setMonth(prevDate.getMonth() - 1);
-        const prevMonth = prevDate.toISOString().slice(0, 7);
-        const nextDate = new Date(currentTime); nextDate.setMonth(nextDate.getMonth() + 1);
-        const nextMonth = nextDate.toISOString().slice(0, 7);
-
-        const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
-        const unsubSch = onSnapshot(qSch, (snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
-
-        return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); unsubActions(); };
-    }, [currentUserId, isTimeSynced, currentTime?.toDateString()]);
-
-
-    // 4. Calculate Shifts (Data layer)
-    useEffect(() => {
-        if (!currentTime) return;
-        
-        const getShiftsForDate = (targetDate: Date) => {
-            const dateStr = getLocalDateKey(targetDate);
-            const dayOfWeek = targetDate.getDay();
-            let resultShifts: { start: string, end: string }[] = [];
-            
-            const specific = schedules.find(s => s.date === dateStr);
-            if (specific) {
-                resultShifts = specific.shifts || parseMultiShifts(specific.note || "");
-            } else {
-                schedules.forEach(sch => {
-                    if (sch.date) return;
-                    let applies = false;
-                    const isFri = (sch.locationId || '').toLowerCase().includes('friday') || (sch.note || '').toLowerCase().includes('friday');
-                    if (dayOfWeek === 5) { if (isFri) applies = true; } else { if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; }
-                    
-                    if (applies) {
-                        if (sch.validFrom && dateStr < sch.validFrom) applies = false;
-                        if (sch.validTo && dateStr > sch.validTo) applies = false;
-                    }
-                    
-                    if (applies) {
-                        const parsed = sch.shifts || parseMultiShifts(sch.note || "");
-                        if (parsed.length > 0) resultShifts = parsed;
-                    }
-                });
-            }
-            return resultShifts;
-        };
-
-        // Today
-        setTodayShifts(getShiftsForDate(currentTime));
-
-        // Yesterday
-        const yestDate = new Date(currentTime);
-        yestDate.setDate(yestDate.getDate() - 1);
-        setYesterdayShifts(getShiftsForDate(yestDate));
-
-        // Tomorrow
-        const tomDate = new Date(currentTime);
-        tomDate.setDate(tomDate.getDate() + 1);
-        setTomorrowShifts(getShiftsForDate(tomDate));
-
-    }, [schedules, currentTime]);
-
-    // Use the logic from separate file
-    const shiftLogic = useMemo(() => {
-        // Pass yesterdayShifts to support overnight logic
-        // NEW: Pass todayAction to logic so it returns ON_LEAVE state
-        return calculateShiftStatus(currentTime, todayLogs, yesterdayLogs, todayShifts, hasOverride, yesterdayShifts, todayAction);
-    }, [todayLogs, yesterdayLogs, todayShifts, yesterdayShifts, hasOverride, logicTicker, currentTime, todayAction]);
-
-    // --- ACTIONS ---
-    const playSound = (type: 'success' | 'error' | 'click') => {
-        const sounds = {
-            success: 'https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3',
-            error: 'https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3',
-            click: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3'
-        };
-        new Audio(sounds[type]).play().catch(() => {});
-    };
-
-    const authenticateUser = async () => {
-        if (window.PublicKeyCredential) {
-            try {
-                setStatus('AUTH_DEVICE');
-                await navigator.credentials.create({
-                    publicKey: {
-                        challenge: new Uint8Array(32),
-                        rp: { name: "Smart Employee System" },
-                        user: { id: new Uint8Array(16), name: currentUserName, displayName: currentUserName },
-                        pubKeyCredParams: [{ type: "public-key", alg: -7 }],
-                        authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
-                        timeout: 60000
-                    }
-                });
-                return true;
-            } catch (error) {
-                console.error("Auth failed", error);
-                throw new Error("Device authentication failed.");
+                list = list.filter(a => a.examType === activeModality);
             }
         }
-        return true; 
-    };
-    
-
-    const handlePunch = async () => {
-        if (activeLiveCheck) {
-            handleLiveCheck();
-            return;
+        if (searchQuery) {
+            const lowerQ = searchQuery.toLowerCase();
+            list = list.filter(a => 
+                a.patientName.toLowerCase().includes(lowerQ) || 
+                (a.fileNumber && a.fileNumber.includes(lowerQ)) ||
+                (a.refNo && a.refNo.includes(lowerQ))
+            );
         }
+        return list;
+    }, [appointments, activeModality, searchQuery]);
 
-        if (isProcessingRef.current || !shiftLogic.canPunch) return;
-
-        isProcessingRef.current = true; 
-        playSound('click');
-        setErrorDetails({title:'', msg:''});
-
-        const releaseLock = (delay = 2000) => {
-            setTimeout(() => {
-                isProcessingRef.current = false;
-            }, delay);
-        };
-
-        if (!navigator.onLine) {
-            setStatus('ERROR');
-            setErrorDetails({ title: 'No Internet', msg: 'Check connection.' });
-            playSound('error');
-            releaseLock(); 
-            return;
-        }
-
-        if (!localDeviceId) {
-             setStatus('ERROR');
-             setErrorDetails({ title: 'Device Error', msg: 'Identifying Device...' });
-             // Try to regenerate fingerprint if missing
-             getStableDeviceFingerprint().then(setLocalDeviceId);
-             releaseLock();
-             return;
-        }
-
-        if (!hasOverride) {
-            if (userProfile?.biometricId && userProfile.biometricId !== localDeviceId) {
-                setStatus('ERROR');
-                setErrorDetails({ title: 'Invalid Device', msg: 'Please use your registered device.' });
-                playSound('error');
-                releaseLock();
-                return;
-            }
-        }
+    // --- WORKFLOW: START EXAM (Sequential Numbering) ---
+    // UPDATED: Using updateDoc instead of runTransaction to avoid 429 Resource Exhausted
+    const handleStartExam = async (appt: ExtendedAppointment) => {
+        if (processingId) return; // Prevent double clicks
+        setProcessingId(appt.id);
 
         try {
-            await authenticateUser();
-            setStatus('SCANNING_LOC');
-
-            if (!navigator.geolocation) {
-                throw new Error('GPS not supported');
+            // 1. Optimistic Check: Validate status locally first
+            if (appt.status !== 'pending' && appt.status !== 'scheduled') {
+                throw new Error("عذراً، هذه الحالة تم سحبها بالفعل!");
             }
 
-            navigator.geolocation.getCurrentPosition(
-                async (pos) => {
-                    try {
-                        const { latitude, longitude, accuracy } = pos.coords;
-                        // @ts-ignore
-                        const isMocked = pos.coords.mocked || false; 
+            // 2. Generate Registration Number (Client-side Logic)
+            const settings = { ...modalitySettings };
+            const modKey = appt.examType;
+            const currentCount = settings[modKey]?.currentCounter || 1;
+            const regNo = `${modKey}-${currentCount}`;
 
-                        const deviceTime = Date.now();
-                        const serverTimeFromOffset = deviceTime + timeOffset;
-                        const timeDiffMinutes = Math.abs(deviceTime - serverTimeFromOffset) / (1000 * 60);
-                        
-                        let isSuspicious = false;
-                        let violationType = '';
+            // Increment and Save locally
+            settings[modKey] = {
+                ...settings[modKey],
+                currentCounter: currentCount + 1
+            };
+            saveSettings(settings);
 
-                        if (timeDiffMinutes > 5) { 
-                            isSuspicious = true;
-                            violationType = 'MANUAL_TIME_CHANGE';
-                        }
+            // 3. Direct Update (Single Write Operation - Lightweight)
+            const apptRef = doc(db, 'appointments', appt.id);
+            await updateDoc(apptRef, {
+                status: 'processing',
+                performedBy: currentUserId,
+                performedByName: currentUserName,
+                startedAt: Timestamp.now(),
+                registrationNumber: regNo
+            });
+            
+            setCurrentRegNo(regNo);
+            setIsRegModalOpen(true);
+            const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3'); 
+            audio.play().catch(()=>{});
 
-                        if (isMocked) {
-                            isSuspicious = true;
-                            violationType = 'MOCK_LOCATION_DETECTED';
-                        }
-
-                        const dist = getDistanceFromLatLonInKm(latitude, longitude, HOSPITAL_LAT, HOSPITAL_LNG);
-
-                        if (dist > ALLOWED_RADIUS_KM && !hasOverride) {
-                            setStatus('ERROR');
-                            setErrorDetails({ title: 'Out of Range', msg: `You are ${(dist * 1000).toFixed(0)}m away.` });
-                            playSound('error');
-                            releaseLock();
-                            return;
-                        }
-
-                        setStatus('PROCESSING');
-                        
-                        const localDateStr = getLocalDateKey(currentTime!);
-                        const nextType = shiftLogic.state === 'READY_IN' ? 'IN' : 'OUT';
-                        
-                        const currentShiftIdx = (shiftLogic as any).shiftIdx || 1;
-
-                        await addDoc(collection(db, 'attendance_logs'), {
-                            userId: currentUserId,
-                            userName: currentUserName,
-                            type: nextType,
-                            timestamp: serverTimestamp(),
-                            clientTimestamp: Timestamp.now(),
-                            date: localDateStr,
-                            locationLat: latitude,
-                            locationLng: longitude,
-                            distanceKm: dist,
-                            accuracy: accuracy,
-                            deviceInfo: navigator.userAgent,
-                            deviceId: localDeviceId, // Using the new Stable Fingerprint
-                            status: isSuspicious ? 'flagged' : 'verified', 
-                            shiftIndex: currentShiftIdx, 
-                            isSuspicious: isSuspicious, 
-                            violationType: violationType 
-                        });
-
-                        if (!userProfile?.biometricId) {
-                            await updateDoc(doc(db, 'users', currentUserId), {
-                                biometricId: localDeviceId,
-                                biometricRegisteredAt: Timestamp.now()
-                            });
-                        }
-
-                        setStatus('SUCCESS');
-                        playSound('success');
-                        if (navigator.vibrate) navigator.vibrate([100]);
-                        
-                        setTimeout(() => setStatus('IDLE'), 2000);
-                        releaseLock(3000); 
-
-                    } catch (innerError: any) {
-                        console.error(innerError);
-                        setStatus('ERROR');
-                        setErrorDetails({ title: 'Process Error', msg: innerError.message });
-                        releaseLock();
-                    }
-                },
-                (err) => {
-                    let errorMsg = "حدث خطأ في تحديد الموقع";
-                    if (err.code === 1) errorMsg = "يرجى تفعيل صلاحية الموقع للمتصفح";
-                    if (err.code === 2) errorMsg = "إشارة الـ GPS ضعيفة جداً (حاول الاقتراب من نافذة أو فتح الواي فاي)";
-                    if (err.code === 3) errorMsg = "استغرق تحديد الموقع وقتاً طويلاً، حاول مرة أخرى";
-                    setStatus('ERROR');
-                    setErrorDetails({ title: 'GPS Failed', msg: err.message });
-                    playSound('error');
-                    setTimeout(() => setStatus('IDLE'), 3000);
-                    releaseLock();
-                },
-                { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
-            );
-
-        } catch (e: any) {
-            setStatus('ERROR');
-            setErrorDetails({ title: 'Auth Failed', msg: e.message || "Unknown error" });
-            playSound('error');
-            releaseLock();
+        } catch(e: any) {
+            setToast({msg: e.message || 'خطأ في العملية', type: 'error'});
+        } finally {
+            setProcessingId(null);
         }
     };
 
-    // --- LIVE CHECK LISTENER ---
-    useEffect(() => {
-        const unsubAuth = onAuthStateChanged(auth, (user: any) => {
-            if (user) {
-                setRealUserId(user.uid);
-            } else {
-                setRealUserId(null);
+    // --- WORKFLOW: FINISH EXAM (Panic Check) ---
+    const handleFinishClick = (appt: ExtendedAppointment) => {
+        if (appt.performedBy && appt.performedBy !== currentUserId && !isSupervisor) {
+            setToast({msg: 'عذراً، هذا المريض في عهدة موظف آخر', type: 'error'});
+            return;
+        }
+        setFinishingAppt(appt);
+        setIsPanicModalOpen(true);
+    };
+
+    const handleConfirmFinish = async (isPanic: boolean) => {
+        if (!finishingAppt) return;
+        
+        try {
+            const batch = writeBatch(db);
+            const apptRef = doc(db, 'appointments', finishingAppt.id);
+
+            // Update Appointment
+            const updates: any = {
+                status: 'done',
+                completedAt: Timestamp.now(),
+                isPanic: isPanic
+            };
+            if (isPanic) updates.panicDetails = panicDescription;
+            batch.update(apptRef, updates);
+
+            // If Panic, create Report
+            if (isPanic) {
+                const reportRef = doc(collection(db, 'panic_reports'));
+                batch.set(reportRef, {
+                    date: new Date().toISOString().split('T')[0],
+                    time: new Date().toLocaleTimeString(),
+                    patientName: finishingAppt.patientName,
+                    fileNumber: finishingAppt.fileNumber,
+                    registrationNumber: finishingAppt.registrationNumber || 'N/A',
+                    doctorName: finishingAppt.doctorName,
+                    examType: finishingAppt.examType,
+                    findings: panicDescription,
+                    reportedBy: currentUserName,
+                    reportedById: currentUserId,
+                    createdAt: serverTimestamp()
+                });
             }
-        });
-        return () => unsubAuth();
-    }, []);
+
+            await batch.commit();
+            setToast({ msg: isPanic ? 'تم تسجيل حالة Panic 🚨' : 'تم إنهاء الفحص بنجاح ✅', type: 'success' });
+            
+            setIsPanicModalOpen(false);
+            setFinishingAppt(null);
+            setPanicDescription('');
+
+        } catch (e) {
+            console.error(e);
+            setToast({ msg: 'حدث خطأ أثناء الحفظ', type: 'error' });
+        }
+    };
+
+    // --- GENERIC ACTIONS ---
+    const handleOpenBooking = (appt: ExtendedAppointment) => {
+        setBookingAppt(appt);
+        const tom = new Date(); tom.setDate(tom.getDate()+1);
+        setBookingDate(tom.toISOString().split('T')[0]);
+        setBookingTime(""); // Reset time
+        setBookingRoom(appt.roomNumber || 'الغرفة العامة');
+        const mod = MODALITIES.find(m => m.id === appt.examType);
+        setBookingPrep(mod?.defaultPrep || 'لا توجد تحضيرات خاصة');
+        setBookingWarning('');
+        setIsBookingModalOpen(true);
+    };
 
     useEffect(() => {
-        if (!realUserId) return;
+        const checkQuotaAndSlots = async () => {
+            if (!bookingAppt || !bookingDate) return;
+            setBookingWarning('');
+            setAvailableSlots([]);
 
-        const qLiveCheck = query(
-            collection(db, 'location_checks'), 
-            where('targetUserId', '==', realUserId), 
-            where('status', '==', 'pending')
+            try {
+                const qScheduled = query(
+                    collection(db, 'appointments'),
+                    where('status', '==', 'scheduled'),
+                    where('scheduledDate', '==', bookingDate),
+                    where('examType', '==', bookingAppt.examType)
+                );
+                const snapshot = await getDocs(qScheduled);
+                const bookedTimes = snapshot.docs.map(d => d.data().time);
+                const currentCount = snapshot.size;
+                
+                const settings = modalitySettings[bookingAppt.examType] || DEFAULT_SETTINGS['OTHER'];
+                const limit = settings.limit;
+                const definedSlots = settings.slots || [];
+
+                if (currentCount >= limit) {
+                    setBookingWarning(`⚠️ تم اكتمال العدد لهذا القسم (${currentCount}/${limit}).`);
+                } else {
+                    setBookingWarning(`✅ متاح: ${limit - currentCount} أماكن.`);
+                    if (definedSlots.length > 0) {
+                        const free = definedSlots.filter(s => !bookedTimes.includes(s));
+                        setAvailableSlots(free);
+                    } else {
+                        setAvailableSlots([]);
+                    }
+                }
+            } catch(e) { console.error(e); }
+        };
+        checkQuotaAndSlots();
+    }, [bookingDate, bookingAppt, modalitySettings]);
+
+    const confirmBooking = async () => {
+        if (!bookingAppt || !bookingDate || !bookingTime) {
+            setToast({msg: 'يرجى اختيار التاريخ والوقت', type: 'error'});
+            return;
+        }
+        try {
+            await updateDoc(doc(db, 'appointments', bookingAppt.id), {
+                status: 'scheduled',
+                scheduledDate: bookingDate,
+                time: bookingTime, 
+                roomNumber: bookingRoom, 
+                preparation: bookingPrep, 
+                notes: `${bookingAppt.notes || ''}\n📅 Booked: ${bookingDate} ${bookingTime}`
+            });
+            setBookedTicketId(bookingAppt.id);
+            setIsBookingModalOpen(false);
+            setIsTicketModalOpen(true);
+            setBookingAppt(null);
+        } catch(e) { setToast({ msg: 'خطأ في الحجز', type: 'error' }); }
+    };
+
+    const handleUndo = async (appt: ExtendedAppointment) => {
+        if (!isSupervisor && appt.performedBy !== currentUserId) {
+            setToast({msg: 'لا يمكنك التراجع عن حالة زميل', type: 'error'});
+            return;
+        }
+        try {
+            await updateDoc(doc(db, 'appointments', appt.id), {
+                status: 'pending',
+                performedBy: null,
+                performedByName: null,
+                completedAt: null,
+                isPanic: false
+            });
+            setToast({ msg: 'تم إعادة الحالة لقائمة الانتظار', type: 'info' });
+        } catch(e) { console.error(e); }
+    };
+
+    const handleDelete = async (id: string) => {
+        if(!confirm(t('confirm') + '?')) return;
+        try {
+            await deleteDoc(doc(db, 'appointments', id));
+            setToast({ msg: t('delete'), type: 'success' });
+        } catch(e) { console.error(e); }
+    };
+
+    const handleManualSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!patientName || !examType) return;
+        try {
+            const now = new Date();
+            const uniqueId = `MANUAL_${Date.now()}`;
+            await setDoc(doc(db, 'appointments', uniqueId), {
+                patientName,
+                fileNumber,
+                doctorName,
+                patientAge,
+                examType,
+                examList: [examType], 
+                date: selectedDate,
+                time: `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`,
+                notes,
+                status: 'pending',
+                createdBy: currentUserId,
+                createdByName: currentUserName,
+                createdAt: Timestamp.now()
+            });
+            setToast({ msg: 'تم إضافة الحالة', type: 'success' });
+            setIsAddModalOpen(false);
+            setPatientName(''); setFileNumber(''); setNotes(''); setDoctorName(''); setPatientAge('');
+        } catch (e) { setToast({ msg: 'خطأ', type: 'error' }); }
+    };
+
+    const handleSaveLimits = () => {
+        saveSettings(modalitySettings);
+        setToast({ msg: 'تم حفظ الإعدادات', type: 'success' });
+        setIsSettingsModalOpen(false);
+    };
+
+    const handleBulkAction = async (action: 'clean_old' | 'delete_all' | 'delete_done' | 'delete_pending') => {
+        if (!isSupervisor) return;
+        let confirmMsg = '';
+        let queryConstraint: any[] = [];
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        switch(action) {
+            case 'clean_old':
+                confirmMsg = `حذف جميع الحالات القديمة (ما قبل ${todayStr})؟`;
+                queryConstraint = [where('date', '<', todayStr)];
+                break;
+            case 'delete_all':
+                confirmMsg = `⚠️ تحذير: حذف جميع الحالات (${appointments.length}) في القائمة الحالية؟`;
+                queryConstraint = [where('date', '==', selectedDate)];
+                break;
+            case 'delete_done':
+                confirmMsg = 'حذف جميع الحالات المنجزة (Done)؟';
+                queryConstraint = [where('status', '==', 'done'), where('date', '==', selectedDate)];
+                break;
+            case 'delete_pending':
+                confirmMsg = 'حذف جميع الحالات في الانتظار (Pending)؟';
+                queryConstraint = [where('status', '==', 'pending'), where('date', '==', selectedDate)];
+                break;
+        }
+
+        if (!confirm(confirmMsg)) return;
+        setIsCleanupProcessing(true);
+        try {
+            const q = query(collection(db, 'appointments'), ...queryConstraint);
+            const snap = await getDocs(q);
+            if (snap.empty) { setToast({msg: 'لا توجد بيانات للحذف', type: 'info'}); setIsCleanupProcessing(false); return; }
+            const chunks = [];
+            const docs = snap.docs;
+            for (let i = 0; i < docs.length; i += 500) chunks.push(docs.slice(i, i + 500));
+            for (const chunk of chunks) {
+                const batch = writeBatch(db);
+                chunk.forEach(d => batch.delete(d.ref));
+                await batch.commit();
+            }
+            setToast({msg: `تم حذف ${snap.size} سجل بنجاح`, type: 'success'});
+        } catch(e: any) { setToast({msg: 'حدث خطأ: ' + e.message, type: 'error'}); } finally { setIsCleanupProcessing(false); }
+    };
+
+    const handleCopyScript = () => {
+        const script = `
+/* 🚀 AJ-SMART-BRIDGE V11 (XHR Interceptor) */
+(function() {
+    console.clear();
+    console.log("%c 🟢 Bridge Active: Monitoring Network... ", "background: #0f0; color: #000; font-size:14px; font-weight:bold;");
+
+    const APP_URL = "${window.location.origin}/#/appointments";
+    let syncWin = null;
+
+    // Open/Focus the React App Window
+    function openSyncWindow() {
+        if (!syncWin || syncWin.closed) {
+            syncWin = window.open(APP_URL, "SmartAppSyncWindow");
+        }
+        return syncWin;
+    }
+
+    // Send Data to React App
+    function sendData(data) {
+        if (!data) return;
+        let payload = data;
+        
+        // Handle different JSON structures from ASP.NET / IHMS
+        if (data.d) payload = data.d;
+        if (data.result) payload = data.result;
+        
+        if (!Array.isArray(payload)) payload = [payload];
+
+        // Validate payload looks like patient data
+        const isValid = payload.length > 0 && (
+            payload[0].engName || 
+            payload[0].patientName || 
+            payload[0].xrayPatientDetails || 
+            payload[0].fileNumber
         );
 
-        const unsubLiveCheck = onSnapshot(qLiveCheck, async (snap) => {
-            if (!snap.empty) {
-                const docRef = snap.docs[0];
-                const docData = docRef.data();
-                const req = { id: docRef.id, ...docData } as LocationCheckRequest;
-                
-                try {
-                    const userSnap = await getDoc(doc(db, 'users', realUserId));
-                    if (userSnap.exists()) {
-                        const registeredDevice = userSnap.data().biometricId;
-                        const regClean = (registeredDevice || '').trim();
-                        const localClean = (localDeviceId || '').trim();
+        if (isValid) {
+            console.log("🔥 Intercepted Data:", payload.length, "records");
+            syncWin = openSyncWindow();
+            // Wait slightly for window to focus/load
+            setTimeout(() => {
+                syncWin.postMessage({ type: 'SMART_SYNC_DATA', payload: payload }, '*');
+            }, 500);
+        }
+    }
 
-                        if (regClean && regClean !== localClean && !hasOverride) {
-                            await updateDoc(doc(db, 'location_checks', req.id), {
-                                status: 'rejected',
-                                reason: 'Unauthorized Device Attempt',
-                                completedAt: serverTimestamp(),
-                                deviceMismatch: true
-                            });
-                            setToast({ msg: 'Live Check skipped: Unauthorized Device', type: 'error' });
-                            return; 
-                        }
+    // --- THE INTERCEPTOR ---
+    // This monkey-patches the browser's XMLHttpRequest to snoop on data
+    const originalOpen = XMLHttpRequest.prototype.open;
+    const originalSend = XMLHttpRequest.prototype.send;
+
+    XMLHttpRequest.prototype.open = function(method, url) {
+        this._url = url;
+        return originalOpen.apply(this, arguments);
+    };
+
+    XMLHttpRequest.prototype.send = function() {
+        this.addEventListener('load', function() {
+            // Only process JSON responses
+            const contentType = this.getResponseHeader("content-type");
+            if (contentType && contentType.includes("application/json")) {
+                try {
+                    const text = this.responseText;
+                    if (text) {
+                        const json = JSON.parse(text);
+                        sendData(json);
                     }
                 } catch (e) {
-                    console.error("Error verifying device for check", e);
+                    // Ignore parsing errors for non-JSON
                 }
-
-                setActiveLiveCheck(req);
-                new Audio('https://assets.mixkit.co/active_storage/sfx/2868/2868-preview.mp3').play().catch(()=>{});
-            } else {
-                setActiveLiveCheck(null);
             }
         });
+        return originalSend.apply(this, arguments);
+    };
 
-        return () => unsubLiveCheck();
-    }, [realUserId, localDeviceId, hasOverride]);
+    alert("✅ تم تفعيل المزامنة التلقائية (V11)! \n\nالآن عند البحث في IHMS، ستنتقل الأسماء تلقائياً.");
+})();
+`;
+        navigator.clipboard.writeText(script);
+        setToast({ msg: 'تم نسخ كود المراقبة الذكي (V11)!', type: 'success' });
+    };
 
-    const handleLiveCheck = async () => {
-        if(!activeLiveCheck) return;
-        setIsLiveCheckProcessing(true);
-        setStatus('SCANNING_LOC');
+    // --- CLIENT-SIDE LOGBOOK GENERATOR WITH DATE RANGE ---
+    const fetchLogbookData = async () => {
+        setIsLogLoading(true);
+        try {
+            const q = query(
+                collection(db, 'appointments'), 
+                where('date', '>=', logStartDate),
+                where('date', '<=', logEndDate)
+            );
+            const snap = await getDocs(q);
+            const list = snap.docs.map(d => ({id: d.id, ...d.data()} as ExtendedAppointment));
+            
+            // Filter only DONE or PROCESSING items usually, but keeping ALL for log is safer
+            // Sort by Date then Time
+            list.sort((a,b) => {
+                if (a.date !== b.date) return a.date.localeCompare(b.date);
+                return a.time.localeCompare(b.time);
+            });
+            
+            setLogbookData(list);
+        } catch(e) {
+            console.error(e);
+            setToast({msg: 'Failed to fetch log data', type: 'error'});
+        } finally {
+            setIsLogLoading(false);
+        }
+    };
 
-        navigator.geolocation.getCurrentPosition(
-            async (pos) => {
-                await updateDoc(doc(db, 'location_checks', activeLiveCheck.id), {
-                    status: 'completed',
-                    userName: currentUserName,
-                    locationLat: pos.coords.latitude,
-                    locationLng: pos.coords.longitude,
-                    accuracy: pos.coords.accuracy,
-                    completedAt: serverTimestamp(),
-                    deviceId: localDeviceId
-                });
-                
-                setToast({msg: 'تم إرسال الموقع بنجاح ✅', type: 'success'});
-                setActiveLiveCheck(null);
-                setIsLiveCheckProcessing(false);
-                setStatus('SUCCESS');
-                setTimeout(() => setStatus('IDLE'), 2000);
-            },
-            async (err) => {
-                setToast({msg: 'فشل تحديد الموقع، حاول مرة أخرى', type: 'error'});
-                setIsLiveCheckProcessing(false);
-                setStatus('IDLE');
-            },
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    const getLogbookData = (type: 'MRI' | 'CT' | 'XRAY') => {
+        // Use logbookData if loaded, otherwise fallback to current view's appointments (if single day)
+        // If separate date range fetch was used, `logbookData` is populated.
+        const sourceData = logbookData.length > 0 ? logbookData : appointments;
+        
+        return sourceData.filter(a => {
+            if (type === 'MRI') return a.examType === 'MRI';
+            if (type === 'CT') return a.examType === 'CT';
+            return a.examType !== 'MRI' && a.examType !== 'CT'; // XRAY & Others
+        });
+    };
+
+    const LogTable = ({ title, type }: { title: string, type: 'MRI' | 'CT' | 'XRAY' }) => {
+        const data = getLogbookData(type);
+        if (data.length === 0 && logbookData.length === 0 && appointments.length === 0) return null;
+
+        return (
+            <div className="mb-8 break-after-page page-break-always print:block">
+                <div className="flex justify-between items-center mb-4 border-b-2 border-black pb-2 print:flex">
+                    <h2 className="text-xl font-black">{title} - Logbook</h2>
+                    <span className="font-mono font-bold">
+                        {logStartDate === logEndDate ? logStartDate : `${logStartDate} to ${logEndDate}`}
+                    </span>
+                </div>
+                <table className="w-full text-xs border border-black border-collapse">
+                    <thead>
+                        <tr className="bg-gray-200">
+                            <th className="border border-black p-1 w-8">#</th>
+                            <th className="border border-black p-1">Date</th>
+                            <th className="border border-black p-1">Time</th>
+                            <th className="border border-black p-1">Reg No</th>
+                            <th className="border border-black p-1">Patient Name</th>
+                            <th className="border border-black p-1">ID / File</th>
+                            <th className="border border-black p-1">Exam</th>
+                            <th className="border border-black p-1">Performed By</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {data.length === 0 ? (
+                            <tr><td colSpan={8} className="text-center p-4">No cases recorded for this modality.</td></tr>
+                        ) : (
+                            data.map((row, i) => (
+                                <tr key={row.id}>
+                                    <td className="border border-black p-1 text-center">{i + 1}</td>
+                                    <td className="border border-black p-1 text-center font-mono">{row.date}</td>
+                                    <td className="border border-black p-1 text-center font-mono">{row.time}</td>
+                                    <td className="border border-black p-1 text-center font-bold">{row.registrationNumber || '-'}</td>
+                                    <td className="border border-black p-1 font-bold">{row.patientName}</td>
+                                    <td className="border border-black p-1 text-center font-mono">{row.fileNumber}</td>
+                                    <td className="border border-black p-1">{row.examList ? row.examList.join(', ') : row.examType}</td>
+                                    <td className="border border-black p-1 text-center">{row.performedByName || '-'}</td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
+                <div className="mt-2 text-right text-xs font-bold">Total {title}: {data.length} Cases</div>
+            </div>
         );
     };
 
-    // --- VISUAL CONFIGURATION ---
-    const visualState = useMemo(() => {
-        if (activeLiveCheck) {
-            return {
-                theme: 'rose',
-                mainText: isLiveCheckProcessing ? 'SENDING...' : 'CONFIRM LOCATION',
-                subText: 'Supervisor Requested',
-                icon: 'fa-map-marker-alt',
-                ringClass: 'border-red-500 shadow-[0_0_80px_rgba(239,68,68,0.6)] animate-pulse-ring',
-                btnClass: 'bg-red-600 text-white hover:bg-red-700 animate-pulse',
-                pulse: true
-            };
-        }
-
-        // Logic Override for "OFF DUTY" -> Show Next Shift
-        if (shiftLogic.state === 'OFF' && tomorrowShifts.length > 0) {
-            const nextShift = tomorrowShifts[0];
-            return {
-                theme: 'sky',
-                mainText: 'NEXT SHIFT',
-                subText: `Tomorrow ${nextShift.start}`,
-                icon: 'fa-calendar-day',
-                ringClass: 'border-sky-500/20 shadow-[0_0_50px_rgba(56,189,248,0.1)]',
-                btnClass: 'bg-sky-900/10 text-sky-500',
-                pulse: false
-            };
-        }
-
-        // NEW: Specific Handling for Leave State (Robust Check)
-        if (shiftLogic.state === 'ON_LEAVE') {
-            const colorStr = shiftLogic.color || '';
-            const isRed = colorStr.includes('red') || colorStr.includes('rose');
-            
-            return {
-                theme: isRed ? 'rose' : 'purple',
-                mainText: shiftLogic.message,
-                subText: shiftLogic.sub,
-                icon: 'fa-umbrella-beach',
-                ringClass: `border-${isRed ? 'red' : 'purple'}-500/20 shadow-[0_0_50px_rgba(200,200,200,0.1)]`,
-                btnClass: `${colorStr || 'bg-purple-900/40 text-purple-400'} cursor-not-allowed`,
-                pulse: false
-            };
-        }
-
-        const isBreak = (shiftLogic as any).isBreak;
-        
-        if (!shiftLogic.canPunch) {
-            if (shiftLogic.state === 'MISSED_OUT') {
-                return {
-                    theme: 'rose',
-                    mainText: 'MISSED OUT',
-                    subText: shiftLogic.sub,
-                    icon: 'fa-user-clock',
-                    ringClass: 'border-rose-500/20 shadow-[0_0_50px_rgba(244,63,94,0.1)]',
-                    btnClass: 'bg-rose-900/10 text-rose-500 animate-pulse',
-                    pulse: true
-                };
-            }
-            if (shiftLogic.state === 'NEXT_SHIFT') {
-                return {
-                    theme: 'slate',
-                    mainText: 'NEXT SHIFT',
-                    subText: shiftLogic.sub,
-                    icon: 'fa-moon',
-                    ringClass: 'border-slate-500/20 shadow-[0_0_50px_rgba(100,116,139,0.1)]',
-                    btnClass: 'bg-slate-900/10 text-slate-500',
-                    pulse: false
-                };
-            }
-            if (shiftLogic.state === 'ABSENT') {
-                return {
-                    theme: 'rose', 
-                    mainText: 'ABSENT', 
-                    subText: shiftLogic.sub,
-                    icon: 'fa-user-slash',
-                    ringClass: 'border-rose-500/20 shadow-[0_0_50px_rgba(244,63,94,0.1)]',
-                    btnClass: 'bg-rose-900/10 text-rose-500',
-                    pulse: false
-                };
-            }
-            if (shiftLogic.state === 'COMPLETED') {
-                return {
-                    theme: 'emerald',
-                    mainText: shiftLogic.message, 
-                    subText: shiftLogic.sub,
-                    icon: 'fa-check-circle',
-                    ringClass: 'border-emerald-500/20 shadow-[0_0_50px_rgba(16,185,129,0.1)]',
-                    btnClass: 'bg-emerald-900/10 text-emerald-500',
-                    pulse: false
-                };
-            }
-            if (isBreak || shiftLogic.state === 'WAITING') {
-                return {
-                    theme: 'amber',
-                    mainText: shiftLogic.state === 'WAITING' ? 'WAITING' : 'BREAK',
-                    subText: shiftLogic.sub,
-                    extraText: (shiftLogic as any).timeRemaining,
-                    icon: 'fa-coffee',
-                    ringClass: 'border-amber-500/20 shadow-[0_0_30px_rgba(245,158,11,0.1)]',
-                    btnClass: 'bg-amber-900/10 text-amber-500',
-                    pulse: true 
-                };
-            }
-            return {
-                theme: 'slate',
-                mainText: shiftLogic.message,
-                subText: shiftLogic.sub,
-                icon: 'fa-lock',
-                ringClass: 'border-slate-700/30',
-                btnClass: 'bg-slate-800/40 text-slate-500',
-                pulse: false
-            };
-        }
-
-        const isCheckIn = shiftLogic.state === 'READY_IN';
-        return {
-            theme: isCheckIn ? 'cyan' : 'rose',
-            mainText: shiftLogic.message,
-            subText: shiftLogic.sub,
-            icon: isCheckIn ? 'fa-fingerprint' : 'fa-sign-out-alt',
-            ringClass: isCheckIn 
-                ? 'border-cyan-500/50 shadow-[0_0_80px_rgba(6,182,212,0.3)] animate-pulse-ring' 
-                : 'border-rose-500/50 shadow-[0_0_80px_rgba(244,63,94,0.3)] animate-pulse-ring',
-            btnClass: isCheckIn 
-                ? 'bg-cyan-500 text-black hover:bg-cyan-400' 
-                : 'bg-rose-600 text-white hover:bg-rose-500',
-            pulse: true
-        };
-    }, [shiftLogic, activeLiveCheck, isLiveCheckProcessing, tomorrowShifts]);
-
-    const radius = 140;
-    const circumference = 2 * Math.PI * radius;
-    const displayTime = currentTime || new Date();
-    const strokeDashoffset = circumference - ((displayTime.getSeconds()) / 60) * circumference;
+    const appUrl = window.location.origin;
+    const isLocalhost = appUrl.includes('localhost') || appUrl.includes('127.0.0.1');
 
     return (
-        <div className="min-h-screen bg-[#050505] text-white font-sans flex flex-col relative overflow-hidden selection:bg-cyan-500/30" dir={dir}>
-            <style>{styles}</style>
-            
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                <div className={`absolute top-[-20%] left-[-10%] w-[70vw] h-[70vw] rounded-full mix-blend-screen filter blur-[120px] opacity-20 animate-float transition-colors duration-[2000ms]
-                    ${visualState.theme === 'cyan' ? 'bg-cyan-600' : visualState.theme === 'rose' ? 'bg-rose-600' : visualState.theme === 'amber' ? 'bg-amber-600' : visualState.theme === 'purple' ? 'bg-purple-600' : 'bg-slate-800'}`}>
-                </div>
-                <div className={`absolute bottom-[-20%] right-[-10%] w-[60vw] h-[60vw] rounded-full mix-blend-screen filter blur-[100px] opacity-10 animate-float transition-colors duration-[2000ms] delay-1000
-                    ${visualState.theme === 'cyan' ? 'bg-blue-600' : visualState.theme === 'rose' ? 'bg-orange-600' : 'bg-slate-700'}`}>
-                </div>
-                <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5"></div>
-            </div>
-
+        <div className="min-h-screen bg-slate-50 pb-20 font-sans" dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
-
-            <div className="relative z-30 flex justify-between items-center p-6 glass-panel border-b border-white/5">
-                <button onClick={() => navigate('/user')} className="group flex items-center gap-3 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 transition-all backdrop-blur-md">
-                    <i className="fas fa-chevron-left text-white/70 group-hover:text-white transition-colors rtl:rotate-180"></i>
-                    <span className="text-xs font-bold text-white/70 group-hover:text-white uppercase tracking-wider">Dashboard</span>
-                </button>
-                
-                <div className="flex items-center gap-4">
-                    <div className="text-right">
-                        <h2 className="text-sm font-bold text-white/90 tracking-wide">{currentUserName}</h2>
-                        <div className="flex items-center justify-end gap-1.5 mt-0.5">
-                            <div className={`w-1.5 h-1.5 rounded-full ${navigator.onLine && isTimeSynced ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-red-500 animate-pulse'}`}></div>
-                            <span className="text-[9px] font-mono text-white/40 tracking-wider uppercase">{isTimeSynced ? 'ONLINE' : 'SYNCING'}</span>
-                        </div>
-                    </div>
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-white/10 to-transparent border border-white/10 flex items-center justify-center text-sm font-bold shadow-lg text-white">
-                        {currentUserName.charAt(0)}
-                    </div>
-                </div>
-            </div>
-
-          {hasOverride && timeLeft !== null && (
-            <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 w-full max-w-[280px] transition-all duration-500 ${timeLeft <= 10 ? 'scale-110' : 'scale-100'}`}>
-                <div className={`
-                    flex items-center justify-center gap-3 px-6 py-3 rounded-2xl shadow-2xl border backdrop-blur-xl transition-colors duration-300
-                    ${timeLeft <= 10 
-                        ? 'bg-red-600/90 border-red-400 animate-shake' 
-                        : 'bg-orange-600/80 border-white/20 animate-bounce'
-                    } text-white`}
-                >
-                    <i className={`fas ${timeLeft <= 10 ? 'fa-triangle-exclamation' : 'fa-clock-rotate-left'} text-xl`}></i>
-                    <div className="flex flex-col">
-                        <span className="text-[10px] uppercase font-black tracking-widest opacity-80 leading-none">
-                            {timeLeft <= 10 ? 'Hurry Up!' : 'Access Window'}
-                        </span>
-                        <span className="text-lg font-black tabular-nums leading-none mt-1">
-                            Closing in: <span className="underline decoration-2 underline-offset-4">{timeLeft}s</span>
-                        </span>
-                    </div>
-                </div>
-            </div>
-        )}
-            <div className="flex-1 flex flex-col items-center justify-center relative z-20 px-4 pb-24">
-                
-                {currentTime && <DigitalClock date={currentTime} />}
-
-<div className="relative group scale-90 md:scale-100 transition-transform duration-500 flex items-center justify-center">
-    
-    <div className="absolute inset-[-40px] border border-dashed border-white/10 rounded-full animate-rotate-slow pointer-events-none"></div>
-    <div className={`absolute w-[340px] h-[340px] rounded-full border-2 ${visualState.ringClass} transition-all duration-700 pointer-events-none`}></div>
-    
-    <svg 
-        viewBox="0 0 340 340" 
-        className="absolute w-[340px] h-[340px] -rotate-90 pointer-events-none z-10 overflow-visible"
-        xmlns="http://www.w3.org/2000/svg"
-    >
-        <circle
-            cx="170"
-            cy="170"
-            r={radius}
-            stroke="currentColor"
-            strokeWidth="3"
-            fill="transparent"
-            strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
-            strokeLinecap="round"
-            className={`transition-all duration-1000 ease-linear ${
-                visualState.theme === 'cyan' ? 'text-cyan-400' : 
-                visualState.theme === 'rose' ? 'text-rose-500' : 
-                visualState.theme === 'amber' ? 'text-amber-500' : 
-                visualState.theme === 'purple' ? 'text-purple-500' : 
-                visualState.theme === 'sky' ? 'text-sky-400' : 'text-slate-600'
-            }`}
-        />
-    </svg>
-
-    <div className="relative z-20">
-       <button
-            onClick={handlePunch}
-            disabled={status !== 'IDLE' && status !== 'ERROR' && !activeLiveCheck && !shiftLogic.canPunch}
-            className={`
-                relative w-64 h-64 rounded-full flex flex-col items-center justify-center 
-                transition-all duration-500 transform active:scale-95 
-                ${visualState.theme === 'rose' && status === 'ERROR' ? 'bg-red-900/40 text-red-500 border-red-500/50' : visualState.btnClass} 
-                glass-panel border-4 border-white/5 shadow-2xl
-                ${(status !== 'IDLE' && status !== 'ERROR' && !activeLiveCheck && !shiftLogic.canPunch) ? 'opacity-90 cursor-not-allowed' : ''}
-            `}
-        >
-            <i className={`fas ${status === 'ERROR' ? 'fa-exclamation-triangle' : visualState.icon} text-5xl mb-4 neon-text-glow`}></i>
             
-            <span className="text-2xl font-black tracking-tighter uppercase leading-none text-center px-4">
-                {status === 'IDLE' ? visualState.mainText : 
-                status === 'ERROR' ? errorDetails.title : 
-                status} 
-            </span>
-
-            <span className="text-[10px] mt-2 font-bold tracking-[0.2em] opacity-60 uppercase text-center px-4">
-                {status === 'ERROR' ? errorDetails.msg : visualState.subText}
-            </span>
-        </button>
-    </div>
-</div>
-
-{todayShifts.length > 0 && (
-    <div className="mt-10 w-full max-w-2xl flex flex-col gap-6 px-4">
-        {todayShifts.map((s, i) => {
-            const isCurrent = (shiftLogic as any).shiftIdx === (i + 1);
-            const isMissed = (shiftLogic as any).shiftIdx > (i + 1) && todayLogs.length < (i + 1) * 2; 
-            
-            const startH = parseInt(s.start.split(':')[0]);
-            const endH = parseInt(s.end.split(':')[0]);
-            const isOvernight = endH < startH;
-
-            let borderColor = 'border-white/10';
-            let bgColor = 'bg-white/5';
-            let textColor = 'text-white/90';
-
-            if (isCurrent) {
-                borderColor = 'border-cyan-500/40';
-                bgColor = 'bg-cyan-500/10';
-                textColor = 'text-cyan-300 neon-text-glow';
-            } else if (isMissed) {
-                textColor = 'text-red-400/50 line-through';
-            }
-
-            return (
-                <div 
-                    key={i} 
-                    className={`glass-panel p-6 rounded-3xl flex flex-col gap-4 transition-all duration-500 border-2 ${borderColor} ${bgColor} ${isCurrent ? 'shadow-2xl scale-[1.03]' : 'opacity-70'}`}
-                >
-                    <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                        <span className="text-xs font-black text-white/30 uppercase tracking-[0.3em]">
-                            Shift {i + 1} {isOvernight ? '(OVERNIGHT)' : ''}
-                        </span>
-                        {isCurrent && (
-                            <span className="flex items-center gap-2 text-[10px] bg-cyan-500 text-black px-3 py-1 rounded-full font-bold">
-                                <span className="w-1.5 h-1.5 bg-black rounded-full animate-ping" />
-                                ACTIVE NOW
-                            </span>
-                        )}
-                    </div>
-
-                    <div className={`flex justify-between items-center ${textColor}`}>
-                        <div className="flex flex-col">
-                            <span className="text-[10px] text-white/20 mb-1 uppercase">Start</span>
-                            <span className="text-3xl md:text-4xl font-black font-mono tracking-tighter">
-                                {s.start}
-                            </span>
-                        </div>
-
-                        <div className="flex-grow mx-8 h-[2px] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-
-                        <div className="flex flex-col items-end">
-                            <span className="text-[10px] text-white/20 mb-1 uppercase">End</span>
-                            <span className="text-3xl md:text-4xl font-black font-mono tracking-tighter">
-                                {s.end}
-                            </span>
-                            {isOvernight && <span className="text-[9px] text-white/40 mt-1 uppercase">+1 Day</span>}
-                        </div>
-                    </div>
-                </div>
-            )
-        })}
-    </div>
-)}
-            </div>
-
-            <div className={`fixed bottom-0 left-0 right-0 glass-panel border-t border-white/10 transition-transform duration-500 z-40 flex flex-col rounded-t-[2.5rem] shadow-[0_-10px_60px_rgba(0,0,0,0.5)] ${showHistory ? 'translate-y-0 h-[75vh]' : 'translate-y-[calc(100%-90px)] h-[75vh]'}`}>
-                <div 
-                    onClick={() => setShowHistory(!showHistory)}
-                    className="w-full h-[90px] flex flex-col items-center justify-start pt-4 cursor-pointer relative group"
-                >
-                    <div className="w-12 h-1.5 rounded-full bg-white/20 group-hover:bg-white/40 transition-colors mb-3"></div>
-                    <span className="text-[10px] font-bold text-white/40 uppercase tracking-[0.2em] group-hover:text-white/70 transition-colors">Pull for History</span>
-                </div>
-                
-                <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-3 custom-scrollbar-dark bg-black/20">
-                    {todayLogs.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-40 text-white/20">
-                            <i className="far fa-clock text-3xl mb-3 opacity-50"></i>
-                            <p className="text-xs font-bold uppercase tracking-widest">No Activity Yet</p>
-                        </div>
-                    ) : (
-                        todayLogs.map((log, idx) => (
-                            <div key={log.id} className={`flex items-center justify-between bg-white/5 p-4 rounded-2xl border ${log.isSuspicious ? 'border-red-500/50 bg-red-900/10' : 'border-white/5'} hover:bg-white/10 transition-all group`}>
-                                <div className="flex items-center gap-4">
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg shadow-lg ${log.type === 'IN' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}`}>
-                                        <i className={`fas ${log.type === 'IN' ? 'fa-sign-in-alt' : 'fa-sign-out-alt'}`}></i>
-                                    </div>
-                                    <div>
-                                        <p className={`font-bold text-sm uppercase tracking-wide ${log.type === 'IN' ? 'text-cyan-100' : 'text-rose-100'}`}>{log.type === 'IN' ? 'Check In' : 'Check Out'}</p>
-                                        <p className="text-[10px] text-white/30 font-mono mt-0.5">Shift {log.shiftIndex || 1} • Seq #{idx+1}</p>
-                                        {log.isSuspicious && <p className="text-[9px] text-red-400 font-bold mt-1 uppercase tracking-wider">⚠️ {log.violationType || 'SUSPICIOUS'}</p>}
-                                    </div>
-                                </div>
-                                <div className="text-right">
-                                    <p className="font-mono font-bold text-white text-lg tracking-tight">
-                                        {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', hour12: false}) : '--:--'}
-                                    </p>
-                                    <div className="flex items-center justify-end gap-1 mt-1 opacity-40">
-                                        <i className="fas fa-check-circle text-[8px]"></i>
-                                        <span className="text-[9px] font-bold">Synced</span>
-                                    </div>
-                                </div>
+            {/* Header */}
+            <div className="bg-slate-900 text-white p-4 sticky top-0 z-30 shadow-2xl print:hidden">
+                <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div className="flex items-center gap-4 w-full md:w-auto">
+                        <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
+                            <i className="fas fa-arrow-left rtl:rotate-180"></i>
+                        </button>
+                        <div>
+                            <h1 className="text-xl font-black tracking-tight flex items-center gap-2">
+                                {t('appt.title')}
+                                {isListening && <span className="flex h-3 w-3 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span></span>}
+                            </h1>
+                            <div className="flex items-center gap-3 text-xs opacity-70 font-mono mt-1">
+                                {activeView === 'scheduled' ? <span>Scheduled Bookings</span> : <input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} className="bg-transparent border-none text-white p-0 text-xs font-bold focus:ring-0" />}
+                                {lastSyncTime && <span className="text-emerald-400 font-bold">• Sync: {lastSyncTime.toLocaleTimeString()}</span>}
                             </div>
-                        ))
+                        </div>
+                    </div>
+                    
+                    <div className="flex-1 w-full md:max-w-md mx-4">
+                        <div className="relative">
+                            <i className="fas fa-search absolute left-3 top-2.5 text-slate-400 text-sm"></i>
+                            <input 
+                                className="w-full bg-slate-800 border border-slate-700 rounded-full py-2 pl-10 pr-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                                placeholder="بحث باسم المريض أو رقم الملف..."
+                                value={searchQuery}
+                                onChange={e => setSearchQuery(e.target.value)}
+                            />
+                            {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-3 top-2.5 text-slate-500 hover:text-white"><i className="fas fa-times text-xs"></i></button>}
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700">
+                            <button onClick={() => setActiveView('pending')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activeView === 'pending' ? 'bg-amber-500 text-slate-900 shadow-md' : 'text-slate-400 hover:text-white'}`}>انتظار</button>
+                            <button onClick={() => setActiveView('processing')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activeView === 'processing' ? 'bg-blue-500 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}>العمل</button>
+                            <button onClick={() => setActiveView('scheduled')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activeView === 'scheduled' ? 'bg-purple-500 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}>مواعيد</button>
+                            <button onClick={() => setActiveView('done')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activeView === 'done' ? 'bg-emerald-500 text-slate-900 shadow-md' : 'text-slate-400 hover:text-white'}`}>منجز</button>
+                        </div>
+                        <button onClick={() => { setIsLogBookOpen(true); setLogStartDate(selectedDate); setLogEndDate(selectedDate); }} className="bg-slate-700 hover:bg-slate-600 text-white w-9 h-9 rounded-lg flex items-center justify-center shadow-lg transition-all" title="Daily Log Book">
+                            <i className="fas fa-book"></i>
+                        </button>
+                        <button onClick={() => setIsBridgeModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white w-9 h-9 rounded-lg flex items-center justify-center shadow-lg transition-all" title="Auto Sync">
+                            <i className={`fas fa-satellite-dish ${isListening ? 'animate-pulse' : ''}`}></i>
+                        </button>
+                        <button onClick={() => setIsSettingsModalOpen(true)} className="bg-slate-700 hover:bg-slate-600 text-white w-9 h-9 rounded-lg flex items-center justify-center shadow-lg transition-all" title="Quota Settings">
+                            <i className="fas fa-sliders-h"></i>
+                        </button>
+                        <button onClick={() => setIsAddModalOpen(true)} className="bg-white text-slate-900 w-9 h-9 rounded-lg flex items-center justify-center font-bold shadow-lg hover:bg-slate-200 transition-all">
+                            <i className="fas fa-plus"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Sub-Header: Modality Tabs */}
+            <div className="bg-white border-b border-slate-200 sticky top-[72px] z-20 shadow-sm overflow-x-auto no-scrollbar print:hidden">
+                <div className="max-w-7xl mx-auto px-4 flex items-center gap-1 py-2 min-w-max">
+                    <button 
+                        onClick={() => setActiveModality('ALL')}
+                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeModality === 'ALL' ? 'bg-slate-800 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+                    >
+                        <i className="fas fa-layer-group"></i> All 
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${activeModality === 'ALL' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                            {appointments.length}
+                        </span>
+                    </button>
+                    <div className="w-px h-6 bg-slate-200 mx-2"></div>
+                    {MODALITIES.filter(m => m.id !== 'OTHER').map(mod => {
+                        const count = appointments.filter(a => mod.id === 'X-RAY' ? (a.examType === 'X-RAY' || a.examType === 'OTHER') : a.examType === mod.id).length;
+                        return (
+                            <button 
+                                key={mod.id}
+                                onClick={() => setActiveModality(mod.id)}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 border ${activeModality === mod.id ? `${mod.color} ${mod.border}` : 'bg-white border-transparent text-slate-500 hover:bg-slate-50'}`}
+                            >
+                                <i className={`fas ${mod.icon}`}></i> {mod.label}
+                                <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${activeModality === mod.id ? 'bg-white/30 text-current' : 'bg-slate-100 text-slate-500'}`}>{count}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* Content */}
+            <div className="max-w-7xl mx-auto px-4 py-6 print:hidden">
+                {loading ? <Loading /> : filteredAppointments.length === 0 ? (
+                    <div className="text-center py-24 opacity-50">
+                        <div className="w-24 h-24 bg-slate-200 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl text-slate-400">
+                            {activeView === 'pending' ? <i className="fas fa-coffee"></i> : <i className="fas fa-check-double"></i>}
+                        </div>
+                        <p className="font-bold text-slate-500 text-lg">
+                            {searchQuery ? 'لا توجد نتائج للبحث' : 'لا توجد حالات في هذه القائمة'}
+                        </p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {filteredAppointments.map(appt => {
+                            const mod = MODALITIES.find(m => m.id === appt.examType) || MODALITIES[MODALITIES.length - 1];
+                            const isScheduled = appt.status === 'scheduled';
+                            const addedTime = appt.createdAt ? appt.createdAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+                            const isProcessing = processingId === appt.id;
+                            
+                            return (
+                                <div key={appt.id} className={`relative bg-white rounded-2xl p-4 shadow-sm border-l-4 transition-all hover:-translate-y-1 animate-fade-in ${appt.status === 'done' ? 'border-l-emerald-500 opacity-80' : appt.status === 'processing' ? 'border-l-blue-500 border-2 border-blue-500/20' : isScheduled ? 'border-l-purple-500' : 'border-l-amber-500 shadow-md'}`}>
+                                    <div className="flex justify-between items-start mb-2">
+                                        <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-wider border ${mod.color} ${mod.border}`}>
+                                            <i className={`fas ${mod.icon} mr-1`}></i> {mod.label}
+                                        </span>
+                                        <div className="flex flex-col items-end">
+                                            {isScheduled ? (
+                                                <button onClick={() => window.open(`#/ticket/${appt.id}`, '_blank')} className="font-mono text-xs font-bold text-purple-600 bg-purple-50 px-2 py-1 rounded border border-purple-100 hover:bg-purple-100 flex items-center gap-1">
+                                                    📅 {appt.scheduledDate} <i className="fas fa-qrcode"></i>
+                                                </button>
+                                            ) : (
+                                                <div className="flex flex-col items-end">
+                                                    <span className="text-[10px] text-slate-400 font-bold mb-0.5">Added: {addedTime}</span>
+                                                    <span className="font-mono text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded">Appt: {appt.time}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <h3 className="font-bold text-slate-800 text-base leading-tight mb-1 truncate" title={appt.patientName}>{appt.patientName}</h3>
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <span className="text-[10px] font-bold text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">ID: {appt.fileNumber}</span>
+                                        {appt.registrationNumber && <span className="text-[10px] font-black text-white bg-blue-600 px-2 py-0.5 rounded shadow-sm">#{appt.registrationNumber}</span>}
+                                    </div>
+
+                                    {/* Exams List */}
+                                    <div className="mb-3 bg-slate-50 rounded-lg p-2 border border-slate-100 min-h-[40px]">
+                                        {appt.examList && appt.examList.length > 0 ? (
+                                            <div className="flex flex-wrap gap-1">
+                                                {appt.examList.map((exam, i) => <span key={i} className="text-[10px] font-bold text-slate-700 bg-white border border-slate-200 px-2 py-1 rounded shadow-sm break-words max-w-full">{exam}</span>)}
+                                            </div>
+                                        ) : <p className="text-[10px] text-slate-400 italic">No exams listed</p>}
+                                    </div>
+                                    
+                                    {/* Actions */}
+                                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-50">
+                                        {appt.status === 'pending' || appt.status === 'scheduled' ? (
+                                            <>
+                                                {appt.status === 'pending' && <button onClick={() => handleOpenBooking(appt)} disabled={isProcessing} className="flex-1 bg-white border border-blue-200 text-blue-600 py-2 rounded-lg font-bold text-xs hover:bg-blue-50 transition-colors disabled:opacity-50"><i className="fas fa-calendar-alt"></i> حجز</button>}
+                                                <button onClick={() => handleStartExam(appt)} disabled={isProcessing} className="flex-[2] bg-slate-800 text-white py-2 rounded-lg font-bold text-xs hover:bg-blue-600 transition-colors shadow-sm flex items-center justify-center gap-1 disabled:opacity-70 disabled:cursor-not-allowed">
+                                                    {isProcessing ? <i className="fas fa-spinner fa-spin"></i> : <span>بدء الفحص <i className="fas fa-play"></i></span>}
+                                                </button>
+                                            </>
+                                        ) : appt.status === 'processing' ? (
+                                            <div className="w-full flex gap-2">
+                                                <div className="flex-1 bg-blue-50 text-blue-700 px-2 py-2 rounded-lg text-xs font-bold text-center border border-blue-100">
+                                                    <i className="fas fa-user-clock"></i> {appt.performedByName || 'Unknown'}
+                                                </div>
+                                                <button onClick={() => handleFinishClick(appt)} className="flex-[2] bg-emerald-500 text-white py-2 rounded-lg font-bold text-xs hover:bg-emerald-600 transition-colors shadow-md flex items-center justify-center gap-1">
+                                                    <span>إنهاء (تم)</span> <i className="fas fa-check-double"></i>
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="w-full flex items-center justify-between">
+                                                <div className="flex items-center gap-2 text-xs font-bold text-emerald-600">
+                                                    <i className="fas fa-check-circle text-lg"></i>
+                                                    <div className="flex flex-col">
+                                                        <span>تم الفحص</span>
+                                                        <span className="text-[9px] text-slate-400 font-normal">{appt.performedByName}</span>
+                                                    </div>
+                                                </div>
+                                                <button onClick={() => handleUndo(appt)} className="text-slate-300 hover:text-red-500 px-2" title="Undo"><i className="fas fa-undo"></i></button>
+                                            </div>
+                                        )}
+                                    </div>
+                                    {isSupervisor && <button onClick={() => handleDelete(appt.id)} className="absolute top-2 left-2 text-slate-200 hover:text-red-400 transition-colors"><i className="fas fa-times text-xs"></i></button>}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {/* --- Modals --- */}
+
+            {/* Panic / Finish Modal */}
+            <Modal isOpen={isPanicModalOpen} onClose={() => setIsPanicModalOpen(false)} title="تقرير الحالة">
+                <div className="space-y-6 text-center">
+                    <div className="bg-red-50 p-4 rounded-full w-20 h-20 mx-auto flex items-center justify-center border-4 border-red-100 animate-pulse">
+                        <i className="fas fa-exclamation-triangle text-4xl text-red-500"></i>
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-800">هل كانت الحالة طارئة (Panic)؟</h3>
+                    <p className="text-sm text-slate-500">في حال وجود نتائج حرجة، يرجى تسجيلها فوراً.</p>
+                    
+                    <div className="flex gap-4">
+                        <button onClick={() => setPanicDescription('Findings...')} className="flex-1 py-4 bg-red-600 text-white rounded-xl font-bold shadow-lg hover:bg-red-700 transition-all text-lg">
+                            نعم (Panic)
+                        </button>
+                        <button onClick={() => handleConfirmFinish(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-all text-lg">
+                            لا (Normal)
+                        </button>
+                    </div>
+
+                    {/* Panic Input Field (Conditional) */}
+                    {panicDescription !== '' && (
+                        <div className="mt-4 text-right space-y-3 animate-fade-in-up">
+                            <label className="text-xs font-bold text-red-600 block">وصف الحالة الحرجة:</label>
+                            <textarea 
+                                className="w-full bg-red-50 border border-red-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-red-500 outline-none min-h-[100px]"
+                                placeholder="اكتب النتائج الحرجة هنا..."
+                                value={panicDescription === 'Findings...' ? '' : panicDescription}
+                                onChange={e => setPanicDescription(e.target.value)}
+                                autoFocus
+                            ></textarea>
+                            <button onClick={() => handleConfirmFinish(true)} className="w-full bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 shadow-md">
+                                حفظ التقرير وإنهاء
+                            </button>
+                        </div>
                     )}
                 </div>
-            </div>
+            </Modal>
 
+            {/* Registration Number Modal */}
+            <Modal isOpen={isRegModalOpen} onClose={() => setIsRegModalOpen(false)} title="تم بدء الفحص ✅">
+                <div className="text-center space-y-6 py-4">
+                    <p className="text-slate-500 font-bold">يرجى كتابة رقم التسجيل التالي على الفيلم/الجهاز:</p>
+                    <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl border-4 border-slate-200 transform scale-110">
+                        <span className="text-3xl font-mono font-black tracking-widest">{currentRegNo}</span>
+                    </div>
+                    <button onClick={() => setIsRegModalOpen(false)} className="w-full bg-emerald-500 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-emerald-600 mt-4">
+                        حسناً، تم
+                    </button>
+                </div>
+            </Modal>
+
+            {/* Daily Log Book Modal */}
+            <Modal isOpen={isLogBookOpen} onClose={() => setIsLogBookOpen(false)} title="سجل الأشعة (Log Book)">
+                <div className="h-[80vh] flex flex-col">
+                    
+                    {/* Date Range Controls */}
+                    <div className="bg-slate-50 p-4 border-b border-slate-200 flex flex-wrap gap-4 items-end print:hidden">
+                        <div className="flex-1 min-w-[150px]">
+                            <label className="block text-xs font-bold text-slate-500 mb-1">من تاريخ</label>
+                            <input type="date" className="w-full border-slate-300 rounded-lg text-sm p-2" value={logStartDate} onChange={e => setLogStartDate(e.target.value)} />
+                        </div>
+                        <div className="flex-1 min-w-[150px]">
+                            <label className="block text-xs font-bold text-slate-500 mb-1">إلى تاريخ</label>
+                            <input type="date" className="w-full border-slate-300 rounded-lg text-sm p-2" value={logEndDate} onChange={e => setLogEndDate(e.target.value)} />
+                        </div>
+                        <button onClick={fetchLogbookData} disabled={isLogLoading} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold text-sm hover:bg-blue-700 disabled:opacity-50">
+                            {isLogLoading ? 'جاري التحميل...' : 'عرض التقرير'}
+                        </button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-4 bg-white border border-slate-200 shadow-inner rounded-xl print:shadow-none print:border-none print:h-auto print:overflow-visible">
+                        {/* Only show tables if data exists or range selected */}
+                        <LogTable title="MRI Department" type="MRI" />
+                        <div className="print:block hidden h-8"></div> {/* Spacer for print */}
+                        <LogTable title="CT Department" type="CT" />
+                        <div className="print:block hidden h-8"></div>
+                        <LogTable title="X-Ray & General" type="XRAY" />
+                        
+                        {!isLogLoading && logbookData.length === 0 && appointments.length === 0 && (
+                            <div className="text-center py-10 text-slate-400">لا توجد بيانات للعرض. اختر التاريخ واضغط "عرض التقرير".</div>
+                        )}
+                    </div>
+                    
+                    <div className="pt-4 border-t border-slate-100 flex gap-4 print:hidden">
+                        <button onClick={() => window.print()} className="flex-1 bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-700 shadow-lg">
+                            <i className="fas fa-print mr-2"></i> Print Log Book
+                        </button>
+                        <button onClick={() => setIsLogBookOpen(false)} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Other Modals (Booking, Ticket, Add, Settings, Bridge) */}
+            <Modal isOpen={isBookingModalOpen} onClose={() => setIsBookingModalOpen(false)} title="جدولة موعد">
+                <div className="space-y-4">
+                    <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
+                        <p className="text-xs text-blue-800 font-bold mb-1">المريض / الفحص:</p>
+                        <p className="font-bold text-lg text-slate-800">{bookingAppt?.patientName} ({bookingAppt?.examType})</p>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 mb-1 block">تاريخ الموعد</label>
+                            <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" value={bookingDate} onChange={e => setBookingDate(e.target.value)} />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 mb-1 block">وقت الموعد</label>
+                            {availableSlots.length > 0 ? (
+                                <select className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700" value={bookingTime} onChange={e => setBookingTime(e.target.value)}>
+                                    <option value="">اختر الوقت...</option>
+                                    {availableSlots.map(slot => <option key={slot} value={slot}>{slot}</option>)}
+                                </select>
+                            ) : (
+                                <input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" value={bookingTime} onChange={e => setBookingTime(e.target.value)} placeholder={availableSlots.length === 0 && modalitySettings[bookingAppt?.examType || '']?.slots?.length > 0 ? "اكتملت المواعيد" : ""} />
+                            )}
+                        </div>
+                    </div>
+                    <div><label className="text-xs font-bold text-slate-500 mb-1 block">رقم الغرفة</label><input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" placeholder="مثال: غرفة 3" value={bookingRoom} onChange={e => setBookingRoom(e.target.value)} /></div>
+                    <div><label className="text-xs font-bold text-slate-500 mb-1 block">التحضيرات</label><textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold min-h-[80px]" value={bookingPrep} onChange={e => setBookingPrep(e.target.value)} /></div>
+                    {bookingWarning && <div className={`text-xs font-bold p-3 rounded-lg border ${bookingWarning.includes('✅') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{bookingWarning}</div>}
+                    <button onClick={confirmBooking} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-all">تأكيد الحجز</button>
+                </div>
+            </Modal>
+
+            <Modal isOpen={isTicketModalOpen} onClose={() => setIsTicketModalOpen(false)} title="تم حجز الموعد بنجاح ✅">
+                <div className="space-y-6 text-center">
+                    <div className="bg-emerald-50 text-emerald-800 p-4 rounded-xl border border-emerald-100"><i className="fas fa-check-circle text-4xl mb-2 text-emerald-500"></i><p className="font-bold text-lg">تم تأكيد الحجز!</p></div>
+                    <div className="bg-white p-4 rounded-xl border-2 border-slate-100 flex flex-col items-center"><img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(window.location.origin + '/#/ticket/' + bookedTicketId)}`} alt="QR" className="w-48 h-48 rounded-lg shadow-sm mb-4" /><p className="text-sm text-slate-500 font-bold">امسح الكود للعرض</p></div>
+                    <button onClick={() => window.open(`#/ticket/${bookedTicketId}`, '_blank')} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 hover:bg-slate-800"><i className="fas fa-print"></i> فتح التذكرة</button>
+                </div>
+            </Modal>
+
+            <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="إضافة يدوية">
+                <form onSubmit={handleManualSubmit} className="space-y-4">
+                    <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder="اسم المريض" value={patientName} onChange={e=>setPatientName(e.target.value)} />
+                    <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder="رقم الملف" value={fileNumber} onChange={e=>setFileNumber(e.target.value)} />
+                    <div className="grid grid-cols-2 gap-4"><input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder="الطبيب" value={doctorName} onChange={e=>setDoctorName(e.target.value)} /><input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder="العمر" value={patientAge} onChange={e=>setPatientAge(e.target.value)} /></div>
+                    <select className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" value={examType} onChange={e=>setExamType(e.target.value)}>{MODALITIES.filter(m => m.id !== 'ALL').map(m => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
+                    <textarea className="w-full bg-slate-50 border-none rounded-xl p-3" placeholder="ملاحظات" value={notes} onChange={e=>setNotes(e.target.value)} />
+                    <button className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold">حفظ</button>
+                </form>
+            </Modal>
+
+            <Modal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} title="الإعدادات والإدارة">
+                <div className="space-y-6 max-h-[70vh] overflow-y-auto p-1 custom-scrollbar">
+                    {isSupervisor && <div className="bg-red-50 p-4 rounded-xl border border-red-100 space-y-3"><h4 className="font-bold text-red-800 text-sm flex items-center gap-2"><i className="fas fa-user-shield"></i> أدوات المشرف</h4><div className="grid grid-cols-2 gap-2"><button onClick={() => handleBulkAction('clean_old')} disabled={isCleanupProcessing} className="bg-white border border-red-200 text-red-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-red-100 disabled:opacity-50">حذف القديم</button><button onClick={() => handleBulkAction('delete_done')} disabled={isCleanupProcessing} className="bg-white border border-emerald-200 text-emerald-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-emerald-50 disabled:opacity-50">حذف المنجز</button><button onClick={() => handleBulkAction('delete_pending')} disabled={isCleanupProcessing} className="bg-white border border-amber-200 text-amber-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-amber-50 disabled:opacity-50">حذف الانتظار</button><button onClick={() => handleBulkAction('delete_all')} disabled={isCleanupProcessing} className="bg-red-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-red-700 disabled:opacity-50">حذف الكل</button></div>{isCleanupProcessing && <p className="text-xs text-red-500 font-bold text-center animate-pulse">جاري التنفيذ...</p>}</div>}
+                    <div className="border-t border-slate-100 my-2"></div>
+                    <p className="text-xs text-slate-500 font-bold">إعدادات التسلسل (Sequence) والحصص</p>
+                    <div className="space-y-4">
+                        {MODALITIES.filter(m => m.id !== 'ALL' && m.id !== 'OTHER').map(mod => (
+                            <div key={mod.id} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                <div className="flex justify-between items-center mb-2">
+                                    <label className="text-sm font-bold text-slate-700 flex items-center gap-2"><i className={`fas ${mod.icon} text-slate-400`}></i> {mod.label}</label>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-slate-400 font-bold uppercase">Next No.</span>
+                                        {/* Counter Input */}
+                                        <input 
+                                            type="number" 
+                                            className="w-20 bg-white border border-slate-200 rounded-lg p-1 font-bold text-center text-sm" 
+                                            value={modalitySettings[mod.id]?.currentCounter || 1} 
+                                            onChange={(e) => {
+                                                const val = parseInt(e.target.value) || 1; 
+                                                setModalitySettings(prev => ({...prev, [mod.id]: { ...prev[mod.id], currentCounter: val }})); 
+                                            }} 
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-[10px] text-slate-400 font-bold uppercase">Max Daily Limit</span>
+                                    <input type="number" className="w-16 bg-white border border-slate-200 rounded-lg p-1 font-bold text-center text-sm" value={modalitySettings[mod.id]?.limit || 0} onChange={(e) => {const val = parseInt(e.target.value) || 0; setModalitySettings(prev => ({...prev, [mod.id]: { ...prev[mod.id], limit: val }})); }} />
+                                </div>
+                                <div><label className="text-[10px] font-bold text-slate-400 block mb-1">Time Slots</label><textarea className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs font-mono font-medium h-12" placeholder="e.g. 09:00, 09:30" value={(modalitySettings[mod.id]?.slots || []).join(', ')} onChange={(e) => {const slots = e.target.value.split(',').map(s => s.trim()).filter(s => s); setModalitySettings(prev => ({...prev, [mod.id]: { ...prev[mod.id], slots: slots }})); }} /></div>
+                            </div>
+                        ))}
+                    </div>
+                    <button onClick={handleSaveLimits} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-emerald-700 sticky bottom-0">حفظ الإعدادات</button>
+                </div>
+            </Modal>
+
+            <Modal isOpen={isBridgeModalOpen} onClose={() => setIsBridgeModalOpen(false)} title="الربط الذكي (Live Sync)">
+                <div className="space-y-4 text-center">
+                    <div className="w-16 h-16 bg-gradient-to-br from-emerald-400 to-teal-600 rounded-full flex items-center justify-center mx-auto text-2xl text-white mb-2 shadow-lg shadow-emerald-200"><i className="fas fa-satellite-dish animate-pulse"></i></div>
+                    <h3 className="font-bold text-slate-800">مراقب الشبكة الذكي V11</h3>
+                    <p className="text-sm text-slate-600 mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                        الكود المحدث يحتوي على تقنية <b>"Keep-Alive"</b> للحفاظ على الجلسة ومراقبة البيانات بشكل دائم.
+                    </p>
+                    <button onClick={handleCopyScript} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition-all flex items-center justify-center gap-2">
+                        <i className="fas fa-copy"></i> نسخ كود المراقبة V11
+                    </button>
+                </div>
+            </Modal>
         </div>
     );
 };
 
-export default AttendancePage;
+export default AppointmentsPage;

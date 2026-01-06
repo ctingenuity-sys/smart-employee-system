@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 // @ts-ignore
 import { useParams } from 'react-router-dom';
 import Loading from '../components/Loading';
@@ -11,12 +11,15 @@ const PatientTicket: React.FC = () => {
     const [appointment, setAppointment] = useState<ExtendedAppointment | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    
+    // Reference to the ticket element
+    const ticketRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const fetchTicket = async () => {
             if (!id) return;
             try {
-                // Fetch from Supabase
                 const { data, error } = await supabase
                     .from('appointments')
                     .select('*')
@@ -24,15 +27,10 @@ const PatientTicket: React.FC = () => {
                     .single();
 
                 if (error) throw error;
-
-                if (data) {
-                    setAppointment(data as ExtendedAppointment);
-                } else {
-                    setError('عذراً، لم يتم العثور على الموعد أو تم إلغاؤه.');
-                }
+                if (data) setAppointment(data as ExtendedAppointment);
             } catch (e) {
                 console.error(e);
-                setError('حدث خطأ أثناء تحميل البيانات.');
+                setError('حدث خطأ في تحميل البيانات');
             } finally {
                 setLoading(false);
             }
@@ -40,179 +38,189 @@ const PatientTicket: React.FC = () => {
         fetchTicket();
     }, [id]);
 
-    // Keyboard shortcut for printing
-    useEffect(() => {
-        const handlePrintShortcut = (e: KeyboardEvent) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
-                e.preventDefault();
-                window.print();
-            }
-        };
-        window.addEventListener('keydown', handlePrintShortcut);
-        return () => window.removeEventListener('keydown', handlePrintShortcut);
-    }, []);
-
-    if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loading /></div>;
-    if (error) return <div className="min-h-screen flex items-center justify-center text-red-500 font-bold p-4 text-center bg-slate-50">{error}</div>;
-    if (!appointment) return null;
-
-    // Use current origin for QR code link
-    const qrLink = `${window.location.origin}/#/ticket/${id}`;
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrLink)}`;
-
-    // Determine specific exam name (Join if multiple)
-    const specificExamName = appointment.examList && appointment.examList.length > 0 
-        ? appointment.examList.join(' + ') 
-        : appointment.examType;
-
-    // Theme Colors based on Modality
-    const getTheme = (type: string) => {
+    const getInstructionLink = (type: string) => {
         const t = (type || '').toUpperCase();
-        if (t === 'MRI') return 'from-blue-600 to-indigo-700 shadow-blue-300';
-        if (t === 'CT') return 'from-emerald-500 to-teal-600 shadow-emerald-300';
-        if (t === 'US') return 'from-purple-500 to-fuchsia-600 shadow-purple-300';
-        return 'from-slate-700 to-slate-900 shadow-slate-400';
+        if (t === 'MRI') return 'https://forms.gle/reVThvP19PygkGwbA';
+        if (t === 'CT') return 'https://forms.gle/QmxviSZU6me8iHmR6';
+        return '';
     };
 
-    const themeGradient = getTheme(appointment.examType);
+    const instructionLink = appointment ? getInstructionLink(appointment.examType) : '';
+    const instructionQrUrl = instructionLink 
+        ? `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(instructionLink)}`
+        : null;
+
+    const ticketQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(window.location.origin + '/#/ticket/' + id)}`;
+
+    const getTheme = (type: string) => {
+        const t = (type || '').toUpperCase();
+        if (t === 'MRI') return 'from-indigo-600 via-blue-700 to-blue-900';
+        if (t === 'CT') return 'from-teal-500 via-emerald-600 to-emerald-800';
+        return 'from-slate-700 via-slate-800 to-slate-900';
+    };
+
+    // --- SAVE IMAGE FUNCTION ---
+    const handleSaveImage = async () => {
+        if (!ticketRef.current) return;
+        setIsSaving(true);
+        try {
+            // @ts-ignore
+            if (!window.html2canvas) {
+                alert("مكتبة حفظ الصور غير جاهزة، يرجى تحديث الصفحة");
+                setIsSaving(false);
+                return;
+            }
+
+            // @ts-ignore
+            const canvas = await window.html2canvas(ticketRef.current, {
+                scale: 3, // High resolution
+                useCORS: true, // Allow cross-origin images (like QR codes)
+                backgroundColor: null, // Transparent background if styled correctly
+                logging: false
+            });
+
+            const image = canvas.toDataURL("image/png");
+            const link = document.createElement("a");
+            link.href = image;
+            link.download = `Ticket-${appointment?.patientName || 'Patient'}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+        } catch (err) {
+            console.error("Screenshot failed:", err);
+            alert("فشل حفظ الصورة، يرجى أخذ لقطة شاشة يدوياً.");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    if (loading) return <div className="min-h-screen flex items-center justify-center"><Loading /></div>;
+    if (error || !appointment) return <div className="min-h-screen flex items-center justify-center text-red-500">{error}</div>;
 
     return (
-        <div className="min-h-screen bg-slate-100 py-8 px-4 font-sans flex items-center justify-center print:bg-white print:p-0" dir="ltr">
+        <div className="min-h-screen bg-slate-200 py-10 px-4 flex flex-col items-center justify-center print:bg-white print:p-0" dir="ltr">
             
-            {/* TICKET CONTAINER */}
-            <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden relative print:shadow-none print:w-full print:max-w-none">
+            {/* MAIN TICKET CONTAINER (Referenced for Screenshot) */}
+            <div ref={ticketRef} className="w-full max-w-sm bg-white rounded-[3rem] shadow-[0_20px_50px_rgba(0,0,0,0.2)] overflow-hidden relative print:shadow-none border border-slate-100 mb-6">
                 
-                {/* --- HEADER SECTION (Gradient) --- */}
-                <div className={`relative p-8 pb-12 bg-gradient-to-br ${themeGradient} text-white text-center print:bg-white print:text-black print:pb-4`}>
-                    
-                    {/* Decorative Circles */}
-                    <div className="absolute top-[-50px] left-[-50px] w-40 h-40 bg-white opacity-10 rounded-full blur-2xl pointer-events-none"></div>
-                    <div className="absolute bottom-[-20px] right-[-20px] w-32 h-32 bg-white opacity-10 rounded-full blur-2xl pointer-events-none"></div>
-
-                    {/* Logo & Title */}
-                    <div className="relative z-10 flex flex-col items-center">
-                        <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center border-2 border-white/30 mb-4 shadow-lg print:border-black print:text-black">
-                            <span className="text-2xl font-black tracking-tighter">AJ</span>
+                {/* 1. TOP SECTION (Gradiant Header) */}
+                <div className={`relative p-8 pb-10 bg-gradient-to-br ${getTheme(appointment.examType)} text-white text-center`}>
+                    <div className="absolute top-4 right-6 opacity-20 text-4xl font-black">AJ</div>
+                    <div className="relative z-10">
+                        <div className="w-14 h-14 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/20 mx-auto mb-3 shadow-inner">
+                            <i className="fas fa-hospital-symbol text-2xl"></i>
                         </div>
-                        <h1 className="text-lg font-bold tracking-widest uppercase opacity-90">Al-Jedaani Hospitals</h1>
-                        <p className="text-[10px] font-bold uppercase tracking-[0.3em] opacity-75">Radiology Department</p>
+                        <h1 className="text-sm font-bold tracking-[0.2em] uppercase">Al-Jedaani Hospital</h1>
+                        <p className="text-[9px] font-medium opacity-80 tracking-widest uppercase">Radiology Department • قسم الأشعة</p>
                     </div>
                 </div>
 
-                {/* --- BODY SECTION (Overlapping Card) --- */}
-                <div className="relative z-20 -mt-8 px-6 pb-6">
-                    <div className="bg-white rounded-3xl shadow-xl p-6 border border-slate-100 print:shadow-none print:border-2 print:border-black">
-                        
-                        {/* Patient Name */}
-                        <div className="text-center mb-6 border-b border-dashed border-slate-200 pb-6">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Patient Name | اسم المريض</p>
-                            <h2 className="text-2xl font-black text-slate-800 leading-tight mb-2">{appointment.patientName}</h2>
-                            <div className="flex justify-center gap-2">
-                                <span className="bg-slate-50 text-slate-500 px-3 py-1 rounded-lg text-xs font-bold border border-slate-100">
-                                    ID: <span className="text-slate-900 font-black">{appointment.fileNumber || '---'}</span>
-                                </span>
-                                <span className="bg-slate-50 text-slate-500 px-3 py-1 rounded-lg text-xs font-bold border border-slate-100">
-                                    Age: <span className="text-slate-900 font-black">{appointment.patientAge || '-'}</span>
-                                </span>
-                            </div>
+                {/* 2. PATIENT INFO SECTION */}
+                <div className="relative -mt-6 bg-white rounded-t-[2.5rem] px-6 pt-8 pb-4">
+                    <div className="text-center mb-6">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Patient Full Name | اسم المريض</span>
+                        <h2 className="text-xl font-black text-slate-800 mt-1 uppercase leading-tight">{appointment.patientName}</h2>
+                        <p className="text-xs font-bold text-blue-600 mt-1">ID: {appointment.fileNumber}</p>
+                    </div>
+
+                    {/* Information Grid */}
+                    <div className="grid grid-cols-3 gap-2 mb-6">
+                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center">
+                            <p className="text-[8px] font-bold text-slate-400 uppercase">Date</p>
+                            <p className="text-[11px] font-black text-slate-800">{appointment.scheduledDate}</p>
                         </div>
-
-                        {/* Details Grid */}
-                        <div className="space-y-3 mb-6">
-                            
-                            {/* Row 1: Date & Time */}
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100 text-center">
-                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Date (التاريخ)</p>
-                                    <p className="text-sm font-black text-slate-800">{appointment.scheduledDate || appointment.date}</p>
-                                </div>
-                                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100 text-center">
-                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Time (الوقت)</p>
-                                    <p className="text-sm font-black text-slate-800">{appointment.time}</p>
-                                </div>
-                            </div>
-
-                            {/* Row 2: Department & Room */}
-                            <div className="grid grid-cols-2 gap-3">
-                                 <div className="bg-blue-50 p-2.5 rounded-2xl border border-blue-100 text-center">
-                                    <p className="text-[9px] font-bold text-blue-400 uppercase tracking-wide">Department (القسم)</p>
-                                    <p className="text-sm font-black text-blue-900">{appointment.examType}</p>
-                                 </div>
-                                 <div className="bg-purple-50 p-2.5 rounded-2xl border border-purple-100 text-center">
-                                    <p className="text-[9px] font-bold text-purple-400 uppercase tracking-wide">Room (الغرفة)</p>
-                                    <p className="text-sm font-black text-purple-900">{appointment.roomNumber || 'General'}</p>
-                                 </div>
-                            </div>
-
-                            {/* Row 3: Exam Name (Full Width) */}
-                            <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-lg relative overflow-hidden text-center">
-                                <div className="absolute right-0 top-0 w-16 h-full bg-white/5 skew-x-12"></div>
-                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-1">Examination (الفحص)</p>
-                                <p className="text-lg font-black leading-tight text-white">{specificExamName}</p>
-                                {appointment.doctorName && <p className="text-[9px] text-slate-400 mt-1">Ref: {appointment.doctorName}</p>}
-                            </div>
+                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center">
+                            <p className="text-[8px] font-bold text-slate-400 uppercase">Time</p>
+                            <p className="text-[11px] font-black text-slate-800">{appointment.time}</p>
                         </div>
+                        <div className="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-200 text-center">
+                            <p className="text-[8px] font-bold text-blue-100 uppercase">Room</p>
+                            <p className="text-[11px] font-black text-white">{appointment.roomNumber || '---'}</p>
+                        </div>
+                    </div>
 
-                        {/* Preparation Instructions */}
-                        {appointment.preparation ? (
-                            <div className="bg-amber-50 border-l-4 border-amber-400 p-3 rounded-r-xl mb-6">
-                                <h3 className="text-[10px] font-black text-amber-800 uppercase flex items-center gap-1 mb-1">
-                                    <i className="fas fa-info-circle"></i> Preparation / التحضيرات
+                    {/* Exam Name Label */}
+                    <div className="bg-slate-800 rounded-2xl p-4 text-center mb-4 shadow-md relative overflow-hidden">
+                        <div className="absolute left-0 top-0 w-1 h-full bg-blue-500"></div>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Examination / نوع الفحص</p>
+                        <p className="text-base font-black text-white">{appointment.examType} - {appointment.examList?.[0] || ''}</p>
+                    </div>
+
+                    {/* --- SPECIAL PREPARATION INSTRUCTIONS (NEW) --- */}
+                    {appointment.preparation && (
+                        <div className="mb-6 p-4 bg-amber-50 rounded-2xl border-2 border-amber-100 relative overflow-hidden" dir="rtl">
+                            <div className="absolute top-0 right-0 w-16 h-16 bg-amber-100 rounded-full -mr-8 -mt-8 opacity-50"></div>
+                            <div className="relative z-10">
+                                <h3 className="text-[10px] font-black text-amber-600 uppercase mb-2 flex items-center gap-2">
+                                    <i className="fas fa-clipboard-list text-amber-500"></i> تعليمات التحضير (هام)
                                 </h3>
-                                <p className="text-xs text-amber-900 font-bold leading-relaxed whitespace-pre-wrap" dir="auto">
+                                <p className="text-xs text-slate-700 font-bold leading-relaxed whitespace-pre-wrap">
                                     {appointment.preparation}
                                 </p>
                             </div>
-                        ) : (
-                            <div className="text-center text-[10px] text-slate-400 italic mb-6">No specific preparations required.</div>
-                        )}
-
-                        {/* Cut Line */}
-                        <div className="relative flex items-center justify-between mb-4">
-                            <div className="w-4 h-8 bg-slate-100 rounded-r-full -ml-6 print:hidden"></div>
-                            <div className="flex-1 border-b-2 border-dashed border-slate-200 mx-2"></div>
-                            <div className="w-4 h-8 bg-slate-100 rounded-l-full -mr-6 print:hidden"></div>
                         </div>
+                    )}
 
-                        {/* Footer / QR */}
-                        <div className="flex flex-col items-center justify-center">
-                            <div className="flex items-center gap-4">
-                                <div className="p-1 bg-white border border-slate-200 rounded-lg shadow-sm">
-                                    <img src={qrUrl} alt="QR" className="w-24 h-24 rounded-md" />
-                                </div>
-                                <div className="text-left">
-                                    <p className="text-[10px] font-bold text-slate-400 tracking-widest uppercase">Scan Code</p>
-                                    <p className="text-xs font-black text-slate-800 mb-1">Patient Check-in</p>
-                                    <p className="text-[9px] text-slate-300 font-mono bg-slate-50 px-2 py-0.5 rounded">{appointment.id.substring(0,8)}...</p>
+                    {/* --- 3. THE "WOW" INSTRUCTION QR SECTION --- */}
+                    {instructionQrUrl && (
+                        <div className="relative p-1 rounded-[2rem] bg-gradient-to-r from-amber-200 via-yellow-400 to-amber-200 shadow-xl mb-6 group transform hover:scale-[1.02] transition-transform">
+                            <div className="bg-white rounded-[1.8rem] p-4 flex flex-col items-center">
+                                <h3 className="text-[10px] font-black text-amber-600 uppercase mb-3 tracking-widest">⚠️ Scan for Details / امسح للتفاصيل</h3>
+                                <div className="relative p-2 bg-slate-50 rounded-2xl border-2 border-dashed border-amber-200">
+                                    <img src={instructionQrUrl} alt="Instructions" className="w-24 h-24" />
+                                    <div className="absolute -bottom-2 -right-2 bg-amber-500 text-white text-[8px] font-black px-2 py-1 rounded-lg shadow-lg rotate-12">SCAN ME</div>
                                 </div>
                             </div>
                         </div>
+                    )}
+                </div>
 
+                {/* 4. THE TICKET CUT (Notch) */}
+                <div className="relative h-4 flex items-center">
+                    <div className="w-8 h-8 bg-slate-200 rounded-full -ml-4 border border-slate-300 print:hidden"></div>
+                    <div className="flex-1 border-b-2 border-dashed border-slate-200 mx-2"></div>
+                    <div className="w-8 h-8 bg-slate-200 rounded-full -mr-4 border border-slate-300 print:hidden"></div>
+                </div>
+
+                {/* 5. FOOTER (Small Verification QR) */}
+                <div className="bg-slate-50 p-6 flex items-center justify-between rounded-b-[3rem]">
+                    <div className="flex-1">
+                        <p className="text-[9px] font-black text-slate-400 uppercase mb-1 tracking-tighter">Verification</p>
+                        <p className="text-[10px] font-bold text-slate-800 leading-tight">Present this ticket<br/>at the reception</p>
+                        <p className="text-[8px] text-slate-400 mt-2 font-mono">#{id?.substring(0,12).toUpperCase()}</p>
+                    </div>
+                    <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+                        <img src={ticketQrUrl} alt="Verification" className="w-16 h-16" />
                     </div>
                 </div>
-
-                {/* --- FOOTER --- */}
-                <div className="bg-slate-50 p-4 text-center text-[9px] text-slate-400 font-medium leading-relaxed border-t border-slate-200">
-                    <p>Please arrive 15 minutes before your scheduled time.</p>
-                    <p dir="rtl">يرجى الحضور قبل الموعد بـ 15 دقيقة.</p>
-                    
-                    <button 
-                        onClick={() => window.print()}
-                        className="mt-4 w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 print:hidden"
-                    >
-                        <i className="fas fa-print"></i> Print Ticket
-                    </button>
-                </div>
-
             </div>
-            
+
+            {/* SAVE BUTTON (Replacing Print Button) */}
+            <button 
+                onClick={handleSaveImage}
+                disabled={isSaving}
+                className="w-full max-w-sm bg-gradient-to-r from-emerald-500 to-teal-600 text-white py-4 rounded-2xl font-bold shadow-lg hover:shadow-emerald-200 hover:scale-[1.02] transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:scale-100 print:hidden"
+            >
+                {isSaving ? (
+                    <>
+                        <i className="fas fa-spinner fa-spin"></i> جاري الحفظ...
+                    </>
+                ) : (
+                    <>
+                        <i className="fas fa-download text-lg"></i>
+                        <span>حفظ التذكرة على الجوال</span>
+                    </>
+                )}
+            </button>
+
+            {/* Print Styles */}
             <style>{`
                 @media print {
-                    body { background: white; -webkit-print-color-adjust: exact; margin: 0; padding: 0; }
-                    .min-h-screen { min-height: auto; height: auto; padding: 0; display: block; }
-                    .shadow-2xl, .shadow-xl, .shadow-lg { box-shadow: none !important; }
+                    body { background: white !important; }
+                    .min-h-screen { padding: 0 !important; display: block !important; }
                     button { display: none !important; }
-                    .bg-slate-100, .bg-slate-50 { background-color: #fff !important; }
+                    .rounded-[3rem] { border-radius: 0 !important; }
                 }
             `}</style>
         </div>

@@ -1,6 +1,10 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { auth, db } from '../firebase'; // db kept ONLY for system_settings (low usage)
+
+import { QRCodeCanvas } from 'qrcode.react';
+
+
 // @ts-ignore
 import { 
   doc, 
@@ -28,7 +32,9 @@ const MODALITIES = [
         color: 'text-blue-600 bg-blue-50', 
         border: 'border-blue-200', 
         keywords: ['MRI', 'MR ', 'MAGNETIC', 'M.R.I', 'رنين', 'مغناطيسي'],
-        defaultPrep: `• Please leave all belongings including mobile phones at home, with relative or in the car before entering any examination room.
+        instructionImage: 'https://forms.gle/reVThvP19PygkGwbA', // ضع رابط الموقع هنا
+        defaultPrep: `• Please leave all belongings including mobile phones at ho
+        me, with relative or in the car before entering any examination room.
 • The department is not responsible for any lost or stolen items.
 
 • يرجى ترك جميع متعلقاتك بما في ذلك الهواتف المحمولة في المنزل أو مع المرافق أو في السيارة قبل الدخول لأي غرفة فحص.
@@ -41,6 +47,7 @@ const MODALITIES = [
         color: 'text-emerald-600 bg-emerald-50', 
         border: 'border-emerald-200', 
         keywords: ['C.T.', 'CT ', 'COMPUTED', 'CAT ', 'MDCT', 'مقطعية', 'أشعة مقطعية'],
+        instructionImage: "https://forms.gle/QmxviSZU6me8iHmR6",
         defaultPrep: `PREPARING THE CT SCAN WITH CONTRAST:
 • Bring The Results of the Kidney Function Test.
 • Fasting for 8 Hours Before Scan.
@@ -222,8 +229,13 @@ const AppointmentsPage: React.FC = () => {
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [isLogBookOpen, setIsLogBookOpen] = useState(false); // NEW: Local Logbook
     
+    const [manualSlotsCount, setManualSlotsCount] = useState<number>(0);
+    const [manualSlots, setManualSlots] = useState<string[]>([]);
+
     // Quota & Slots State
     const [modalitySettings, setModalitySettings] = useState<Record<string, ModalitySettings>>(DEFAULT_SETTINGS);
+    // NEW: Real-time booked count for the current date/modality
+    const [currentBookedCount, setCurrentBookedCount] = useState(0);
 
     // Settings Editor State
     const [editingModalityId, setEditingModalityId] = useState('MRI');
@@ -240,6 +252,7 @@ const AppointmentsPage: React.FC = () => {
     const [bookingPrep, setBookingPrep] = useState(''); 
     const [bookingWarning, setBookingWarning] = useState(''); 
     const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+    const [isDayLimitReached, setIsDayLimitReached] = useState(false); // NEW: Track if limit reached
 
     // Panic & Completion Modal
     const [isPanicModalOpen, setIsPanicModalOpen] = useState(false);
@@ -302,8 +315,7 @@ const AppointmentsPage: React.FC = () => {
         appointmentsRef.current = appointments;
     }, [appointments]);
 
-    // Load Settings (Keep Settings in Firebase for persistence across devices if needed, or move to Supabase too)
-    // NOTE: For now keeping settings on Firebase to minimize migration friction for config
+    // Load Settings
     useEffect(() => {
         const fetchSettings = async () => {
             try {
@@ -312,7 +324,6 @@ const AppointmentsPage: React.FC = () => {
                 if (docSnap.exists()) {
                     setModalitySettings(docSnap.data() as Record<string, ModalitySettings>);
                 } else {
-                    // Initialize if empty
                     if (isSupervisor) {
                         await setDoc(docRef, DEFAULT_SETTINGS);
                     }
@@ -324,6 +335,31 @@ const AppointmentsPage: React.FC = () => {
         fetchSettings();
     }, [isSupervisor]);
 
+
+    useEffect(() => {
+        const slots = modalitySettings[editingModalityId]?.slots || [];
+        const normalized = slots.map(normalizeTime).filter(Boolean);
+
+        setManualSlots(normalized);
+        setManualSlotsCount(normalized.length);
+        }, [editingModalityId]);
+
+
+
+    const normalizeTime = (time?: string) => {
+  if (!time) return '';
+  if (/^\d{2}:\d{2}$/.test(time)) return time;
+  const match = time.match(/(\d{1,2}):(\d{2})\s?(am|pm)/i);
+  if (!match) return '';
+  let hour = parseInt(match[1], 10);
+  const minutes = match[2];
+  const period = match[3].toLowerCase();
+  if (period === 'pm' && hour < 12) hour += 12;
+  if (period === 'am' && hour === 12) hour = 0;
+  return `${hour.toString().padStart(2, '0')}:${minutes}`;
+};
+
+
     // Update Prep Text when Exam Type Changes (Manual Selection)
     useEffect(() => {
         if (modalitySettings[examType]?.prep) {
@@ -334,10 +370,9 @@ const AppointmentsPage: React.FC = () => {
         }
     }, [examType, modalitySettings]);
 
-    // --- SHARED DATA PROCESSOR (Handles both Message & Manual Paste) ---
+    // --- SHARED DATA PROCESSOR ---
     const processIncomingData = async (rawPayload: any) => {
         setIsListening(true);
-        
         let payload: any[] = [];
         if (Array.isArray(rawPayload)) {
             payload = rawPayload;
@@ -424,11 +459,9 @@ const AppointmentsPage: React.FC = () => {
 
                 Object.keys(modalityGroups).forEach(modId => {
                     const group = modalityGroups[modId];
-                    // Fallback to random if fileNumber missing to prevent collision
                     const safeFileNo = commonInfo.fileNumber || `NOFILE_${Math.random().toString(36).substr(2,5)}`;
                     const uniqueId = `${group.date}_${safeFileNo}_${modId}`.replace(/[^a-zA-Z0-9_]/g, '');
                     
-                    // Push to Array for Supabase Upsert
                     rowsToInsert.push({
                         id: uniqueId,
                         ...commonInfo,
@@ -448,7 +481,6 @@ const AppointmentsPage: React.FC = () => {
                 const safeFileNo = commonInfo.fileNumber || `NOFILE_${Math.random().toString(36).substr(2,5)}`;
                 const uniqueId = `${cleanDate(p.queDate)}_${safeFileNo}_${modId}`.replace(/[^a-zA-Z0-9_]/g, '');
                 
-                    // Push to Array for Supabase Upsert
                 rowsToInsert.push({
                     id: uniqueId,
                     ...commonInfo,
@@ -465,7 +497,6 @@ const AppointmentsPage: React.FC = () => {
 
         try {
             if (rowsToInsert.length > 0) {
-                // *** INSERT TO SUPABASE INSTEAD OF FIREBASE ***
                 const { error } = await supabase.from('appointments').upsert(rowsToInsert, { onConflict: 'id' });
                 
                 if (error) {
@@ -474,7 +505,6 @@ const AppointmentsPage: React.FC = () => {
                 } else {
                     setToast({ msg: `تم استقبال ${rowsToInsert.length} فحوصات! 📥`, type: 'success' });
                     setLastSyncTime(new Date());
-                    // Vibrate for feedback
                     if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
                     
                     if(activeView !== 'pending') setActiveView('pending');
@@ -503,16 +533,26 @@ const AppointmentsPage: React.FC = () => {
         setLoading(true);
 
         const fetchInitialData = async () => {
-            let query = supabase
-                .from('appointments')
-                .select('*')
-                .order('time', { ascending: false }) // تم التغيير إلى false للترتيب العكسي
-                .order('fileNumber', { ascending: false });
+            let query = supabase.from('appointments').select('*');
 
+            if (!selectedDate && activeView !== 'scheduled') {
+                setAppointments([]);
+                setLoading(false);
+                return; 
+            }
+
+            setLoading(true);
+            
             if (activeView === 'scheduled') {
-                query = query.eq('status', 'scheduled').order('scheduledDate', { ascending: true }); 
+                query = query.eq('status', 'scheduled')
+                             .order('scheduledDate', { ascending: true })
+                             .order('time', { ascending: true }); // Secondary sort
             } else {
-                query = query.eq('date', selectedDate).eq('status', activeView);
+                // Pending/Processing/Done views
+                query = query.eq('date', selectedDate)
+                             .eq('status', activeView)
+                             .order('time', { ascending: false }) // Latest first
+                             .order('fileNumber', { ascending: false });
             }
 
             const { data, error } = await query;
@@ -551,30 +591,31 @@ const AppointmentsPage: React.FC = () => {
                         } else if (payload.eventType === 'UPDATE') {
                             const matchesView = activeView === 'scheduled' ? newRow.status === 'scheduled' : (newRow.date === selectedDate && newRow.status === activeView);
                             
+                            // SEPARATION LOGIC FIX:
+                            // If it matches the current view, update/add it.
                             if (matchesView) {
                                 const idx = updated.findIndex(a => a.id === newRow.id);
                                 if (idx > -1) updated[idx] = newRow;
                                 else updated = [newRow, ...updated];
                             } else {
+                                // If it DOESN'T match the current view (e.g., moved from pending to scheduled), REMOVE it from current list
                                 updated = updated.filter(a => a.id !== newRow.id);
                             }
                         } else if (payload.eventType === 'DELETE') {
                             updated = updated.filter(a => a.id !== oldRow.id);
                         }
                         
-                        // *** UPDATED SORTING: TIME THEN FILE NUMBER ***
             return updated.sort((a, b) => {
                 const timeA = a.time || '00:00';
                 const timeB = b.time || '00:00';
                 
-                // لعكس الترتيب، نقارن B بـ A بدلاً من A بـ B
                 const timeComparison = timeB.localeCompare(timeA); 
                 
                 if (timeComparison !== 0) return timeComparison;
                 
                 const fileA = a.fileNumber || '';
                 const fileB = b.fileNumber || '';
-                return fileB.localeCompare(fileA); // عكس ترتيب رقم الملف أيضاً إذا تساوى الوقت
+                return fileB.localeCompare(fileA);
             });
                     });
                 }
@@ -590,7 +631,6 @@ const AppointmentsPage: React.FC = () => {
         let list = appointments;
         if (activeModality !== 'ALL') {
             if (activeModality === 'X-RAY') {
-                // *** MERGE GENERAL (OTHER) WITH X-RAY ***
                 list = list.filter(a => a.examType === 'X-RAY' || a.examType === 'OTHER');
             } else {
                 list = list.filter(a => a.examType === activeModality);
@@ -607,15 +647,58 @@ const AppointmentsPage: React.FC = () => {
         return list;
     }, [appointments, activeModality, searchQuery]);
 
+    // --- FETCH ACTUAL SCHEDULED COUNT FOR QUOTA ---
+    // Fetch real-time count of scheduled items for current date/modality regardless of view
+  useEffect(() => {
+        const fetchBookedCount = async () => {
+            // FIX: Prevent query if date is empty to avoid 400 Bad Request (Invalid input syntax for type date)
+            if (!selectedDate) {
+                setCurrentBookedCount(0);
+                return;
+            }
+
+            let q = supabase
+                .from('appointments')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', 'scheduled')
+                .eq('scheduledDate', selectedDate); // Checking specific booking date (usually today or tomorrow) or use bookingDate?
+                
+            // NOTE: Logic here checks the quota for the *Booking Date* which is typically tomorrow in `bookingDate`.
+            // But for the main banner, we probably want to show if TODAY is full.
+            // Let's stick to the current logic: Check quota for the date we are viewing or booking.
+            
+            // If user is just viewing "Pending" for today, we want to know if today is full.
+            
+            if (activeModality !== 'ALL') {
+                q = q.eq('examType', activeModality);
+            }
+            
+            const { count, error } = await q;
+            if (!error && count !== null) {
+                setCurrentBookedCount(count);
+            }
+        };
+
+        fetchBookedCount();
+        
+        // Setup listener for count updates
+        const countChannel = supabase
+            .channel('count_updates')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'appointments' }, 
+                () => fetchBookedCount() // Re-fetch on any change
+            )
+            .subscribe();
+
+        return () => { supabase.removeChannel(countChannel); };
+    }, [selectedDate, activeModality]);
+
+
     // --- ACTIONS ---
-    
-    
     const handleAcceptPatient = async (appt: ExtendedAppointment) => {
         try {
-            // Optimistic Update: Remove from UI immediately
             setAppointments(prev => prev.filter(a => a.id !== appt.id));
-
-            // SUPABASE UPDATE
             const { error } = await supabase.from('appointments').update({
                 status: 'done',
                 performedBy: currentUserId,
@@ -633,19 +716,37 @@ const AppointmentsPage: React.FC = () => {
     const handleDelete = async (id: string) => {
         if(!confirm(t('confirm') + '?')) return;
         try {
-            // Optimistic Update
             setAppointments(prev => prev.filter(a => a.id !== id));
-            
-            // SUPABASE DELETE
             const { error } = await supabase.from('appointments').delete().eq('id', id);
             if (error) throw error;
             setToast({ msg: t('delete'), type: 'success' });
         } catch(e) { console.error(e); }
     };
+    
+    // NEW: Cancel Appointment (Revert to Pending)
+    const handleCancelAppointment = async (appt: ExtendedAppointment) => {
+        if (!confirm('هل تريد إلغاء الموعد وإعادة المريض لقائمة الانتظار؟')) return;
+        try {
+            // Optimistic update
+            setAppointments(prev => prev.filter(a => a.id !== appt.id));
+            
+            const { error } = await supabase.from('appointments').update({
+                status: 'pending',
+                scheduledDate: null,
+                time: null,
+                notes: appt.notes ? appt.notes + '\n[System]: Appointment Cancelled' : '[System]: Appointment Cancelled'
+            }).eq('id', appt.id);
+            
+            if (error) throw error;
+            setToast({ msg: 'تم إلغاء الموعد وإعادته للانتظار', type: 'success' });
+        } catch (e) {
+            console.error(e);
+            setToast({ msg: 'خطأ في العملية', type: 'error' });
+        }
+    };
 
     // --- DOUBLE BOOKING CHECK (SUPABASE) ---
     const checkAvailability = async (date: string, time: string, type: string) => {
-        // Allow X-RAY multiple bookings per slot, restrict others
         if (type === 'X-RAY' || type === 'OTHER') return true;
 
         const { data, error } = await supabase.from('appointments').select('*')
@@ -663,40 +764,33 @@ const AppointmentsPage: React.FC = () => {
         return data.length === 0;
     };
 
-    // --- WORKFLOW: START EXAM (Sequential Numbering) ---
+    // --- WORKFLOW: START EXAM ---
     const handleStartExam = async (appt: ExtendedAppointment) => {
-        if (processingId) return; // Prevent double clicks
+        if (processingId) return;
         setProcessingId(appt.id);
 
         try {
-            // 1. Optimistic Check: Validate status locally first
             if (appt.status !== 'pending' && appt.status !== 'scheduled') {
                 throw new Error("عذراً، هذه الحالة تم سحبها بالفعل!");
             }
 
-            // 2. Generate Registration Number (Client-side Logic)
             const settings = { ...modalitySettings };
             const modKey = appt.examType;
             const currentCount = settings[modKey]?.currentCounter || 1;
             const regNo = `${modKey}-${currentCount}`;
 
-            // Increment and Save locally (Settings still on Firebase for persistence)
             settings[modKey] = {
                 ...settings[modKey],
                 currentCounter: currentCount + 1
             };
-            saveSettings(settings); // Saves to Firestore 'system_settings'
+            saveSettings(settings);
 
-            // 3. SUPABASE UPDATE
-            // Optimistic Update: Remove from current list immediately
             setAppointments(prev => prev.filter(a => a.id !== appt.id));
 
-            // REMOVE startedAt from payload to avoid 400 error if column is missing
             const { error } = await supabase.from('appointments').update({
                 status: 'processing',
                 performedBy: currentUserId,
                 performedByName: currentUserName,
-                // startedAt: new Date().toISOString(), // REMOVED TO FIX 400 ERROR
                 registrationNumber: regNo
             }).eq('id', appt.id);
 
@@ -704,8 +798,6 @@ const AppointmentsPage: React.FC = () => {
             
             setCurrentRegNo(regNo);
             setIsRegModalOpen(true);
-            
-            // Haptic feedback for mobile
             if (navigator.vibrate) navigator.vibrate(200);
 
         } catch(e: any) {
@@ -715,7 +807,7 @@ const AppointmentsPage: React.FC = () => {
         }
     };
 
-    // --- WORKFLOW: FINISH EXAM (Panic Check) ---
+    // --- WORKFLOW: FINISH EXAM ---
     const handleFinishClick = (appt: ExtendedAppointment) => {
         if (appt.performedBy && appt.performedBy !== currentUserId && !isSupervisor) {
             setToast({msg: 'عذراً، هذا المريض في عهدة موظف آخر', type: 'error'});
@@ -729,10 +821,8 @@ const AppointmentsPage: React.FC = () => {
         if (!finishingAppt) return;
         
         try {
-            // Optimistic Update
             setAppointments(prev => prev.filter(a => a.id !== finishingAppt.id));
 
-            // SUPABASE UPDATE
             const { error } = await supabase.from('appointments').update({
                 status: 'done',
                 completedAt: new Date().toISOString(),
@@ -743,8 +833,6 @@ const AppointmentsPage: React.FC = () => {
             if (error) throw error;
 
             setToast({ msg: isPanic ? 'تم تسجيل حالة Panic 🚨' : 'تم إنهاء الفحص بنجاح ✅', type: 'success' });
-            
-            // Haptic
             if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
 
             setIsPanicModalOpen(false);
@@ -762,7 +850,7 @@ const AppointmentsPage: React.FC = () => {
         setBookingAppt(appt);
         const tom = new Date(); tom.setDate(tom.getDate()+1);
         setBookingDate(tom.toISOString().split('T')[0]);
-        setBookingTime(""); // Reset time
+        setBookingTime("");
         setBookingRoom(appt.roomNumber || 'الغرفة العامة');
         const mod = MODALITIES.find(m => m.id === appt.examType);
         setBookingPrep(mod?.defaultPrep || 'لا توجد تحضيرات خاصة');
@@ -775,9 +863,10 @@ const AppointmentsPage: React.FC = () => {
             if (!bookingAppt || !bookingDate) return;
             setBookingWarning('');
             setAvailableSlots([]);
+            setIsDayLimitReached(false);
 
             try {
-                // SUPABASE QUERY
+                // Check quota for the specific date selected in modal
                 const { data, error } = await supabase.from('appointments').select('time')
                     .eq('status', 'scheduled')
                     .eq('scheduledDate', bookingDate)
@@ -794,8 +883,11 @@ const AppointmentsPage: React.FC = () => {
 
                 if (currentCount >= limit) {
                     setBookingWarning(`⚠️ تم اكتمال العدد لهذا القسم (${currentCount}/${limit}).`);
+                    setIsDayLimitReached(true);
+                    setAvailableSlots([]);
                 } else {
                     setBookingWarning(`✅ متاح: ${limit - currentCount} أماكن.`);
+                    setIsDayLimitReached(false);
                     if (definedSlots.length > 0) {
                         const free = definedSlots.filter(s => !bookedTimes.includes(s));
                         setAvailableSlots(free);
@@ -809,29 +901,33 @@ const AppointmentsPage: React.FC = () => {
     }, [bookingDate, bookingAppt, modalitySettings]);
 
     const confirmBooking = async () => {
-        if (!bookingAppt || !bookingDate || !bookingTime) {
+        if (!bookingAppt || !bookingDate || (!bookingTime && (!isDayLimitReached || isSupervisor))) {
             setToast({msg: 'يرجى اختيار التاريخ والوقت', type: 'error'});
             return;
         }
+        
+        // Final guard against users booking when limit is reached
+        if (isDayLimitReached && !isSupervisor) {
+             setToast({msg: 'عذراً، اكتمل العدد لهذا اليوم.', type: 'error'});
+             return;
+        }
+
         try {
-            // Optimistic Update: Remove from list immediately
             setAppointments(prev => prev.filter(a => a.id !== bookingAppt.id));
 
-            // Save booking details to local state for Ticket Modal before clearing
             const bookingData = {
                 ...bookingAppt,
                 scheduledDate: bookingDate,
-                time: bookingTime,
+                time: bookingTime || '08:00', // Supervisor fallback time
                 roomNumber: bookingRoom,
                 preparation: bookingPrep
             };
             setBookedTicketData(bookingData);
 
-            // SUPABASE UPDATE
             const { error } = await supabase.from('appointments').update({
                 status: 'scheduled',
                 scheduledDate: bookingDate,
-                time: bookingTime, 
+                time: bookingTime || '08:00', 
                 roomNumber: bookingRoom, 
                 preparation: bookingPrep, 
                 notes: `${bookingAppt.notes || ''}\n📅 Booked: ${bookingDate} ${bookingTime}`
@@ -854,10 +950,8 @@ const AppointmentsPage: React.FC = () => {
             return;
         }
         try {
-            // Optimistic Update
             setAppointments(prev => prev.filter(a => a.id !== appt.id));
 
-            // SUPABASE UPDATE
             const { error } = await supabase.from('appointments').update({
                 status: 'pending',
                 performedBy: null,
@@ -872,21 +966,15 @@ const AppointmentsPage: React.FC = () => {
         } catch(e) { console.error(e); }
     };
 
-    // --- EXTERNAL GEMINI HANDLERS ---
     const handleExternalGemini = () => {
-        // 1. Copy Prompt
         const prompt = "Please analyze this medical invoice/document image. Extract the following fields and return them in this specific JSON format: { \"patientName\": \"...\", \"fileNumber\": \"...\", \"doctorName\": \"...\", \"patientAge\": \"...\", \"examType\": \"...\" (MRI/CT/US/X-RAY/FLUO), \"procedureName\": \"...\" }. Return ONLY the JSON.";
         navigator.clipboard.writeText(prompt);
         setToast({ msg: 'تم نسخ الأمر! الصقه في موقع Gemini مع الصورة.', type: 'info' });
-        
-        // 2. Open Gemini
         window.open("https://gemini.google.com/app", "_blank");
     };
 
     const handleSmartPaste = () => {
         try {
-            // Attempt to parse JSON from pasted text
-            // Clean markdown code blocks if any
             const cleanJson = pastedGeminiText.replace(/```json|```/g, '').trim();
             const start = cleanJson.indexOf('{');
             const end = cleanJson.lastIndexOf('}');
@@ -895,21 +983,18 @@ const AppointmentsPage: React.FC = () => {
                 const jsonStr = cleanJson.substring(start, end + 1);
                 const data = JSON.parse(jsonStr);
                 
-                // Populate Fields
                 if (data.patientName) setPatientName(data.patientName);
                 if (data.fileNumber) setFileNumber(data.fileNumber);
                 if (data.doctorName) setDoctorName(data.doctorName);
                 if (data.patientAge) setPatientAge(data.patientAge);
                 if (data.procedureName) setSpecificExamName(data.procedureName);
                 
-                // Map Exam Type
                 const validTypes = MODALITIES.map(m => m.id);
                 let detectedType = 'OTHER';
                 if (data.examType) {
                     const upperType = data.examType.toUpperCase();
                     if (validTypes.includes(upperType)) detectedType = upperType;
                     else {
-                        // Heuristic Fallback
                         if(upperType.includes('MRI')) detectedType = 'MRI';
                         else if(upperType.includes('CT')) detectedType = 'CT';
                         else if(upperType.includes('ULTRASOUND')) detectedType = 'US';
@@ -918,12 +1003,11 @@ const AppointmentsPage: React.FC = () => {
                 }
                 setExamType(detectedType);
                 
-                // Trigger prep text update
                 const prep = modalitySettings[detectedType]?.prep || MODALITIES.find(m => m.id === detectedType)?.defaultPrep || '';
                 setPreparationText(prep);
 
                 setToast({ msg: 'تم تعبئة البيانات بنجاح! ✅', type: 'success' });
-                setPastedGeminiText(''); // Clear
+                setPastedGeminiText('');
             } else {
                 throw new Error("Invalid JSON format");
             }
@@ -932,7 +1016,6 @@ const AppointmentsPage: React.FC = () => {
         }
     };
 
-    // --- MANUAL JSON PASTE HANDLER ---
     const handleManualJsonProcess = async () => {
         try {
             const raw = JSON.parse(manualJsonInput);
@@ -945,7 +1028,6 @@ const AppointmentsPage: React.FC = () => {
         }
     }
 
-    // --- SCAN HANDLERS ---
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || !e.target.files[0]) return;
         const file = e.target.files[0];
@@ -955,7 +1037,6 @@ const AppointmentsPage: React.FC = () => {
         } else {
             await handleScanLocal(file);
         }
-        // reset input
         e.target.value = '';
     };
 
@@ -992,19 +1073,15 @@ const AppointmentsPage: React.FC = () => {
 
             const data = parseMedicalTextLocally(text);
             
-            // Populate Form
             if (data.patientName) setPatientName(data.patientName);
             if (data.fileNumber) setFileNumber(data.fileNumber);
             if (data.doctorName) setDoctorName(data.doctorName);
             if (data.patientAge) setPatientAge(data.patientAge);
             if (data.procedureName) setSpecificExamName(data.procedureName);
             
-            // Map exam type
             if (data.examType) {
-                // Ensure valid type from constants
                 const type = MODALITIES.find(m => m.id === data.examType) ? data.examType : 'OTHER';
                 setExamType(type);
-                // Trigger prep text
                 const prep = modalitySettings[type]?.prep || MODALITIES.find(m => m.id === type)?.defaultPrep || '';
                 setPreparationText(prep);
             }
@@ -1038,7 +1115,6 @@ const AppointmentsPage: React.FC = () => {
             const ai = new GoogleGenAI({ apiKey });
             const imagePart = await fileToGenerativePart(file);
             
-            // Use gemini-1.5-flash
             const response = await ai.models.generateContent({
                 model: 'gemini-1.5-flash', 
                 contents: {
@@ -1062,7 +1138,6 @@ const AppointmentsPage: React.FC = () => {
             if (data.room) setManualRoom(data.room);
             if (data.procedureName) setSpecificExamName(data.procedureName);
             
-            // Map exam type
             const validTypes = MODALITIES.map(m => m.id);
             let detectedType = 'OTHER';
             if (data.examType) {
@@ -1079,13 +1154,11 @@ const AppointmentsPage: React.FC = () => {
             }
             setExamType(detectedType);
 
-            // Trigger prep text update
             const prep = modalitySettings[detectedType]?.prep || MODALITIES.find(m => m.id === detectedType)?.defaultPrep || '';
             setPreparationText(prep);
 
         } catch (error: any) {
             console.error("AI Scan Error", error);
-            // Fallback to local if AI fails? User has a specific button now, but maybe nice to suggest it.
             if (error.message?.includes('429')) {
                 setToast({ msg: 'استنفذت باقة AI. جرب المسح المحلي.', type: 'error' });
             } else {
@@ -1097,12 +1170,33 @@ const AppointmentsPage: React.FC = () => {
         }
     };
 
-    // --- MANUAL ADD SUBMIT ---
+    // حساب ما إذا كان القسم المختار قد وصل للحد الأقصى اليوم (Universal Check)
+    const currentModalityLimit = useMemo(() => {
+        if (activeModality === 'ALL') return null;
+        return modalitySettings[activeModality]?.limit || 0;
+    }, [activeModality, modalitySettings]);
+
+    // Use the REAL-TIME count from useEffect below for accuracy
+    const isDayFull = useMemo(() => {
+        if (activeModality === 'ALL' || !currentModalityLimit) return false;
+        return currentBookedCount >= currentModalityLimit;
+    }, [currentBookedCount, activeModality, currentModalityLimit]);
+
+
+
+    const handleEditBooking = (appt: ExtendedAppointment) => {
+        setBookingAppt(appt);
+        setBookingDate(appt.scheduledDate || appt.date);
+        setBookingTime(appt.time || '');
+        setBookingRoom(appt.roomNumber || '');
+        setBookingPrep(appt.preparation || '');
+        setIsBookingModalOpen(true);
+        };
+
     const handleManualSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!patientName || !examType) return;
 
-        // Double Booking Check
         if (await checkAvailability(manualDate, manualTime, examType) === false) {
             setToast({ msg: `⚠️ عذراً، هذا الموعد (${manualTime}) محجوز مسبقاً لهذا القسم.`, type: 'error' });
             return;
@@ -1110,14 +1204,9 @@ const AppointmentsPage: React.FC = () => {
 
         try {
             const uniqueId = `MANUAL_${Date.now()}`;
-            
-            // If manual date/time provided, treat as Scheduled directly
             const status = manualDate ? 'scheduled' : 'pending';
-            
-            // Use specific exam name if available, else generic type
             const examList = specificExamName ? [specificExamName] : [examType];
 
-            // SUPABASE INSERT
             const { error } = await supabase.from('appointments').insert({
                 id: uniqueId,
                 patientName,
@@ -1131,7 +1220,7 @@ const AppointmentsPage: React.FC = () => {
                 scheduledDate: manualDate, 
                 roomNumber: manualRoom,
                 notes,
-                preparation: preparationText, // Save specific prep
+                preparation: preparationText, 
                 status: status,
                 createdBy: currentUserId,
                 createdByName: currentUserName,
@@ -1143,11 +1232,9 @@ const AppointmentsPage: React.FC = () => {
             setToast({ msg: 'تم إضافة الموعد بنجاح ✅', type: 'success' });
             setIsAddModalOpen(false);
             
-            // Show Ticket Modal Immediately
             setBookedTicketId(uniqueId);
             setIsTicketModalOpen(true);
 
-            // Reset Form
             setPatientName(''); setFileNumber(''); setNotes(''); setDoctorName(''); setPatientAge('');
             setManualRoom(''); setSpecificExamName(''); setPreparationText('');
         } catch (e: any) { 
@@ -1166,7 +1253,6 @@ const AppointmentsPage: React.FC = () => {
         }
     };
 
-    // --- SETTINGS MANAGEMENT (SUPERVISOR) ---
     const handleSaveSettings = async () => {
         try {
             await setDoc(doc(db, 'system_settings', 'appointment_slots'), modalitySettings);
@@ -1205,12 +1291,10 @@ const AppointmentsPage: React.FC = () => {
     const APP_URL = "${window.location.origin}/#/appointments";
     let syncWin = null;
 
-    // Prevent closing page accidentally
     window.onbeforeunload = function() {
         return "⚠️ Bridge is active. Are you sure you want to close?";
     };
 
-    // Open/Focus the React App Window
     function openSyncWindow() {
         if (!syncWin || syncWin.closed) {
             syncWin = window.open(APP_URL, "SmartAppSyncWindow");
@@ -1218,18 +1302,15 @@ const AppointmentsPage: React.FC = () => {
         return syncWin;
     }
 
-    // Send Data to React App (AUTO-SEND)
     function sendData(data) {
         if (!data) return;
         let payload = data;
         
-        // Handle different JSON structures from ASP.NET / IHMS
         if (data.d) payload = data.d;
         if (data.result) payload = data.result;
         
         if (!Array.isArray(payload)) payload = [payload];
 
-        // Validate payload looks like patient data
         const isValid = payload.length > 0 && (
             payload[0].engName || 
             payload[0].patientName || 
@@ -1240,14 +1321,12 @@ const AppointmentsPage: React.FC = () => {
         if (isValid) {
             console.log("🔥 Data Intercepted. Syncing...");
             syncWin = openSyncWindow();
-            // Wait slightly for window to focus/load
             setTimeout(() => {
                 syncWin.postMessage({ type: 'SMART_SYNC_DATA', payload: payload }, '*');
             }, 300);
         }
     }
 
-    // --- THE INTERCEPTOR ---
     const originalOpen = XMLHttpRequest.prototype.open;
     const originalSend = XMLHttpRequest.prototype.send;
 
@@ -1258,7 +1337,6 @@ const AppointmentsPage: React.FC = () => {
 
     XMLHttpRequest.prototype.send = function() {
         this.addEventListener('load', function() {
-            // Only process JSON responses
             const contentType = this.getResponseHeader("content-type");
             if (contentType && contentType.includes("application/json")) {
                 try {
@@ -1267,9 +1345,7 @@ const AppointmentsPage: React.FC = () => {
                         const json = JSON.parse(text);
                         sendData(json);
                     }
-                } catch (e) {
-                    // Ignore parsing errors
-                }
+                } catch (e) {}
             }
         });
         return originalSend.apply(this, arguments);
@@ -1284,7 +1360,6 @@ const AppointmentsPage: React.FC = () => {
     const fetchLogbookData = async () => {
         setIsLogLoading(true);
         try {
-            // Use Supabase for Logbook Data
             const { data, error } = await supabase
                 .from('appointments')
                 .select('*')
@@ -1367,52 +1442,6 @@ const AppointmentsPage: React.FC = () => {
         );
     };
 
-    const handleBulkAction = async (action: 'clean_old' | 'delete_all' | 'delete_done' | 'delete_pending') => {
-        if (!isSupervisor) return;
-        let confirmMsg = '';
-        const todayStr = new Date().toISOString().split('T')[0];
-
-        switch(action) {
-            case 'clean_old':
-                confirmMsg = `حذف جميع الحالات القديمة (ما قبل ${todayStr}) من Supabase؟`;
-                break;
-            case 'delete_all':
-                confirmMsg = `⚠️ تحذير: حذف جميع الحالات (${appointments.length}) في القائمة الحالية من Supabase؟`;
-                break;
-            case 'delete_done':
-                confirmMsg = 'حذف جميع الحالات المنجزة (Done) من Supabase؟';
-                break;
-            case 'delete_pending':
-                confirmMsg = 'حذف جميع الحالات في الانتظار (Pending) من Supabase؟';
-                break;
-        }
-
-        if (!confirm(confirmMsg)) return;
-        setIsCleanupProcessing(true);
-        try {
-            let query = supabase.from('appointments').delete();
-            
-            if (action === 'clean_old') {
-                query = query.lt('date', todayStr);
-            } else if (action === 'delete_all') {
-                query = query.eq('date', selectedDate);
-            } else if (action === 'delete_done') {
-                query = query.eq('status', 'done').eq('date', selectedDate);
-            } else if (action === 'delete_pending') {
-                query = query.eq('status', 'pending').eq('date', selectedDate);
-            }
-
-            const { error, count } = await query;
-            if (error) throw error;
-
-            setToast({msg: `تم حذف السجلات بنجاح`, type: 'success'});
-        } catch(e: any) { 
-            setToast({msg: 'حدث خطأ: ' + e.message, type: 'error'}); 
-        } finally { 
-            setIsCleanupProcessing(false); 
-        }
-    };
-
     return (
         <div className="min-h-screen bg-slate-50 pb-20 font-sans" dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
@@ -1474,7 +1503,7 @@ const AppointmentsPage: React.FC = () => {
                 </div>
             </div>
 
-            {/* Sub-Header: Modality Tabs - UPDATED */}
+            {/* Sub-Header: Modality Tabs */}
             <div className="bg-white border-b border-slate-200 sticky top-[72px] z-20 shadow-sm overflow-x-auto no-scrollbar print:hidden">
                 <div className="max-w-7xl mx-auto px-4 flex items-center gap-1 py-2 min-w-max">
                     <button 
@@ -1487,9 +1516,7 @@ const AppointmentsPage: React.FC = () => {
                         </span>
                     </button>
                     <div className="w-px h-6 bg-slate-200 mx-2"></div>
-                    {/* Render ALL modalities, including OTHER */}
                     {MODALITIES.filter(m => m.id !== 'OTHER').map(mod => {
-                        // Strict Filtering for counts
                         const count = appointments.filter(a => mod.id === 'X-RAY' ? (a.examType === 'X-RAY' || a.examType === 'OTHER') : a.examType === mod.id).length;
                         return (
                             <button 
@@ -1506,6 +1533,50 @@ const AppointmentsPage: React.FC = () => {
                     })}
                 </div>
             </div>
+            {/* رسالة تنبيه عند اكتمال العدد */}
+{isDayFull && activeView !== 'done' && (
+    <div className="mx-4 mb-6 relative overflow-hidden group">
+        <div className="absolute inset-0 bg-gradient-to-r from-red-600 via-rose-500 to-red-600 animate-gradient-x opacity-10 blur-xl group-hover:opacity-20 transition-opacity"></div>
+        <div className="relative bg-white border-2 border-red-100 p-5 rounded-[2rem] shadow-xl shadow-red-100/50 flex flex-col md:flex-row items-center justify-between gap-4 overflow-hidden">
+            <div className="absolute right-0 top-0 w-24 h-24 bg-red-50 rounded-full -mr-12 -mt-12 opacity-50"></div>
+            
+            <div className="flex items-center gap-5 z-10">
+                <div className="w-14 h-14 bg-gradient-to-br from-red-500 to-rose-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-red-200 animate-bounce-subtle">
+                    <i className="fas fa-calendar-times text-2xl"></i>
+                </div>
+                <div>
+                    <h3 className="text-red-900 font-black text-lg leading-tight">عذراً، اكتملت الحجوزات اليوم</h3>
+                    <p className="text-red-500 text-[11px] font-bold uppercase tracking-widest mt-1 flex items-center gap-2">
+                        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                        Full Capacity Reached for {activeModality}
+                    </p>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-4 bg-red-50 px-6 py-3 rounded-2xl border border-red-100 z-10">
+                <div className="text-center">
+                    <p className="text-[10px] font-black text-red-400 uppercase">Limit</p>
+                    <p className="text-xl font-black text-red-800">{currentModalityLimit}</p>
+                </div>
+                <div className="w-[2px] h-8 bg-red-200"></div>
+                <div className="text-center">
+                    <p className="text-[10px] font-black text-red-400 uppercase">Current</p>
+                    <p className="text-xl font-black text-red-800">{currentBookedCount}</p>
+                </div>
+            </div>
+            
+            {/* زر سريع للمشرف لزيادة الحد إذا لزم الأمر */}
+            {isSupervisor && (
+                <button 
+                    onClick={() => setIsSettingsModalOpen(true)}
+                    className="z-10 bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black hover:bg-black transition-all shadow-md"
+                >
+                    تعديل السعة <i className="fas fa-cog ml-1"></i>
+                </button>
+            )}
+        </div>
+    </div>
+)}
 
             {/* Content */}
             <div className="max-w-7xl mx-auto px-4 py-6 print:hidden">
@@ -1528,7 +1599,6 @@ const AppointmentsPage: React.FC = () => {
                             const mod = MODALITIES.find(m => m.id === appt.examType) || MODALITIES[MODALITIES.length - 1];
                             const isScheduled = appt.status === 'scheduled';
                             
-                            // Safe Date Rendering
                             const dateDisplay = appt.scheduledDate || appt.date;
                             const timeDisplay = appt.time;
 
@@ -1561,7 +1631,6 @@ const AppointmentsPage: React.FC = () => {
                                         {appt.patientAge && <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">Age: {appt.patientAge}</span>}
                                     </div>
 
-                                    {/* Exams List - Safe Mapping */}
                                     <div className="mb-3 bg-slate-50 rounded-lg p-2 border border-slate-100 min-h-[40px]">
                                         {appt.examList && Array.isArray(appt.examList) && appt.examList.length > 0 ? (
                                             <div className="flex flex-wrap gap-1">
@@ -1576,14 +1645,29 @@ const AppointmentsPage: React.FC = () => {
                                         )}
                                     </div>
                                     
-                                    {/* Room & Status Info for Scheduled */}
                                     {isScheduled && appt.roomNumber && (
                                         <div className="flex items-center gap-2 mb-2 text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-1 rounded border border-purple-100">
                                             <i className="fas fa-door-open"></i> الغرفة: {appt.roomNumber}
                                         </div>
+                                        
+                                    )}
+                                    {isScheduled && (
+                                    <button
+                                        onClick={() => handleCancelAppointment(appt)}
+                                        className="px-3 py-1 text-xs font-bold rounded bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200"
+                                    >
+                                        إلغاء الموعد (عودة للانتظار)
+                                    </button>
+                                    )}
+                                    {appt.status === 'scheduled' && (
+                                    <button
+                                        onClick={() => handleEditBooking(appt)}
+                                        className="px-3 py-1 text-xs font-bold rounded bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
+                                    >
+                                        تعديل
+                                    </button>
                                     )}
 
-                                    {/* Footer / Actions */}
                                     <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-50">
                                         {appt.status === 'pending' || appt.status === 'scheduled' ? (
                                             <>
@@ -1612,6 +1696,7 @@ const AppointmentsPage: React.FC = () => {
                                                 </div>
                                                 <button onClick={() => handleUndo(appt)} className="text-slate-300 hover:text-red-500 px-2 cursor-pointer" title="Undo"><i className="fas fa-undo"></i></button>
                                             </div>
+                                            
                                         )}
                                     </div>
                                     
@@ -1628,19 +1713,28 @@ const AppointmentsPage: React.FC = () => {
             </div>
 
             {/* Ticket Success Modal */}
-            <Modal isOpen={isTicketModalOpen} onClose={() => setIsTicketModalOpen(false)} title="تم حجز الموعد بنجاح ✅">
-                <div className="space-y-6 text-center">
-                    {/* Patient Info Summary in Success Modal */}
-                    {bookedTicketData && (
-                        <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl text-left rtl:text-right">
-                            <h3 className="font-bold text-lg text-slate-800 mb-1">{bookedTicketData.patientName}</h3>
-                            <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
-                                <div><span className="font-bold">ID:</span> {bookedTicketData.fileNumber}</div>
-                                <div><span className="font-bold">Exam:</span> {bookedTicketData.examType}</div>
-                                <div><span className="font-bold">Date:</span> {bookedTicketData.scheduledDate}</div>
-                                <div><span className="font-bold">Time:</span> {bookedTicketData.time}</div>
-                            </div>
-                        </div>
+            <Modal
+  isOpen={isTicketModalOpen}
+  onClose={() => setIsTicketModalOpen(false)}
+  title="تم حجز الموعد بنجاح ✅"
+>
+  <div className="space-y-6 text-center">
+    {bookedTicketData && (
+      <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl text-left rtl:text-right">
+        <h3 className="font-bold text-lg text-slate-800 mb-1">{bookedTicketData.patientName}</h3>
+        <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
+          <div><span className="font-bold">ID:</span> {bookedTicketData.fileNumber}</div>
+          <div><span className="font-bold">Exam:</span> {bookedTicketData.examType}</div>
+          <div><span className="font-bold">Date:</span> {bookedTicketData.scheduledDate}</div>
+          <div><span className="font-bold">Time:</span> {bookedTicketData.time}</div>
+          <div className="col-span-2 mt-6 text-center">
+            <p className="font-bold mb-2">تعليمات الفحص</p>
+
+          </div>
+        </div>
+      </div>
+
+                        
                     )}
 
                     <div className="bg-emerald-50 text-emerald-800 p-4 rounded-xl border border-emerald-100 flex flex-col items-center">
@@ -1666,10 +1760,9 @@ const AppointmentsPage: React.FC = () => {
                 </div>
             </Modal>
 
-            {/* Add Modal - Enhanced for Instant Booking & OCR */}
+            {/* Add Modal */}
             <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="إضافة موعد جديد">
                 <div className="space-y-4">
-                    {/* Camera/OCR Button */}
                     <div className="flex gap-2">
                         <button 
                             onClick={() => { setScanMode('local'); fileInputRef.current?.click(); }}
@@ -1685,7 +1778,6 @@ const AppointmentsPage: React.FC = () => {
                         </button>
                     </div>
 
-                    {/* NEW: External Gemini Button */}
                     <div className="relative">
                         <button 
                             onClick={handleExternalGemini}
@@ -1698,7 +1790,6 @@ const AppointmentsPage: React.FC = () => {
                             </div>
                         </button>
                         
-                        {/* Paste Area */}
                         <div className="mt-3 bg-slate-50 border-2 border-dashed border-teal-200 rounded-xl p-3">
                             <textarea 
                                 className="w-full bg-transparent text-sm font-medium text-slate-700 outline-none resize-none placeholder-slate-400 min-h-[60px]"
@@ -1717,7 +1808,6 @@ const AppointmentsPage: React.FC = () => {
                         </div>
                     </div>
                     
-                    {/* Hidden Input */}
                     <input 
                         ref={fileInputRef}
                         type="file" 
@@ -1773,7 +1863,6 @@ const AppointmentsPage: React.FC = () => {
                             {MODALITIES.filter(m => m.id !== 'ALL').map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
                         </select>
 
-                        {/* NEW: Specific Exam Name */}
                         <div>
                             <label className="text-xs font-bold text-slate-500">اسم الفحص المحدد (اختياري)</label>
                             <input 
@@ -1784,7 +1873,6 @@ const AppointmentsPage: React.FC = () => {
                             />
                         </div>
 
-                        {/* NEW: Preparation Instructions */}
                         <div className="bg-amber-50 p-3 rounded-xl border border-amber-100">
                             <label className="text-xs font-bold text-amber-800 flex items-center gap-1 mb-1">
                                 <i className="fas fa-exclamation-circle"></i> تعليمات التحضير (تظهر للمريض)
@@ -1827,19 +1915,88 @@ const AppointmentsPage: React.FC = () => {
 
                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
                         <h4 className="font-bold text-slate-700">{editingModalityId} Settings</h4>
-                        
-                        <div>
-                            <label className="text-xs font-bold text-slate-500 block mb-1">الحد اليومي (للمواعيد)</label>
-                            <input 
-                                type="number" 
-                                className="w-full bg-white border border-slate-300 rounded-lg p-2 font-bold text-sm"
-                                value={modalitySettings[editingModalityId]?.limit || 20}
-                                onChange={e => setModalitySettings(prev => ({
-                                    ...prev,
-                                    [editingModalityId]: { ...prev[editingModalityId], limit: parseInt(e.target.value) || 0 }
-                                }))}
-                            />
-                        </div>
+                        <div className="border-t pt-4">
+  <label className="text-xs font-bold text-slate-600 block mb-2">
+    عدد المواعيد المتاحة للقسم
+  </label>
+
+  <input
+    type="number"
+    min={0}
+    className="w-full bg-white border border-slate-300 rounded-lg p-2 text-sm font-bold mb-3"
+    placeholder="مثال: 15"
+    value={manualSlotsCount || ''}
+    onChange={e => {
+      const count = parseInt(e.target.value) || 0;
+      setManualSlotsCount(count);
+
+      const newSlots = Array.from({ length: count }, (_, i) => manualSlots[i] || '');
+      setManualSlots(newSlots);
+
+      setModalitySettings(prev => ({
+        ...prev,
+        [editingModalityId]: {
+          ...prev[editingModalityId],
+          slots: newSlots.filter(Boolean),
+          limit: count
+        }
+      }));
+    }}
+  />
+</div>
+
+  {manualSlotsCount > 0 && (
+  <div className="space-y-3">
+    <div className="grid grid-cols-3 gap-2">
+      {manualSlots.map((slot, index) => (
+        <input
+          key={index}
+          type="time"
+          className="bg-white border border-slate-300 rounded p-1 text-xs font-mono"
+            value={normalizeTime(slot)}
+          onChange={e => {
+            const updated = [...manualSlots];
+            updated[index] = e.target.value;
+            setManualSlots(updated);
+
+            setModalitySettings(prev => ({
+              ...prev,
+              [editingModalityId]: {
+                ...prev[editingModalityId],
+                slots: updated.filter(Boolean),
+                limit: updated.length
+              }
+            }));
+          }}
+        />
+      ))}
+    </div>
+
+    {/* زر إضافة موعد */}
+    <button
+      onClick={() => {
+        const updated = [...manualSlots, ''];
+        setManualSlots(updated);
+        setManualSlotsCount(updated.length);
+
+        setModalitySettings(prev => ({
+          ...prev,
+          [editingModalityId]: {
+            ...prev[editingModalityId],
+            slots: updated.filter(Boolean),
+            limit: updated.length
+          }
+        }));
+      }}
+      className="flex items-center gap-2 text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-2 rounded-lg hover:bg-emerald-200 w-fit"
+    >
+      ➕ إضافة موعد
+    </button>
+  </div>
+  
+)}
+
+
 
                         <div>
                             <label className="text-xs font-bold text-slate-500 block mb-1">تعليمات التحضير الافتراضية</label>
@@ -1854,33 +2011,8 @@ const AppointmentsPage: React.FC = () => {
                             />
                         </div>
 
-                        <div>
-                            <label className="text-xs font-bold text-slate-500 block mb-2">توليد أوقات تلقائية</label>
-                            <div className="grid grid-cols-3 gap-2">
-                                <input type="time" className="bg-white border rounded p-1 text-xs" value={editStartTime} onChange={e=>setEditStartTime(e.target.value)} title="Start Time" />
-                                <input type="time" className="bg-white border rounded p-1 text-xs" value={editEndTime} onChange={e=>setEditEndTime(e.target.value)} title="End Time" />
-                                <input type="number" className="bg-white border rounded p-1 text-xs" value={editInterval} onChange={e=>setEditInterval(parseInt(e.target.value))} title="Mins" placeholder="30" />
-                            </div>
-                            <button onClick={generateSlots} className="w-full mt-2 bg-indigo-100 text-indigo-700 text-xs font-bold py-2 rounded-lg hover:bg-indigo-200 cursor-pointer">
-                                توليد القائمة
-                            </button>
-                        </div>
-
-                        <div>
-                            <label className="text-xs font-bold text-slate-500 block mb-1">الأوقات المتاحة (فاصلة بينها)</label>
-                            <textarea 
-                                className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs font-mono h-24"
-                                value={modalitySettings[editingModalityId]?.slots?.join(', ') || ''}
-                                onChange={e => {
-                                    const slots = e.target.value.split(',').map(s => s.trim()).filter(s => s);
-                                    setModalitySettings(prev => ({
-                                        ...prev,
-                                        [editingModalityId]: { ...prev[editingModalityId], slots }
-                                    }));
-                                }}
-                            />
-                        </div>
                     </div>
+                    
 
                     <button onClick={handleSaveSettings} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-slate-800 cursor-pointer">
                         حفظ التغييرات
@@ -2038,20 +2170,42 @@ const AppointmentsPage: React.FC = () => {
                         </div>
                         <div>
                             <label className="text-xs font-bold text-slate-500 mb-1 block">وقت الموعد</label>
-                            {availableSlots.length > 0 ? (
-                                <select className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700" value={bookingTime} onChange={e => setBookingTime(e.target.value)}>
-                                    <option value="">اختر الوقت...</option>
-                                    {availableSlots.map(slot => <option key={slot} value={slot}>{slot}</option>)}
-                                </select>
+                            
+                            {/* NEW: Limit Check Logic */}
+                            {isDayLimitReached && !isSupervisor ? (
+                                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-center">
+                                    <p className="text-red-700 font-bold text-xs mb-1">⛔ اكتمل العدد المسموح</p>
+                                    <p className="text-[10px] text-red-500">لا يمكن حجز المزيد من المواعيد لهذا اليوم.</p>
+                                </div>
                             ) : (
-                                <input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" value={bookingTime} onChange={e => setBookingTime(e.target.value)} placeholder={availableSlots.length === 0 && modalitySettings[bookingAppt?.examType || '']?.slots?.length > 0 ? "اكتملت المواعيد" : ""} />
+                                availableSlots.length > 0 ? (
+                                    <select className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700" value={bookingTime} onChange={e => setBookingTime(e.target.value)}>
+                                        <option value="">اختر الوقت...</option>
+                                        {availableSlots.map(slot => <option key={slot} value={slot}>{slot}</option>)}
+                                    </select>
+                                ) : (
+                                    <input 
+                                        type="time" 
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" 
+                                        value={bookingTime} 
+                                        onChange={e => setBookingTime(e.target.value)} 
+                                        // If empty slots but not limited yet (unlikely here due to above check), fallback
+                                    />
+                                )
                             )}
                         </div>
                     </div>
                     <div><label className="text-xs font-bold text-slate-500 mb-1 block">رقم الغرفة</label><input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" placeholder="مثال: غرفة 3" value={bookingRoom} onChange={e => setBookingRoom(e.target.value)} /></div>
                     <div><label className="text-xs font-bold text-slate-500 mb-1 block">التحضيرات</label><textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold min-h-[80px]" value={bookingPrep} onChange={e => setBookingPrep(e.target.value)} /></div>
                     {bookingWarning && <div className={`text-xs font-bold p-3 rounded-lg border ${bookingWarning.includes('✅') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{bookingWarning}</div>}
-                    <button onClick={confirmBooking} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-all cursor-pointer">تأكيد الحجز</button>
+                    
+                    <button 
+                        onClick={confirmBooking} 
+                        disabled={isDayLimitReached && !isSupervisor}
+                        className={`w-full py-3 rounded-xl font-bold shadow-lg transition-all cursor-pointer ${isDayLimitReached && !isSupervisor ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                    >
+                        تأكيد الحجز
+                    </button>
                 </div>
             </Modal>
         </div>

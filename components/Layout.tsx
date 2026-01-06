@@ -278,9 +278,9 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName }) => {
           if (!currentUserId || userRole !== 'user') return;
 
           try {
-              // 2. Get current device fingerprint
+              // 2. Get current device fingerprint (Stable Utility)
               const currentDeviceId = await getStableDeviceFingerprint();
-              console.log("Layout: Checking Device...", currentDeviceId);
+              console.log("Layout: Verifying Hardware Identity...", currentDeviceId);
 
               // 3. Get registered device from Firestore
               const userRef = doc(db, 'users', currentUserId);
@@ -327,7 +327,6 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName }) => {
           if (lockAudioRef.current) return; // Already playing
 
           // Using a funny laugh/cartoon sound
-          // You can replace this URL with your uploaded file in 'public' folder e.g., '/wahid.mp3'
           const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2044/2044-preview.mp3'); 
           audio.volume = 1.0;
           audio.loop = true; // Make it annoying/looping until they leave
@@ -399,9 +398,7 @@ if (isDeviceLocked) {
 
             <div className="relative bg-slate-800 p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] shadow-2xl border-4 border-red-500/50 text-center w-[90%] max-w-lg mx-auto transform transition-all hover:scale-105 duration-300 flex flex-col items-center justify-center">
                 
-                {/* 
-                   Expressive Image (Angry 3D Emoji) - Centered Fix
-                */}
+                {/* Expressive Image (Angry 3D Emoji) */}
                 <div className="mb-6 relative group w-48 h-48 md:w-60 md:h-60 mx-auto flex items-center justify-center">
                     {/* Red Glow */}
                     <div className="absolute inset-0 bg-red-600 rounded-full blur-2xl opacity-50 animate-pulse"></div>

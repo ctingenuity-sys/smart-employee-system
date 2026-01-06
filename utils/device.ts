@@ -1,84 +1,97 @@
 
-// --- ADVANCED HARDWARE FINGERPRINTING (Robust for HTTP/Localhost) ---
+// --- TRUE HARDWARE FINGERPRINT (Persistent across Clear Data) ---
 
-// دالة تشفير بسيطة يدوية لتعمل في البيئات غير الآمنة (HTTP)
-const simpleHash = (str: string): string => {
-    let hash = 0;
-    if (str.length === 0) return 'hash_0';
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash; // Convert to 32bit integer
-    }
-    return Math.abs(hash).toString(16);
-};
-
+/**
+ * يقوم هذا الكود بتوليد بصمة رقمية بناءً على مواصفات الجهاز وكارت الشاشة.
+ * هذه البصمة لا تتغير بمسح الـ LocalStorage لأنها تُحسب في كل مرة بنفس الطريقة.
+ */
 export const getStableDeviceFingerprint = async (): Promise<string> => {
     try {
+        // 1. تجميع البيانات الأساسية (الشاشة، النظام، التوقيت، المعالج)
         const nav = window.navigator as any;
         const screen = window.screen;
         
-        // 1. Core Hardware Traits
-        const hardwareInfo = [
-            nav.platform, // OS
-            nav.hardwareConcurrency, // Cores
-            nav.deviceMemory, // RAM
-            screen.width + 'x' + screen.height, // Resolution
+        const basicInfo = [
+            nav.userAgent,
+            nav.language,
+            nav.hardwareConcurrency || 'x', // عدد الأنوية
+            nav.deviceMemory || 'x',        // حجم الرامات التقريبي
             screen.colorDepth,
-            Intl.DateTimeFormat().resolvedOptions().timeZone // Timezone
-        ].join('||');
+            screen.width + 'x' + screen.height, // دقة الشاشة
+            screen.availWidth + 'x' + screen.availHeight,
+            Intl.DateTimeFormat().resolvedOptions().timeZone // المنطقة الزمنية
+        ].join('|');
 
-        // 2. Canvas Fingerprinting
-        let canvasHash = 'no-canvas';
+        // 2. Canvas Fingerprint (رسم صورة مخفية وحساب الكود الخاص بها)
+        // المتصفحات المختلفة ترسم الخطوط والظلال بطرق مختلفة قليلاً بناءً على كارت الشاشة ونظام التشغيل
+        let canvasHash = '';
         try {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             if (ctx) {
-                canvas.width = 200;
-                canvas.height = 50;
-                ctx.textBaseline = "top";
-                ctx.font = "16px Arial";
+                canvas.width = 280;
+                canvas.height = 60;
+                ctx.textBaseline = "alphabetic";
                 ctx.fillStyle = "#f60";
                 ctx.fillRect(125, 1, 62, 20);
                 ctx.fillStyle = "#069";
-                ctx.fillText("AJ_SMART_SYSTEM_v1", 2, 15);
+                // نص معقد لاختبار التظليل والرسم (Font Rendering)
+                ctx.font = "11pt no-real-font-123";
+                ctx.fillText("Cwm fjordbank glyphs vext quiz, \ud83d\ude03", 2, 15);
                 ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
-                ctx.fillText("AJ_SMART_SYSTEM_v1", 4, 17);
+                ctx.font = "18pt Arial";
+                ctx.fillText("AJ_SMART_SYSTEM", 4, 45);
                 
+                // إضافة رسم بياني لاختبار الـ Anti-aliasing
+                ctx.globalCompositeOperation = "multiply";
+                ctx.fillStyle = "rgb(255,0,255)";
                 ctx.beginPath();
                 ctx.arc(50, 50, 50, 0, Math.PI * 2, true);
                 ctx.closePath();
                 ctx.fill();
-
+                ctx.fillStyle = "rgb(0,255,255)";
+                ctx.beginPath();
+                ctx.arc(100, 50, 50, 0, Math.PI * 2, true);
+                ctx.closePath();
+                ctx.fill();
+                
                 canvasHash = canvas.toDataURL();
             }
-        } catch (e) {
-            console.warn("Canvas fingerprint blocked");
-        }
+        } catch (e) { canvasHash = 'canvas-error'; }
 
-        // Combine traits
-        const fingerprintString = `${hardwareInfo}###${canvasHash}`;
-        
-        // 3. Hashing Strategy
-        // Try native crypto API first (fastest/secure), fallback to simpleHash if on HTTP
-        if (window.crypto && window.crypto.subtle) {
-            try {
-                const msgBuffer = new TextEncoder().encode(fingerprintString);
-                const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-                const hashArray = Array.from(new Uint8Array(hashBuffer));
-                const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-                return `HW_${hashHex.substring(0, 32)}`; 
-            } catch (e) {
-                console.log("Crypto API failed, using fallback");
-                return `HW_FB_${simpleHash(fingerprintString)}`;
+        // 3. WebGL Fingerprint (أقوى عامل - يقرأ اسم كارت الشاشة الفعلي)
+        let webglInfo = '';
+        try {
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+            if (gl) {
+                const debugInfo = (gl as WebGLRenderingContext).getExtension('WEBGL_debug_renderer_info');
+                if (debugInfo) {
+                    const vendor = (gl as WebGLRenderingContext).getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
+                    const renderer = (gl as WebGLRenderingContext).getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                    webglInfo = `${vendor}~${renderer}`;
+                }
             }
-        } else {
-            // Fallback for non-secure contexts (like local IP testing)
-            return `HW_FB_${simpleHash(fingerprintString)}`;
-        }
+        } catch (e) { webglInfo = 'webgl-error'; }
+
+        // 4. دمج كل المعلومات وتشفيرها
+        // لاحظ: لا نستخدم Math.random() أو Date.now() هنا أبداً لضمان الثبات
+        const finalString = `${basicInfo}__${canvasHash}__${webglInfo}`;
+        
+        // استخدام خوارزمية SHA-256 للحصول على كود فريد وثابت
+        const msgBuffer = new TextEncoder().encode(finalString);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+        // أخذ أول 16 خانة وتحويلها لحروف كبيرة وإضافة بادئة
+        const stableID = `DEV_${hashHex.substring(0, 16).toUpperCase()}`;
+
+        return stableID;
 
     } catch (e) {
-        console.error("Fingerprint generation completely failed", e);
-        return 'FALLBACK_DEVICE_ID_' + Math.random().toString(36).substring(7);
+        console.error("Fingerprint Error", e);
+        // Fallback في حالة الأجهزة القديمة جداً
+        return 'FALLBACK_LEGACY_DEVICE';
     }
 };

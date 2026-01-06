@@ -212,25 +212,32 @@ const SupervisorEmployees: React.FC = () => {
     };
 
     const handleResetAllDevices = async () => {
-        if (!confirm("⚠️ تحذير: هذا الإجراء سيقوم بفك ارتباط جميع الموظفين بأجهزتهم الحالية. سيحتاج الجميع لإعادة التسجيل عند الدخول القادم. هل أنت متأكد؟")) return;
+        if (!confirm("⚠️ تحذير هام: هذا الإجراء سيقوم بفك ارتباط جميع الموظفين بأجهزتهم الحالية. سيحتاج الجميع لإعادة التسجيل عند الدخول القادم. هل أنت متأكد؟")) return;
         
         setLoading(true);
         try {
-            const batch = writeBatch(db);
             // Get all users
             const snap = await getDocs(collection(db, 'users'));
+            const docs = snap.docs;
+            const batchSize = 450; // Firestore limit is 500, keeping safe margin
             let count = 0;
-            
-            snap.docs.forEach(doc => {
-                batch.update(doc.ref, { 
-                    biometricId: null, 
-                    biometricRegisteredAt: null 
+
+            for (let i = 0; i < docs.length; i += batchSize) {
+                const chunk = docs.slice(i, i + batchSize);
+                const batch = writeBatch(db);
+                
+                chunk.forEach(doc => {
+                    batch.update(doc.ref, { 
+                        biometricId: null, 
+                        biometricRegisteredAt: null 
+                    });
+                    count++;
                 });
-                count++;
-            });
+                
+                await batch.commit();
+            }
             
             if (count > 0) {
-                await batch.commit();
                 setToast({ msg: `تم تصفير الأجهزة لـ ${count} موظف بنجاح`, type: 'success' });
             } else {
                 setToast({ msg: 'لا يوجد موظفين لتحديثهم', type: 'info' });
@@ -256,25 +263,24 @@ const SupervisorEmployees: React.FC = () => {
         } catch(e) { setToast({ msg: 'Error', type: 'error' }); }
     };
 
-const handleSendLiveCheck = async (user: User) => {
-    try {
-        await addDoc(collection(db, 'location_checks'), {
-            targetUserId: user.id, // تأكد أن هذا هو نفس الـ ID الذي ظهر في كونسول الموظف
-            supervisorId: currentAdminId,
-            status: 'pending',
-            createdAt: serverTimestamp(), // Use server timestamp for accurate timing
-            requestedAtStr: new Date().toISOString() 
+    const handleSendLiveCheck = async (user: User) => {
+        try {
+            await addDoc(collection(db, 'location_checks'), {
+                targetUserId: user.id,
+                supervisorId: currentAdminId,
+                status: 'pending',
+                createdAt: serverTimestamp(),
+                requestedAtStr: new Date().toISOString() 
+            });
             
-        });
-        
-        setToast({ msg: 'تم إرسال الطلب بنجاح', type: 'success' });
-    } catch (e) {
-        setToast({ msg: 'فشل في الإرسال', type: 'error' });
-    }
-};
+            setToast({ msg: 'تم إرسال الطلب بنجاح', type: 'success' });
+        } catch (e) {
+            setToast({ msg: 'فشل في الإرسال', type: 'error' });
+        }
+    };
+
     // --- Diagnose User Logic ---
     const handleDiagnoseUser = async (user: User) => {
-      // Just check logs without sending request
       setLoading(true);
       try {
           let snap;
@@ -288,7 +294,7 @@ const handleSendLiveCheck = async (user: User) => {
               snap = { empty: sortedDocs.length === 0, docs: sortedDocs, size: sortedDocs.length };
           }
           
-          let msg = `🔍 Report for: ${user.name}\n🆔 UID: ${user.id}\n📱 Biometric: ${user.biometricId ? 'YES ✅' : 'NO ❌'}\n----------------\n`;
+          let msg = `🔍 Report for: ${user.name}\n🆔 UID: ${user.id}\n📱 Biometric Linked: ${user.biometricId ? 'YES ✅' : 'NO ❌'}\n----------------\n`;
           if (snap.empty) {
               msg += `⚠️ NO LOGS FOUND.\n`;
           } else {
@@ -477,9 +483,6 @@ const handleSendLiveCheck = async (user: User) => {
                         </div>
                     </div>
                 </div>
-
-                {/* Add User Form */}
-                
             </div>
 
             {/* Edit Modal */}

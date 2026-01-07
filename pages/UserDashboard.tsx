@@ -7,6 +7,7 @@ import { db, auth } from '../firebase';
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
 import { Schedule, Announcement, SwapRequest, OpenShift, User, AttendanceLog, ActionLog } from '../types';
+import Toast from '../components/Toast';
 
 // --- Helpers ---
 const getLocalDateStr = (d: Date) => {
@@ -339,7 +340,8 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
                       if (shouldShow && !activePeople.some(p => p.name === name)) {
                           activePeople.push({ 
                               name, 
-                              location: sch.locationId === 'common_duty' && sch.note ? sch.note.split('-')[0] : sch.locationId, 
+                              // Safe string split for note
+                              location: sch.locationId === 'common_duty' && sch.note ? String(sch.note).split('-')[0] : sch.locationId, 
                               time: `${shift.start} - ${shift.end}`,
                               role: role,
                               phone: uData?.phone,
@@ -572,6 +574,7 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
           gradient: 'from-violet-500 to-purple-600', 
           path: '/user/performance',
       },
+     
       {
           id: 'tasks',
           title: 'المهام',
@@ -621,6 +624,8 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
     <div className="min-h-screen bg-slate-50 font-sans" dir={dir}>
         <style>{styles}</style>
         
+        {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+
         {/* Announcements Banner */}
      {showAnnouncePopup && announcements.length > 0 && (
             <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
@@ -993,51 +998,38 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
                 <div className="relative w-full max-w-[320px] bg-slate-900 border border-cyan-500/40 rounded-[2.5rem] p-8 flex flex-col items-center shadow-[0_0_50px_rgba(6,182,212,0.2)] animate-in zoom-in-95 duration-200">
                     
                     {/* أيقونة علوية */}
-                    <div className="w-20 h-20 rounded-3xl bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20 mb-6 rotate-3">
-                        <i className="fas fa-shield-check text-4xl text-cyan-400"></i>
+                    <div className="w-20 h-20 rounded-3xl bg-cyan-500/20 flex items-center justify-center mb-6 shadow-inner border border-cyan-500/30">
+                        <i className="fas fa-qrcode text-4xl text-cyan-400 animate-pulse"></i>
                     </div>
 
-                    {/* النصوص والكود - ترتيب رأسي */}
-                    <div className="text-center w-full space-y-4">
-                        <div className="space-y-1">
-                            <span className="text-[10px] text-cyan-400 font-black uppercase tracking-[0.4em]">{t('dash.locationCode')}</span>
-                            <p className="text-white/40 text-[10px]">اضغط على الزر أدناه للنسخ والإغلاق</p>
-                        </div>
+                    <h3 className="text-white font-black text-xl mb-2 tracking-wide">{t('user.code')}</h3>
+                    <p className="text-slate-400 text-xs text-center mb-6 font-medium leading-relaxed">
+                        أظهر هذا الكود للمشرف لتأكيد تواجدك في الموقع
+                    </p>
+
+                    {/* الكود نفسه */}
+                    <div className="w-full bg-black/50 rounded-2xl p-4 border border-cyan-500/20 flex items-center justify-center gap-3 mb-6 group cursor-pointer relative overflow-hidden" 
+                         onClick={() => { navigator.clipboard.writeText(generatedCode); setToast({msg: 'تم النسخ', type: 'success'}) }}>
                         
-                        <div className="bg-white/5 border border-white/10 p-5 rounded-2xl break-all">
-                            <code className="text-2xl font-mono font-black text-white leading-tight tracking-wider">
-                                {generatedCode}
-                            </code>
-                        </div>
+                        <div className="absolute inset-0 bg-cyan-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                        
+                        <code className="text-cyan-300 font-mono font-bold text-lg tracking-wider break-all text-center line-clamp-1">
+                            {generatedCode}
+                        </code>
+                        <i className="far fa-copy text-slate-500 group-hover:text-cyan-400 transition-colors"></i>
                     </div>
 
-                    {/* زر النسخ - يغلق النافذة فوراً بعد الضغط */}
-                    <div className="w-full mt-8 space-y-4">
-                        <button 
-                            onClick={() => {
-                                navigator.clipboard.writeText(generatedCode);
-                                setToast({ msg: "تم نسخ الكود بنجاح", type: 'success' });
-                                // هنا التعديل: يختفي المودال فوراً عند النسخ
-                                setGeneratedCode(null);
-                            }}
-                            className="w-full py-4 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-95 shadow-lg shadow-cyan-500/20"
-                        >
-                            <i className="fas fa-copy text-lg"></i>
-                            {t('dash.copyClose')}
-                        </button>
-
-                        <button 
-                            onClick={() => setGeneratedCode(null)}
-                            className="w-full py-2 text-white/30 text-xs font-bold hover:text-white transition-colors uppercase tracking-widest"
-                        >
-                            {t('cancel')}
-                        </button>
-                    </div>
+                    <button 
+                        onClick={() => setGeneratedCode(null)}
+                        className="w-full py-4 rounded-2xl bg-slate-800 text-white font-bold text-sm hover:bg-slate-700 transition-all border border-slate-700 shadow-lg"
+                    >
+                        {t('close')}
+                    </button>
                 </div>
             </div>
         )}
-        </div>
-        
+
+    </div>
   );
 };
 

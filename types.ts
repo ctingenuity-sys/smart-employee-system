@@ -16,6 +16,7 @@ export interface User {
   biometricId?: string; // ID of the bound device/credential
   biometricRegisteredAt?: any;
   createdAt?: any;
+  permissions?: string[]; // Array of allowed page IDs
 }
 
 export interface Location {

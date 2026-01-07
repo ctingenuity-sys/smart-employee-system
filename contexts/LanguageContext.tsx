@@ -39,6 +39,8 @@ const translations: Record<string, { ar: string; en: string }> = {
   'to': { ar: 'إلى', en: 'To' },
   'update': { ar: 'تحديث', en: 'Update' },
   'close': { ar: 'إغلاق', en: 'Close' },
+  'export': { ar: 'تصدير اكسل', en: 'Export Excel' },
+  'refresh': { ar: 'تحديث', en: 'Refresh' },
   
   // --- Status & Common ---
   'status.active': { ar: 'نشط الآن', en: 'Active Now' },
@@ -53,16 +55,9 @@ const translations: Record<string, { ar: string; en: string }> = {
   'role.user': { ar: 'موظف', en: 'Employee' },
   'role.doctor': { ar: 'طبيب', en: 'Doctor' },
 
-  // --- Doctor Station (Radiology) ---
+  // --- Doctor Station ---
   'doc.station': { ar: 'محطة طبيب الأشعة', en: 'Radiologist Station' },
-  'doc.subtitle': { ar: 'أدواتك الذكية وجدول مناوباتك', en: 'Your Smart Tools & Roster' },
-  'doc.ai.title': { ar: 'المساعد الإشعاعي الذكي', en: 'AI Radiology Copilot' },
-  'doc.ai.explain': { ar: 'شرح للمريض', en: 'Patient Explainer' },
-  'doc.ai.safety': { ar: 'مدقق السلامة', en: 'Safety Check' },
-  'doc.ai.protocol': { ar: 'البروتوكولات', en: 'Protocols' },
-  'doc.oncall.today': { ar: 'مناوبات الأطباء اليوم', en: 'Doctors On-Call Today' },
-  'doc.myschedule': { ar: 'وردياتي القادمة', en: 'My Upcoming Shifts' },
-
+  
   // --- Sidebar Links ---
   'nav.dashboard': { ar: 'لوحة التحكم', en: 'Dashboard' },
   'nav.scheduleBuilder': { ar: 'إعداد الجداول', en: 'Schedule Builder' },
@@ -76,25 +71,160 @@ const translations: Record<string, { ar: string; en: string }> = {
   'nav.techSupport': { ar: 'الدعم الفني الذكي', en: 'AI Tech Support' },
   'nav.appointments': { ar: 'المواعيد', en: 'Appointments' },
   
-  // --- Appointments ---
-  'appt.title': { ar: 'إدارة المواعيد', en: 'Appointment Management' },
-  'appt.new': { ar: 'حجز موعد جديد', en: 'Book New Appointment' },
-  'appt.patient': { ar: 'اسم المريض', en: 'Patient Name' },
-  'appt.exam': { ar: 'الفحص المطلوب', en: 'Examination Type' },
-  'appt.voice': { ar: 'إدخال صوتي', en: 'Voice Input' },
-  'appt.list': { ar: 'قائمة المواعيد', en: 'Appointments List' },
-  'appt.pending': { ar: 'قيد الانتظار', en: 'Pending' },
-  'appt.done': { ar: 'تم الفحص', en: 'Completed' },
-  'appt.by': { ar: 'بواسطة', en: 'By' },
-  
-  // --- Login ---
+  // --- Appointments Page (NEW) ---
+
+  'appt.title': { ar: 'نظام حجز المواعيد', en: 'Appointment Booking System' },
+  'appt.search': { ar: 'بحث بالاسم أو الكود...', en: 'Search by name or code...' },
+  'appt.status.waiting': { ar: 'انتظار', en: 'Pending' },
+  'appt.status.work': { ar: 'العمل', en: 'In Progress' },
+  'appt.status.schudle': { ar: 'مواعيد', en: 'Scheduled' },
+  'appt.room': { ar: 'رقم الغرفة', en: 'Room Number' },
+  'appt.prep': { ar: 'التحضيرات', en: 'Preparations' },
+  'appt.confirm': { ar: 'تأكيد الحجز', en: 'Confirm Booking' },
+  'appt.limitReached': { ar: 'تم الوصول للحد الأقصى اليوم', en: 'Daily Limit Reached' },
+  'appt.new': { ar: ' جديد حجز ', en: 'New Booking' },
+  'appt.pending': { ar: 'انتظار', en: 'Pending' },
+  'appt.processing': { ar: 'العمل', en: 'Processing' },
+  'appt.scheduled': { ar: 'مواعيد', en: 'Scheduled' },
+  'appt.done': { ar: 'منجز', en: 'Done' },
+  'appt.searchPlaceholder': { ar: 'بحث باسم المريض أو رقم الملف...', en: 'Search Patient Name or File No...' },
+  'appt.viewScheduled': { ar: 'عرض المواعيد المحجوزة', en: 'View Scheduled' },
+  'appt.settings': { ar: 'إعدادات المواعيد', en: ' appointment Settings' },
+  'appt.autoSync': { ar: 'الربط التلقائي', en: 'Auto Sync' },
+  'appt.all': { ar: 'الكل', en: 'All' },
+  'appt.dayFull': { ar: 'عذراً، اكتملت الحجوزات اليوم', en: 'Sorry, fully booked today' },
+  'appt.fullCapacity': { ar: 'اكتمل العدد لهذا القسم', en: 'Full Capacity for this section' },
+  'appt.limit': { ar: 'الحد الأقصى', en: 'Limit' },
+  'appt.current': { ar: 'الحالي', en: 'Current' },
+  'appt.editCapacity': { ar: 'تعديل السعة', en: 'Edit Capacity' },
+  'appt.noResults': { ar: 'لا توجد نتائج للبحث', en: 'No results found' },
+  'appt.noList': { ar: 'لا توجد مواعيد في هذه القائمة', en: 'No appointments in this list' },
+  'appt.addFirst': { ar: 'إضافة موعد جديد', en: 'Add New Appointment' },
+  'appt.cancelWait': { ar: 'إلغاء الموعد (عودة للانتظار)', en: 'Cancel (Return to Pending)' },
+  'appt.edit': { ar: 'تعديل', en: 'Edit' },
+  'appt.startExam': { ar: 'بدء الفحص', en: 'Start Exam' },
+  'appt.finish': { ar: 'إنهاء (تم)', en: 'Finish' },
+  'appt.book': { ar: 'حجز', en: 'Book' },
+  'appt.patientName': { ar: 'اسم المريض', en: 'Patient Name' },
+  'appt.fileNo': { ar: 'رقم الملف', en: 'File No' },
+  'appt.doctor': { ar: 'الطبيب', en: 'Doctor' },
+  'appt.age': { ar: 'العمر', en: 'Age' },
+  'appt.examType': { ar: 'نوع الفحص', en: 'Exam Type' },
+  'appt.specificExam': { ar: 'اسم الفحص المحدد (اختياري)', en: 'Specific Exam (Optional)' },
+  'appt.notes': { ar: 'ملاحظات إضافية', en: 'Notes' },
+  'appt.savePrint': { ar: 'حفظ وطباعة التذكرة', en: 'Save & Print Ticket' },
+  'appt.scanLocal': { ar: 'مسح محلي (سريع)', en: 'Local Scan (Fast)' },
+  'appt.scanAI': { ar: 'مسح ذكي (AI)', en: 'Smart Scan (AI)' },
+  'appt.geminiUse': { ar: 'استخدم موقع Gemini الخارجي', en: 'Use External Gemini' },
+  'appt.geminiCopy': { ar: 'نسخ الأمر + فتح الموقع 🚀', en: 'Copy Command + Open Site 🚀' },
+  'appt.geminiPaste': { ar: 'الصق النتيجة من Gemini هنا (JSON)...', en: 'Paste Gemini Result (JSON)...' },
+  'appt.autoFill': { ar: 'تعبئة البيانات تلقائياً', en: 'Auto Fill' },
+  'appt.manualData': { ar: 'بيانات الحجز', en: 'Booking Data' },
+  'appt.date': { ar: 'التاريخ', en: 'Date' },
+  'appt.time': { ar: 'الوقت', en: 'Time' },
+  'appt.prepInst': { ar: 'تعليمات التحضير (تظهر للمريض)', en: 'Prep Instructions (Patient View)' },
+  'appt.successBook': { ar: 'تم حجز الموعد بنجاح ✅', en: 'Booking Successful ✅' },
+  'appt.scanTicket': { ar: 'امسح الكود لعرض التذكرة وتحميلها', en: 'Scan to view/download ticket' },
+  'appt.openTicket': { ar: 'فتح التذكرة للطباعة', en: 'Open Ticket to Print' },
+  'appt.panicQuestion': { ar: 'هل كانت الحالة طارئة (Panic)؟', en: 'Was it a Panic Case?' },
+  'appt.panicDesc': { ar: 'في حال وجود نتائج حرجة، يرجى تسجيلها فوراً.', en: 'Record critical findings immediately.' },
+  'appt.yesPanic': { ar: 'نعم (Panic)', en: 'Yes (Panic)' },
+  'appt.noNormal': { ar: 'لا (Normal)', en: 'No (Normal)' },
+  'appt.panicDetails': { ar: 'وصف الحالة الحرجة:', en: 'Critical Findings:' },
+  'appt.saveFinishReport': { ar: 'حفظ التقرير وإنهاء', en: 'Save & Finish' },
+  'appt.startSuccess': { ar: 'تم بدء الفحص ✅', en: 'Exam Started ✅' },
+  'appt.writeReg': { ar: 'يرجى كتابة رقم التسجيل التالي على الفيلم/الجهاز:', en: 'Write this Reg No on film/device:' },
+  'appt.ok': { ar: 'حسناً، تم', en: 'OK, Done' },
+  'appt.bridge': { ar: 'الربط الذكي', en: 'Smart Bridge' },
+  'appt.bridgeInfo': { ar: 'إذا كنت تستخدم نظام IHMS، يمكنك نسخ هذا الكود في وحدة التحكم (Console) لنقل البيانات تلقائياً.', en: 'Copy this code to Console for IHMS auto-sync.' },
+  'appt.copyScript': { ar: 'نسخ كود المراقبة (V13 - الشبح)', en: 'Copy Ghost Script (V13)' },
+  'appt.manualJson': { ar: 'أو الصق البيانات يدوياً هنا:', en: 'Or paste JSON manually:' },
+  'appt.processManual': { ar: 'معالجة البيانات يدوياً', en: 'Process Manually' },
+  'appt.settingsTitle': { ar: 'إعدادات المواعيد (للمشرف)', en: 'Appointment Settings (Supervisor)' },
+  'appt.settingsWarning': { ar: '⚠️ التغييرات هنا ستؤثر على جميع المستخدمين عند حجز مواعيد جديدة.', en: '⚠️ Changes affect all users.' },
+  'appt.slotsCount': { ar: 'عدد المواعيد المتاحة للقسم', en: 'Available Slots' },
+  'appt.addSlot': { ar: '➕ إضافة موعد', en: '➕ Add Slot' },
+  'appt.defaultPrep': { ar: 'تعليمات التحضير الافتراضية', en: 'Default Prep Instructions' },
+  'appt.saveSettings': { ar: 'حفظ التغييرات', en: 'Save Changes' },
+  'appt.logbookTitle': { ar: 'سجل الأشعة (Log Book)', en: 'Radiology Log Book' },
+  'appt.fromDate': { ar: 'من تاريخ', en: 'From Date' },
+  'appt.toDate': { ar: 'إلى تاريخ', en: 'To Date' },
+  'appt.viewLog': { ar: 'عرض التقرير', en: 'View Report' },
+  'appt.printLogBtn': { ar: 'Print Log Book', en: 'Print Log Book' },
+  'appt.close': { ar: 'إغلاق', en: 'Close' },
+  "appt.reg":{ar:'تم تسجيل الموعد!',en:'appointment booked !'},
+  "appt.construc":{ar:"اكتب التعليمات هنا ",en:"Write the instructions here"},
+  'appt.rep':{ar:'لا توجد بيانات للعرض. اختر التاريخ واضغط "عرض التقرير',en:'No data is available to display. Select the date and click "View Report".'},
+  'appt.appdate':{ar:'تاريح الموعد',en:'Appointment date'},
+  'appt.apptime':{ar:'وقت الموعد',en:'Appointment time'},
+  "app.cantbook":{ar:'لا يمكن حجز المزيد من المواعيد لهذا اليوم.',en:'No more appointments can be booked for today.'},
+  "app.select":{ar:'اختر الوقت',en:'Select time'},
+  'appt.panicSuccess': { ar: 'تم تسجيل حالة Panic 🚨', en: 'Panic state recorded 🚨' },
+  'appt.finishSuccess': { ar: 'تم إنهاء الفحص بنجاح ✅', en: 'Examination finished successfully ✅' },
+  'appt.saveError': { ar: 'حدث خطأ أثناء الحفظ', en: 'Error occurred while saving' },
+'appt.noPrep': { 
+    ar: 'لا توجد تحضيرات خاصة', 
+    en: 'No special preparations' 
+  },
+  'appt.limitWarning': { 
+    ar: '⚠️ تم اكتمال العدد لهذا القسم ({mod}) ({count}/{limit}).', 
+    en: '⚠️ Capacity reached for this section ({mod}) ({count}/{limit}).' 
+  },
+  'appt.confirmCancel': { 
+    ar: 'هل تريد إلغاء الموعد وإعادة المريض لقائمة الانتظار؟', 
+    en: 'Do you want to cancel the appointment and return the patient to the waiting list?' 
+  },
+  'appt.toast.cancelled': { 
+    ar: 'تم إلغاء الموعد وإعادته للانتظار', 
+    en: 'Appointment cancelled and returned to waiting list' 
+  },
+  'error.general': { 
+    ar: 'خطأ في العملية', 
+    en: 'Process error' 
+  },
+  'appt.alreadyTaken': { 
+    ar: 'عذراً، هذه الحالة تم سحبها بالفعل!', 
+    en: 'Sorry, this case has already been taken!' 
+  },
+  'appt.toast.anotherUser': { 
+    ar: 'عذراً، هذا المريض في عهدة موظف آخر', 
+    en: 'Sorry, this patient is being handled by another staff member' 
+  },
+  'appt.slotsAvailable': { 
+    ar: '✅ متاح: ${limit - currentCount} أماكن.', 
+    en: '✅ Available: ${limit - currentCount} slots.' 
+  },
+  'appt.error.notYourColleague': { 
+    ar: 'لا يمكنك التراجع عن حالة زميل', 
+    en: 'You cannot undo a colleague\'s case' 
+  },
+  'appt.toast.dataFilled': { 
+    ar: 'تم تعبئة البيانات بنجاح! ✅', 
+    en: 'Data filled successfully! ✅' 
+  },
+  'appt.error.alreadyBooked': { 
+    ar: '⚠️ عذراً، هذا الموعد ({time}) محجوز مسبقاً لهذا القسم.', 
+    en: '⚠️ Sorry, this time slot ({time}) is already booked for this section.' 
+  },
+'appt.toast.addSuccess': { 
+    ar: 'تم إضافة الموعد بنجاح ✅', 
+    en: 'Appointment added successfully ✅' 
+  },
+  'appt.toast.settingsUpdated': { 
+    ar: 'تم تحديث الإعدادات بنجاح', 
+    en: 'Settings updated successfully' 
+  },'appt.toast.settingsError': { 
+    ar: 'فشل حفظ الإعدادات', 
+    en: 'Failed to save settings' 
+  },
+
+  // --- Login ---,
   'login.title': { ar: 'تسجيل الدخول', en: 'Login' },
   'login.subtitle': { ar: 'أدخل بياناتك للمتابعة', en: 'Enter your credentials' },
   'login.email': { ar: 'البريد الإلكتروني', en: 'Email Address' },
   'login.password': { ar: 'كلمة المرور', en: 'Password' },
   'login.button': { ar: 'دخول', en: 'Sign In' },
   'login.error': { ar: 'البريد الإلكتروني أو كلمة المرور غير صحيحة', en: 'Invalid email or password' },
-  'login.noData': { ar: 'بيانات المستخدم غير موجودة في النظام', en: 'User data not found' },
 
   // --- Password Change ---
   'pw.change': { ar: 'تغيير كلمة المرور', en: 'Change Password' },
@@ -106,13 +236,14 @@ const translations: Record<string, { ar: string; en: string }> = {
   'pw.success': { ar: 'تم تغيير كلمة المرور بنجاح', en: 'Password changed successfully' },
 
   // --- Supervisor Dashboard ---
+  'dash.quickAction': { ar: 'مركز الإجراءات السريعة', en: 'Quick Action Center' },
+  'dash.selectEmp': { ar: 'اختر الموظف', en: 'Select Employee' },
+  'dash.sendKudos': { ar: 'إرسال شكر', en: 'Send Kudos' },
+  'dash.flagIssue': { ar: 'تسجيل مخالفة', en: 'Flag Issue' },
+  'dash.liveActivity': { ar: 'النشاط المباشر', en: 'Live Activity' },
   'dash.onShift': { ar: 'المناوبون الآن', en: "Who's on Shift" },
   'dash.activeNow': { ar: 'متواجدون الآن', en: "Active Now" },
   'dash.noActiveStaff': { ar: 'لا يوجد موظفين حالياً', en: "No active staff found" },
-  'dash.locationCode': { ar: 'كود الموقع', en: "Location Code" },
-  'dash.locationCodeBtn': { ar: 'كود الموقع', en: "Location Code" },
-  'dash.genCode': { ar: 'توليد كود الموقع', en: "Generate Location Code" },
-  'dash.copyClose': { ar: 'نسخ وإغلاق', en: "Copy & Close" },
   'dash.filterActive': { ar: 'نشط', en: "Active" },
   'dash.filterAll': { ar: 'الكل', en: "All" },
   'dash.call': { ar: 'اتصال', en: "Call" },
@@ -120,82 +251,68 @@ const translations: Record<string, { ar: string; en: string }> = {
   'sup.totalEmp': { ar: 'إجمالي الموظفين', en: 'Total Employees' },
   'sup.swapReqs': { ar: 'طلبات التبديل', en: 'Swap Requests' },
   'sup.leaveReqs': { ar: 'طلبات الغياب', en: 'Leave Requests' },
-  'sup.empReg': { ar: 'موظف مسجل في النظام', en: 'Registered Employees' },
-  'sup.pending': { ar: 'طلب معلق بانتظار الموافقة', en: 'Pending Requests' },
-  'sup.newLeaves': { ar: 'طلب إجازة/غياب جديد', en: 'New Leave Requests' },
+  'sup.pending': { ar: 'طلبات معلقة', en: 'Pending Requests' },
   
-  'sup.tab.overview': { ar: 'نظرة عامة', en: 'Overview' },
   'sup.tab.users': { ar: 'الموظفين', en: 'Employees' },
   'sup.tab.swaps': { ar: 'التبديلات', en: 'Swaps' },
   'sup.tab.market': { ar: 'سوق الورديات', en: 'Shift Market' },
   'sup.tab.leaves': { ar: 'الغيابات', en: 'Leaves' },
   'sup.tab.locations': { ar: 'الأماكن', en: 'Locations' },
-  'sup.tab.liveLogs': { ar: 'سجل البصمة الحي', en: 'Live Attendance Log' },
 
-  'sup.user.list': { ar: 'قائمة الموظفين', en: 'Employee List' },
   'sup.user.add': { ar: 'إضافة موظف جديد', en: 'Add New Employee' },
   'sup.user.name': { ar: 'الاسم الكامل', en: 'Full Name' },
   'sup.user.role': { ar: 'الصلاحية', en: 'Role' },
-  'sup.user.confirmDelete': { ar: 'هل أنت متأكد من حذف هذا الموظف؟ لن يتمكن من الدخول للنظام.', en: 'Are you sure? This user will lose access.' },
 
   'sup.loc.title': { ar: 'أماكن العمل والأقسام', en: 'Work Locations & Departments' },
   'sup.loc.add': { ar: 'إضافة قسم', en: 'Add Location' },
 
-  'sup.swap.pending': { ar: 'طلبات التبديل المعلقة', en: 'Pending Swap Requests' },
-  'sup.swap.from': { ar: 'من', en: 'From' },
-  'sup.swap.to': { ar: 'إلى', en: 'To' },
-  'sup.swap.details': { ar: 'التفاصيل', en: 'Details' },
   'sup.approve': { ar: 'موافقة', en: 'Approve' },
   'sup.reject': { ar: 'رفض', en: 'Reject' },
 
   'sup.market.post': { ar: 'نشر وردية متاحة', en: 'Post Open Shift' },
-  'sup.market.date': { ar: 'التاريخ', en: 'Date' },
-  'sup.market.time': { ar: 'الوقت', en: 'Time' },
-  'sup.market.claimed': { ar: 'محجوزة (انتظار الموافقة)', en: 'Claimed (Pending Approval)' },
-  'sup.market.approved': { ar: 'معتمدة', en: 'Approved' },
+  'sup.market.claimed': { ar: 'محجوزة (انتظار الموافقة)', en: 'Claimed (Pending)' },
   'sup.market.approveClaim': { ar: 'اعتماد التغطية', en: 'Approve Claim' },
 
   // --- User Dashboard ---
   'user.hero.welcome': { ar: 'مرحباً بعودتك،', en: 'Welcome back,' },
-  'user.hero.newReqs': { ar: 'طلبات جديدة', en: 'New Requests' },
   'user.hero.currentStatus': { ar: 'الحالة الحالية', en: 'Current Status' },
   'user.hero.leave': { ar: 'إجازة', en: 'On Leave' },
   'user.hero.nextShift': { ar: 'الوردية القادمة', en: 'Next Shift' },
-  'user.hero.noShift': { ar: 'لا توجد ورديات مسجلة لهذا الشهر', en: 'No shifts scheduled this month' },
+  'user.hero.noShift': { ar: 'لا توجد ورديات مسجلة', en: 'No shifts scheduled' },
+  'user.code': { ar: 'كود الموقع', en: 'Location Code' },
+  'user.generate': { ar: 'توليد الكود', en: 'Generate Code' },
+  'user.copy': { ar: 'نسخ وإغلاق', en: 'Copy & Close' },
   
   'user.tab.schedule': { ar: 'التذاكر (الجدول)', en: 'My Tickets' },
   'user.tab.market': { ar: 'تغطية وردية', en: 'Cover Shift' },
   'user.tab.requests': { ar: 'الطلبات', en: 'Requests' },
   'user.tab.incoming': { ar: 'الوارد', en: 'Incoming' },
   'user.tab.history': { ar: 'السجل', en: 'History' },
-  'user.tab.assistant': { ar: 'المساعد الذكي', en: 'AI Assistant' },
   'user.tab.profile': { ar: 'ملفي وأدائي', en: 'My Profile & Stats' },
 
   'user.req.swap': { ar: 'طلب تبديل', en: 'Swap Request' },
-  'user.req.swapDesc': { ar: 'تبديل وردية أو شهر كامل مع زميل', en: 'Swap a shift or month with a colleague' },
   'user.req.colleague': { ar: 'الزميل', en: 'Colleague' },
   'user.req.type': { ar: 'النوع', en: 'Type' },
   'user.req.day': { ar: 'يومي', en: 'Daily' },
   'user.req.month': { ar: 'شهري', en: 'Monthly' },
   'user.req.send': { ar: 'إرسال الطلب', en: 'Send Request' },
-  'user.req.suggest': { ar: 'اقتراح بديل', en: 'Suggest Colleague' },
-  'user.req.suggestTitle': { ar: 'الزملاء المتاحين', en: 'Available Colleagues' },
 
   'user.req.leave': { ar: 'طلب إجازة', en: 'Leave Request' },
-  'user.req.leaveDesc': { ar: 'تقديم طلب إجازة اعتيادية أو عارضة', en: 'Apply for annual or sick leave' },
   'user.req.from': { ar: 'من', en: 'From' },
   'user.req.to': { ar: 'إلى', en: 'To' },
   'user.req.reason': { ar: 'السبب', en: 'Reason' },
   'user.req.apply': { ar: 'تقديم الطلب', en: 'Apply' },
 
   'user.market.title': { ar: 'سوق الورديات المتاحة', en: 'Open Shift Marketplace' },
-  'user.market.desc': { ar: 'يمكنك هنا استعراض الورديات الشاغرة وطلب تغطيتها لزيادة رصيدك.', en: 'Browse and claim open shifts to earn extra points.' },
+  'user.market.desc': { ar: 'يمكنك هنا استعراض الورديات الشاغرة وطلب تغطيتها.', en: 'Browse and claim open shifts to earn extra points.' },
   'user.market.empty': { ar: 'لا توجد ورديات شاغرة حالياً', en: 'No open shifts available currently' },
   'user.market.claim': { ar: 'حجز الوردية', en: 'Claim Shift' },
+  'user.market.claimed': { ar: 'تم طلب الحجز', en: 'Claim Requested' },
 
   'user.incoming.empty': { ar: 'لا توجد رسائل واردة', en: 'No incoming messages' },
   'user.incoming.accept': { ar: 'قبول', en: 'Accept' },
   
+"dash.locationCode":{ar:"توليد الكود ",en:"Code generation"},
   // --- Inventory ---
   'inv.dashboard': { ar: 'نظرة عامة', en: 'Overview' },
   'inv.usage': { ar: 'صرف مواد', en: 'Dispense' },
@@ -285,13 +402,6 @@ const translations: Record<string, { ar: string; en: string }> = {
   'task.priority.medium': { ar: 'متوسطة', en: 'Medium' },
   'task.priority.high': { ar: 'عالية', en: 'High' },
 
-  // --- Tech Support & SBAR ---
-  'tech.title': { ar: 'الدعم الفني الذكي', en: 'AI Tech Support' },
-  'tech.ask': { ar: 'اوصف المشكلة التقنية...', en: 'Describe the technical issue...' },
-  'sbar.title': { ar: 'تسليم SBAR', en: 'SBAR Handover' },
-  'sbar.desc': { ar: 'تحويل الملاحظات الصوتية إلى تنسيق SBAR الطبي', en: 'Convert voice notes to SBAR format' },
-  'sbar.gen': { ar: 'إنشاء التقرير', en: 'Generate Report' },
-
   // --- Reports ---
   'rep.title': { ar: 'التقارير والتقييم', en: 'Reports & Evaluation' },
   'rep.subtitle': { ar: 'نظام النقاط وتقييم الأداء الشهري', en: 'Points system & monthly performance' },
@@ -302,7 +412,6 @@ const translations: Record<string, { ar: string; en: string }> = {
   'rep.net': { ar: 'الرصيد النهائي', en: 'Net Score' },
   'rep.log': { ar: 'سجل الإجراءات', en: 'Action Log' },
   'rep.filter.emp': { ar: 'الموظف', en: 'Employee' },
-  'rep.filter.custom': { ar: 'تاريخ مخصص', en: 'Custom Date' },
 
   'grade.excellent': { ar: 'ممتاز', en: 'Excellent' },
   'grade.vgood': { ar: 'جيد جداً', en: 'Very Good' },
@@ -332,9 +441,10 @@ const translations: Record<string, { ar: string; en: string }> = {
   'att.table.absent': { ar: 'الغياب', en: 'Absence' },
   'att.table.overtime': { ar: 'الأوفر تايم', en: 'Overtime' },
   'att.table.late': { ar: 'تأخير (دقيقة)', en: 'Late (Mins)' },
-  'att.log.location': { ar: 'الموقع الجغرافي', en: 'Geo Location' },
-  'att.log.device': { ar: 'الجهاز', en: 'Device' },
-  'att.log.map': { ar: 'عرض الخريطة', en: 'View Map' },
+  'att.punch': { ar: 'تسجيل البصمة', en: 'Attendance Punch' },
+  'att.history': { ar: 'سجل البصمات', en: 'Punch History' },
+  'att.override': { ar: 'استثناء (تجاوز الموقع)', en: 'Override Location' },
+  'att.risk': { ar: 'تنبيه أمني', en: 'Security Alert' },
 
   // --- Kudos ---
   'kudos.title': { ar: 'لوحة التقدير', en: 'Appreciation Wall' },
@@ -348,6 +458,9 @@ const translations: Record<string, { ar: string; en: string }> = {
   'stats.attendance': { ar: 'درجة الالتزام', en: 'Commitment Score' },
   'stats.balance': { ar: 'رصيد الإجازات', en: 'Leave Balance' },
 
+  // --- Voice ---
+  'voice.tap': { ar: 'اضغط للتحدث', en: 'Tap to Speak' },
+  
   // --- Schedule Builder ---
   'sb.publish': { ar: 'نشر الجدول', en: 'Publish Schedule' },
   'sb.unpublish': { ar: 'حذف الجدول (الشهر المحدد)', en: 'Unpublish (Clear Month)' },

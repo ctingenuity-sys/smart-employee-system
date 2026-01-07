@@ -14,6 +14,22 @@ import { useLanguage } from '../../contexts/LanguageContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 
+const ALL_PERMISSIONS = [
+    { key: 'schedule', label: 'الجدول (User Schedule)' },
+    { key: 'requests', label: 'الطلبات (Leave/Swaps)' },
+    { key: 'market', label: 'سوق الورديات (Market)' },
+    { key: 'incoming', label: 'الوارد (Incoming)' },
+    { key: 'history', label: 'السجل (History)' },
+    { key: 'profile', label: 'الملف الشخصي (Profile)' },
+    { key: 'performance', label: 'الأداء (Performance)' },
+    { key: 'appointments', label: 'المواعيد (Appointments)' },
+    { key: 'communications', label: 'التواصل (Comm/Log)' },
+    { key: 'inventory', label: 'المخزون (Inventory)' },
+    { key: 'tasks', label: 'المهام (Tasks)' },
+    { key: 'tech_support', label: 'الدعم الفني (Tech)' },
+    { key: 'hr_assistant', label: 'HR Assistant' },
+];
+
 const SupervisorEmployees: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
@@ -27,10 +43,8 @@ const SupervisorEmployees: React.FC = () => {
 
     const verifyOfflineCode = () => {
         try {
-            // فك تشفير الكود
             const decodedData = atob(verificationCode);
             const [lat, lng, timestamp, userId] = decodedData.split('|');
-
             const date = new Date(parseInt(timestamp) * 1000);
             
             setOfflineResult({
@@ -70,8 +84,6 @@ const SupervisorEmployees: React.FC = () => {
             setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
         });
         
-        // Listen for completed checks initiated by THIS supervisor only
-        // Simplified query to avoid index errors, filtering in memory
         if (currentAdminId) {
             const qChecks = query(
                 collection(db, 'location_checks'), 
@@ -86,13 +98,10 @@ const SupervisorEmployees: React.FC = () => {
                         const completedTime = data.completedAt?.toDate().getTime();
                         const now = Date.now();
                         
-                        // Only show if completed within the last 60 seconds
                         if (now - completedTime < 60000) {
                             setToast({ msg: `Check Completed for User!`, type: 'success' });
                             setCheckResult(data);
                             setShowMapModal(true);
-                            
-                            // Auto-hide logic (1 minute from now)
                             setTimeout(() => {
                                 setShowMapModal(false);
                                 setCheckResult(null);
@@ -107,7 +116,6 @@ const SupervisorEmployees: React.FC = () => {
         return () => { unsub(); };
     }, [currentAdminId]);
 
-    // --- Actions ---
     const handleAddUser = async () => {
         const email = newUserEmail.trim();
         const password = newUserPassword.trim();
@@ -115,7 +123,6 @@ const SupervisorEmployees: React.FC = () => {
         if (!email || !password) return setToast({ msg: 'Email & Password required', type: 'error' });
         
         setIsAddingUser(true);
-        // Use unique app name to avoid collisions
         const appName = `SecondaryApp-${Date.now()}`;
         let secondaryApp: any;
         
@@ -125,12 +132,17 @@ const SupervisorEmployees: React.FC = () => {
             const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
             const newUserId = userCredential.user.uid;
             
+            // Default permissions for new users: All enabled by default or specific set
+            // For now, let's enable all common ones to avoid confusion
+            const defaultPermissions = ALL_PERMISSIONS.map(p => p.key);
+
             await setDoc(doc(db, 'users', newUserId), {
                 uid: newUserId,
                 email: email,
                 name: newUserName.trim(),
                 role: newUserRole,
                 phone: newUserPhone.trim(),
+                permissions: defaultPermissions,
                 createdAt: Timestamp.now()
             });
             
@@ -161,12 +173,22 @@ const SupervisorEmployees: React.FC = () => {
             await updateDoc(doc(db, 'users', editForm.id), {
                 name: editForm.name,
                 role: editForm.role || 'user',
-                phone: editForm.phone
+                phone: editForm.phone,
+                permissions: editForm.permissions || []
             });
             setToast({ msg: 'User Updated', type: 'success' });
             setIsEditModalOpen(false);
         } catch (e: any) {
             setToast({ msg: 'Error updating: ' + e.message, type: 'error' });
+        }
+    };
+
+    const togglePermission = (key: string) => {
+        const currentPerms = editForm.permissions || [];
+        if (currentPerms.includes(key)) {
+            setEditForm({ ...editForm, permissions: currentPerms.filter(p => p !== key) });
+        } else {
+            setEditForm({ ...editForm, permissions: [...currentPerms, key] });
         }
     };
 
@@ -216,10 +238,9 @@ const SupervisorEmployees: React.FC = () => {
         
         setLoading(true);
         try {
-            // Get all users
             const snap = await getDocs(collection(db, 'users'));
             const docs = snap.docs;
-            const batchSize = 450; // Firestore limit is 500, keeping safe margin
+            const batchSize = 450;
             let count = 0;
 
             for (let i = 0; i < docs.length; i += batchSize) {
@@ -279,7 +300,6 @@ const SupervisorEmployees: React.FC = () => {
         }
     };
 
-    // --- Diagnose User Logic ---
     const handleDiagnoseUser = async (user: User) => {
       setLoading(true);
       try {
@@ -315,6 +335,16 @@ const SupervisorEmployees: React.FC = () => {
         u.email.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
+    const openEditModal = (user: User) => {
+        // Ensure permissions array exists, defaults to all if undefined/empty legacy
+        const perms = user.permissions && user.permissions.length > 0 
+            ? user.permissions 
+            : ALL_PERMISSIONS.map(p => p.key);
+            
+        setEditForm({ ...user, permissions: perms });
+        setIsEditModalOpen(true);
+    };
+
     return (
         <div className="max-w-7xl mx-auto px-4 py-8 animate-fade-in" dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
@@ -327,7 +357,6 @@ const SupervisorEmployees: React.FC = () => {
                     </button>
                     <h1 className="text-2xl font-black text-slate-800">{t('sup.tab.users')}</h1>
                 </div>
-                {/* GLOBAL RESET BUTTON */}
                 <button 
                     onClick={handleResetAllDevices}
                     className="bg-red-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg hover:bg-red-700 transition-all flex items-center gap-2"
@@ -336,10 +365,9 @@ const SupervisorEmployees: React.FC = () => {
                 </button>
             </div>
             <div className="grid lg:grid-cols-3 gap-8 items-start">
-                {/* Right/Side Column: Forms (Accordions) */}
+                
                 <div className="lg:col-span-1 space-y-4 sticky top-4">
-                    
-                    {/* Accordion: Add User */}
+                    {/* Add User Accordion */}
                     <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
                         <button 
                             onClick={() => setIsAddFormOpen(!isAddFormOpen)}
@@ -373,7 +401,7 @@ const SupervisorEmployees: React.FC = () => {
                         )}
                     </div>
 
-                    {/* Accordion: Offline Verification */}
+                    {/* Offline Verification Accordion */}
                     <div className="bg-slate-900 rounded-3xl shadow-lg border border-slate-800 overflow-hidden">
                         <button 
                             onClick={() => setIsOfflineVerifierOpen(!isOfflineVerifierOpen)}
@@ -425,7 +453,6 @@ const SupervisorEmployees: React.FC = () => {
                     </div>
                 </div>
 
-                
                 {/* User List */}
                 <div className="lg:col-span-2 space-y-4">
                     <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden">
@@ -472,7 +499,7 @@ const SupervisorEmployees: React.FC = () => {
                                                     {user.biometricId && <button onClick={() => handleResetBiometric(user)} className="text-orange-500 hover:bg-orange-50 p-1 rounded" title="فك ارتباط الجهاز (Reset Device)"><i className="fas fa-unlock-alt"></i></button>}
                                                     <button onClick={() => handleUnlockAttendance(user)} className="text-purple-500 hover:bg-purple-50 p-1 rounded" title="Unlock Att"><i className="fas fa-history"></i></button>
                                                     <button onClick={() => handleDiagnoseUser(user)} className="text-indigo-500 hover:bg-indigo-50 p-1 rounded" title="Diagnose"><i className="fas fa-stethoscope"></i></button>
-                                                    <button onClick={() => { setEditForm(user); setIsEditModalOpen(true); }} className="text-blue-500 hover:bg-blue-50 p-1 rounded"><i className="fas fa-pen"></i></button>
+                                                    <button onClick={() => openEditModal(user)} className="text-blue-500 hover:bg-blue-50 p-1 rounded"><i className="fas fa-pen"></i></button>
                                                     <button onClick={() => handleDeleteUser(user)} className="text-red-500 hover:bg-red-50 p-1 rounded"><i className="fas fa-trash"></i></button>
                                                 </div>
                                             </td>
@@ -488,6 +515,7 @@ const SupervisorEmployees: React.FC = () => {
             {/* Edit Modal */}
             <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="Edit User">
                 <div className="space-y-4">
+                    <label className="text-xs font-bold text-slate-500 block mb-1">Basic Info</label>
                     <input className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3" value={editForm.name || ''} onChange={e => setEditForm({...editForm, name: e.target.value})} placeholder="Name" />
                     <input className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3" value={editForm.phone || ''} onChange={e => setEditForm({...editForm, phone: e.target.value})} placeholder="Phone" />
                     <select className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3" value={editForm.role || 'user'} onChange={e => setEditForm({...editForm, role: e.target.value})}>
@@ -496,7 +524,28 @@ const SupervisorEmployees: React.FC = () => {
                         <option value="supervisor">Supervisor</option>
                         <option value="admin">Admin</option>
                     </select>
-                    <button onClick={handleUpdateUser} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg">Update</button>
+
+                    <div className="border-t border-slate-100 pt-4">
+                        <label className="text-xs font-bold text-slate-500 block mb-3">Permissions (Allowed Pages)</label>
+                        <div className="grid grid-cols-2 gap-2">
+                            {ALL_PERMISSIONS.map(p => (
+                                <button
+                                    key={p.key}
+                                    onClick={() => togglePermission(p.key)}
+                                    className={`px-3 py-2 rounded-lg text-xs font-bold text-left flex items-center justify-between border transition-all ${
+                                        editForm.permissions?.includes(p.key) 
+                                        ? 'bg-blue-50 text-blue-700 border-blue-200' 
+                                        : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                                    }`}
+                                >
+                                    <span>{p.label}</span>
+                                    {editForm.permissions?.includes(p.key) && <i className="fas fa-check"></i>}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <button onClick={handleUpdateUser} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg">Update User</button>
                 </div>
             </Modal>
 
@@ -537,9 +586,6 @@ const SupervisorEmployees: React.FC = () => {
                         </div>
                         <div className="text-center text-xs text-slate-400">
                             Accuracy: ~{checkResult.accuracy?.toFixed(0)}m
-                        </div>
-                        <div className="text-center text-[10px] text-red-400 font-bold mt-2">
-                            This window will close automatically in 1 minute.
                         </div>
                     </div>
                 )}

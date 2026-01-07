@@ -33,12 +33,6 @@ const MODALITIES = [
         border: 'border-blue-200', 
         keywords: ['MRI', 'MR ', 'MAGNETIC', 'M.R.I', 'رنين', 'مغناطيسي'],
         instructionImage: 'https://forms.gle/reVThvP19PygkGwbA', // ضع رابط الموقع هنا
-        defaultPrep: `• Please leave all belongings including mobile phones at ho
-        me, with relative or in the car before entering any examination room.
-• The department is not responsible for any lost or stolen items.
-
-• يرجى ترك جميع متعلقاتك بما في ذلك الهواتف المحمولة في المنزل أو مع المرافق أو في السيارة قبل الدخول لأي غرفة فحص.
-• القسم غير مسؤول عن أي مفقودات لدى المريض.`
     },
     { 
         id: 'CT', 
@@ -48,17 +42,7 @@ const MODALITIES = [
         border: 'border-emerald-200', 
         keywords: ['C.T.', 'CT ', 'COMPUTED', 'CAT ', 'MDCT', 'مقطعية', 'أشعة مقطعية'],
         instructionImage: "https://forms.gle/QmxviSZU6me8iHmR6",
-        defaultPrep: `PREPARING THE CT SCAN WITH CONTRAST:
-• Bring The Results of the Kidney Function Test.
-• Fasting for 8 Hours Before Scan.
-• The Patient Drinks the Substance Prepared for The Examination Three Hours Before the Examination.
-• Inform the x-ray technician if there is any allergy.
-• Bring Previous Tests and X-Rays, If Any.
-• If You Are Taking Glucophage treatment, Please Consult Your Physician.
 
-INSTRUCTIONS AFTER THE SCAN:
-• Drink plenty of Water.
-• Wait 2 hours before leaving the Hospital.`
     },
     { 
         id: 'US', 
@@ -66,11 +50,8 @@ INSTRUCTIONS AFTER THE SCAN:
         icon: 'fa-wave-square', 
         color: 'text-indigo-600 bg-indigo-50', 
         border: 'border-indigo-200', 
-        keywords: ['US ', 'U.S', 'ULTRASOUND', 'SONO', 'DOPPLER', 'ECHO', 'DUPLEX', 'تلفزيونية', 'سونار'],
-        defaultPrep: `• For Abdomen: Fasting 6-8 hours (No food/drink).
-• For Pelvis/KUB: Drink 1L water 1 hour before exam. Do not empty bladder.
-• صيام 6-8 ساعات (للمرارة).
-• شرب لتر ماء وحبس البول (للحوض/الكلى).`
+        keywords: ['US', 'U.S', 'ULTRASOUND', 'SONO', 'DOPPLER', 'ECHO', 'DUPLEX', 'تلفزيونية', 'سونار'],
+
     },
     { 
         id: 'X-RAY', 
@@ -152,6 +133,16 @@ const fileToGenerativePart = async (file: File) => {
     };
 };
 
+// --- Helper: Local Date String ---
+// This ensures we get the date based on User's Machine Time, not UTC
+const getLocalToday = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 // --- Helper: Local Regex Parser (Fallback) ---
 const parseMedicalTextLocally = (text: string) => {
     const clean = text.replace(/\|/g, 'I').replace(/\s+/g, ' ').trim();
@@ -209,14 +200,15 @@ interface ExtendedAppointment extends Appointment {
 }
 
 const AppointmentsPage: React.FC = () => {
-    const { t, dir } = useLanguage();
+    const { t, dir, language } = useLanguage();
     const navigate = useNavigate();
     
     // Data State
     const [appointments, setAppointments] = useState<ExtendedAppointment[]>([]);
     const appointmentsRef = useRef<ExtendedAppointment[]>([]); 
     
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    // FIX: Initialize with Local Date instead of UTC to avoid "Yesterday" bug
+    const [selectedDate, setSelectedDate] = useState(getLocalToday());
     const [activeView, setActiveView] = useState<'pending' | 'processing' | 'done' | 'scheduled'>('pending');
     const [activeModality, setActiveModality] = useState<string>('ALL');
     const [searchQuery, setSearchQuery] = useState(''); 
@@ -268,9 +260,9 @@ const AppointmentsPage: React.FC = () => {
     const [bookedTicketId, setBookedTicketId] = useState('');
     const [bookedTicketData, setBookedTicketData] = useState<ExtendedAppointment | null>(null);
 
-    // Logbook Range State
-    const [logStartDate, setLogStartDate] = useState(new Date().toISOString().split('T')[0]);
-    const [logEndDate, setLogEndDate] = useState(new Date().toISOString().split('T')[0]);
+    // Logbook Range State - FIX: Use Local Date
+    const [logStartDate, setLogStartDate] = useState(getLocalToday());
+    const [logEndDate, setLogEndDate] = useState(getLocalToday());
     const [logbookData, setLogbookData] = useState<ExtendedAppointment[]>([]);
     const [isLogLoading, setIsLogLoading] = useState(false);
 
@@ -280,8 +272,8 @@ const AppointmentsPage: React.FC = () => {
     const [isScanning, setIsScanning] = useState(false); // Used for AI OCR
     const [ocrStatus, setOcrStatus] = useState(''); // Text status for Tesseract
 
-    // Manual Add State
-    const [manualDate, setManualDate] = useState(new Date().toISOString().split('T')[0]);
+    // Manual Add State - FIX: Use Local Date
+    const [manualDate, setManualDate] = useState(getLocalToday());
     const [manualTime, setManualTime] = useState('08:00');
     const [manualRoom, setManualRoom] = useState('');
     const [patientName, setPatientName] = useState('');
@@ -307,9 +299,6 @@ const AppointmentsPage: React.FC = () => {
     const currentUserId = auth.currentUser?.uid;
     const currentUserName = localStorage.getItem('username') || 'User';
     const isSupervisor = localStorage.getItem('role') === 'admin' || localStorage.getItem('role') === 'supervisor';
-
-    // Cleanup Logic
-    const [isCleanupProcessing, setIsCleanupProcessing] = useState(false);
 
     useEffect(() => {
         appointmentsRef.current = appointments;
@@ -405,7 +394,7 @@ const AppointmentsPage: React.FC = () => {
         };
 
         const cleanDate = (d: any) => {
-            if(!d) return new Date().toISOString().split('T')[0];
+            if(!d) return getLocalToday(); // Use local date
             return String(d).split('T')[0];
         };
 
@@ -507,7 +496,6 @@ const AppointmentsPage: React.FC = () => {
                     setLastSyncTime(new Date());
                     if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
                     
-                    if(activeView !== 'pending') setActiveView('pending');
                 }
             }
         } catch (e) {
@@ -544,14 +532,25 @@ const AppointmentsPage: React.FC = () => {
             setLoading(true);
             
             if (activeView === 'scheduled') {
+                // Scheduled: Future or Today
                 query = query.eq('status', 'scheduled')
                              .order('scheduledDate', { ascending: true })
-                             .order('time', { ascending: true }); // Secondary sort
+                             .order('time', { ascending: true });
+            } else if (activeView === 'processing') {
+                // Processing: SHOW ALL ACTIVE, regardless of date (Fixes disappearance bug)
+                query = query.eq('status', 'processing')
+                             .order('time', { ascending: false });
+
+            } else if (activeView === 'done') {
+    // عرض الفحوصات التي تاريخ إدخالها OR تاريخ جدولتها يطابق التاريخ المختار
+    query = query.or(`date.eq.${selectedDate},scheduledDate.eq.${selectedDate}`)
+                 .eq('status', 'done')
+                 .order('completedAt', { ascending: false });
             } else {
-                // Pending/Processing/Done views
+                // Pending: Default behavior
                 query = query.eq('date', selectedDate)
-                             .eq('status', activeView)
-                             .order('time', { ascending: false }) // Latest first
+                             .eq('status', 'pending')
+                             .order('time', { ascending: false })
                              .order('fileNumber', { ascending: false });
             }
 
@@ -584,21 +583,26 @@ const AppointmentsPage: React.FC = () => {
                         let updated = [...prev];
 
                         if (payload.eventType === 'INSERT') {
-                            const matchesView = activeView === 'scheduled' ? newRow.status === 'scheduled' : (newRow.date === selectedDate && newRow.status === activeView);
+                            // Check criteria based on activeView
+                            let matchesView = false;
+                            if (activeView === 'scheduled') matchesView = newRow.status === 'scheduled';
+                            else if (activeView === 'processing') matchesView = newRow.status === 'processing';
+                            else matchesView = ((newRow.date === selectedDate || newRow.scheduledDate === selectedDate) && newRow.status === activeView);
                             if (matchesView) {
                                 updated = [newRow, ...prev];
                             }
                         } else if (payload.eventType === 'UPDATE') {
-                            const matchesView = activeView === 'scheduled' ? newRow.status === 'scheduled' : (newRow.date === selectedDate && newRow.status === activeView);
+                            let matchesView = false;
+                            if (activeView === 'scheduled') matchesView = newRow.status === 'scheduled';
+                            else if (activeView === 'processing') matchesView = newRow.status === 'processing';
+                            else matchesView = (newRow.date === selectedDate && newRow.status === activeView);
                             
-                            // SEPARATION LOGIC FIX:
-                            // If it matches the current view, update/add it.
                             if (matchesView) {
                                 const idx = updated.findIndex(a => a.id === newRow.id);
                                 if (idx > -1) updated[idx] = newRow;
                                 else updated = [newRow, ...updated];
                             } else {
-                                // If it DOESN'T match the current view (e.g., moved from pending to scheduled), REMOVE it from current list
+                                // Remove if no longer matching view
                                 updated = updated.filter(a => a.id !== newRow.id);
                             }
                         } else if (payload.eventType === 'DELETE') {
@@ -609,8 +613,13 @@ const AppointmentsPage: React.FC = () => {
                 const timeA = a.time || '00:00';
                 const timeB = b.time || '00:00';
                 
-                const timeComparison = timeB.localeCompare(timeA); 
+                // Processing/Done: Newest first
+                if (activeView === 'processing' || activeView === 'done') {
+                     // Prefer completedAt/updatedAt logic if available, else time
+                     return 0; // Maintain insertion order roughly
+                }
                 
+                const timeComparison = timeB.localeCompare(timeA); 
                 if (timeComparison !== 0) return timeComparison;
                 
                 const fileA = a.fileNumber || '';
@@ -651,7 +660,7 @@ const AppointmentsPage: React.FC = () => {
     // Fetch real-time count of scheduled items for current date/modality regardless of view
   useEffect(() => {
         const fetchBookedCount = async () => {
-            // FIX: Prevent query if date is empty to avoid 400 Bad Request (Invalid input syntax for type date)
+            // FIX: Prevent query if date is empty to avoid 400 Bad Request
             if (!selectedDate) {
                 setCurrentBookedCount(0);
                 return;
@@ -661,14 +670,8 @@ const AppointmentsPage: React.FC = () => {
                 .from('appointments')
                 .select('*', { count: 'exact', head: true })
                 .eq('status', 'scheduled')
-                .eq('scheduledDate', selectedDate); // Checking specific booking date (usually today or tomorrow) or use bookingDate?
+                .eq('scheduledDate', selectedDate); 
                 
-            // NOTE: Logic here checks the quota for the *Booking Date* which is typically tomorrow in `bookingDate`.
-            // But for the main banner, we probably want to show if TODAY is full.
-            // Let's stick to the current logic: Check quota for the date we are viewing or booking.
-            
-            // If user is just viewing "Pending" for today, we want to know if today is full.
-            
             if (activeModality !== 'ALL') {
                 q = q.eq('examType', activeModality);
             }
@@ -725,7 +728,7 @@ const AppointmentsPage: React.FC = () => {
     
     // NEW: Cancel Appointment (Revert to Pending)
     const handleCancelAppointment = async (appt: ExtendedAppointment) => {
-        if (!confirm('هل تريد إلغاء الموعد وإعادة المريض لقائمة الانتظار؟')) return;
+    if (!confirm(t('appt.confirmCancel'))) return;
         try {
             // Optimistic update
             setAppointments(prev => prev.filter(a => a.id !== appt.id));
@@ -738,10 +741,10 @@ const AppointmentsPage: React.FC = () => {
             }).eq('id', appt.id);
             
             if (error) throw error;
-            setToast({ msg: 'تم إلغاء الموعد وإعادته للانتظار', type: 'success' });
+        setToast({ msg: t('appt.toast.cancelled'), type: 'success' });
         } catch (e) {
             console.error(e);
-            setToast({ msg: 'خطأ في العملية', type: 'error' });
+        setToast({ msg: t('error.general'), type: 'error' });
         }
     };
 
@@ -771,8 +774,7 @@ const AppointmentsPage: React.FC = () => {
 
         try {
             if (appt.status !== 'pending' && appt.status !== 'scheduled') {
-                throw new Error("عذراً، هذه الحالة تم سحبها بالفعل!");
-            }
+            throw new Error(t('appt.alreadyTaken'));            }
 
             const settings = { ...modalitySettings };
             const modKey = appt.examType;
@@ -801,7 +803,7 @@ const AppointmentsPage: React.FC = () => {
             if (navigator.vibrate) navigator.vibrate(200);
 
         } catch(e: any) {
-            setToast({msg: e.message || 'خطأ في العملية', type: 'error'});
+        setToast({ msg: t('error.general'), type: 'error' });
         } finally {
             setProcessingId(null);
         }
@@ -810,8 +812,8 @@ const AppointmentsPage: React.FC = () => {
     // --- WORKFLOW: FINISH EXAM ---
     const handleFinishClick = (appt: ExtendedAppointment) => {
         if (appt.performedBy && appt.performedBy !== currentUserId && !isSupervisor) {
-            setToast({msg: 'عذراً، هذا المريض في عهدة موظف آخر', type: 'error'});
-            return;
+        setToast({ msg: t('appt.toast.anotherUser'), type: 'error' });         
+        return;
         }
         setFinishingAppt(appt);
         setIsPanicModalOpen(true);
@@ -832,7 +834,10 @@ const AppointmentsPage: React.FC = () => {
 
             if (error) throw error;
 
-            setToast({ msg: isPanic ? 'تم تسجيل حالة Panic 🚨' : 'تم إنهاء الفحص بنجاح ✅', type: 'success' });
+            setToast({ 
+            msg: isPanic ? t('appt.toast.panic') : t('appt.toast.finish'), 
+            type: 'success' 
+        });
             if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
 
             setIsPanicModalOpen(false);
@@ -841,8 +846,10 @@ const AppointmentsPage: React.FC = () => {
 
         } catch (e) {
             console.error(e);
-            setToast({ msg: 'حدث خطأ أثناء الحفظ', type: 'error' });
-        }
+                    setToast({ 
+                msg: t('appt.toast.error'), 
+                type: 'error'});
+                }
     };
 
     // --- GENERIC ACTIONS ---
@@ -851,9 +858,9 @@ const AppointmentsPage: React.FC = () => {
         const tom = new Date(); tom.setDate(tom.getDate()+1);
         setBookingDate(tom.toISOString().split('T')[0]);
         setBookingTime("");
-        setBookingRoom(appt.roomNumber || 'الغرفة العامة');
+        setBookingRoom(appt.roomNumber || '');
         const mod = MODALITIES.find(m => m.id === appt.examType);
-        setBookingPrep(mod?.defaultPrep || 'لا توجد تحضيرات خاصة');
+       setBookingPrep(mod?.defaultPrep || t('appt.noPrep'));
         setBookingWarning('');
         setIsBookingModalOpen(true);
     };
@@ -882,8 +889,11 @@ const AppointmentsPage: React.FC = () => {
                 const definedSlots = settings.slots || [];
 
                 if (currentCount >= limit) {
-                    setBookingWarning(`⚠️ تم اكتمال العدد لهذا القسم (${currentCount}/${limit}).`);
-                    setIsDayLimitReached(true);
+                const warningMsg = t('appt.limitWarning')
+                    .replace('{count}', currentCount.toString())
+                    .replace('{limit}', limit.toString());
+
+setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
                     setAvailableSlots([]);
                 } else {
                     setBookingWarning(`✅ متاح: ${limit - currentCount} أماكن.`);
@@ -902,13 +912,13 @@ const AppointmentsPage: React.FC = () => {
 
     const confirmBooking = async () => {
         if (!bookingAppt || !bookingDate || (!bookingTime && (!isDayLimitReached || isSupervisor))) {
-            setToast({msg: 'يرجى اختيار التاريخ والوقت', type: 'error'});
+            setToast({msg: t('appt.slotsAvailable'), type: 'error'});
             return;
         }
         
         // Final guard against users booking when limit is reached
         if (isDayLimitReached && !isSupervisor) {
-             setToast({msg: 'عذراً، اكتمل العدد لهذا اليوم.', type: 'error'});
+             setToast({msg: t('appt.dayFull'), type: 'error'});
              return;
         }
 
@@ -941,14 +951,14 @@ const AppointmentsPage: React.FC = () => {
             setBookingAppt(null);
             
             if (navigator.vibrate) navigator.vibrate(100);
-        } catch(e) { setToast({ msg: 'خطأ في الحجز', type: 'error' }); }
+        } catch(e) { setToast({ msg: t('appt.saveError'), type: 'error' }); }
     };
 
     const handleUndo = async (appt: ExtendedAppointment) => {
         if (!isSupervisor && appt.performedBy !== currentUserId) {
-            setToast({msg: 'لا يمكنك التراجع عن حالة زميل', type: 'error'});
-            return;
-        }
+        setToast({ msg: t('appt.error.notYourColleague'), type: 'error' });
+              return;
+              }
         try {
             setAppointments(prev => prev.filter(a => a.id !== appt.id));
 
@@ -962,12 +972,12 @@ const AppointmentsPage: React.FC = () => {
 
             if (error) throw error;
 
-            setToast({ msg: 'تم إعادة الحالة لقائمة الانتظار', type: 'info' });
+            setToast({ msg: t('appt.confirmCancel'), type: 'info' });
         } catch(e) { console.error(e); }
     };
 
     const handleExternalGemini = () => {
-        const prompt = "Please analyze this medical invoice/document image. Extract the following fields and return them in this specific JSON format: { \"patientName\": \"...\", \"fileNumber\": \"...\", \"doctorName\": \"...\", \"patientAge\": \"...\", \"examType\": \"...\" (MRI/CT/US/X-RAY/FLUO), \"procedureName\": \"...\" }. Return ONLY the JSON.";
+        const prompt = "Please analyze this medical invoice/document image. Extract the following fields and return them in this specific JSON format: { \"patientName\": \"...\", \"fileNumber\": \"...\", \"doctorName\": \"...\", \"patientAge\": \"...\", \"examType\": \"...\" (MRI/CT/US/X-RAY/FLUO/OTHER), \"procedureName\": \"...\" }. Return ONLY the JSON.";
         navigator.clipboard.writeText(prompt);
         setToast({ msg: 'تم نسخ الأمر! الصقه في موقع Gemini مع الصورة.', type: 'info' });
         window.open("https://gemini.google.com/app", "_blank");
@@ -1006,8 +1016,8 @@ const AppointmentsPage: React.FC = () => {
                 const prep = modalitySettings[detectedType]?.prep || MODALITIES.find(m => m.id === detectedType)?.defaultPrep || '';
                 setPreparationText(prep);
 
-                setToast({ msg: 'تم تعبئة البيانات بنجاح! ✅', type: 'success' });
-                setPastedGeminiText('');
+            setToast({ msg: t('appt.toast.dataFilled'), type: 'success' });  
+                          setPastedGeminiText('');
             } else {
                 throw new Error("Invalid JSON format");
             }
@@ -1198,7 +1208,10 @@ const AppointmentsPage: React.FC = () => {
         if (!patientName || !examType) return;
 
         if (await checkAvailability(manualDate, manualTime, examType) === false) {
-            setToast({ msg: `⚠️ عذراً، هذا الموعد (${manualTime}) محجوز مسبقاً لهذا القسم.`, type: 'error' });
+        setToast({ 
+            msg: t('appt.error.alreadyBooked').replace('{time}', manualTime), 
+            type: 'error' 
+        });
             return;
         }
 
@@ -1229,7 +1242,7 @@ const AppointmentsPage: React.FC = () => {
 
             if (error) throw error;
 
-            setToast({ msg: 'تم إضافة الموعد بنجاح ✅', type: 'success' });
+        setToast({ msg: t('appt.toast.addSuccess'), type: 'success' });
             setIsAddModalOpen(false);
             
             setBookedTicketId(uniqueId);
@@ -1256,10 +1269,10 @@ const AppointmentsPage: React.FC = () => {
     const handleSaveSettings = async () => {
         try {
             await setDoc(doc(db, 'system_settings', 'appointment_slots'), modalitySettings);
-            setToast({ msg: 'تم تحديث الإعدادات بنجاح', type: 'success' });
+        setToast({ msg: t('appt.toast.settingsUpdated'), type: 'success' });
             setIsSettingsModalOpen(false);
         } catch (e) {
-            setToast({ msg: 'فشل حفظ الإعدادات', type: 'error' });
+            setToast({ msg: t('appt.toast.settingsError'), type: 'error' });
         }
     };
 
@@ -1459,7 +1472,7 @@ const AppointmentsPage: React.FC = () => {
                                 {isListening && <span className="flex h-3 w-3 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span></span>}
                             </h1>
                             <div className="flex items-center gap-3 text-xs opacity-70 font-mono mt-1">
-                                {activeView === 'scheduled' ? <span>عرض المواعيد المحجوزة</span> : <input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} className="bg-transparent border-none text-white p-0 text-xs font-bold focus:ring-0" />}
+                                {activeView === 'scheduled' ? <span>{t( 'appt.viewScheduled')}</span> : <input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} className="bg-transparent border-none text-white p-0 text-xs font-bold focus:ring-0" />}
                             </div>
                         </div>
                     </div>
@@ -1469,7 +1482,7 @@ const AppointmentsPage: React.FC = () => {
                             <i className="fas fa-search absolute left-3 top-2.5 text-slate-400 text-sm"></i>
                             <input 
                                 className="w-full bg-slate-800 border border-slate-700 rounded-full py-2 pl-10 pr-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
-                                placeholder="بحث باسم المريض أو رقم الملف..."
+                                placeholder={t('appt.searchPlaceholder')}
                                 value={searchQuery}
                                 onChange={e => setSearchQuery(e.target.value)}
                             />
@@ -1483,13 +1496,20 @@ const AppointmentsPage: React.FC = () => {
 
                     <div className="flex items-center gap-2">
                         <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700">
-                            <button onClick={() => setActiveView('pending')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activeView === 'pending' ? 'bg-amber-500 text-slate-900 shadow-md' : 'text-slate-400 hover:text-white'}`}>انتظار</button>
-                            <button onClick={() => setActiveView('processing')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activeView === 'processing' ? 'bg-blue-500 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}>العمل</button>
-                            <button onClick={() => setActiveView('scheduled')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activeView === 'scheduled' ? 'bg-purple-500 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}>مواعيد</button>
-                            <button onClick={() => setActiveView('done')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activeView === 'done' ? 'bg-emerald-500 text-slate-900 shadow-md' : 'text-slate-400 hover:text-white'}`}>منجز</button>
+                            <button 
+                            onClick={() => setActiveView('pending')} 
+                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activeView === 'pending' ? 'bg-amber-500 text-slate-900 shadow-md' : 'text-slate-400 hover:text-white'}`}
+                            >{t('appt.status.waiting')}   </button>                     
+                            <button onClick={() => setActiveView('processing')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activeView === 'processing' ? 'bg-blue-500 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
+                                    >{t("appt.status.work")}</button>
+                            <button onClick={() => setActiveView('scheduled')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activeView === 'scheduled' ? 'bg-purple-500 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
+                                >{t("appt.status.schudle")}</button>
+                            <button onClick={() => setActiveView('done')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activeView === 'done' ? 'bg-emerald-500 text-slate-900 shadow-md' : 'text-slate-400 hover:text-white'}`}
+                                >{t('appt.done')}</button>
                         </div>
                         {isSupervisor && (
-                            <button onClick={() => setIsSettingsModalOpen(true)} className="bg-slate-700 hover:bg-slate-600 text-white w-9 h-9 rounded-lg flex items-center justify-center shadow-lg transition-all" title="إعدادات المواعيد">
+                            <button onClick={() => setIsSettingsModalOpen(true)} className="bg-slate-700 hover:bg-slate-600 text-white w-9 h-9 rounded-lg flex items-center justify-center shadow-lg transition-all" 
+                            title={t("appt.settings")}>
                                 <i className="fas fa-cog"></i>
                             </button>
                         )}
@@ -1497,7 +1517,7 @@ const AppointmentsPage: React.FC = () => {
                             <i className={`fas fa-satellite-dish ${isListening ? 'animate-pulse' : ''}`}></i>
                         </button>
                         <button onClick={() => setIsAddModalOpen(true)} className="bg-white text-slate-900 w-fit px-4 h-9 rounded-lg flex items-center justify-center font-bold shadow-lg hover:bg-slate-200 transition-all gap-2">
-                            <i className="fas fa-plus"></i> <span className="hidden md:inline">حجز جديد</span>
+                            <i className="fas fa-plus"></i> <span className="hidden md:inline">{t('appt.new')}</span>
                         </button>
                     </div>
                 </div>
@@ -1545,7 +1565,7 @@ const AppointmentsPage: React.FC = () => {
                     <i className="fas fa-calendar-times text-2xl"></i>
                 </div>
                 <div>
-                    <h3 className="text-red-900 font-black text-lg leading-tight">عذراً، اكتملت الحجوزات اليوم</h3>
+                    <h3 className="text-red-900 font-black text-lg leading-tight">{t('appt.dayFull')}</h3>
                     <p className="text-red-500 text-[11px] font-bold uppercase tracking-widest mt-1 flex items-center gap-2">
                         <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
                         Full Capacity Reached for {activeModality}
@@ -1571,7 +1591,7 @@ const AppointmentsPage: React.FC = () => {
                     onClick={() => setIsSettingsModalOpen(true)}
                     className="z-10 bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black hover:bg-black transition-all shadow-md"
                 >
-                    تعديل السعة <i className="fas fa-cog ml-1"></i>
+                {t('appt.editCapacity')}<i className="fas fa-cog ml-1"></i>
                 </button>
             )}
         </div>
@@ -1587,10 +1607,10 @@ const AppointmentsPage: React.FC = () => {
                             {activeView === 'pending' ? <i className="fas fa-coffee"></i> : <i className="fas fa-calendar-check"></i>}
                         </div>
                         <p className="font-bold text-slate-500 text-lg">
-                            {searchQuery ? 'لا توجد نتائج للبحث' : 'لا توجد مواعيد في هذه القائمة'}
+                        {searchQuery ? t( 'appt.noList') : t( 'appt.noResults')}
                         </p>
                         <button onClick={() => setIsAddModalOpen(true)} className="mt-4 text-blue-600 font-bold hover:underline">
-                            + إضافة موعد جديد
+                           {t('appt.addFirst')}
                         </button>
                     </div>
                 ) : (
@@ -1647,7 +1667,7 @@ const AppointmentsPage: React.FC = () => {
                                     
                                     {isScheduled && appt.roomNumber && (
                                         <div className="flex items-center gap-2 mb-2 text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-1 rounded border border-purple-100">
-                                            <i className="fas fa-door-open"></i> الغرفة: {appt.roomNumber}
+                                            <i className="fas fa-door-open"></i> {t('appt.room')}: {appt.roomNumber}
                                         </div>
                                         
                                     )}
@@ -1656,7 +1676,7 @@ const AppointmentsPage: React.FC = () => {
                                         onClick={() => handleCancelAppointment(appt)}
                                         className="px-3 py-1 text-xs font-bold rounded bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200"
                                     >
-                                        إلغاء الموعد (عودة للانتظار)
+                                       {t('appt.cancelWait')}
                                     </button>
                                     )}
                                     {appt.status === 'scheduled' && (
@@ -1664,16 +1684,16 @@ const AppointmentsPage: React.FC = () => {
                                         onClick={() => handleEditBooking(appt)}
                                         className="px-3 py-1 text-xs font-bold rounded bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
                                     >
-                                        تعديل
+                                        {t('edit')}
                                     </button>
                                     )}
 
                                     <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-50">
                                         {appt.status === 'pending' || appt.status === 'scheduled' ? (
                                             <>
-                                                {appt.status === 'pending' && <button onClick={() => handleOpenBooking(appt)} disabled={processingId === appt.id} className="flex-1 bg-white border border-blue-200 text-blue-600 py-2 rounded-lg font-bold text-xs hover:bg-blue-50 transition-colors disabled:opacity-50 cursor-pointer"><i className="fas fa-calendar-alt"></i> حجز</button>}
+                                                {appt.status === 'pending' && <button onClick={() => handleOpenBooking(appt)} disabled={processingId === appt.id} className="flex-1 bg-white border border-blue-200 text-blue-600 py-2 rounded-lg font-bold text-xs hover:bg-blue-50 transition-colors disabled:opacity-50 cursor-pointer"><i className="fas fa-calendar-alt"></i> {t('appt.book')}</button>}
                                                 <button onClick={() => handleStartExam(appt)} disabled={processingId === appt.id} className="flex-[2] bg-slate-800 text-white py-2 rounded-lg font-bold text-xs hover:bg-blue-600 transition-colors shadow-sm flex items-center justify-center gap-1 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer">
-                                                    {processingId === appt.id ? <i className="fas fa-spinner fa-spin"></i> : <span>بدء الفحص <i className="fas fa-play"></i></span>}
+                                                    {processingId === appt.id ? <i className="fas fa-spinner fa-spin"></i> : <span>{t('appt.startExam')} <i className="fas fa-play"></i></span>}
                                                 </button>
                                             </>
                                         ) : appt.status === 'processing' ? (
@@ -1682,7 +1702,7 @@ const AppointmentsPage: React.FC = () => {
                                                     <i className="fas fa-user-clock"></i> {appt.performedByName || 'Unknown'}
                                                 </div>
                                                 <button onClick={() => handleFinishClick(appt)} className="flex-[2] bg-emerald-500 text-white py-2 rounded-lg font-bold text-xs hover:bg-emerald-600 transition-colors shadow-md flex items-center justify-center gap-1 cursor-pointer">
-                                                    <span>إنهاء (تم)</span> <i className="fas fa-check-double"></i>
+                                                    <span>{t('appt.finish')}</span> <i className="fas fa-check-double"></i>
                                                 </button>
                                             </div>
                                         ) : (
@@ -1690,7 +1710,7 @@ const AppointmentsPage: React.FC = () => {
                                                 <div className="flex items-center gap-2 text-xs font-bold text-emerald-600">
                                                     <i className="fas fa-check-circle text-lg"></i>
                                                     <div className="flex flex-col">
-                                                        <span>تم الفحص</span>
+                                                        <span>{t('appt.finish')}</span>
                                                         <span className="text-[9px] text-slate-400 font-normal">{appt.performedByName}</span>
                                                     </div>
                                                 </div>
@@ -1716,7 +1736,7 @@ const AppointmentsPage: React.FC = () => {
             <Modal
   isOpen={isTicketModalOpen}
   onClose={() => setIsTicketModalOpen(false)}
-  title="تم حجز الموعد بنجاح ✅"
+  title={t('appt.successBook')}
 >
   <div className="space-y-6 text-center">
     {bookedTicketData && (
@@ -1728,7 +1748,7 @@ const AppointmentsPage: React.FC = () => {
           <div><span className="font-bold">Date:</span> {bookedTicketData.scheduledDate}</div>
           <div><span className="font-bold">Time:</span> {bookedTicketData.time}</div>
           <div className="col-span-2 mt-6 text-center">
-            <p className="font-bold mb-2">تعليمات الفحص</p>
+            <p className="font-bold mb-2">{t( 'appt.prep')}</p>
 
           </div>
         </div>
@@ -1739,7 +1759,7 @@ const AppointmentsPage: React.FC = () => {
 
                     <div className="bg-emerald-50 text-emerald-800 p-4 rounded-xl border border-emerald-100 flex flex-col items-center">
                         <i className="fas fa-check-circle text-4xl mb-2 text-emerald-500"></i>
-                        <p className="font-bold text-lg">تم تسجيل الموعد!</p>
+                        <p className="font-bold text-lg">{t("appt.reg")}</p>
                     </div>
                     
                     <div className="bg-white p-4 rounded-xl border-2 border-slate-100 flex flex-col items-center">
@@ -1748,14 +1768,14 @@ const AppointmentsPage: React.FC = () => {
                             alt="Appointment QR"
                             className="w-48 h-48 rounded-lg shadow-sm mb-4"
                         />
-                        <p className="text-sm text-slate-500 font-bold">امسح الكود لعرض التذكرة وتحميلها</p>
+                        <p className="text-sm text-slate-500 font-bold">{t('appt.scanTicket')}</p>
                     </div>
 
                     <button 
                         onClick={() => window.open(`#/ticket/${bookedTicketId}`, '_blank')}
                         className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 hover:bg-slate-800 cursor-pointer"
                     >
-                        <i className="fas fa-print"></i> فتح التذكرة للطباعة
+                        <i className="fas fa-print"></i> {t('appt.openTicket')}
                     </button>
                 </div>
             </Modal>
@@ -1768,13 +1788,13 @@ const AppointmentsPage: React.FC = () => {
                             onClick={() => { setScanMode('local'); fileInputRef.current?.click(); }}
                             className="flex-1 py-3 rounded-xl bg-blue-50 text-blue-600 font-bold border border-blue-200 hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 cursor-pointer"
                         >
-                            <i className="fas fa-camera"></i> مسح محلي (سريع)
+                            <i className="fas fa-camera"></i>{t('appt.scanLocal')}
                         </button>
                         <button 
                             onClick={() => { setScanMode('ai'); fileInputRef.current?.click(); }}
                             className="flex-1 py-3 rounded-xl bg-purple-50 text-purple-600 font-bold border border-purple-200 hover:bg-purple-100 transition-colors flex items-center justify-center gap-2 cursor-pointer"
                         >
-                            <i className="fas fa-robot"></i> مسح ذكي (AI)
+                            <i className="fas fa-robot"></i>{t('appt.scanAI')}
                         </button>
                     </div>
 
@@ -1785,8 +1805,8 @@ const AppointmentsPage: React.FC = () => {
                         >
                             <span className="bg-white/20 p-1.5 rounded-lg"><i className="fas fa-external-link-alt text-lg"></i></span>
                             <div className="text-right">
-                                <p className="text-xs opacity-90">استخدم موقع Gemini الخارجي</p>
-                                <p className="text-sm font-black">نسخ الأمر + فتح الموقع 🚀</p>
+                                <p className="text-xs opacity-90">{t('appt.geminiUse')}</p>
+                                <p className="text-sm font-black">{t('appt.geminiCopy')}</p>
                             </div>
                         </button>
                         
@@ -1802,7 +1822,7 @@ const AppointmentsPage: React.FC = () => {
                                     onClick={handleSmartPaste}
                                     className="w-full mt-2 bg-teal-600 text-white py-2 rounded-lg font-bold text-xs hover:bg-teal-700 transition-colors flex items-center justify-center gap-2 cursor-pointer"
                                 >
-                                    <i className="fas fa-magic"></i> تعبئة البيانات تلقائياً
+                                    <i className="fas fa-magic"></i>{t('appt.autoFill')}
                                 </button>
                             )}
                         </div>
@@ -1826,14 +1846,14 @@ const AppointmentsPage: React.FC = () => {
 
                     <form onSubmit={handleManualSubmit} className="space-y-4 border-t border-slate-100 pt-4">
                         <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 mb-4">
-                            <p className="text-xs text-blue-800 font-bold mb-2">بيانات الحجز</p>
+                            <p className="text-xs text-blue-800 font-bold mb-2">{t('appt.manualData')}</p>
                             <div className="grid grid-cols-2 gap-2">
                                 <div>
-                                    <label className="text-[10px] font-bold text-slate-500">التاريخ</label>
+                                    <label className="text-[10px] font-bold text-slate-500">{t('date')}</label>
                                     <input type="date" className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm font-bold" value={manualDate} onChange={e=>setManualDate(e.target.value)} />
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-bold text-slate-500">الوقت</label>
+                                    <label className="text-[10px] font-bold text-slate-500">{t('time')}</label>
                                     {modalitySettings[examType]?.slots?.length > 0 ? (
                                         <select className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm font-bold" value={manualTime} onChange={e=>setManualTime(e.target.value)}>
                                             {modalitySettings[examType].slots.map(slot => (
@@ -1846,17 +1866,23 @@ const AppointmentsPage: React.FC = () => {
                                 </div>
                             </div>
                             <div className="mt-2">
-                                <label className="text-[10px] font-bold text-slate-500">الغرفة</label>
-                                <input type="text" className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm" placeholder="مثال: MRI Room 1" value={manualRoom} onChange={e=>setManualRoom(e.target.value)} />
+                                <label className="text-[10px] font-bold text-slate-500">{t('appt.room')}</label>
+                                <input type="text" className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm" placeholder="example: MRI Room 1" value={manualRoom} onChange={e=>setManualRoom(e.target.value)} />
                             </div>
                         </div>
 
-                        <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder="اسم المريض (Required)" value={patientName} onChange={e=>setPatientName(e.target.value)} required />
-                        <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder="رقم الملف" value={fileNumber} onChange={e=>setFileNumber(e.target.value)} />
+                        <input 
+                            className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" 
+                            placeholder={t('appt.patientName')} // تم التغيير هنا
+                            value={patientName} 
+                            onChange={e => setPatientName(e.target.value)} 
+                            required 
+                            />
+                        <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder={t('appt.fileNo')} value={fileNumber} onChange={e=>setFileNumber(e.target.value)} />
                         
                         <div className="grid grid-cols-2 gap-4">
-                            <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder="الطبيب" value={doctorName} onChange={e=>setDoctorName(e.target.value)} />
-                            <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder="العمر" value={patientAge} onChange={e=>setPatientAge(e.target.value)} />
+                            <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder={t('appt.doctor')} value={doctorName} onChange={e=>setDoctorName(e.target.value)} />
+                            <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder={t('appt.age')} value={patientAge} onChange={e=>setPatientAge(e.target.value)} />
                         </div>
                         
                         <select className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" value={examType} onChange={e=>setExamType(e.target.value)}>
@@ -1864,7 +1890,7 @@ const AppointmentsPage: React.FC = () => {
                         </select>
 
                         <div>
-                            <label className="text-xs font-bold text-slate-500">اسم الفحص المحدد (اختياري)</label>
+                            <label className="text-xs font-bold text-slate-500">{t('appt.specificExam')}</label>
                             <input 
                                 className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold mt-1" 
                                 placeholder="مثال: Brain MRI with Contrast" 
@@ -1875,11 +1901,11 @@ const AppointmentsPage: React.FC = () => {
 
                         <div className="bg-amber-50 p-3 rounded-xl border border-amber-100">
                             <label className="text-xs font-bold text-amber-800 flex items-center gap-1 mb-1">
-                                <i className="fas fa-exclamation-circle"></i> تعليمات التحضير (تظهر للمريض)
+                                <i className="fas fa-exclamation-circle"></i>{t('appt.prepInst')}
                             </label>
                             <textarea 
                                 className="w-full bg-white border border-amber-200 rounded-lg p-2 text-sm min-h-[80px]" 
-                                placeholder="تعليمات التحضير..." 
+                                placeholder={t('appt.prepInst')}
                                 value={preparationText} 
                                 onChange={e=>setPreparationText(e.target.value)} 
                             />
@@ -1888,7 +1914,7 @@ const AppointmentsPage: React.FC = () => {
                         <textarea className="w-full bg-slate-50 border-none rounded-xl p-3" placeholder="ملاحظات إضافية" value={notes} onChange={e=>setNotes(e.target.value)} />
                         
                         <button className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition-all shadow-lg cursor-pointer">
-                            حفظ وطباعة التذكرة
+                            {t('appt.savePrint')}
                         </button>
                     </form>
                 </div>
@@ -1898,7 +1924,7 @@ const AppointmentsPage: React.FC = () => {
             <Modal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} title="إعدادات المواعيد (للمشرف)">
                 <div className="space-y-4 max-h-[70vh] overflow-y-auto p-1">
                     <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl text-xs text-amber-800 font-bold mb-4">
-                        ⚠️ التغييرات هنا ستؤثر على جميع المستخدمين عند حجز مواعيد جديدة.
+                        {t('appt.settingsWarning')}
                     </div>
 
                     <div className="flex gap-2 overflow-x-auto pb-2">
@@ -1917,14 +1943,15 @@ const AppointmentsPage: React.FC = () => {
                         <h4 className="font-bold text-slate-700">{editingModalityId} Settings</h4>
                         <div className="border-t pt-4">
   <label className="text-xs font-bold text-slate-600 block mb-2">
-    عدد المواعيد المتاحة للقسم
-  </label>
+   {t('appt.slotsCount')
+  }
+    </label>
 
   <input
     type="number"
     min={0}
     className="w-full bg-white border border-slate-300 rounded-lg p-2 text-sm font-bold mb-3"
-    placeholder="مثال: 15"
+    placeholder="example: 15"
     value={manualSlotsCount || ''}
     onChange={e => {
       const count = parseInt(e.target.value) || 0;
@@ -1990,7 +2017,7 @@ const AppointmentsPage: React.FC = () => {
       }}
       className="flex items-center gap-2 text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-2 rounded-lg hover:bg-emerald-200 w-fit"
     >
-      ➕ إضافة موعد
+      {t('add')}
     </button>
   </div>
   
@@ -1999,10 +2026,10 @@ const AppointmentsPage: React.FC = () => {
 
 
                         <div>
-                            <label className="text-xs font-bold text-slate-500 block mb-1">تعليمات التحضير الافتراضية</label>
+                            <label className="text-xs font-bold text-slate-500 block mb-1">{t('appt.defaultPrep')}</label>
                             <textarea 
                                 className="w-full bg-white border border-slate-300 rounded-lg p-2 text-sm min-h-[80px]"
-                                placeholder="اكتب التعليمات هنا..."
+                                placeholder={t("appt.construc")}
                                 value={modalitySettings[editingModalityId]?.prep || ''}
                                 onChange={e => setModalitySettings(prev => ({
                                     ...prev,
@@ -2015,7 +2042,7 @@ const AppointmentsPage: React.FC = () => {
                     
 
                     <button onClick={handleSaveSettings} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-slate-800 cursor-pointer">
-                        حفظ التغييرات
+                        {t('appt.saveSettings')}
                     </button>
                 </div>
             </Modal>
@@ -2024,17 +2051,17 @@ const AppointmentsPage: React.FC = () => {
             <Modal isOpen={isBridgeModalOpen} onClose={() => setIsBridgeModalOpen(false)} title="الربط الذكي">
                 <div className="space-y-4 text-center">
                     <p className="text-sm text-slate-600 mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
-                        إذا كنت تستخدم نظام IHMS، يمكنك نسخ هذا الكود في وحدة التحكم (Console) لنقل البيانات تلقائياً.
+                       {t('appt.bridgeInfo')}
                     </p>
                     <button onClick={handleCopyScript} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 cursor-pointer">
-                        <i className="fas fa-copy"></i> نسخ كود المراقبة (V13 - الشبح)
+                        <i className="fas fa-copy"></i> {t('appt.copyScript')}
                     </button>
                     
                     <div className="border-t border-slate-200 pt-4 mt-4">
-                        <p className="text-xs font-bold text-slate-500 mb-2">أو الصق البيانات يدوياً هنا:</p>
+                        <p className="text-xs font-bold text-slate-500 mb-2">{t('appt.manualJson')}</p>
                         <textarea 
                             className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs font-mono min-h-[80px]"
-                            placeholder="الصق كود JSON هنا إذا فشل النقل التلقائي..."
+                            placeholder={t('appt.geminiPaste')}
                             value={manualJsonInput}
                             onChange={e => setManualJsonInput(e.target.value)}
                         />
@@ -2043,7 +2070,7 @@ const AppointmentsPage: React.FC = () => {
                             disabled={!manualJsonInput}
                             className="w-full mt-2 bg-blue-600 text-white py-2 rounded-lg font-bold text-xs hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                         >
-                            معالجة البيانات يدوياً
+                           {t('appt.processManual')}
                         </button>
                     </div>
                 </div>
@@ -2055,31 +2082,31 @@ const AppointmentsPage: React.FC = () => {
                     <div className="bg-red-50 p-4 rounded-full w-20 h-20 mx-auto flex items-center justify-center border-4 border-red-100 animate-pulse">
                         <i className="fas fa-exclamation-triangle text-4xl text-red-500"></i>
                     </div>
-                    <h3 className="text-xl font-bold text-slate-800">هل كانت الحالة طارئة (Panic)؟</h3>
-                    <p className="text-sm text-slate-500">في حال وجود نتائج حرجة، يرجى تسجيلها فوراً.</p>
+                    <h3 className="text-xl font-bold text-slate-800">{t('appt.panicQuestion')}</h3>
+                    <p className="text-sm text-slate-500">{t('appt.panicDesc')}</p>
                     
                     <div className="flex gap-4">
                         <button onClick={() => setPanicDescription('Findings...')} className="flex-1 py-4 bg-red-600 text-white rounded-xl font-bold shadow-lg hover:bg-red-700 transition-all text-lg cursor-pointer">
-                            نعم (Panic)
+                            Yes (Panic)
                         </button>
                         <button onClick={() => handleConfirmFinish(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-all text-lg cursor-pointer">
-                            لا (Normal)
+                            No (Normal)
                         </button>
                     </div>
 
                     {/* Panic Input Field (Conditional) */}
                     {panicDescription !== '' && (
                         <div className="mt-4 text-right space-y-3 animate-fade-in-up">
-                            <label className="text-xs font-bold text-red-600 block">وصف الحالة الحرجة:</label>
+                            <label className="text-xs font-bold text-red-600 block">{t('appt.panicDetails')}</label>
                             <textarea 
                                 className="w-full bg-red-50 border border-red-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-red-500 outline-none min-h-[100px]"
-                                placeholder="اكتب النتائج الحرجة هنا..."
+                                placeholder="Write the critical results here..."
                                 value={panicDescription === 'Findings...' ? '' : panicDescription}
                                 onChange={e => setPanicDescription(e.target.value)}
                                 autoFocus
                             ></textarea>
                             <button onClick={() => handleConfirmFinish(true)} className="w-full bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 shadow-md cursor-pointer">
-                                حفظ التقرير وإنهاء
+                               {t('appt.saveFinishReport')}
                             </button>
                         </div>
                     )}
@@ -2087,14 +2114,14 @@ const AppointmentsPage: React.FC = () => {
             </Modal>
 
             {/* Registration Number Modal */}
-            <Modal isOpen={isRegModalOpen} onClose={() => setIsRegModalOpen(false)} title="تم بدء الفحص ✅">
+            <Modal isOpen={isRegModalOpen} onClose={() => setIsRegModalOpen(false)} title={t('appt.startSuccess')}>
                 <div className="text-center space-y-6 py-4">
-                    <p className="text-slate-500 font-bold">يرجى كتابة رقم التسجيل التالي على الفيلم/الجهاز:</p>
+                    <p className="text-slate-500 font-bold">{t('appt.writeReg')}</p>
                     <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl border-4 border-slate-200 transform scale-110">
                         <span className="text-3xl font-mono font-black tracking-widest">{currentRegNo}</span>
                     </div>
                     <button onClick={() => setIsRegModalOpen(false)} className="w-full bg-emerald-500 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-emerald-600 mt-4 cursor-pointer">
-                        حسناً، تم
+                       {t('appt.ok')}
                     </button>
                 </div>
             </Modal>
@@ -2106,15 +2133,15 @@ const AppointmentsPage: React.FC = () => {
                     {/* Date Range Controls */}
                     <div className="bg-slate-50 p-4 border-b border-slate-200 flex flex-wrap gap-4 items-end print:hidden">
                         <div className="flex-1 min-w-[150px]">
-                            <label className="block text-xs font-bold text-slate-500 mb-1">من تاريخ</label>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">{t('appt.fromDate')}</label>
                             <input type="date" className="w-full border-slate-300 rounded-lg text-sm p-2" value={logStartDate} onChange={e => setLogStartDate(e.target.value)} />
                         </div>
                         <div className="flex-1 min-w-[150px]">
-                            <label className="block text-xs font-bold text-slate-500 mb-1">إلى تاريخ</label>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">{t('appt.toDate')}</label>
                             <input type="date" className="w-full border-slate-300 rounded-lg text-sm p-2" value={logEndDate} onChange={e => setLogEndDate(e.target.value)} />
                         </div>
                         <button onClick={fetchLogbookData} disabled={isLogLoading} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold text-sm hover:bg-blue-700 disabled:opacity-50 cursor-pointer">
-                            {isLogLoading ? 'جاري التحميل...' : 'عرض التقرير'}
+                        {isLogLoading ? t('loading') : t('appt.viewLog')}
                         </button>
                     </div>
 
@@ -2127,7 +2154,7 @@ const AppointmentsPage: React.FC = () => {
                         <LogTable title="X-Ray & General" type="XRAY" />
                         
                         {!isLogLoading && logbookData.length === 0 && appointments.length === 0 && (
-                            <div className="text-center py-10 text-slate-400">لا توجد بيانات للعرض. اختر التاريخ واضغط "عرض التقرير".</div>
+                            <div className="text-center py-10 text-slate-400">{t('appt.rep')}.</div>
                         )}
                     </div>
                     
@@ -2165,22 +2192,22 @@ const AppointmentsPage: React.FC = () => {
                     
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="text-xs font-bold text-slate-500 mb-1 block">تاريخ الموعد</label>
+                            <label className="text-xs font-bold text-slate-500 mb-1 block">{t('appt.appdate')}</label>
                             <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" value={bookingDate} onChange={e => setBookingDate(e.target.value)} />
                         </div>
                         <div>
-                            <label className="text-xs font-bold text-slate-500 mb-1 block">وقت الموعد</label>
+                            <label className="text-xs font-bold text-slate-500 mb-1 block">{t('appt.apptime')}</label>
                             
                             {/* NEW: Limit Check Logic */}
                             {isDayLimitReached && !isSupervisor ? (
                                 <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-center">
-                                    <p className="text-red-700 font-bold text-xs mb-1">⛔ اكتمل العدد المسموح</p>
-                                    <p className="text-[10px] text-red-500">لا يمكن حجز المزيد من المواعيد لهذا اليوم.</p>
+                                    <p className="text-red-700 font-bold text-xs mb-1">{t('appt.dayFull')}</p>
+                                    <p className="text-[10px] text-red-500">{bookingWarning}</p>
                                 </div>
                             ) : (
                                 availableSlots.length > 0 ? (
                                     <select className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700" value={bookingTime} onChange={e => setBookingTime(e.target.value)}>
-                                        <option value="">اختر الوقت...</option>
+                                        <option value="">{t("app.select")}</option>
                                         {availableSlots.map(slot => <option key={slot} value={slot}>{slot}</option>)}
                                     </select>
                                 ) : (
@@ -2195,8 +2222,8 @@ const AppointmentsPage: React.FC = () => {
                             )}
                         </div>
                     </div>
-                    <div><label className="text-xs font-bold text-slate-500 mb-1 block">رقم الغرفة</label><input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" placeholder="مثال: غرفة 3" value={bookingRoom} onChange={e => setBookingRoom(e.target.value)} /></div>
-                    <div><label className="text-xs font-bold text-slate-500 mb-1 block">التحضيرات</label><textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold min-h-[80px]" value={bookingPrep} onChange={e => setBookingPrep(e.target.value)} /></div>
+                    <div><label className="text-xs font-bold text-slate-500 mb-1 block">{t('appt.room')}</label><input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" placeholder="مثال: غرفة 3" value={bookingRoom} onChange={e => setBookingRoom(e.target.value)} /></div>
+                    <div><label className="text-xs font-bold text-slate-500 mb-1 block">{t('appt.prep')}</label><textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold min-h-[80px]" value={bookingPrep} onChange={e => setBookingPrep(e.target.value)} /></div>
                     {bookingWarning && <div className={`text-xs font-bold p-3 rounded-lg border ${bookingWarning.includes('✅') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{bookingWarning}</div>}
                     
                     <button 
@@ -2204,7 +2231,7 @@ const AppointmentsPage: React.FC = () => {
                         disabled={isDayLimitReached && !isSupervisor}
                         className={`w-full py-3 rounded-xl font-bold shadow-lg transition-all cursor-pointer ${isDayLimitReached && !isSupervisor ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
                     >
-                        تأكيد الحجز
+                       {t( 'appt.confirm')}
                     </button>
                 </div>
             </Modal>

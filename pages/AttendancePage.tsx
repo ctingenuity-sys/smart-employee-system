@@ -30,74 +30,65 @@ const deg2rad = (deg: number) => deg * (Math.PI/180);
 
 // --- ADVANCED HYBRID FINGERPRINTING ---
 // Combines Hardware Traits (for stability) + Persistent Token (for uniqueness)
-const getStableDeviceFingerprint = async (): Promise<string> => {
+// استبدل الدالة القديمة بهذا الكود الموحد:
+export const getStableDeviceFingerprint = async (): Promise<string> => {
     try {
-        // 1. Hardware/Browser Signature (Shared across identical devices)
         const nav = window.navigator as any;
         const screen = window.screen;
         
-        const hardwareInfo = [
-            nav.userAgent,
+        // 1. البيانات الأساسية (تم استبدال userAgent بـ platform لضمان الثبات)
+        const basicInfo = [
+            nav.platform, // يعطي نوع النظام (مثل iPhone أو Win32) وهو ثابت تماماً
             nav.language,
+            nav.hardwareConcurrency || 'x', 
+            nav.deviceMemory || 'x',        
             screen.colorDepth,
-            screen.width + 'x' + screen.height,
-            nav.hardwareConcurrency,
-            nav.deviceMemory,
-            Intl.DateTimeFormat().resolvedOptions().timeZone
-        ].join('||');
+            screen.width + 'x' + screen.height, 
+            Intl.DateTimeFormat().resolvedOptions().timeZone 
+        ].join('|');
 
-        // Canvas Fingerprinting
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        let canvasHash = 'no-canvas';
-        
-        if (ctx) {
-            canvas.width = 200;
-            canvas.height = 50;
-            ctx.textBaseline = "top";
-            ctx.font = "16px Arial";
-            ctx.fillStyle = "#f60";
-            ctx.fillRect(125, 1, 62, 20);
-            ctx.fillStyle = "#069";
-            ctx.fillText("AJ_SMART_SYSTEM_v1", 2, 15);
-            ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
-            ctx.fillText("AJ_SMART_SYSTEM_v1", 4, 17);
-            
-            ctx.beginPath();
-            ctx.arc(50, 50, 50, 0, Math.PI * 2, true);
-            ctx.closePath();
-            ctx.fill();
+        // 2. Canvas Fingerprint (يعتمد على كيفية معالجة الجهاز للرسوم)
+        let canvasHash = '';
+        try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                canvas.width = 280;
+                canvas.height = 60;
+                ctx.textBaseline = "alphabetic";
+                ctx.fillStyle = "#f60";
+                ctx.fillRect(125, 1, 62, 20);
+                ctx.font = "11pt Arial";
+                ctx.fillText("AJ_SMART_SYSTEM_STABLE", 2, 15);
+                canvasHash = canvas.toDataURL(); // يولد كوداً فريداً بناءً على كرت الشاشة والمعالج
+            }
+        } catch (e) { canvasHash = 'canvas-error'; }
 
-            canvasHash = canvas.toDataURL();
-        }
+        // 3. WebGL (اسم كرت الشاشة الفعلي)
+        let webglInfo = '';
+        try {
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl');
+            if (gl) {
+                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                if (debugInfo) {
+                    webglInfo = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                }
+            }
+        } catch (e) { webglInfo = 'webgl-error'; }
 
-        const hardwareString = `${hardwareInfo}###${canvasHash}`;
-        const msgBuffer = new TextEncoder().encode(hardwareString);
+        // 4. دمج وتوليد الهاش النهائي باستخدام SHA-256
+        const finalString = `${basicInfo}__${canvasHash}__${webglInfo}`;
+        const msgBuffer = new TextEncoder().encode(finalString);
         const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
         const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hardwareHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-        
-        // 2. Persistent Installation Token (Unique per browser instance)
-        // This solves the "Identical Device" problem.
-        let installToken = localStorage.getItem('aj_device_install_token');
-        if (!installToken) {
-            // Generate a random unique ID for this specific browser installation
-            installToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
-            localStorage.setItem('aj_device_install_token', installToken);
-        }
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 
-        // 3. Combine: HardwareHash_InstallToken
-        // Example: a1b2c3d4_xyz987
-        return `${hardwareHex}_${installToken}`; 
+        // بادئة موحدة لجميع الصفحات
+        return `DEV_${hashHex.substring(0, 16).toUpperCase()}`;
 
     } catch (e) {
-        console.error("Fingerprint generation failed, falling back to simple ID", e);
-        let id = localStorage.getItem('app_device_fallback');
-        if (!id) {
-            id = 'fallback_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
-            localStorage.setItem('app_device_fallback', id);
-        }
-        return id;
+        return 'FALLBACK_DEVICE_ID';
     }
 };
 

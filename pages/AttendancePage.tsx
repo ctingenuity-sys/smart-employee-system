@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import { calculateShiftStatus } from '../utils/attendanceLogic';
 // @ts-ignore
 import { onAuthStateChanged } from 'firebase/auth';
+import { registerDevice, verifyDevice } from '../utils/webauthn';
 
 const HOSPITAL_LAT = 21.584135549676002;
 const HOSPITAL_LNG = 39.208052479784165; 
@@ -27,70 +28,6 @@ const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon
   return R * c;
 }
 const deg2rad = (deg: number) => deg * (Math.PI/180);
-
-// --- ADVANCED HYBRID FINGERPRINTING ---
-// Combines Hardware Traits (for stability) + Persistent Token (for uniqueness)
-// استبدل الدالة القديمة بهذا الكود الموحد:
-export const getStableDeviceFingerprint = async (): Promise<string> => {
-    try {
-        const nav = window.navigator as any;
-        const screen = window.screen;
-        
-        // 1. البيانات الأساسية (تم استبدال userAgent بـ platform لضمان الثبات)
-        const basicInfo = [
-            nav.platform, // يعطي نوع النظام (مثل iPhone أو Win32) وهو ثابت تماماً
-            nav.language,
-            nav.hardwareConcurrency || 'x', 
-            nav.deviceMemory || 'x',        
-            screen.colorDepth,
-            screen.width + 'x' + screen.height, 
-            Intl.DateTimeFormat().resolvedOptions().timeZone 
-        ].join('|');
-
-        // 2. Canvas Fingerprint (يعتمد على كيفية معالجة الجهاز للرسوم)
-        let canvasHash = '';
-        try {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-                canvas.width = 280;
-                canvas.height = 60;
-                ctx.textBaseline = "alphabetic";
-                ctx.fillStyle = "#f60";
-                ctx.fillRect(125, 1, 62, 20);
-                ctx.font = "11pt Arial";
-                ctx.fillText("AJ_SMART_SYSTEM_STABLE", 2, 15);
-                canvasHash = canvas.toDataURL(); // يولد كوداً فريداً بناءً على كرت الشاشة والمعالج
-            }
-        } catch (e) { canvasHash = 'canvas-error'; }
-
-        // 3. WebGL (اسم كرت الشاشة الفعلي)
-        let webglInfo = '';
-        try {
-            const canvas = document.createElement('canvas');
-            const gl = canvas.getContext('webgl');
-            if (gl) {
-                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-                if (debugInfo) {
-                    webglInfo = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
-                }
-            }
-        } catch (e) { webglInfo = 'webgl-error'; }
-
-        // 4. دمج وتوليد الهاش النهائي باستخدام SHA-256
-        const finalString = `${basicInfo}__${canvasHash}__${webglInfo}`;
-        const msgBuffer = new TextEncoder().encode(finalString);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-        // بادئة موحدة لجميع الصفحات
-        return `DEV_${hashHex.substring(0, 16).toUpperCase()}`;
-
-    } catch (e) {
-        return 'FALLBACK_DEVICE_ID';
-    }
-};
 
 const convertTo24Hour = (timeStr: string): string => {
     if (!timeStr) return '00:00';
@@ -229,22 +166,13 @@ const AttendancePage: React.FC = () => {
     const [activeLiveCheck, setActiveLiveCheck] = useState<LocationCheckRequest | null>(null);
     const [isLiveCheckProcessing, setIsLiveCheckProcessing] = useState(false);
     
-    // --- Stable Hardware Device ID ---
-    const [localDeviceId, setLocalDeviceId] = useState<string>('');
-
     const currentUserId = auth.currentUser?.uid;
     const currentUserName = localStorage.getItem('username') || 'User';
     const isProcessingRef = useRef(false);
     const [realUserId, setRealUserId] = useState<string | null>(null);
 
-    // --- 0. Initialize Device Fingerprint & GPS ---
+    // --- 0. Initialize GPS Watch ---
     useEffect(() => {
-        // Generate stable fingerprint
-        getStableDeviceFingerprint().then(id => {
-            console.log("Device Fingerprint Generated:", id);
-            setLocalDeviceId(id);
-        });
-
         let watchId: number;
         if ('geolocation' in navigator) {
             watchId = navigator.geolocation.watchPosition(
@@ -459,29 +387,49 @@ const AttendancePage: React.FC = () => {
         new Audio(sounds[type]).play().catch(() => {});
     };
 
-    const authenticateUser = async () => {
-        if (window.PublicKeyCredential) {
-            try {
-                setStatus('AUTH_DEVICE');
-                await navigator.credentials.create({
-                    publicKey: {
-                        challenge: new Uint8Array(32),
-                        rp: { name: "Smart Employee System" },
-                        user: { id: new Uint8Array(16), name: currentUserName, displayName: currentUserName },
-                        pubKeyCredParams: [{ type: "public-key", alg: -7 }],
-                        authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
-                        timeout: 60000
-                    }
+    // --- WEBAUTHN DEVICE BINDING LOGIC ---
+    // If user has no biometricId: Register
+    // If user has biometricId: Verify
+    const handleDeviceAuthentication = async (): Promise<string | null> => {
+        setStatus('AUTH_DEVICE');
+        try {
+            if (!userProfile?.biometricId) {
+                // 1. REGISTER NEW DEVICE
+                // User must use Platform Authenticator (TouchID/FaceID)
+                const newCredId = await registerDevice(currentUserName);
+                
+                // Save this Credential ID to Firestore immediately
+                await updateDoc(doc(db, 'users', currentUserId!), {
+                    biometricId: newCredId,
+                    biometricRegisteredAt: Timestamp.now()
                 });
-                return true;
-            } catch (error) {
-                console.error("Auth failed", error);
-                throw new Error("Device authentication failed.");
+                
+                return newCredId;
+            } else {
+                // 2. VERIFY EXISTING DEVICE
+                const storedCredId = userProfile.biometricId;
+                
+                // Check if it's the old "DEV_" format or new "WA_" format
+                if (!storedCredId.startsWith('WA_')) {
+                    // Old fingerprint format - force re-registration for better security
+                    // OR handle gracefully. For now, let's allow it but warn or migrate.
+                    // To migrate, we'd need to clear it. Let's just fail and ask user to contact admin to reset.
+                    // Or, automatically upgrade? No, user needs to re-register.
+                    throw new Error("تحديث النظام: يرجى طلب إعادة تعيين الجهاز من المشرف لتفعيل البصمة الجديدة.");
+                }
+
+                const isValid = await verifyDevice(storedCredId);
+                if (isValid) {
+                    return storedCredId;
+                } else {
+                    throw new Error("فشل التحقق من البصمة.");
+                }
             }
+        } catch (error: any) {
+            console.error("Device Auth Failed", error);
+            throw error;
         }
-        return true; 
     };
-    
 
     const handlePunch = async () => {
         if (activeLiveCheck) {
@@ -509,27 +457,15 @@ const AttendancePage: React.FC = () => {
             return;
         }
 
-        if (!localDeviceId) {
-             setStatus('ERROR');
-             setErrorDetails({ title: 'Device Error', msg: 'Identifying Device...' });
-             // Try to regenerate fingerprint if missing
-             getStableDeviceFingerprint().then(setLocalDeviceId);
-             releaseLock();
-             return;
-        }
-
-        if (!hasOverride) {
-            if (userProfile?.biometricId && userProfile.biometricId !== localDeviceId) {
-                setStatus('ERROR');
-                setErrorDetails({ title: 'Invalid Device', msg: 'Please use your registered device.' });
-                playSound('error');
-                releaseLock();
-                return;
-            }
-        }
-
         try {
-            await authenticateUser();
+            // 1. Authenticate Device (WebAuthn)
+            // Skip check ONLY if Override is active
+            let credentialUsed = 'OVERRIDE';
+            if (!hasOverride) {
+                credentialUsed = await handleDeviceAuthentication() || 'UNKNOWN';
+            }
+
+            // 2. Get GPS
             setStatus('SCANNING_LOC');
 
             if (!navigator.geolocation) {
@@ -589,19 +525,12 @@ const AttendancePage: React.FC = () => {
                             distanceKm: dist,
                             accuracy: accuracy,
                             deviceInfo: navigator.userAgent,
-                            deviceId: localDeviceId, // Using the new Stable Fingerprint
+                            deviceId: credentialUsed, // Store the Credential ID
                             status: isSuspicious ? 'flagged' : 'verified', 
                             shiftIndex: currentShiftIdx, 
                             isSuspicious: isSuspicious, 
                             violationType: violationType 
                         });
-
-                        if (!userProfile?.biometricId) {
-                            await updateDoc(doc(db, 'users', currentUserId), {
-                                biometricId: localDeviceId,
-                                biometricRegisteredAt: Timestamp.now()
-                            });
-                        }
 
                         setStatus('SUCCESS');
                         playSound('success');
@@ -666,28 +595,6 @@ const AttendancePage: React.FC = () => {
                 const docData = docRef.data();
                 const req = { id: docRef.id, ...docData } as LocationCheckRequest;
                 
-                try {
-                    const userSnap = await getDoc(doc(db, 'users', realUserId));
-                    if (userSnap.exists()) {
-                        const registeredDevice = userSnap.data().biometricId;
-                        const regClean = (registeredDevice || '').trim();
-                        const localClean = (localDeviceId || '').trim();
-
-                        if (regClean && regClean !== localClean && !hasOverride) {
-                            await updateDoc(doc(db, 'location_checks', req.id), {
-                                status: 'rejected',
-                                reason: 'Unauthorized Device Attempt',
-                                completedAt: serverTimestamp(),
-                                deviceMismatch: true
-                            });
-                            setToast({ msg: 'Live Check skipped: Unauthorized Device', type: 'error' });
-                            return; 
-                        }
-                    }
-                } catch (e) {
-                    console.error("Error verifying device for check", e);
-                }
-
                 setActiveLiveCheck(req);
                 new Audio('https://assets.mixkit.co/active_storage/sfx/2868/2868-preview.mp3').play().catch(()=>{});
             } else {
@@ -696,7 +603,7 @@ const AttendancePage: React.FC = () => {
         });
 
         return () => unsubLiveCheck();
-    }, [realUserId, localDeviceId, hasOverride]);
+    }, [realUserId]);
 
     const handleLiveCheck = async () => {
         if(!activeLiveCheck) return;
@@ -712,7 +619,7 @@ const AttendancePage: React.FC = () => {
                     locationLng: pos.coords.longitude,
                     accuracy: pos.coords.accuracy,
                     completedAt: serverTimestamp(),
-                    deviceId: localDeviceId
+                    deviceId: 'LIVE_CHECK'
                 });
                 
                 setToast({msg: 'تم إرسال الموقع بنجاح ✅', type: 'success'});

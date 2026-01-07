@@ -523,7 +523,7 @@ const AppointmentsPage: React.FC = () => {
         const fetchInitialData = async () => {
             let query = supabase.from('appointments').select('*');
 
-            if (!selectedDate && activeView !== 'scheduled') {
+            if (!selectedDate && activeView !== 'scheduled' && activeView !== 'done') {
                 setAppointments([]);
                 setLoading(false);
                 return; 
@@ -537,15 +537,15 @@ const AppointmentsPage: React.FC = () => {
                              .order('scheduledDate', { ascending: true })
                              .order('time', { ascending: true });
             } else if (activeView === 'processing') {
-                // Processing: SHOW ALL ACTIVE, regardless of date (Fixes disappearance bug)
+                // Processing: SHOW ALL ACTIVE
                 query = query.eq('status', 'processing')
                              .order('time', { ascending: false });
 
             } else if (activeView === 'done') {
-    // عرض الفحوصات التي تاريخ إدخالها OR تاريخ جدولتها يطابق التاريخ المختار
-    query = query.or(`date.eq.${selectedDate},scheduledDate.eq.${selectedDate}`)
-                 .eq('status', 'done')
-                 .order('completedAt', { ascending: false });
+                // Done: Show ALL history (descending), permanent record
+                query = query.eq('status', 'done')
+                             .order('completedAt', { ascending: false })
+                             .limit(200); // Reasonable limit for performance
             } else {
                 // Pending: Default behavior
                 query = query.eq('date', selectedDate)
@@ -583,11 +583,12 @@ const AppointmentsPage: React.FC = () => {
                         let updated = [...prev];
 
                         if (payload.eventType === 'INSERT') {
-                            // Check criteria based on activeView
                             let matchesView = false;
                             if (activeView === 'scheduled') matchesView = newRow.status === 'scheduled';
                             else if (activeView === 'processing') matchesView = newRow.status === 'processing';
+                            else if (activeView === 'done') matchesView = newRow.status === 'done';
                             else matchesView = ((newRow.date === selectedDate || newRow.scheduledDate === selectedDate) && newRow.status === activeView);
+                            
                             if (matchesView) {
                                 updated = [newRow, ...prev];
                             }
@@ -595,6 +596,7 @@ const AppointmentsPage: React.FC = () => {
                             let matchesView = false;
                             if (activeView === 'scheduled') matchesView = newRow.status === 'scheduled';
                             else if (activeView === 'processing') matchesView = newRow.status === 'processing';
+                            else if (activeView === 'done') matchesView = newRow.status === 'done'; // Always show done
                             else matchesView = (newRow.date === selectedDate && newRow.status === activeView);
                             
                             if (matchesView) {
@@ -609,23 +611,26 @@ const AppointmentsPage: React.FC = () => {
                             updated = updated.filter(a => a.id !== oldRow.id);
                         }
                         
-            return updated.sort((a, b) => {
-                const timeA = a.time || '00:00';
-                const timeB = b.time || '00:00';
-                
-                // Processing/Done: Newest first
-                if (activeView === 'processing' || activeView === 'done') {
-                     // Prefer completedAt/updatedAt logic if available, else time
-                     return 0; // Maintain insertion order roughly
-                }
-                
-                const timeComparison = timeB.localeCompare(timeA); 
-                if (timeComparison !== 0) return timeComparison;
-                
-                const fileA = a.fileNumber || '';
-                const fileB = b.fileNumber || '';
-                return fileB.localeCompare(fileA);
-            });
+                        return updated.sort((a, b) => {
+                            if (activeView === 'done') {
+                                // Sort by completion time for Done view
+                                const cA = a.completedAt || '';
+                                const cB = b.completedAt || '';
+                                return cB.localeCompare(cA);
+                            }
+                            
+                            const timeA = a.time || '00:00';
+                            const timeB = b.time || '00:00';
+                            
+                            if (activeView === 'processing') return 0;
+                            
+                            const timeComparison = timeB.localeCompare(timeA); 
+                            if (timeComparison !== 0) return timeComparison;
+                            
+                            const fileA = a.fileNumber || '';
+                            const fileB = b.fileNumber || '';
+                            return fileB.localeCompare(fileA);
+                        });
                     });
                 }
             )

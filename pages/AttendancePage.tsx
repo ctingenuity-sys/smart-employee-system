@@ -402,7 +402,7 @@ const AttendancePage: React.FC = () => {
         try {
             if (!userProfile?.biometricId) {
                 // 1. REGISTER NEW DEVICE
-                // User must use Platform Authenticator (TouchID/FaceID)
+                // هذا الإجراء سيطلب بصمة الجهاز وينشئ مفتاحاً مرتبطاً بالجهاز حصراً
                 const newCredId = await registerDevice(currentUserName);
                 
                 // Save this Credential ID to Firestore immediately
@@ -421,6 +421,7 @@ const AttendancePage: React.FC = () => {
                     throw new Error("تحديث أمني: يرجى طلب إعادة ضبط البصمة من المشرف لتسجيل جهازك الحالي.");
                 }
 
+                // هذا الإجراء يتحقق أن البصمة قادمة من نفس الجهاز المسجل
                 const isValid = await verifyDevice(storedCredId);
                 if (isValid) {
                     return storedCredId;
@@ -465,6 +466,9 @@ const AttendancePage: React.FC = () => {
             // Skip check ONLY if Override is active
             let credentialUsed = 'OVERRIDE';
             if (!hasOverride) {
+                // سيظهر للمستخدم طلب "Passkey" (وهو طلب البصمة)
+                // إذا لم يكن مسجلاً، سيطلب التسجيل.
+                // إذا كان مسجلاً، سيطلب التأكيد.
                 credentialUsed = await handleDeviceAuthentication() || 'UNKNOWN';
             }
 
@@ -582,7 +586,15 @@ const AttendancePage: React.FC = () => {
 
         } catch (e: any) {
             setStatus('ERROR');
-            setErrorDetails({ title: 'Auth Failed', msg: e.message || "Unknown error" });
+            // تحسين رسالة الخطأ للمستخدم
+            let userMsg = e.message || "Unknown error";
+            if (userMsg.includes("NotAllowedError") || userMsg.includes("cancelled")) {
+                userMsg = "تم إلغاء المصادقة. يرجى تأكيد البصمة.";
+            } else if (userMsg.includes("InvalidStateError")) {
+                userMsg = "الجهاز غير مطابق. يرجى استخدام الجهاز المسجل.";
+            }
+            
+            setErrorDetails({ title: 'Auth Failed', msg: userMsg });
             playSound('error');
             releaseLock();
         }

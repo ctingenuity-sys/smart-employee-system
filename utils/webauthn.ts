@@ -22,7 +22,7 @@ export const base64URLStringToBuffer = (base64URLString: string): ArrayBuffer =>
     return bytes.buffer;
 }
 
-// 1. تسجيل الجهاز (لأول مرة)
+// 1. تسجيل الجهاز (لأول مرة) - إنشاء الرابط القوي
 export const registerDevice = async (username: string): Promise<string> => {
     if (!window.PublicKeyCredential) {
         throw new Error("المتصفح لا يدعم المصادقة البيومترية (WebAuthn).");
@@ -36,7 +36,7 @@ export const registerDevice = async (username: string): Promise<string> => {
         challenge,
         rp: { 
             name: "Smart Employee System", 
-            id: window.location.hostname // يربط البصمة بنطاق الموقع الحالي
+            id: window.location.hostname // يربط البصمة بنطاق الموقع الحالي لمنع التصيد
         },
         user: {
             id: Uint8Array.from(username, c => c.charCodeAt(0)),
@@ -44,19 +44,29 @@ export const registerDevice = async (username: string): Promise<string> => {
             displayName: username,
         },
         pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+        
+        // --- القلب النابض للحماية ---
         authenticatorSelection: {
-            authenticatorAttachment: "platform", // يجبر استخدام بصمة الجهاز (وليس مفتاح USB)
-            userVerification: "required", // يطلب بصمة/PIN
-            residentKey: "required" // يخزن المفتاح على الجهاز
+            // 'platform' تعني: استخدم قارئ البصمة/الوجه المدمج في هذا الجهاز حصراً.
+            // تمنع استخدام مفاتيح USB الخارجية أو كلمات المرور العادية.
+            authenticatorAttachment: "platform", 
+            userVerification: "required", // يطلب بصمة/PIN إجبارياً
+            residentKey: "required" // يخزن المفتاح بشكل دائم على الجهاز
         },
         timeout: 60000,
         attestation: "none"
     };
 
-    const credential = await navigator.credentials.create({ publicKey }) as PublicKeyCredential;
-    
-    // نعيد معرف الكريدنشال لتخزينه في قاعدة البيانات
-    return `WA_${bufferToBase64URLString(credential.rawId)}`;
+    try {
+        const credential = await navigator.credentials.create({ publicKey }) as PublicKeyCredential;
+        // نعيد معرف الكريدنشال لتخزينه في قاعدة البيانات مع بادئة WA_ للتمييز
+        return `WA_${bufferToBase64URLString(credential.rawId)}`;
+    } catch (e: any) {
+        if (e.name === 'NotAllowedError') {
+            throw new Error("تم إلغاء العملية أو فشل التعرف على البصمة. يرجى المحاولة وتأكيد قفل الشاشة.");
+        }
+        throw e;
+    }
 };
 
 // 2. التحقق من الجهاز (عند كل بصمة حضور)
@@ -76,7 +86,9 @@ export const verifyDevice = async (credentialId: string): Promise<boolean> => {
         allowCredentials: [{
             id: base64URLStringToBuffer(rawId),
             type: "public-key",
-            transports: ["internal"] // هام جداً: يجبر المتصفح على استخدام الجهاز الحالي حصراً
+            // 'internal' تعني: لا تقبل المفتاح إلا إذا جاء من داخل هذا الجهاز.
+            // هذا يمنع استخدام نفس الحساب من جهاز آخر حتى لو كان يمتلك كلمة المرور.
+            transports: ["internal"] 
         }],
         userVerification: "required",
         timeout: 60000
@@ -85,9 +97,15 @@ export const verifyDevice = async (credentialId: string): Promise<boolean> => {
     try {
         const assertion = await navigator.credentials.get({ publicKey });
         return !!assertion;
-    } catch (e) {
+    } catch (e: any) {
         console.error("WebAuthn Verify Error", e);
-        // نعيد رسالة خطأ واضحة للمستخدم
-        throw new Error("فشل التحقق من هوية الجهاز. تأكد من أنك تستخدم نفس الهاتف المسجل وقم بتفعيل قفل الشاشة.");
+        // رسائل خطأ مخصصة
+        if (e.name === 'NotAllowedError') {
+             throw new Error("فشل التحقق. هذا الجهاز غير مطابق للبصمة المسجلة، أو تم إلغاء الطلب.");
+        }
+        if (e.name === 'InvalidStateError') {
+            throw new Error("هذا الجهاز غير مسجل لهذا المستخدم.");
+        }
+        throw new Error("فشل التحقق من هوية الجهاز. تأكد من أنك تستخدم نفس الهاتف المسجل.");
     }
 };

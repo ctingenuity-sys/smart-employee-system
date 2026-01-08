@@ -171,13 +171,20 @@ const AttendancePage: React.FC = () => {
     const isProcessingRef = useRef(false);
     const [realUserId, setRealUserId] = useState<string | null>(null);
 
-    // --- 0. Initialize GPS Watch ---
+    // --- Performance Optimization: Cached GPS ---
+    // Instead of waiting for GPS on click, we watch it and use the latest value if fresh.
+    const [cachedPosition, setCachedPosition] = useState<GeolocationPosition | null>(null);
+
     useEffect(() => {
         let watchId: number;
         if ('geolocation' in navigator) {
             watchId = navigator.geolocation.watchPosition(
-                () => {}, 
-                () => {}, 
+                (pos) => {
+                    setCachedPosition(pos);
+                }, 
+                (err) => {
+                    console.log("GPS Watch Error (non-fatal):", err);
+                }, 
                 { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 }
             );
         }
@@ -411,11 +418,7 @@ const AttendancePage: React.FC = () => {
                 
                 // Check if it's the old "DEV_" format or new "WA_" format
                 if (!storedCredId.startsWith('WA_')) {
-                    // Old fingerprint format - force re-registration for better security
-                    // OR handle gracefully. For now, let's allow it but warn or migrate.
-                    // To migrate, we'd need to clear it. Let's just fail and ask user to contact admin to reset.
-                    // Or, automatically upgrade? No, user needs to re-register.
-                    throw new Error("تحديث النظام: يرجى طلب إعادة تعيين الجهاز من المشرف لتفعيل البصمة الجديدة.");
+                    throw new Error("تحديث أمني: يرجى طلب إعادة ضبط البصمة من المشرف لتسجيل جهازك الحالي.");
                 }
 
                 const isValid = await verifyDevice(storedCredId);
@@ -465,100 +468,117 @@ const AttendancePage: React.FC = () => {
                 credentialUsed = await handleDeviceAuthentication() || 'UNKNOWN';
             }
 
-            // 2. Get GPS
+            // 2. Get GPS (FAST MODE: Use Cached if Fresh)
             setStatus('SCANNING_LOC');
 
             if (!navigator.geolocation) {
                 throw new Error('GPS not supported');
             }
 
-            navigator.geolocation.getCurrentPosition(
-                async (pos) => {
-                    try {
-                        const { latitude, longitude, accuracy } = pos.coords;
-                        // @ts-ignore
-                        const isMocked = pos.coords.mocked || false; 
+            // --- OPTIMIZATION: Check Cached GPS First ---
+            // If we have a cached position younger than 30 seconds, USE IT!
+            let positionToUse: GeolocationPosition | null = null;
+            
+            if (cachedPosition && (Date.now() - cachedPosition.timestamp < 30000) && cachedPosition.coords.accuracy < 100) {
+                console.log("Using Cached Position (Speed Boost 🚀)");
+                positionToUse = cachedPosition;
+            }
 
-                        const deviceTime = Date.now();
-                        const serverTimeFromOffset = deviceTime + timeOffset;
-                        const timeDiffMinutes = Math.abs(deviceTime - serverTimeFromOffset) / (1000 * 60);
-                        
-                        let isSuspicious = false;
-                        let violationType = '';
+            const processPosition = async (pos: GeolocationPosition) => {
+                try {
+                    const { latitude, longitude, accuracy } = pos.coords;
+                    // @ts-ignore
+                    const isMocked = pos.coords.mocked || false; 
 
-                        if (timeDiffMinutes > 5) { 
-                            isSuspicious = true;
-                            violationType = 'MANUAL_TIME_CHANGE';
-                        }
+                    const deviceTime = Date.now();
+                    const serverTimeFromOffset = deviceTime + timeOffset;
+                    const timeDiffMinutes = Math.abs(deviceTime - serverTimeFromOffset) / (1000 * 60);
+                    
+                    let isSuspicious = false;
+                    let violationType = '';
 
-                        if (isMocked) {
-                            isSuspicious = true;
-                            violationType = 'MOCK_LOCATION_DETECTED';
-                        }
-
-                        const dist = getDistanceFromLatLonInKm(latitude, longitude, HOSPITAL_LAT, HOSPITAL_LNG);
-
-                        if (dist > ALLOWED_RADIUS_KM && !hasOverride) {
-                            setStatus('ERROR');
-                            setErrorDetails({ title: 'Out of Range', msg: `You are ${(dist * 1000).toFixed(0)}m away.` });
-                            playSound('error');
-                            releaseLock();
-                            return;
-                        }
-
-                        setStatus('PROCESSING');
-                        
-                        const localDateStr = getLocalDateKey(currentTime!);
-                        const nextType = shiftLogic.state === 'READY_IN' ? 'IN' : 'OUT';
-                        
-                        const currentShiftIdx = (shiftLogic as any).shiftIdx || 1;
-
-                        await addDoc(collection(db, 'attendance_logs'), {
-                            userId: currentUserId,
-                            userName: currentUserName,
-                            type: nextType,
-                            timestamp: serverTimestamp(),
-                            clientTimestamp: Timestamp.now(),
-                            date: localDateStr,
-                            locationLat: latitude,
-                            locationLng: longitude,
-                            distanceKm: dist,
-                            accuracy: accuracy,
-                            deviceInfo: navigator.userAgent,
-                            deviceId: credentialUsed, // Store the Credential ID
-                            status: isSuspicious ? 'flagged' : 'verified', 
-                            shiftIndex: currentShiftIdx, 
-                            isSuspicious: isSuspicious, 
-                            violationType: violationType 
-                        });
-
-                        setStatus('SUCCESS');
-                        playSound('success');
-                        if (navigator.vibrate) navigator.vibrate([100]);
-                        
-                        setTimeout(() => setStatus('IDLE'), 2000);
-                        releaseLock(3000); 
-
-                    } catch (innerError: any) {
-                        console.error(innerError);
-                        setStatus('ERROR');
-                        setErrorDetails({ title: 'Process Error', msg: innerError.message });
-                        releaseLock();
+                    if (timeDiffMinutes > 5) { 
+                        isSuspicious = true;
+                        violationType = 'MANUAL_TIME_CHANGE';
                     }
-                },
-                (err) => {
-                    let errorMsg = "حدث خطأ في تحديد الموقع";
-                    if (err.code === 1) errorMsg = "يرجى تفعيل صلاحية الموقع للمتصفح";
-                    if (err.code === 2) errorMsg = "إشارة الـ GPS ضعيفة جداً (حاول الاقتراب من نافذة أو فتح الواي فاي)";
-                    if (err.code === 3) errorMsg = "استغرق تحديد الموقع وقتاً طويلاً، حاول مرة أخرى";
+
+                    if (isMocked) {
+                        isSuspicious = true;
+                        violationType = 'MOCK_LOCATION_DETECTED';
+                    }
+
+                    const dist = getDistanceFromLatLonInKm(latitude, longitude, HOSPITAL_LAT, HOSPITAL_LNG);
+
+                    if (dist > ALLOWED_RADIUS_KM && !hasOverride) {
+                        setStatus('ERROR');
+                        setErrorDetails({ title: 'Out of Range', msg: `You are ${(dist * 1000).toFixed(0)}m away.` });
+                        playSound('error');
+                        releaseLock();
+                        return;
+                    }
+
+                    setStatus('PROCESSING');
+                    
+                    const localDateStr = getLocalDateKey(currentTime!);
+                    const nextType = shiftLogic.state === 'READY_IN' ? 'IN' : 'OUT';
+                    
+                    const currentShiftIdx = (shiftLogic as any).shiftIdx || 1;
+
+                    await addDoc(collection(db, 'attendance_logs'), {
+                        userId: currentUserId,
+                        userName: currentUserName,
+                        type: nextType,
+                        timestamp: serverTimestamp(),
+                        clientTimestamp: Timestamp.now(),
+                        date: localDateStr,
+                        locationLat: latitude,
+                        locationLng: longitude,
+                        distanceKm: dist,
+                        accuracy: accuracy,
+                        deviceInfo: navigator.userAgent,
+                        deviceId: credentialUsed, // Store the WebAuthn Credential ID
+                        status: isSuspicious ? 'flagged' : 'verified', 
+                        shiftIndex: currentShiftIdx, 
+                        isSuspicious: isSuspicious, 
+                        violationType: violationType 
+                    });
+
+                    setStatus('SUCCESS');
+                    playSound('success');
+                    if (navigator.vibrate) navigator.vibrate([100]);
+                    
+                    setTimeout(() => setStatus('IDLE'), 2000);
+                    releaseLock(3000); 
+
+                } catch (innerError: any) {
+                    console.error(innerError);
                     setStatus('ERROR');
-                    setErrorDetails({ title: 'GPS Failed', msg: err.message });
-                    playSound('error');
-                    setTimeout(() => setStatus('IDLE'), 3000);
+                    setErrorDetails({ title: 'Process Error', msg: innerError.message });
                     releaseLock();
-                },
-                { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
-            );
+                }
+            };
+
+            if (positionToUse) {
+                // Instant punch path
+                await processPosition(positionToUse);
+            } else {
+                // Fallback to fetch (slower)
+                navigator.geolocation.getCurrentPosition(
+                    processPosition,
+                    (err) => {
+                        let errorMsg = "حدث خطأ في تحديد الموقع";
+                        if (err.code === 1) errorMsg = "يرجى تفعيل صلاحية الموقع للمتصفح";
+                        if (err.code === 2) errorMsg = "إشارة الـ GPS ضعيفة جداً";
+                        if (err.code === 3) errorMsg = "استغرق تحديد الموقع وقتاً طويلاً";
+                        setStatus('ERROR');
+                        setErrorDetails({ title: 'GPS Failed', msg: errorMsg });
+                        playSound('error');
+                        setTimeout(() => setStatus('IDLE'), 3000);
+                        releaseLock();
+                    },
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+                );
+            }
 
         } catch (e: any) {
             setStatus('ERROR');

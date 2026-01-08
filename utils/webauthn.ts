@@ -56,7 +56,6 @@ export const registerDevice = async (username: string): Promise<string> => {
     const credential = await navigator.credentials.create({ publicKey }) as PublicKeyCredential;
     
     // نعيد معرف الكريدنشال لتخزينه في قاعدة البيانات
-    // هذا المعرف ثابت لهذا الجهاز وهذا المستخدم
     return `WA_${bufferToBase64URLString(credential.rawId)}`;
 };
 
@@ -77,7 +76,7 @@ export const verifyDevice = async (credentialId: string): Promise<boolean> => {
         allowCredentials: [{
             id: base64URLStringToBuffer(rawId),
             type: "public-key",
-            transports: ["internal"] // يبحث في الجهاز نفسه
+            transports: ["internal"] // هام جداً: يجبر المتصفح على استخدام الجهاز الحالي حصراً
         }],
         userVerification: "required",
         timeout: 60000
@@ -88,6 +87,7 @@ export const verifyDevice = async (credentialId: string): Promise<boolean> => {
         return !!assertion;
     } catch (e) {
         console.error("WebAuthn Verify Error", e);
-        throw new Error("فشل التحقق من بصمة الجهاز. هل أنت على نفس الجهاز؟");
+        // نعيد رسالة خطأ واضحة للمستخدم
+        throw new Error("فشل التحقق من هوية الجهاز. تأكد من أنك تستخدم نفس الهاتف المسجل وقم بتفعيل قفل الشاشة.");
     }
 };

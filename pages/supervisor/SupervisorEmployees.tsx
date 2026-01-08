@@ -278,7 +278,7 @@ const SupervisorEmployees: React.FC = () => {
                 userName: user.name,
                 grantedBy: currentAdminName,
                 grantedAt: Timestamp.now(),
-                validUntil: Timestamp.fromDate(new Date(Date.now() + 30000)) // +1 Hour
+                validUntil: Timestamp.fromDate(new Date(Date.now() + 3600000)) // +1 Hour
             });
             setToast({ msg: 'Unlocked for 1 Hour', type: 'success' });
         } catch(e) { setToast({ msg: 'Error', type: 'error' }); }
@@ -471,7 +471,7 @@ const SupervisorEmployees: React.FC = () => {
                                     <tr>
                                         <th className="p-5">{t('role.user')}</th>
                                         <th className="p-5">{t('sup.user.role')}</th>
-                                        <th className="p-5">Bio</th>
+                                        <th className="p-5">Device Link</th>
                                         <th className="p-5 text-center">{t('actions')}</th>
                                     </tr>
                                 </thead>
@@ -484,14 +484,21 @@ const SupervisorEmployees: React.FC = () => {
                                                 </div>
                                                 <div>
                                                     <h4 className="font-bold text-slate-800">{user.name}</h4>
-                                                    <p className="text-[10px] text-slate-400">{user.email}</p>
+                                                    <p className="text-sm text-slate-400">{user.email}</p>
                                                 </div>
                                             </td>
                                             <td className="p-4">
                                                 <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 uppercase">{user.role}</span>
                                             </td>
                                             <td className="p-4">
-                                                {user.biometricId ? <i className="fas fa-fingerprint text-emerald-500"></i> : <span className="text-slate-300">-</span>}
+                                                {user.biometricId ? (
+                                                    <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-100 w-fit">
+                                                        <i className="fas fa-link text-xs"></i> 
+                                                        <span className="text-[10px] font-bold">LINKED</span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-slate-400 text-xs italic">No Device</span>
+                                                )}
                                             </td>
                                             <td className="p-4">
                                                 <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">

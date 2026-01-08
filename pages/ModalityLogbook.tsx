@@ -60,12 +60,17 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
         setLoading(true);
         
         try {
+            // إضافة التوقيت لتغطية اليوم كاملاً لأن completedAt يحتوي على وقت
+            const queryStart = `${startDate}T00:00:00`;
+            const queryEnd = `${endDate}T23:59:59`;
+
             let query = supabase
                 .from('appointments')
                 .select('*')
                 .eq('status', 'done')
-                .gte('date', startDate)
-                .lte('date', endDate);
+                // البحث بتاريخ الإنجاز الفعلي وليس تاريخ الحجز
+                .gte('completedAt', queryStart)
+                .lte('completedAt', queryEnd);
 
             if (type === 'X-RAY') {
                 // X-RAY usually includes General Xray
@@ -74,7 +79,8 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
                 query = query.eq('examType', type);
             }
 
-            const { data, error } = await query.order('date', { ascending: true }).order('time', { ascending: true });
+            // الترتيب حسب وقت الإنجاز
+            const { data, error } = await query.order('completedAt', { ascending: true });
 
             if (error) throw error;
             setLogs(data as ExtendedAppointment[]);
@@ -178,7 +184,7 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
                                     <tr>
                                         <th className="p-4 print:p-2 text-center w-16">#</th>
                                         <th className="p-4 print:p-2">Reg No.</th>
-                                        <th className="p-4 print:p-2">التاريخ / الوقت</th>
+                                        <th className="p-4 print:p-2">تاريخ الإنجاز</th>
                                         <th className="p-4 print:p-2">اسم المريض</th>
                                         <th className="p-4 print:p-2">رقم الملف (ID)</th>
                                         <th className="p-4 print:p-2">الفحص</th>
@@ -187,14 +193,15 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 print:divide-slate-300">
                                     {logs.length === 0 ? (
-                                        <tr><td colSpan={7} className="p-8 text-center text-slate-400">لا توجد سجلات في هذه الفترة</td></tr>
+                                        <tr><td colSpan={7} className="p-8 text-center text-slate-400">لا توجد سجلات منجزة في هذه الفترة</td></tr>
                                     ) : (
                                         logs.map((row, i) => (
                                             <tr key={row.id} className="hover:bg-slate-50 print:break-inside-avoid">
                                                 <td className="p-4 print:p-1 text-center font-mono text-slate-400 print:text-black">{i + 1}</td>
                                                 <td className="p-4 print:p-1 font-black text-slate-800 print:text-black">{row.registrationNumber || '-'}</td>
                                                 <td className="p-4 print:p-1 font-mono text-xs text-slate-500 print:text-black">
-                                                    {row.date} <span className="opacity-50">|</span> {row.time}
+                                                    {/* Display Completed At if available, else date/time */}
+                                                    {row.completedAt ? new Date(row.completedAt).toLocaleString('en-US', {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit'}) : `${row.date} ${row.time}`}
                                                 </td>
                                                 <td className="p-4 print:p-1 font-bold text-slate-800 print:text-black">{row.patientName}</td>
                                                 <td className="p-4 print:p-1 font-mono text-blue-600 print:text-black">{row.fileNumber}</td>

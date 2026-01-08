@@ -542,10 +542,14 @@ const AppointmentsPage: React.FC = () => {
                              .order('time', { ascending: false });
 
             } else if (activeView === 'done') {
-                // Done: Show ALL history (descending), permanent record
+                // Done: Show completed for SELECTED DATE
+                const startStr = `${selectedDate}T00:00:00`;
+                const endStr = `${selectedDate}T23:59:59`;
+                
                 query = query.eq('status', 'done')
-                             .order('completedAt', { ascending: false })
-                             .limit(200); // Reasonable limit for performance
+                             .gte('completedAt', startStr)
+                             .lte('completedAt', endStr)
+                             .order('completedAt', { ascending: false });
             } else {
                 // Pending: Default behavior
                 query = query.eq('date', selectedDate)
@@ -586,7 +590,11 @@ const AppointmentsPage: React.FC = () => {
                             let matchesView = false;
                             if (activeView === 'scheduled') matchesView = newRow.status === 'scheduled';
                             else if (activeView === 'processing') matchesView = newRow.status === 'processing';
-                            else if (activeView === 'done') matchesView = newRow.status === 'done';
+                            else if (activeView === 'done') {
+                                // Match date from completedAt or date
+                                const cDate = newRow.completedAt ? newRow.completedAt.split('T')[0] : newRow.date;
+                                matchesView = newRow.status === 'done' && cDate === selectedDate;
+                            }
                             else matchesView = ((newRow.date === selectedDate || newRow.scheduledDate === selectedDate) && newRow.status === activeView);
                             
                             if (matchesView) {
@@ -596,7 +604,10 @@ const AppointmentsPage: React.FC = () => {
                             let matchesView = false;
                             if (activeView === 'scheduled') matchesView = newRow.status === 'scheduled';
                             else if (activeView === 'processing') matchesView = newRow.status === 'processing';
-                            else if (activeView === 'done') matchesView = newRow.status === 'done'; // Always show done
+                            else if (activeView === 'done') {
+                                const cDate = newRow.completedAt ? newRow.completedAt.split('T')[0] : newRow.date;
+                                matchesView = newRow.status === 'done' && cDate === selectedDate;
+                            }
                             else matchesView = (newRow.date === selectedDate && newRow.status === activeView);
                             
                             if (matchesView) {
@@ -1301,35 +1312,108 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
 
    const handleCopyScript = () => {
     const script = `
-/* 🚀 AJ-SMART-BRIDGE V13.1 + TARGETED REFRESH (Modified) */
+/* 🚀 AJ-SMART-BRIDGE V15.0 - Session Keep-Alive + Floating UI */
 (function() {
     console.clear();
-    console.log("%c 🟢 Bridge + Auto-Refresh Active: Monitoring RefreshData Tooltip... ", "background: #000; color: #0f0; font-size:12px;");
+    console.log("%c 🟢 Bridge V15 Active: Session Keep-Alive Enabled. ", "background: #111; color: #00ff00; padding: 5px;");
 
     const APP_URL = "https://staff7.vercel.app/#/appointments";
     let syncWin = null;
 
-    // --- منع إغلاق الصفحة بالخطأ ---
-    window.onbeforeunload = function() {
-        return "⚠️ Bridge is active. Are you sure you want to close?";
+    // --- 1. وظيفة محاكاة النشاط البشري (لمنع الـ Session Expired) ---
+    function keepSessionAlive() {
+        // بدلاً من click() العادي، نرسل أحداث ماوس في زاوية الصفحة (1x1) 
+        // لكي يفهم المتصفح أن هناك حركة بدون إغلاق أي نوافذ
+        const events = ['mousemove', 'mousedown', 'mouseup'];
+        events.forEach(eventType => {
+            const event = new MouseEvent(eventType, {
+                view: window,
+                bubbles: true,
+                cancelable: true,
+                clientX: 1, 
+                clientY: 1
+            });
+            document.dispatchEvent(event);
+        });
+        
+        // محاكاة ضغطة خفيفة جداً على عنصر الـ body لضمان استجابة بعض السيرفرات
+        // مع تجنب تفعيل أي أزرار
+        console.log("%c 💓 Keep-Alive: Activity Simulated", "color: #ffca28;");
+    }
+
+    // --- 2. إنشاء الزر العائم (UI) ---
+    const createUI = () => {
+        const container = document.createElement('div');
+        container.id = 'bridge-ui-container';
+        Object.assign(container.style, {
+            position: 'fixed',
+            bottom: '20px',
+            right: '20px',
+            zIndex: '100000',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px'
+        });
+
+        const btn = document.createElement('button');
+        btn.innerHTML = '🔄 Refresh & Sync';
+        Object.assign(btn.style, {
+            padding: '12px 20px',
+            backgroundColor: '#2196f3',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontWeight: 'bold',
+            boxShadow: '0 4px 10px rgba(0,0,0,0.3)'
+        });
+
+        // حالة الجلسة (نقطة صغيرة خضراء)
+        const status = document.createElement('div');
+        status.innerHTML = '<span style="color:#4caf50">●</span> Session Active';
+        Object.assign(status.style, {
+            fontSize: '10px',
+            color: '#fff',
+            backgroundColor: 'rgba(0,0,0,0.7)',
+            padding: '4px 8px',
+            borderRadius: '4px',
+            textAlign: 'center'
+        });
+
+        btn.onclick = () => {
+            triggerRefresh();
+            keepSessionAlive(); // نحدث النشاط عند الضغط اليدوي أيضاً
+        };
+
+        container.appendChild(status);
+        container.appendChild(btn);
+        document.body.appendChild(container);
     };
 
-    // --- الضغط التلقائي على زر التحديث كل دقيقة واحدة ---
-    setInterval(function() {
-        // البحث عن الزر عن طريق الـ mattooltip المحدد
-        const refreshBtn = document.querySelector('img[mattooltip="RefreshData"]');
+    // --- 3. وظيفة البحث والضغط التلقائي ---
+    function triggerRefresh() {
+        const refreshBtn = document.querySelector('img[mattooltip="RefreshData"]') || 
+                           document.querySelector('[mattooltip="RefreshData"]');
         
         if (refreshBtn) {
             refreshBtn.click();
-            console.log("%c 🔄 Auto-Click: 'RefreshData' image button clicked successfully.", "color: #4caf50; font-weight: bold;");
+            console.log("%c ✅ Auto-Click Success", "color: #4caf50;");
         } else {
-            console.log("%c ⚠️ Warning: Refresh button with mattooltip='RefreshData' not found.", "color: #ff5252;");
-            
-            // خيار احتياطي: محاكاة نقرة بسيطة للبقاء نشطاً إذا لم يجد الزر
-            document.body.click();
+            console.warn("⚠️ Refresh Button Not Found. Simulating activity anyway...");
         }
-    }, 60000); // 60000 ms = دقيقة واحدة تماماً
+        
+        // في كل مرة نحاول نحدث، نرسل إشارة نشاط للجلسة
+        keepSessionAlive();
+    }
 
+    // تشغيل التحديث والنشاط كل 60 ثانية
+    setInterval(triggerRefresh, 60000);
+
+    // تشغيل UI
+    if (document.readyState === 'complete') createUI();
+    else window.addEventListener('load', createUI);
+
+    // --- 4. الجزء الخاص بالمزامنة (Interceptor) ---
     function openSyncWindow() {
         if (!syncWin || syncWin.closed) {
             syncWin = window.open(APP_URL, "SmartAppSyncWindow");
@@ -1337,52 +1421,26 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
         return syncWin;
     }
 
-    function sendData(data) {
-        if (!data) return;
-        let payload = data.d || data.result || data;
-        
-        if (!Array.isArray(payload)) payload = [payload];
-
-        const isValid = payload.length > 0 && (
-            payload[0].engName || 
-            payload[0].patientName || 
-            payload[0].xrayPatientDetails || 
-            payload[0].fileNumber
-        );
-
-        if (isValid) {
-            console.log("🔥 Data Intercepted. Syncing...");
-            syncWin = openSyncWindow();
-            setTimeout(() => {
-                syncWin.postMessage({ type: 'SMART_SYNC_DATA', payload: payload }, '*');
-            }, 500);
-        }
-    }
-
-    // --- مراقبة الطلبات (XHR Interception) ---
-    const originalOpen = XMLHttpRequest.prototype.open;
     const originalSend = XMLHttpRequest.prototype.send;
-
-    XMLHttpRequest.prototype.open = function(method, url) {
-        this._url = url;
-        return originalOpen.apply(this, arguments);
-    };
-
     XMLHttpRequest.prototype.send = function() {
         this.addEventListener('load', function() {
-            const contentType = this.getResponseHeader("content-type");
-            if (contentType && contentType.includes("application/json")) {
-                try {
-                    const text = this.responseText;
-                    if (text) {
-                        const json = JSON.parse(text);
-                        sendData(json);
+            try {
+                if (this.getResponseHeader("content-type")?.includes("application/json")) {
+                    const json = JSON.parse(this.responseText);
+                    let payload = json.d || json.result || json;
+                    if (!Array.isArray(payload)) payload = [payload];
+                    
+                    if (payload[0]?.patientName || payload[0]?.fileNumber) {
+                        syncWin = openSyncWindow();
+                        setTimeout(() => syncWin.postMessage({ type: 'SMART_SYNC_DATA', payload }, '*'), 800);
                     }
-                } catch (e) {}
-            }
+                }
+            } catch (e) {}
         });
         return originalSend.apply(this, arguments);
     };
+
+    window.onbeforeunload = () => "Bridge Active";
 })();
 `;
 
@@ -1644,7 +1702,7 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
                             const timeDisplay = appt.time;
 
                             return (
-                                <div key={appt.id} className={`relative bg-white rounded-2xl p-4 shadow-sm border-l-4 transition-all hover:-translate-y-1 animate-fade-in ${appt.status === 'done' ? 'border-l-emerald-500 opacity-80' : isScheduled ? 'border-l-blue-500' : 'border-l-amber-500 shadow-md'}`}>
+                                <div key={appt.id} className={`relative bg-white rounded-2xl p-4 shadow-sm border-l-4 transition-all hover:-translate-y-1 animate-fade-in ${appt.status === 'done' ? 'border-l-emerald-500 bg-emerald-50/30' : isScheduled ? 'border-l-blue-500' : 'border-l-amber-500 shadow-md'}`}>
                                     
                                     <div className="flex justify-between items-start mb-2">
                                         <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-wider border ${mod.color} ${mod.border}`}>

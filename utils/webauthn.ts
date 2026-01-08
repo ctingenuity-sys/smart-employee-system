@@ -45,13 +45,19 @@ export const registerDevice = async (username: string): Promise<string> => {
         },
         pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
         
-        // --- القلب النابض للحماية ---
+        // --- تعديل لتقليل النوافذ المنبثقة ---
         authenticatorSelection: {
-            // 'platform' تعني: استخدم قارئ البصمة/الوجه المدمج في هذا الجهاز حصراً.
-            // تمنع استخدام مفاتيح USB الخارجية أو كلمات المرور العادية.
+            // 'platform' ضروري لإجبار استخدام الجهاز الحالي (يمنع المفاتيح الخارجية)
             authenticatorAttachment: "platform", 
-            userVerification: "required", // يطلب بصمة/PIN إجبارياً
-            residentKey: "required" // يخزن المفتاح بشكل دائم على الجهاز
+            
+            // 'required' يطلب فتح القفل (بصمة/وجه/رمز)
+            userVerification: "required", 
+            
+            // التغيير هنا: استخدام 'preferred' بدلاً من 'required'
+            // هذا يقلل من محاولة المتصفح حفظ "حساب Passkey" في السحابة،
+            // مما يجعل العملية تبدو مجرد طلب بصمة سريع في معظم الأجهزة.
+            residentKey: "preferred",
+            requireResidentKey: false
         },
         timeout: 60000,
         attestation: "none"

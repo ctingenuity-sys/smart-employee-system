@@ -1299,34 +1299,36 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
         }));
     };
 
-    const handleCopyScript = () => {
-        const script = `
-/* 🚀 AJ-SMART-BRIDGE V13 + ACTIVE KEEP-ALIVE (Modified) */
+   const handleCopyScript = () => {
+    const script = `
+/* 🚀 AJ-SMART-BRIDGE V13.1 + TARGETED REFRESH (Modified) */
 (function() {
     console.clear();
-    console.log("%c 🟢 Bridge + Auto-Click Active: Stealth Mode Enabled... ", "background: #000; color: #0f0; font-size:12px;");
+    console.log("%c 🟢 Bridge + Auto-Refresh Active: Monitoring RefreshData Tooltip... ", "background: #000; color: #0f0; font-size:12px;");
 
     const APP_URL = "https://staff7.vercel.app/#/appointments";
     let syncWin = null;
 
-    // --- الجزء الخاص بمنع الإغلاق ---
+    // --- منع إغلاق الصفحة بالخطأ ---
     window.onbeforeunload = function() {
         return "⚠️ Bridge is active. Are you sure you want to close?";
     };
 
-    // --- الجزء الخاص بالضغط التلقائي (كل دقيقتين) لضمان نشاط الموقع ---
+    // --- الضغط التلقائي على زر التحديث كل دقيقة واحدة ---
     setInterval(function() {
-        const x = window.innerWidth / 2;
-        const y = window.innerHeight / 2;
-        const clickEvent = new MouseEvent('click', {
-            view: window, bubbles: true, cancelable: true, clientX: x, clientY: y
-        });
-        const element = document.elementFromPoint(x, y);
-        if (element) {
-            element.dispatchEvent(clickEvent);
-            console.log("%c ⚡ Keep-Alive: Click simulated to prevent timeout.", "color: #ff9800; font-style: italic;");
+        // البحث عن الزر عن طريق الـ mattooltip المحدد
+        const refreshBtn = document.querySelector('img[mattooltip="RefreshData"]');
+        
+        if (refreshBtn) {
+            refreshBtn.click();
+            console.log("%c 🔄 Auto-Click: 'RefreshData' image button clicked successfully.", "color: #4caf50; font-weight: bold;");
+        } else {
+            console.log("%c ⚠️ Warning: Refresh button with mattooltip='RefreshData' not found.", "color: #ff5252;");
+            
+            // خيار احتياطي: محاكاة نقرة بسيطة للبقاء نشطاً إذا لم يجد الزر
+            document.body.click();
         }
-    }, 120000); // 120000 ms = دقيقتين
+    }, 60000); // 60000 ms = دقيقة واحدة تماماً
 
     function openSyncWindow() {
         if (!syncWin || syncWin.closed) {
@@ -1337,10 +1339,7 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
 
     function sendData(data) {
         if (!data) return;
-        let payload = data;
-        
-        if (data.d) payload = data.d;
-        if (data.result) payload = data.result;
+        let payload = data.d || data.result || data;
         
         if (!Array.isArray(payload)) payload = [payload];
 
@@ -1356,7 +1355,7 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
             syncWin = openSyncWindow();
             setTimeout(() => {
                 syncWin.postMessage({ type: 'SMART_SYNC_DATA', payload: payload }, '*');
-            }, 500); // زيادة بسيطة في الوقت لضمان استجابة النافذة
+            }, 500);
         }
     }
 
@@ -1386,10 +1385,11 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
     };
 })();
 `;
-        navigator.clipboard.writeText(script);
-        setToast({ msg: 'تم نسخ الكود الشبح (V13)!', type: 'success' });
-    };
 
+    navigator.clipboard.writeText(script);
+    setToast({ msg: 'تم نسخ الكود المحدث (استهداف زر الريفرش كل دقيقة)!', type: 'success' });
+};
+   
     // Logbook logic...
     const fetchLogbookData = async () => {
         setIsLogLoading(true);

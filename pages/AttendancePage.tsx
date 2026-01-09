@@ -159,8 +159,10 @@ const AttendancePage: React.FC = () => {
     // NEW: Action/Leave State
     const [todayAction, setTodayAction] = useState<string | null>(null);
     
-    const [overrideExpiries, setOverrideExpiries] = useState<Date[]>([]);
+    const [activeOverrideId, setActiveOverrideId] = useState<string | null>(null);
+    const [overrideExpiry, setOverrideExpiry] = useState<Date | null>(null);
     const [hasOverride, setHasOverride] = useState(false);
+    
     const [userProfile, setUserProfile] = useState<any>(null);
     const [schedules, setSchedules] = useState<Schedule[]>([]);
     const [activeLiveCheck, setActiveLiveCheck] = useState<LocationCheckRequest | null>(null);
@@ -218,24 +220,27 @@ const AttendancePage: React.FC = () => {
         syncServerTime();
     }, []);
 
-    // 2. Clock Logic
+    // 2. Clock Logic & Override Expiry Check
     useEffect(() => {
         const timer = setInterval(() => {
-            const now = new Date(Date.now() + timeOffset);
+            const nowMs = Date.now() + timeOffset; // Synced server time
+            const now = new Date(nowMs);
             setCurrentTime(now);
 
-            // --- Override Countdown ---
-            const activeExpiry = overrideExpiries.find(expiry => expiry > now);
-            
-            if (activeExpiry) {
-                setHasOverride(true);
-                const diffSeconds = Math.round((activeExpiry.getTime() - now.getTime()) / 1000);
-                const displayedSeconds = Math.min(30, Math.max(0, diffSeconds));
-                if (displayedSeconds <= 0) {
+            // --- Override Countdown (Strict Server Time Check) ---
+            if (overrideExpiry) {
+                if (overrideExpiry.getTime() > nowMs) {
+                    setHasOverride(true);
+                    const diffSeconds = Math.round((overrideExpiry.getTime() - nowMs) / 1000);
+                    // Cap display to 30s even if logic is 45s (buffer)
+                    const displayedSeconds = Math.min(30, Math.max(0, diffSeconds)); 
+                    setTimeLeft(displayedSeconds);
+                } else {
+                    // Expired
                     setHasOverride(false);
                     setTimeLeft(null);
-                } else {
-                    setTimeLeft(displayedSeconds);
+                    setActiveOverrideId(null);
+                    setOverrideExpiry(null);
                 }
             } else {
                 setHasOverride(false);
@@ -247,7 +252,7 @@ const AttendancePage: React.FC = () => {
             }
         }, 1000);
         return () => clearInterval(timer);
-    }, [isTimeSynced, timeOffset, overrideExpiries]);
+    }, [isTimeSynced, timeOffset, overrideExpiry]);
 
 
     // 3. Data Subscriptions
@@ -288,12 +293,26 @@ const AttendancePage: React.FC = () => {
             setYesterdayLogs(logs);
         });
 
+        // OVERRIDE LISTENER (Robust)
         const qOverride = query(collection(db, 'attendance_overrides'), where('userId', '==', currentUserId));
         const unsubOver = onSnapshot(qOverride, (snap) => {
-            const expiries = snap.docs
-                .map(d => d.data().validUntil?.toDate())
-                .filter(date => date != null);
-            setOverrideExpiries(expiries.sort((a, b) => a.getTime() - b.getTime()));
+            // Find any valid override based on server time logic
+            // We do the time check in the interval to handle expiration smoothly
+            const validDoc = snap.docs.find(d => {
+                const data = d.data();
+                const expiry = data.validUntil?.toDate();
+                if (!expiry) return false;
+                // Basic check here, strict check in timer
+                return expiry.getTime() > (Date.now() + timeOffset); 
+            });
+
+            if (validDoc) {
+                setActiveOverrideId(validDoc.id);
+                setOverrideExpiry(validDoc.data().validUntil.toDate());
+            } else {
+                setActiveOverrideId(null);
+                setOverrideExpiry(null);
+            }
         });
 
         // NEW: Fetch Actions/Leaves for Today to Lock Attendance
@@ -326,7 +345,7 @@ const AttendancePage: React.FC = () => {
         const unsubSch = onSnapshot(qSch, (snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
 
         return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); unsubActions(); };
-    }, [currentUserId, isTimeSynced, currentTime?.toDateString()]);
+    }, [currentUserId, isTimeSynced, timeOffset]);
 
 
     // 4. Calculate Shifts (Data layer)
@@ -528,6 +547,7 @@ const AttendancePage: React.FC = () => {
                     
                     const currentShiftIdx = (shiftLogic as any).shiftIdx || 1;
 
+                    // --- ADD LOG ---
                     await addDoc(collection(db, 'attendance_logs'), {
                         userId: currentUserId,
                         userName: currentUserName,
@@ -546,6 +566,16 @@ const AttendancePage: React.FC = () => {
                         isSuspicious: isSuspicious, 
                         violationType: violationType 
                     });
+
+                    // --- CONSUME OVERRIDE (One Time Use) ---
+                    if (hasOverride && activeOverrideId) {
+                        await deleteDoc(doc(db, 'attendance_overrides', activeOverrideId));
+                        // Optimistically clear local state
+                        setHasOverride(false);
+                        setTimeLeft(null);
+                        setActiveOverrideId(null);
+                        setOverrideExpiry(null);
+                    }
 
                     setStatus('SUCCESS');
                     playSound('success');
@@ -852,10 +882,10 @@ const AttendancePage: React.FC = () => {
                     <i className={`fas ${timeLeft <= 10 ? 'fa-triangle-exclamation' : 'fa-clock-rotate-left'} text-xl`}></i>
                     <div className="flex flex-col">
                         <span className="text-[10px] uppercase font-black tracking-widest opacity-80 leading-none">
-                            {timeLeft <= 10 ? 'Hurry Up!' : 'Access Window'}
+                            {timeLeft <= 10 ? 'Hurry Up!' : 'Override Active'}
                         </span>
                         <span className="text-lg font-black tabular-nums leading-none mt-1">
-                            Closing in: <span className="underline decoration-2 underline-offset-4">{timeLeft}s</span>
+                            Window: <span className="underline decoration-2 underline-offset-4">{timeLeft}s</span>
                         </span>
                     </div>
                 </div>

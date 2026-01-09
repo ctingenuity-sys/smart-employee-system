@@ -273,14 +273,19 @@ const SupervisorEmployees: React.FC = () => {
 
     const handleUnlockAttendance = async (user: User) => {
         try {
+            // Set validity to only 45 seconds from NOW (30 seconds for user + buffer)
+            const validityDuration = 45 * 1000; 
+            const expiryDate = new Date(Date.now() + validityDuration);
+
             await addDoc(collection(db, 'attendance_overrides'), {
                 userId: user.id,
                 userName: user.name,
                 grantedBy: currentAdminName,
-                grantedAt: Timestamp.now(),
-                validUntil: Timestamp.fromDate(new Date(Date.now() + 3600000)) // +1 Hour
+                grantedAt: serverTimestamp(), // Use server timestamp for creation
+                validUntil: Timestamp.fromDate(expiryDate), 
+                type: 'single_use' // Mark as single use
             });
-            setToast({ msg: 'Unlocked for 1 Hour', type: 'success' });
+            setToast({ msg: '🔓 Access Granted: 30 Seconds Window (One-Time)', type: 'success' });
         } catch(e) { setToast({ msg: 'Error', type: 'error' }); }
     };
 
@@ -504,7 +509,7 @@ const SupervisorEmployees: React.FC = () => {
                                                 <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button onClick={() => handleSendLiveCheck(user)} className="text-red-600 hover:bg-red-50 p-1 rounded animate-pulse" title="Live Check"><i className="fas fa-map-marker-alt"></i></button>
                                                     {user.biometricId && <button onClick={() => handleResetBiometric(user)} className="text-orange-500 hover:bg-orange-50 p-1 rounded" title="فك ارتباط الجهاز (Reset Device)"><i className="fas fa-unlock-alt"></i></button>}
-                                                    <button onClick={() => handleUnlockAttendance(user)} className="text-purple-500 hover:bg-purple-50 p-1 rounded" title="Unlock Att"><i className="fas fa-history"></i></button>
+                                                    <button onClick={() => handleUnlockAttendance(user)} className="text-purple-500 hover:bg-purple-50 p-1 rounded" title="Unlock Att (30s)"><i className="fas fa-history"></i></button>
                                                     <button onClick={() => handleDiagnoseUser(user)} className="text-indigo-500 hover:bg-indigo-50 p-1 rounded" title="Diagnose"><i className="fas fa-stethoscope"></i></button>
                                                     <button onClick={() => openEditModal(user)} className="text-blue-500 hover:bg-blue-50 p-1 rounded"><i className="fas fa-pen"></i></button>
                                                     <button onClick={() => handleDeleteUser(user)} className="text-red-500 hover:bg-red-50 p-1 rounded"><i className="fas fa-trash"></i></button>

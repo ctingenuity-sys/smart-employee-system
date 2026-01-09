@@ -1,17 +1,8 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { auth, db } from '../firebase'; // db kept ONLY for system_settings (low usage)
-
-import { QRCodeCanvas } from 'qrcode.react';
-
-
+import { auth, db } from '../firebase';
 // @ts-ignore
-import { 
-  doc, 
-  getDoc, 
-  setDoc,
-  Timestamp
-} from 'firebase/firestore';
+import { doc, getDoc, setDoc, Timestamp, onSnapshot } from 'firebase/firestore';
 import { Appointment } from '../types';
 import Loading from '../components/Loading';
 import Toast from '../components/Toast';
@@ -20,10 +11,8 @@ import { useLanguage } from '../contexts/LanguageContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
-import { GoogleGenAI } from "@google/genai";
 
 // Enhanced Keywords based on specific IHMS formats
-// ORDER MATTERS: X-RAY is placed ABOVE US to catch "HUMERUS" before "US" matches the substring
 const MODALITIES = [
     { 
         id: 'MRI', 
@@ -32,7 +21,7 @@ const MODALITIES = [
         color: 'text-blue-600 bg-blue-50', 
         border: 'border-blue-200', 
         keywords: ['MRI', 'MR ', 'MAGNETIC', 'M.R.I', 'رنين', 'مغناطيسي'],
-        instructionImage: 'https://forms.gle/reVThvP19PygkGwbA', // ضع رابط الموقع هنا
+        instructionImage: 'https://forms.gle/reVThvP19PygkGwbA',
     },
     { 
         id: 'CT', 
@@ -121,77 +110,13 @@ const findValue = (obj: any, keys: string[]): any => {
     return null;
 };
 
-// --- Helper: Convert File to Base64 for Gemini ---
-const fileToGenerativePart = async (file: File) => {
-    const base64EncodedDataPromise = new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-        reader.readAsDataURL(file);
-    });
-    return {
-        inlineData: { data: await base64EncodedDataPromise as string, mimeType: file.type },
-    };
-};
-
 // --- Helper: Local Date String ---
-// This ensures we get the date based on User's Machine Time, not UTC
 const getLocalToday = () => {
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const day = String(now.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
-};
-
-// --- Helper: Local Regex Parser (Fallback) ---
-const parseMedicalTextLocally = (text: string) => {
-    const clean = text.replace(/\|/g, 'I').replace(/\s+/g, ' ').trim();
-    const data: any = {};
-
-    // Patient Name
-    const nameWithIdMatch = clean.match(/([A-Z\s\u0600-\u06FF]{3,40})\s*[\(\[]\s*(\d{1,12})\s*[\)\]]/);
-    if (nameWithIdMatch) {
-        data.patientName = nameWithIdMatch[1].trim();
-        data.fileNumber = nameWithIdMatch[2]; 
-    } else {
-        const nameLabelMatch = clean.match(/(?:Name|Patient|Pat\.?|الاسم|المريض)\s*[:\.\-]\s*([A-Za-z\s\u0600-\u06FF]{3,40})/i);
-        if (nameLabelMatch) data.patientName = nameLabelMatch[1].trim();
-    }
-
-    // File Number
-    if (!data.fileNumber) {
-        const orderNumMatch = clean.match(/\b(10\d{5,8})\b/); 
-        if (orderNumMatch) {
-            data.fileNumber = orderNumMatch[1];
-        } else {
-            const fileLabelMatch = clean.match(/(?:File|MRN|ID|No|PIN|Reg|رقم|الملف)[:#\.\s-]*(\d{1,12})/i);
-            if (fileLabelMatch) data.fileNumber = fileLabelMatch[1];
-        }
-    }
-
-    // Age
-    const ageMatch = clean.match(/(?:Age|Y\/O|Years|DOB|العمر)[:\s]*(\d{1,3})/i);
-    if (ageMatch) data.patientAge = ageMatch[1];
-
-    // Doctor
-    const docMatch = clean.match(/(?:Dr\.|Dr|Doctor|Physician|Ref\.?\s?By|Consultant|Specialist|د\.|دكتور|طبيب|استشاري)[:\s\.]*([A-Za-z\s\u0600-\u06FF\.]{3,30})/i);
-    if (docMatch) data.doctorName = docMatch[1].trim();
-
-    // Modality Detection
-    const upperText = clean.toUpperCase();
-    if (upperText.includes('MRI') || upperText.includes('MAGNETIC')) data.examType = 'MRI';
-    else if (upperText.includes('CT') || upperText.includes('COMPUTED')) data.examType = 'CT';
-    else if (upperText.includes('ULTRASOUND') || upperText.includes('SONO') || upperText.includes('US ')) data.examType = 'US';
-    else if (upperText.includes('X-RAY') || upperText.includes('XRAY')) data.examType = 'X-RAY';
-    else data.examType = 'OTHER';
-
-    // Procedure Name (Simple Line Scoring)
-    const lines = text.split('\n');
-    const anatomyKeywords = ['BRAIN','CHEST','ABD','PELVIS','SPINE','KNEE','SHOULDER','NECK'];
-    const bestLine = lines.find(l => anatomyKeywords.some(k => l.toUpperCase().includes(k)) && l.length < 50);
-    if (bestLine) data.procedureName = bestLine.trim();
-
-    return data;
 };
 
 interface ExtendedAppointment extends Appointment {
@@ -207,26 +132,29 @@ const AppointmentsPage: React.FC = () => {
     const [appointments, setAppointments] = useState<ExtendedAppointment[]>([]);
     const appointmentsRef = useRef<ExtendedAppointment[]>([]); 
     
-    // FIX: Initialize with Local Date instead of UTC to avoid "Yesterday" bug
+    // Initialize with Local Date
     const [selectedDate, setSelectedDate] = useState(getLocalToday());
     const [activeView, setActiveView] = useState<'pending' | 'processing' | 'done' | 'scheduled'>('pending');
     const [activeModality, setActiveModality] = useState<string>('ALL');
-    const [searchQuery, setSearchQuery] = useState(''); 
+    const [searchQuery, setSearchQuery] = useState('');
+    
+    // Date Filtering Toggle
+    const [enableDateFilter, setEnableDateFilter] = useState(true);
     
     // UI State
     const [loading, setLoading] = useState(true);
-    const [processingId, setProcessingId] = useState<string | null>(null); // New: Track processing item
+    const [processingId, setProcessingId] = useState<string | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isBridgeModalOpen, setIsBridgeModalOpen] = useState(false);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-    const [isLogBookOpen, setIsLogBookOpen] = useState(false); // NEW: Local Logbook
+    const [isLogBookOpen, setIsLogBookOpen] = useState(false);
+    const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
     
     const [manualSlotsCount, setManualSlotsCount] = useState<number>(0);
     const [manualSlots, setManualSlots] = useState<string[]>([]);
 
     // Quota & Slots State
     const [modalitySettings, setModalitySettings] = useState<Record<string, ModalitySettings>>(DEFAULT_SETTINGS);
-    // NEW: Real-time booked count for the current date/modality
     const [currentBookedCount, setCurrentBookedCount] = useState(0);
 
     // Settings Editor State
@@ -244,14 +172,14 @@ const AppointmentsPage: React.FC = () => {
     const [bookingPrep, setBookingPrep] = useState(''); 
     const [bookingWarning, setBookingWarning] = useState(''); 
     const [availableSlots, setAvailableSlots] = useState<string[]>([]);
-    const [isDayLimitReached, setIsDayLimitReached] = useState(false); // NEW: Track if limit reached
+    const [isDayLimitReached, setIsDayLimitReached] = useState(false);
 
     // Panic & Completion Modal
     const [isPanicModalOpen, setIsPanicModalOpen] = useState(false);
     const [finishingAppt, setFinishingAppt] = useState<ExtendedAppointment | null>(null);
     const [panicDescription, setPanicDescription] = useState('');
 
-    // Reg Number Modal (Success Start)
+    // Reg Number Modal
     const [isRegModalOpen, setIsRegModalOpen] = useState(false);
     const [currentRegNo, setCurrentRegNo] = useState('');
 
@@ -260,41 +188,31 @@ const AppointmentsPage: React.FC = () => {
     const [bookedTicketId, setBookedTicketId] = useState('');
     const [bookedTicketData, setBookedTicketData] = useState<ExtendedAppointment | null>(null);
 
-    // Logbook Range State - FIX: Use Local Date
+    // Logbook Range State
     const [logStartDate, setLogStartDate] = useState(getLocalToday());
     const [logEndDate, setLogEndDate] = useState(getLocalToday());
     const [logbookData, setLogbookData] = useState<ExtendedAppointment[]>([]);
     const [isLogLoading, setIsLogLoading] = useState(false);
 
     const [toast, setToast] = useState<{msg: string, type: 'success'|'info'|'error'} | null>(null);
-    const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
     const [isListening, setIsListening] = useState(false);
-    const [isScanning, setIsScanning] = useState(false); // Used for AI OCR
-    const [ocrStatus, setOcrStatus] = useState(''); // Text status for Tesseract
+    const isSyncProcessing = useRef(false);
 
-    // Manual Add State - FIX: Use Local Date
+    // Manual Add State
     const [manualDate, setManualDate] = useState(getLocalToday());
-    const [manualTime, setManualTime] = useState('08:00');
+    const [manualTime, setManualTimeState] = useState('08:00');
     const [manualRoom, setManualRoom] = useState('');
     const [patientName, setPatientName] = useState('');
     const [fileNumber, setFileNumber] = useState(''); 
     const [examType, setExamType] = useState('MRI');
-    const [specificExamName, setSpecificExamName] = useState(''); // NEW: Specific exam name
+    const [specificExamName, setSpecificExamName] = useState('');
     const [doctorName, setDoctorName] = useState('');
     const [patientAge, setPatientAge] = useState('');
     const [notes, setNotes] = useState('');
-    const [preparationText, setPreparationText] = useState(''); // NEW: Editable Prep Text
+    const [preparationText, setPreparationText] = useState('');
 
     // Bridge Manual Input
     const [manualJsonInput, setManualJsonInput] = useState('');
-
-    // --- NEW: Ref for file input ---
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    // --- NEW: Scan Mode State ---
-    const [scanMode, setScanMode] = useState<'ai' | 'local'>('ai');
-    
-    // --- NEW: External Gemini Text Paste State ---
-    const [pastedGeminiText, setPastedGeminiText] = useState('');
 
     const currentUserId = auth.currentUser?.uid;
     const currentUserName = localStorage.getItem('username') || 'User';
@@ -303,53 +221,54 @@ const AppointmentsPage: React.FC = () => {
     useEffect(() => {
         appointmentsRef.current = appointments;
     }, [appointments]);
+    
+    // Change Date Filter default based on View
+    useEffect(() => {
+        if (activeView === 'scheduled') {
+            setEnableDateFilter(false); 
+        } else {
+            setEnableDateFilter(true);
+        }
+    }, [activeView]);
 
     // Load Settings
     useEffect(() => {
-        const fetchSettings = async () => {
-            try {
-                const docRef = doc(db, 'system_settings', 'appointment_slots');
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    setModalitySettings(docSnap.data() as Record<string, ModalitySettings>);
-                } else {
-                    if (isSupervisor) {
-                        await setDoc(docRef, DEFAULT_SETTINGS);
-                    }
+        const docRef = doc(db, 'system_settings', 'appointment_slots');
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists()) {
+                setModalitySettings(docSnap.data() as Record<string, ModalitySettings>);
+            } else {
+                if (isSupervisor) {
+                    setDoc(docRef, DEFAULT_SETTINGS);
                 }
-            } catch (e) {
-                console.error("Failed to load settings", e);
             }
-        };
-        fetchSettings();
+        }, (error) => {
+            console.error("Failed to sync settings", error);
+        });
+        return () => unsubscribe();
     }, [isSupervisor]);
-
 
     useEffect(() => {
         const slots = modalitySettings[editingModalityId]?.slots || [];
         const normalized = slots.map(normalizeTime).filter(Boolean);
-
         setManualSlots(normalized);
         setManualSlotsCount(normalized.length);
-        }, [editingModalityId]);
-
-
+    }, [editingModalityId]);
 
     const normalizeTime = (time?: string) => {
-  if (!time) return '';
-  if (/^\d{2}:\d{2}$/.test(time)) return time;
-  const match = time.match(/(\d{1,2}):(\d{2})\s?(am|pm)/i);
-  if (!match) return '';
-  let hour = parseInt(match[1], 10);
-  const minutes = match[2];
-  const period = match[3].toLowerCase();
-  if (period === 'pm' && hour < 12) hour += 12;
-  if (period === 'am' && hour === 12) hour = 0;
-  return `${hour.toString().padStart(2, '0')}:${minutes}`;
-};
+        if (!time) return '';
+        if (/^\d{2}:\d{2}$/.test(time)) return time;
+        const match = time.match(/(\d{1,2}):(\d{2})\s?(am|pm)/i);
+        if (!match) return '';
+        let hour = parseInt(match[1], 10);
+        const minutes = match[2];
+        const period = match[3].toLowerCase();
+        if (period === 'pm' && hour < 12) hour += 12;
+        if (period === 'am' && hour === 12) hour = 0;
+        return `${hour.toString().padStart(2, '0')}:${minutes}`;
+    };
 
-
-    // Update Prep Text when Exam Type Changes (Manual Selection)
+    // Update Prep Text when Exam Type Changes
     useEffect(() => {
         if (modalitySettings[examType]?.prep) {
             setPreparationText(modalitySettings[examType].prep);
@@ -359,156 +278,203 @@ const AppointmentsPage: React.FC = () => {
         }
     }, [examType, modalitySettings]);
 
-    // --- SHARED DATA PROCESSOR ---
+    // --- SHARED DATA PROCESSOR (FIXED: Deduplication & Status Persist) ---
     const processIncomingData = async (rawPayload: any) => {
+        if (isSyncProcessing.current) return;
+        isSyncProcessing.current = true;
         setIsListening(true);
-        let payload: any[] = [];
-        if (Array.isArray(rawPayload)) {
-            payload = rawPayload;
-        } else if (rawPayload && typeof rawPayload === 'object') {
-            payload = [rawPayload];
-        }
-
-        if (payload.length === 0) {
-            setIsListening(false);
-            return;
-        }
-
-        const rowsToInsert: any[] = [];
-
-        const detectModality = (serviceName: string) => {
-            const sNameUpper = serviceName.toUpperCase();
-            for (const mod of MODALITIES) {
-                if (mod.id === 'OTHER') continue;
-                if (mod.keywords.some(k => sNameUpper.includes(k))) {
-                    return mod.id;
-                }
-            }
-            return 'OTHER';
-        };
-
-        const cleanTime = (t: any) => {
-            if(!t) return '';
-            const s = String(t).trim();
-            return s.substring(0, 5); 
-        };
-
-        const cleanDate = (d: any) => {
-            if(!d) return getLocalToday(); // Use local date
-            return String(d).split('T')[0];
-        };
-
-        payload.forEach((p: any) => {
-            const pName = findValue(p, ['patientName', 'engName', 'name', 'patName', 'fullName']) || 'Unknown';
-            const cleanName = pName.includes(' - ') ? pName.split(' - ')[1] : pName;
-            const fNum = findValue(p, ['fileNumber', 'fileNo', 'mrn', 'patientId', 'pid']) || '';
-            const age = findValue(p, ['ageYear', 'age', 'patientAge', 'dob']);
-            
-            const rawQueTime = findValue(p, ['queTime', 'time', 'visitTime']) || '';
-            const qTime = cleanTime(rawQueTime) || '00:00';
-            
-            const commonInfo = {
-                patientName: cleanName,
-                fileNumber: String(fNum),
-                patientAge: age ? String(age) : '',
-                status: 'pending',
-                createdBy: 'Bridge',
-                createdByName: 'System',
-                notes: ''
-            };
-
-            const detailsArr = p.xrayPatientDetails || p.orderDetails || p.services || [];
-
-            if (Array.isArray(detailsArr) && detailsArr.length > 0) {
-                const modalityGroups: Record<string, { exams: string[], time: string, date: string, doc: string, ref: string }> = {};
-
-                detailsArr.forEach((det: any) => {
-                    const sName = findValue(det, ['serviceName', 'examName', 'procedure', 'xrayName']);
-                    if (!sName) return;
-
-                    const modId = detectModality(sName);
-                    const detTimeRaw = findValue(det, ['queTime', 'time']) || rawQueTime;
-                    const detTime = cleanTime(detTimeRaw);
-                    const detDate = cleanDate(det.queDate || p.queDate);
-                    
-                    const docName = det.doctorName || p.doctorName || 'Unknown Dr';
-                    const refNo = String(det.queRefNo || det.refNo || p.refNo || '');
-
-                    if (!modalityGroups[modId]) {
-                        modalityGroups[modId] = {
-                            exams: [],
-                            time: detTime || '00:00',
-                            date: detDate,
-                            doc: docName,
-                            ref: refNo
-                        };
-                    }
-                    modalityGroups[modId].exams.push(sName);
-                });
-
-                Object.keys(modalityGroups).forEach(modId => {
-                    const group = modalityGroups[modId];
-                    const safeFileNo = commonInfo.fileNumber || `NOFILE_${Math.random().toString(36).substr(2,5)}`;
-                    const uniqueId = `${group.date}_${safeFileNo}_${modId}`.replace(/[^a-zA-Z0-9_]/g, '');
-                    
-                    rowsToInsert.push({
-                        id: uniqueId,
-                        ...commonInfo,
-                        examType: modId, 
-                        examList: group.exams, 
-                        doctorName: group.doc,
-                        refNo: group.ref,
-                        date: group.date, 
-                        time: group.time,
-                        createdAt: new Date().toISOString()
-                    });
-                });
-
-            } else {
-                const sName = findValue(p, ['serviceName', 'examName']) || 'General Exam';
-                const modId = detectModality(sName);
-                const safeFileNo = commonInfo.fileNumber || `NOFILE_${Math.random().toString(36).substr(2,5)}`;
-                const uniqueId = `${cleanDate(p.queDate)}_${safeFileNo}_${modId}`.replace(/[^a-zA-Z0-9_]/g, '');
-                
-                rowsToInsert.push({
-                    id: uniqueId,
-                    ...commonInfo,
-                    examType: modId,
-                    examList: [sName],
-                    doctorName: p.doctorName || 'Unknown Dr',
-                    refNo: String(p.refNo || ''),
-                    date: cleanDate(p.queDate),
-                    time: qTime,
-                    createdAt: new Date().toISOString()
-                });
-            }
-        });
 
         try {
+            let payload: any[] = [];
+            if (Array.isArray(rawPayload)) {
+                payload = rawPayload;
+            } else if (rawPayload && typeof rawPayload === 'object') {
+                payload = [rawPayload];
+            }
+
+            if (payload.length === 0) {
+                setIsListening(false);
+                isSyncProcessing.current = false;
+                return;
+            }
+
+            // *** DEDUPLICATION MAP ***
+            // Ensure each ID is unique within this batch
+            const uniqueRecordsMap = new Map<string, any>();
+
+            const generateId = (dateStr: string, fileNo: string, modId: string) => {
+                const safeFile = fileNo || `NOFILE_${Math.random().toString(36).substr(2,5)}`;
+                return `${dateStr}_${safeFile}_${modId}`.replace(/[^a-zA-Z0-9_]/g, '');
+            };
+
+            const detectModality = (serviceName: string) => {
+                const sNameUpper = serviceName.toUpperCase();
+                for (const mod of MODALITIES) {
+                    if (mod.id === 'OTHER') continue;
+                    if (mod.keywords.some(k => sNameUpper.includes(k))) {
+                        return mod.id;
+                    }
+                }
+                return 'OTHER';
+            };
+            const cleanTime = (t: any) => (t ? String(t).trim().substring(0, 5) : '00:00');
+            const cleanDate = (d: any) => (d ? String(d).split('T')[0] : getLocalToday());
+
+            payload.forEach((p: any) => {
+                const pName = findValue(p, ['patientName', 'engName', 'name', 'patName', 'fullName']) || 'Unknown';
+                const cleanName = pName.includes(' - ') ? pName.split(' - ')[1] : pName;
+                const fNum = findValue(p, ['fileNumber', 'fileNo', 'mrn', 'patientId', 'pid']) || '';
+                const age = findValue(p, ['ageYear', 'age', 'patientAge', 'dob']);
+                const rawQueTime = findValue(p, ['queTime', 'time', 'visitTime']) || '';
+                
+                const detailsArr = p.xrayPatientDetails || p.orderDetails || p.services || [];
+                
+                if (Array.isArray(detailsArr) && detailsArr.length > 0) {
+                    const modalityGroups: Record<string, any> = {};
+                    detailsArr.forEach((det: any) => {
+                        const sName = findValue(det, ['serviceName', 'examName', 'procedure', 'xrayName']);
+                        if (!sName) return;
+                        const modId = detectModality(sName);
+                        if (!modalityGroups[modId]) {
+                            modalityGroups[modId] = {
+                                exams: [],
+                                time: cleanTime(findValue(det, ['queTime', 'time']) || rawQueTime),
+                                date: cleanDate(det.queDate || p.queDate),
+                                doc: det.doctorName || p.doctorName || 'Unknown Dr',
+                                ref: String(det.queRefNo || det.refNo || p.refNo || '')
+                            };
+                        }
+                        modalityGroups[modId].exams.push(sName);
+                    });
+
+                    Object.keys(modalityGroups).forEach(modId => {
+                        const group = modalityGroups[modId];
+                        const id = generateId(group.date, String(fNum), modId);
+                        
+                        // Deduplicate: If ID exists, we overwrite (latest data wins)
+                        uniqueRecordsMap.set(id, {
+                            id,
+                            patientName: cleanName,
+                            fileNumber: String(fNum),
+                            patientAge: age ? String(age) : '',
+                            examType: modId,
+                            examList: group.exams,
+                            doctorName: group.doc,
+                            refNo: group.ref,
+                            date: group.date,
+                            time: group.time,
+                            createdBy: 'Bridge',
+                            createdByName: 'System',
+                            createdAt: new Date().toISOString(),
+                        });
+                    });
+                } else {
+                    const sName = findValue(p, ['serviceName', 'examName']) || 'General Exam';
+                    const modId = detectModality(sName);
+                    const date = cleanDate(p.queDate);
+                    const id = generateId(date, String(fNum), modId);
+                    
+                    uniqueRecordsMap.set(id, {
+                        id,
+                        patientName: cleanName,
+                        fileNumber: String(fNum),
+                        patientAge: age ? String(age) : '',
+                        examType: modId,
+                        examList: [sName],
+                        doctorName: p.doctorName || 'Unknown Dr',
+                        refNo: String(p.refNo || ''),
+                        date: date,
+                        time: cleanTime(rawQueTime),
+                        createdBy: 'Bridge',
+                        createdByName: 'System',
+                        createdAt: new Date().toISOString(),
+                    });
+                }
+            });
+
+            // Convert Map to Array for processing
+            const incomingIds = Array.from(uniqueRecordsMap.keys());
+
+            if (incomingIds.length === 0) {
+                setIsListening(false);
+                isSyncProcessing.current = false;
+                return;
+            }
+
+            // --- FETCH EXISTING STATUSES ---
+            // Only fetch status fields to preserve them
+            const existingRecordsMap = new Map<string, any>();
+            const chunkSize = 50; 
+            for (let i = 0; i < incomingIds.length; i += chunkSize) {
+                const chunk = incomingIds.slice(i, i + chunkSize);
+                if(chunk.length === 0) continue;
+                
+                const { data: existing } = await supabase
+                    .from('appointments')
+                    .select('id, status, scheduledDate, time, roomNumber, performedBy, performedByName, completedAt, registrationNumber')
+                    .in('id', chunk);
+
+                if (existing) {
+                    existing.forEach((rec: any) => existingRecordsMap.set(rec.id, rec));
+                }
+            }
+
+            // --- MERGE & PREPARE FOR UPSERT ---
+            const rowsToInsert = Array.from(uniqueRecordsMap.values()).map(newRecord => {
+                const existing = existingRecordsMap.get(newRecord.id);
+                if (existing) {
+                    // *** CRITICAL FIX: PRESERVE STATUS ***
+                    // If it exists, KEEP the existing status (scheduled/done/processing)
+                    return {
+                        ...newRecord,
+                        status: existing.status, 
+                        scheduledDate: existing.scheduledDate || newRecord.scheduledDate,
+                        time: existing.time && existing.time !== '00:00' ? existing.time : newRecord.time,
+                        roomNumber: existing.roomNumber,
+                        performedBy: existing.performedBy,
+                        performedByName: existing.performedByName,
+                        completedAt: existing.completedAt,
+                        registrationNumber: existing.registrationNumber
+                    };
+                } else {
+                    return {
+                        ...newRecord,
+                        status: 'pending' // New record starts as pending
+                    };
+                }
+            });
+
+            // --- UPSERT TO SUPABASE ---
             if (rowsToInsert.length > 0) {
                 const { error } = await supabase.from('appointments').upsert(rowsToInsert, { onConflict: 'id' });
                 
                 if (error) {
-                    console.error("Supabase Write Error:", error);
-                    setToast({ msg: 'خطأ في حفظ البيانات في قاعدة البيانات', type: 'error' });
+                    console.error("Supabase Upsert Error:", error);
+                    // Silent fail to user, log to console
                 } else {
-                    setToast({ msg: `تم استقبال ${rowsToInsert.length} فحوصات! 📥`, type: 'success' });
                     setLastSyncTime(new Date());
-                    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-                    
+                    try {
+                        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                    } catch (e) {
+                        // Ignore vibration error
+                    }
+                    setToast({ msg: `تم تحديث ${rowsToInsert.length} سجلات! 📥`, type: 'success' });
                 }
             }
+
         } catch (e) {
-            console.error("Sync Write Error:", e);
+            console.error("Sync Error:", e);
+        } finally {
+            setTimeout(() => setIsListening(false), 1000);
+            isSyncProcessing.current = false;
         }
-        setTimeout(() => setIsListening(false), 1000);
     };
 
-    // --- 2. INTELLIGENT EXAM SPLITTER (Bridge Listener) ---
+    // --- Bridge Listener ---
     useEffect(() => {
         const handleMessage = async (event: MessageEvent) => {
             if (!event.data || event.data.type !== 'SMART_SYNC_DATA') return;
-            console.log("📨 Received Data from Bridge:", event.data.payload?.length);
+            // console.log("📨 Received Data from Bridge:", event.data.payload?.length);
             await processIncomingData(event.data.payload);
         };
 
@@ -516,7 +482,7 @@ const AppointmentsPage: React.FC = () => {
         return () => window.removeEventListener('message', handleMessage);
     }, [selectedDate]); 
 
-    // --- 2. SUPABASE REALTIME LISTENER ---
+    // --- SUPABASE REALTIME LISTENER ---
     useEffect(() => {
         setLoading(true);
 
@@ -532,27 +498,34 @@ const AppointmentsPage: React.FC = () => {
             setLoading(true);
             
             if (activeView === 'scheduled') {
-                // Scheduled: Future or Today
-                query = query.eq('status', 'scheduled')
-                             .order('scheduledDate', { ascending: true })
+                query = query.eq('status', 'scheduled');
+                if (enableDateFilter) {
+                     // FIX: Handle empty selectedDate to prevent 400 Bad Request
+                     if (selectedDate) {
+                        query = query.eq('scheduledDate', selectedDate);
+                     } else {
+                        // Safe fallback: either don't filter by date (dangerous for perf) or default to today
+                        query = query.eq('scheduledDate', getLocalToday());
+                     }
+                } else {
+                     query = query.gte('scheduledDate', getLocalToday());
+                }
+                query = query.order('scheduledDate', { ascending: true })
                              .order('time', { ascending: true });
             } else if (activeView === 'processing') {
-                // Processing: SHOW ALL ACTIVE
                 query = query.eq('status', 'processing')
                              .order('time', { ascending: false });
-
             } else if (activeView === 'done') {
-                // Done: Show completed for SELECTED DATE
-                const startStr = `${selectedDate}T00:00:00`;
-                const endStr = `${selectedDate}T23:59:59`;
-                
+                const dateToUse = selectedDate || getLocalToday();
+                const startStr = `${dateToUse}T00:00:00`;
+                const endStr = `${dateToUse}T23:59:59`;
                 query = query.eq('status', 'done')
                              .gte('completedAt', startStr)
                              .lte('completedAt', endStr)
                              .order('completedAt', { ascending: false });
             } else {
-                // Pending: Default behavior
-                query = query.eq('date', selectedDate)
+                const dateToUse = selectedDate || getLocalToday();
+                query = query.eq('date', dateToUse)
                              .eq('status', 'pending')
                              .order('time', { ascending: false })
                              .order('fileNumber', { ascending: false });
@@ -588,34 +561,49 @@ const AppointmentsPage: React.FC = () => {
 
                         if (payload.eventType === 'INSERT') {
                             let matchesView = false;
-                            if (activeView === 'scheduled') matchesView = newRow.status === 'scheduled';
+                            
+                            if (activeView === 'scheduled') {
+                                matchesView = newRow.status === 'scheduled';
+                                if (matchesView && enableDateFilter) {
+                                    // Safe comparison even if selectedDate is empty
+                                    matchesView = newRow.scheduledDate === selectedDate;
+                                }
+                            }
                             else if (activeView === 'processing') matchesView = newRow.status === 'processing';
                             else if (activeView === 'done') {
-                                // Match date from completedAt or date
                                 const cDate = newRow.completedAt ? newRow.completedAt.split('T')[0] : newRow.date;
-                                matchesView = newRow.status === 'done' && cDate === selectedDate;
+                                matchesView = newRow.status === 'done' && cDate === (selectedDate || getLocalToday());
                             }
-                            else matchesView = ((newRow.date === selectedDate || newRow.scheduledDate === selectedDate) && newRow.status === activeView);
+                            else {
+                                matchesView = (newRow.date === (selectedDate || getLocalToday()) && newRow.status === activeView);
+                            }
                             
                             if (matchesView) {
                                 updated = [newRow, ...prev];
                             }
                         } else if (payload.eventType === 'UPDATE') {
                             let matchesView = false;
-                            if (activeView === 'scheduled') matchesView = newRow.status === 'scheduled';
+                            
+                            if (activeView === 'scheduled') {
+                                matchesView = newRow.status === 'scheduled';
+                                if (matchesView && enableDateFilter) {
+                                    matchesView = newRow.scheduledDate === selectedDate;
+                                }
+                            }
                             else if (activeView === 'processing') matchesView = newRow.status === 'processing';
                             else if (activeView === 'done') {
                                 const cDate = newRow.completedAt ? newRow.completedAt.split('T')[0] : newRow.date;
-                                matchesView = newRow.status === 'done' && cDate === selectedDate;
+                                matchesView = newRow.status === 'done' && cDate === (selectedDate || getLocalToday());
                             }
-                            else matchesView = (newRow.date === selectedDate && newRow.status === activeView);
+                            else {
+                                matchesView = (newRow.date === (selectedDate || getLocalToday()) && newRow.status === activeView);
+                            }
                             
                             if (matchesView) {
                                 const idx = updated.findIndex(a => a.id === newRow.id);
                                 if (idx > -1) updated[idx] = newRow;
                                 else updated = [newRow, ...updated];
                             } else {
-                                // Remove if no longer matching view
                                 updated = updated.filter(a => a.id !== newRow.id);
                             }
                         } else if (payload.eventType === 'DELETE') {
@@ -624,7 +612,6 @@ const AppointmentsPage: React.FC = () => {
                         
                         return updated.sort((a, b) => {
                             if (activeView === 'done') {
-                                // Sort by completion time for Done view
                                 const cA = a.completedAt || '';
                                 const cB = b.completedAt || '';
                                 return cB.localeCompare(cA);
@@ -635,6 +622,13 @@ const AppointmentsPage: React.FC = () => {
                             
                             if (activeView === 'processing') return 0;
                             
+                            if (activeView === 'scheduled') {
+                                const dateA = a.scheduledDate || '9999-99-99';
+                                const dateB = b.scheduledDate || '9999-99-99';
+                                if (dateA !== dateB) return dateA.localeCompare(dateB);
+                                return timeA.localeCompare(timeB);
+                            }
+
                             const timeComparison = timeB.localeCompare(timeA); 
                             if (timeComparison !== 0) return timeComparison;
                             
@@ -650,7 +644,7 @@ const AppointmentsPage: React.FC = () => {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [selectedDate, activeView]);
+    }, [selectedDate, activeView, enableDateFilter]);
 
     const filteredAppointments = useMemo(() => {
         let list = appointments;
@@ -673,10 +667,8 @@ const AppointmentsPage: React.FC = () => {
     }, [appointments, activeModality, searchQuery]);
 
     // --- FETCH ACTUAL SCHEDULED COUNT FOR QUOTA ---
-    // Fetch real-time count of scheduled items for current date/modality regardless of view
   useEffect(() => {
         const fetchBookedCount = async () => {
-            // FIX: Prevent query if date is empty to avoid 400 Bad Request
             if (!selectedDate) {
                 setCurrentBookedCount(0);
                 return;
@@ -688,8 +680,20 @@ const AppointmentsPage: React.FC = () => {
                 .eq('status', 'scheduled')
                 .eq('scheduledDate', selectedDate); 
                 
-            if (activeModality !== 'ALL') {
-                q = q.eq('examType', activeModality);
+            let typeKey = activeModality;
+            if ((typeKey === 'OTHER' || typeKey === 'XRAY') && modalitySettings['X-RAY']) {
+                 const otherLimit = modalitySettings['OTHER']?.limit;
+                 if (otherLimit >= 99 && modalitySettings['X-RAY'].limit < 99) {
+                     typeKey = 'X-RAY';
+                 }
+            }
+
+            if (typeKey !== 'ALL') {
+                if (typeKey === 'X-RAY') {
+                     q = q.in('examType', ['X-RAY', 'XRAY', 'OTHER']);
+                } else {
+                     q = q.eq('examType', typeKey);
+                }
             }
             
             const { count, error } = await q;
@@ -700,13 +704,12 @@ const AppointmentsPage: React.FC = () => {
 
         fetchBookedCount();
         
-        // Setup listener for count updates
         const countChannel = supabase
             .channel('count_updates')
             .on(
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'appointments' }, 
-                () => fetchBookedCount() // Re-fetch on any change
+                () => fetchBookedCount() 
             )
             .subscribe();
 
@@ -742,20 +745,16 @@ const AppointmentsPage: React.FC = () => {
         } catch(e) { console.error(e); }
     };
     
-    // NEW: Cancel Appointment (Revert to Pending)
     const handleCancelAppointment = async (appt: ExtendedAppointment) => {
     if (!confirm(t('appt.confirmCancel'))) return;
         try {
-            // Optimistic update
             setAppointments(prev => prev.filter(a => a.id !== appt.id));
-            
             const { error } = await supabase.from('appointments').update({
                 status: 'pending',
                 scheduledDate: null,
                 time: null,
                 notes: appt.notes ? appt.notes + '\n[System]: Appointment Cancelled' : '[System]: Appointment Cancelled'
             }).eq('id', appt.id);
-            
             if (error) throw error;
         setToast({ msg: t('appt.toast.cancelled'), type: 'success' });
         } catch (e) {
@@ -777,7 +776,7 @@ const AppointmentsPage: React.FC = () => {
 
         if (error) {
             console.error("Availability Check Error:", error);
-            return false; // Fail safe
+            return false;
         }
 
         return data.length === 0;
@@ -816,7 +815,7 @@ const AppointmentsPage: React.FC = () => {
             
             setCurrentRegNo(regNo);
             setIsRegModalOpen(true);
-            if (navigator.vibrate) navigator.vibrate(200);
+            try { if (navigator.vibrate) navigator.vibrate(200); } catch(e) {}
 
         } catch(e: any) {
         setToast({ msg: t('error.general'), type: 'error' });
@@ -854,7 +853,7 @@ const AppointmentsPage: React.FC = () => {
             msg: isPanic ? t('appt.toast.panic') : t('appt.toast.finish'), 
             type: 'success' 
         });
-            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+            try { if (navigator.vibrate) navigator.vibrate([100, 50, 100]); } catch(e) {}
 
             setIsPanicModalOpen(false);
             setFinishingAppt(null);
@@ -883,36 +882,50 @@ const AppointmentsPage: React.FC = () => {
 
     useEffect(() => {
         const checkQuotaAndSlots = async () => {
-            if (!bookingAppt || !bookingDate) return;
+            if (!bookingAppt || !bookingDate || !isBookingModalOpen) return;
             setBookingWarning('');
             setAvailableSlots([]);
             setIsDayLimitReached(false);
 
             try {
-                // Check quota for the specific date selected in modal
-                const { data, error } = await supabase.from('appointments').select('time')
+                let typeKey = bookingAppt.examType;
+                
+                if (typeKey === 'OTHER' || typeKey === 'XRAY') {
+                    typeKey = 'X-RAY';
+                }
+
+                let query = supabase.from('appointments').select('time')
                     .eq('status', 'scheduled')
-                    .eq('scheduledDate', bookingDate)
-                    .eq('examType', bookingAppt.examType);
+                    .eq('scheduledDate', bookingDate);
+                
+                if (typeKey === 'X-RAY') {
+                    query = query.in('examType', ['X-RAY', 'XRAY', 'OTHER']);
+                } else {
+                    query = query.eq('examType', typeKey);
+                }
+
+                const { data, error } = await query;
 
                 if (error) throw error;
 
                 const bookedTimes = data.map(d => d.time);
                 const currentCount = data.length;
                 
-                const settings = modalitySettings[bookingAppt.examType] || DEFAULT_SETTINGS['OTHER'];
+                const settings = modalitySettings[typeKey] || DEFAULT_SETTINGS['OTHER'];
                 const limit = settings.limit;
                 const definedSlots = settings.slots || [];
 
                 if (currentCount >= limit) {
                 const warningMsg = t('appt.limitWarning')
                     .replace('{count}', currentCount.toString())
-                    .replace('{limit}', limit.toString());
+                    .replace('{limit}', limit.toString())
+                    .replace('{mod}', typeKey);
 
-setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
+                    setBookingWarning(warningMsg);                    
+                    setIsDayLimitReached(true);
                     setAvailableSlots([]);
                 } else {
-                    setBookingWarning(`✅ متاح: ${limit - currentCount} أماكن.`);
+                    setBookingWarning(`✅ متاح: ${limit - currentCount} أماكن (${typeKey}).`);
                     setIsDayLimitReached(false);
                     if (definedSlots.length > 0) {
                         const free = definedSlots.filter(s => !bookedTimes.includes(s));
@@ -924,7 +937,7 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
             } catch(e) { console.error(e); }
         };
         checkQuotaAndSlots();
-    }, [bookingDate, bookingAppt, modalitySettings]);
+    }, [bookingDate, bookingAppt, modalitySettings, isBookingModalOpen]);
 
     const confirmBooking = async () => {
         if (!bookingAppt || !bookingDate || (!bookingTime && (!isDayLimitReached || isSupervisor))) {
@@ -932,7 +945,6 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
             return;
         }
         
-        // Final guard against users booking when limit is reached
         if (isDayLimitReached && !isSupervisor) {
              setToast({msg: t('appt.dayFull'), type: 'error'});
              return;
@@ -944,7 +956,7 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
             const bookingData = {
                 ...bookingAppt,
                 scheduledDate: bookingDate,
-                time: bookingTime || '08:00', // Supervisor fallback time
+                time: bookingTime || '08:00',
                 roomNumber: bookingRoom,
                 preparation: bookingPrep
             };
@@ -966,7 +978,11 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
             setIsTicketModalOpen(true);
             setBookingAppt(null);
             
-            if (navigator.vibrate) navigator.vibrate(100);
+            if (bookingDate !== selectedDate) {
+                 setToast({ msg: `Booked for ${bookingDate}. Switch date to view.`, type: 'info' });
+            }
+            
+            try { if (navigator.vibrate) navigator.vibrate(100); } catch(e){}
         } catch(e) { setToast({ msg: t('appt.saveError'), type: 'error' }); }
     };
 
@@ -992,56 +1008,6 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
         } catch(e) { console.error(e); }
     };
 
-    const handleExternalGemini = () => {
-        const prompt = "Please analyze this medical invoice/document image. Extract the following fields and return them in this specific JSON format: { \"patientName\": \"...\", \"fileNumber\": \"...\", \"doctorName\": \"...\", \"patientAge\": \"...\", \"examType\": \"...\" (MRI/CT/US/X-RAY/FLUO/OTHER), \"procedureName\": \"...\" }. Return ONLY the JSON.";
-        navigator.clipboard.writeText(prompt);
-        setToast({ msg: 'تم نسخ الأمر! الصقه في موقع Gemini مع الصورة.', type: 'info' });
-        window.open("https://gemini.google.com/app", "_blank");
-    };
-
-    const handleSmartPaste = () => {
-        try {
-            const cleanJson = pastedGeminiText.replace(/```json|```/g, '').trim();
-            const start = cleanJson.indexOf('{');
-            const end = cleanJson.lastIndexOf('}');
-            
-            if (start !== -1 && end !== -1) {
-                const jsonStr = cleanJson.substring(start, end + 1);
-                const data = JSON.parse(jsonStr);
-                
-                if (data.patientName) setPatientName(data.patientName);
-                if (data.fileNumber) setFileNumber(data.fileNumber);
-                if (data.doctorName) setDoctorName(data.doctorName);
-                if (data.patientAge) setPatientAge(data.patientAge);
-                if (data.procedureName) setSpecificExamName(data.procedureName);
-                
-                const validTypes = MODALITIES.map(m => m.id);
-                let detectedType = 'OTHER';
-                if (data.examType) {
-                    const upperType = data.examType.toUpperCase();
-                    if (validTypes.includes(upperType)) detectedType = upperType;
-                    else {
-                        if(upperType.includes('MRI')) detectedType = 'MRI';
-                        else if(upperType.includes('CT')) detectedType = 'CT';
-                        else if(upperType.includes('ULTRASOUND')) detectedType = 'US';
-                        else if(upperType.includes('X-RAY')) detectedType = 'X-RAY';
-                    }
-                }
-                setExamType(detectedType);
-                
-                const prep = modalitySettings[detectedType]?.prep || MODALITIES.find(m => m.id === detectedType)?.defaultPrep || '';
-                setPreparationText(prep);
-
-            setToast({ msg: t('appt.toast.dataFilled'), type: 'success' });  
-                          setPastedGeminiText('');
-            } else {
-                throw new Error("Invalid JSON format");
-            }
-        } catch (e) {
-            setToast({ msg: 'فشل تحليل النص. تأكد من نسخ كود JSON صحيح.', type: 'error' });
-        }
-    };
-
     const handleManualJsonProcess = async () => {
         try {
             const raw = JSON.parse(manualJsonInput);
@@ -1054,161 +1020,15 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
         }
     }
 
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files || !e.target.files[0]) return;
-        const file = e.target.files[0];
-        
-        if (scanMode === 'ai') {
-            await handleScanAI(file);
-        } else {
-            await handleScanLocal(file);
-        }
-        e.target.value = '';
-    };
-
-    const handleTriggerScan = (mode: 'ai' | 'local') => {
-        setScanMode(mode);
-        if (fileInputRef.current) {
-            fileInputRef.current.click();
-        }
-    };
-
-    const handleScanLocal = async (file: File) => {
-        setIsScanning(true);
-        setOcrStatus('جاري القراءة (محلي)...');
-        setToast({ msg: 'جاري التحليل محلياً... ⏳', type: 'info' });
-
-        try {
-            // @ts-ignore
-            if (!window.Tesseract) {
-                throw new Error("مكتبة OCR غير جاهزة، يرجى تحديث الصفحة.");
-            }
-
-            // @ts-ignore
-            const { data: { text } } = await window.Tesseract.recognize(
-                file,
-                'eng',
-                { 
-                    logger: (m: any) => {
-                        if (m.status === 'recognizing text') {
-                            setOcrStatus(`مسح محلي: ${(m.progress * 100).toFixed(0)}%`);
-                        }
-                    }
-                }
-            );
-
-            const data = parseMedicalTextLocally(text);
-            
-            if (data.patientName) setPatientName(data.patientName);
-            if (data.fileNumber) setFileNumber(data.fileNumber);
-            if (data.doctorName) setDoctorName(data.doctorName);
-            if (data.patientAge) setPatientAge(data.patientAge);
-            if (data.procedureName) setSpecificExamName(data.procedureName);
-            
-            if (data.examType) {
-                const type = MODALITIES.find(m => m.id === data.examType) ? data.examType : 'OTHER';
-                setExamType(type);
-                const prep = modalitySettings[type]?.prep || MODALITIES.find(m => m.id === type)?.defaultPrep || '';
-                setPreparationText(prep);
-            }
-
-            setToast({ msg: 'تم استخراج البيانات (محلي) ✅', type: 'success' });
-
-        } catch (error: any) {
-            console.error("Local Scan Error", error);
-            setToast({ msg: 'فشل المسح المحلي. يرجى المحاولة يدوياً.', type: 'error' });
-        } finally {
-            setIsScanning(false);
-            setOcrStatus('');
-        }
-    };
-
-    const handleScanAI = async (file: File) => {
-        setIsScanning(true);
-        setOcrStatus('جاري التحليل بالذكاء الاصطناعي...');
-        setToast({ msg: 'جاري التحليل الذكي... ⏳', type: 'info' });
-
-        try {
-            let apiKey = process.env.API_KEY;
-            // @ts-ignore
-            if (!apiKey && import.meta.env && import.meta.env.VITE_GEMINI_API_KEY) {
-                 // @ts-ignore
-                 apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-            }
-
-            if (!apiKey) throw new Error("API Key not found.");
-
-            const ai = new GoogleGenAI({ apiKey });
-            const imagePart = await fileToGenerativePart(file);
-            
-            const response = await ai.models.generateContent({
-                model: 'gemini-1.5-flash', 
-                contents: {
-                    parts: [
-                        imagePart,
-                        { text: `Extract JSON {patientName, fileNumber, procedureName, examType ('MRI'|'CT'|'US'|'X-RAY'|'FLUO'|'OTHER'), doctorName, patientAge} from this medical document image. Return only JSON.` }
-                    ]
-                }
-            });
-
-            const responseText = response?.text || "{}";
-            const cleanJson = responseText.replace(/```json|```/g, '').trim();
-            const data = JSON.parse(cleanJson);
-
-            setToast({ msg: 'تم استخراج البيانات (AI) ✅', type: 'success' });
-
-            if (data.patientName) setPatientName(data.patientName);
-            if (data.fileNumber) setFileNumber(data.fileNumber);
-            if (data.doctorName) setDoctorName(data.doctorName);
-            if (data.patientAge) setPatientAge(data.patientAge);
-            if (data.room) setManualRoom(data.room);
-            if (data.procedureName) setSpecificExamName(data.procedureName);
-            
-            const validTypes = MODALITIES.map(m => m.id);
-            let detectedType = 'OTHER';
-            if (data.examType) {
-                const upperType = data.examType.toUpperCase();
-                if (validTypes.includes(upperType)) {
-                    detectedType = upperType;
-                } else {
-                    const procUpper = (data.procedureName || '').toUpperCase();
-                    if(procUpper.includes('MRI') || procUpper.includes('MAGNETIC')) detectedType = 'MRI';
-                    else if(procUpper.includes('CT') || procUpper.includes('COMPUTED')) detectedType = 'CT';
-                    else if(procUpper.includes('US') || procUpper.includes('ULTRASOUND')) detectedType = 'US';
-                    else if(procUpper.includes('X-RAY')) detectedType = 'X-RAY';
-                }
-            }
-            setExamType(detectedType);
-
-            const prep = modalitySettings[detectedType]?.prep || MODALITIES.find(m => m.id === detectedType)?.defaultPrep || '';
-            setPreparationText(prep);
-
-        } catch (error: any) {
-            console.error("AI Scan Error", error);
-            if (error.message?.includes('429')) {
-                setToast({ msg: 'استنفذت باقة AI. جرب المسح المحلي.', type: 'error' });
-            } else {
-                setToast({ msg: 'فشل المسح الذكي. جرب المسح المحلي.', type: 'error' });
-            }
-        } finally {
-            setIsScanning(false);
-            setOcrStatus('');
-        }
-    };
-
-    // حساب ما إذا كان القسم المختار قد وصل للحد الأقصى اليوم (Universal Check)
     const currentModalityLimit = useMemo(() => {
         if (activeModality === 'ALL') return null;
         return modalitySettings[activeModality]?.limit || 0;
     }, [activeModality, modalitySettings]);
 
-    // Use the REAL-TIME count from useEffect below for accuracy
     const isDayFull = useMemo(() => {
         if (activeModality === 'ALL' || !currentModalityLimit) return false;
         return currentBookedCount >= currentModalityLimit;
     }, [currentBookedCount, activeModality, currentModalityLimit]);
-
-
 
     const handleEditBooking = (appt: ExtendedAppointment) => {
         setBookingAppt(appt);
@@ -1217,19 +1037,50 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
         setBookingRoom(appt.roomNumber || '');
         setBookingPrep(appt.preparation || '');
         setIsBookingModalOpen(true);
-        };
+    };
 
     const handleManualSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!patientName || !examType) return;
 
         if (await checkAvailability(manualDate, manualTime, examType) === false) {
-        setToast({ 
-            msg: t('appt.error.alreadyBooked').replace('{time}', manualTime), 
-            type: 'error' 
-        });
+            setToast({ 
+                msg: t('appt.error.alreadyBooked').replace('{time}', manualTime), 
+                type: 'error' 
+            });
             return;
         }
+
+        try {
+            // Unify Type Logic
+            let typeKey = examType;
+            if (typeKey === 'OTHER' || typeKey === 'XRAY') typeKey = 'X-RAY';
+
+            let queryCount = supabase.from('appointments').select('*', { count: 'exact', head: true })
+                .eq('status', 'scheduled')
+                .eq('scheduledDate', manualDate);
+            
+            if (typeKey === 'X-RAY') {
+                queryCount = queryCount.in('examType', ['X-RAY', 'XRAY', 'OTHER']);
+            } else {
+                queryCount = queryCount.eq('examType', typeKey);
+            }
+
+            const { count, error } = await queryCount;
+            
+            if (!error && count !== null) {
+                 const settings = modalitySettings[typeKey] || DEFAULT_SETTINGS['OTHER'];
+                 const limit = settings.limit;
+                 
+                 if (count >= limit && !isSupervisor) {
+                     setToast({ 
+                        msg: t('appt.limitWarning').replace('{count}', count.toString()).replace('{limit}', limit.toString()).replace('{mod}', typeKey), 
+                        type: 'error' 
+                     });
+                     return;
+                 }
+            }
+        } catch(e) { console.error("Limit check error", e); }
 
         try {
             const uniqueId = `MANUAL_${Date.now()}`;
@@ -1292,38 +1143,21 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
         }
     };
 
-    const generateSlots = () => {
-        const start = parseInt(editStartTime.split(':')[0]) * 60 + parseInt(editStartTime.split(':')[1]);
-        const end = parseInt(editEndTime.split(':')[0]) * 60 + parseInt(editEndTime.split(':')[1]);
-        const interval = parseInt(String(editInterval));
-        
-        const newSlots: string[] = [];
-        for (let time = start; time < end; time += interval) {
-            const h = Math.floor(time / 60).toString().padStart(2, '0');
-            const m = (time % 60).toString().padStart(2, '0');
-            newSlots.push(`${h}:${m}`);
-        }
-
-        setModalitySettings(prev => ({
-            ...prev,
-            [editingModalityId]: { ...prev[editingModalityId], slots: newSlots }
-        }));
-    };
-
    const handleCopyScript = () => {
+    // Dynamic URL Generation: Uses the current page URL without hash, then appends the correct route
+    const currentOrigin = window.location.href.split('#')[0];
+    const targetUrl = `${currentOrigin}#/appointments`;
+
     const script = `
-/* 🚀 AJ-SMART-BRIDGE V15.0 - Session Keep-Alive + Floating UI */
+/* 🚀 AJ-SMART-BRIDGE V15.1 - Fixed Loading Bug */
 (function() {
     console.clear();
-    console.log("%c 🟢 Bridge V15 Active: Session Keep-Alive Enabled. ", "background: #111; color: #00ff00; padding: 5px;");
+    console.log("%c 🟢 Bridge V15.1 Active: Optimized for Stability. ", "background: #111; color: #00ff00; padding: 5px;");
 
-    const APP_URL = "https://staff7.vercel.app/#/appointments";
+    const APP_URL = "${targetUrl}";
     let syncWin = null;
 
-    // --- 1. وظيفة محاكاة النشاط البشري (لمنع الـ Session Expired) ---
     function keepSessionAlive() {
-        // بدلاً من click() العادي، نرسل أحداث ماوس في زاوية الصفحة (1x1) 
-        // لكي يفهم المتصفح أن هناك حركة بدون إغلاق أي نوافذ
         const events = ['mousemove', 'mousedown', 'mouseup'];
         events.forEach(eventType => {
             const event = new MouseEvent(eventType, {
@@ -1335,13 +1169,8 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
             });
             document.dispatchEvent(event);
         });
-        
-        // محاكاة ضغطة خفيفة جداً على عنصر الـ body لضمان استجابة بعض السيرفرات
-        // مع تجنب تفعيل أي أزرار
-        console.log("%c 💓 Keep-Alive: Activity Simulated", "color: #ffca28;");
     }
 
-    // --- 2. إنشاء الزر العائم (UI) ---
     const createUI = () => {
         const container = document.createElement('div');
         container.id = 'bridge-ui-container';
@@ -1368,7 +1197,6 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
             boxShadow: '0 4px 10px rgba(0,0,0,0.3)'
         });
 
-        // حالة الجلسة (نقطة صغيرة خضراء)
         const status = document.createElement('div');
         status.innerHTML = '<span style="color:#4caf50">●</span> Session Active';
         Object.assign(status.style, {
@@ -1382,7 +1210,7 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
 
         btn.onclick = () => {
             triggerRefresh();
-            keepSessionAlive(); // نحدث النشاط عند الضغط اليدوي أيضاً
+            keepSessionAlive(); 
         };
 
         container.appendChild(status);
@@ -1390,7 +1218,6 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
         document.body.appendChild(container);
     };
 
-    // --- 3. وظيفة البحث والضغط التلقائي ---
     function triggerRefresh() {
         const refreshBtn = document.querySelector('img[mattooltip="RefreshData"]') || 
                            document.querySelector('[mattooltip="RefreshData"]');
@@ -1401,21 +1228,17 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
         } else {
             console.warn("⚠️ Refresh Button Not Found. Simulating activity anyway...");
         }
-        
-        // في كل مرة نحاول نحدث، نرسل إشارة نشاط للجلسة
         keepSessionAlive();
     }
 
-    // تشغيل التحديث والنشاط كل 60 ثانية
     setInterval(triggerRefresh, 60000);
 
-    // تشغيل UI
     if (document.readyState === 'complete') createUI();
     else window.addEventListener('load', createUI);
 
-    // --- 4. الجزء الخاص بالمزامنة (Interceptor) ---
     function openSyncWindow() {
         if (!syncWin || syncWin.closed) {
+            console.log("Opening new window: " + APP_URL);
             syncWin = window.open(APP_URL, "SmartAppSyncWindow");
         }
         return syncWin;
@@ -1432,7 +1255,13 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
                     
                     if (payload[0]?.patientName || payload[0]?.fileNumber) {
                         syncWin = openSyncWindow();
-                        setTimeout(() => syncWin.postMessage({ type: 'SMART_SYNC_DATA', payload }, '*'), 800);
+                        // Increased delay to 3000ms to allow React App to fully load on client
+                        setTimeout(() => {
+                            if (syncWin) {
+                                syncWin.postMessage({ type: 'SMART_SYNC_DATA', payload }, '*');
+                                console.log("Sent payload to app.");
+                            }
+                        }, 3000);
                     }
                 }
             } catch (e) {}
@@ -1445,10 +1274,9 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
 `;
 
     navigator.clipboard.writeText(script);
-    setToast({ msg: 'تم نسخ الكود المحدث (استهداف زر الريفرش كل دقيقة)!', type: 'success' });
+    setToast({ msg: 'تم نسخ كود الربط المحدث (V15.1) - تم إصلاح مشكلة التحميل!', type: 'success' });
 };
    
-    // Logbook logic...
     const fetchLogbookData = async () => {
         setIsLogLoading(true);
         try {
@@ -1538,7 +1366,6 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
         <div className="min-h-screen bg-slate-50 pb-20 font-sans" dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
             
-            {/* Header */}
             <div className="bg-slate-900 text-white p-4 sticky top-0 z-30 shadow-2xl print:hidden">
                 <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
                     <div className="flex items-center gap-4 w-full md:w-auto">
@@ -1551,7 +1378,24 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
                                 {isListening && <span className="flex h-3 w-3 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span></span>}
                             </h1>
                             <div className="flex items-center gap-3 text-xs opacity-70 font-mono mt-1">
-                                {activeView === 'scheduled' ? <span>{t( 'appt.viewScheduled')}</span> : <input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} className="bg-transparent border-none text-white p-0 text-xs font-bold focus:ring-0" />}
+                                {activeView === 'scheduled' ? (
+                                    <div className="flex items-center gap-2">
+                                        <input 
+                                            type="date" 
+                                            value={selectedDate} 
+                                            onChange={e => setSelectedDate(e.target.value)} 
+                                            className="bg-transparent border-none text-white p-0 text-xs font-bold focus:ring-0" 
+                                        />
+                                        <button 
+                                            onClick={() => setEnableDateFilter(!enableDateFilter)}
+                                            className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${enableDateFilter ? 'bg-indigo-500 text-white border-indigo-400' : 'bg-transparent text-slate-400 border-slate-600'}`}
+                                        >
+                                            {enableDateFilter ? 'Filter ON' : 'All Upcoming'}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} className="bg-transparent border-none text-white p-0 text-xs font-bold focus:ring-0" />
+                                )}
                             </div>
                         </div>
                     </div>
@@ -1602,7 +1446,6 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
                 </div>
             </div>
 
-            {/* Sub-Header: Modality Tabs */}
             <div className="bg-white border-b border-slate-200 sticky top-[72px] z-20 shadow-sm overflow-x-auto no-scrollbar print:hidden">
                 <div className="max-w-7xl mx-auto px-4 flex items-center gap-1 py-2 min-w-max">
                     <button 
@@ -1632,7 +1475,7 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
                     })}
                 </div>
             </div>
-            {/* رسالة تنبيه عند اكتمال العدد */}
+            
 {isDayFull && activeView !== 'done' && (
     <div className="mx-4 mb-6 relative overflow-hidden group">
         <div className="absolute inset-0 bg-gradient-to-r from-red-600 via-rose-500 to-red-600 animate-gradient-x opacity-10 blur-xl group-hover:opacity-20 transition-opacity"></div>
@@ -1664,7 +1507,6 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
                 </div>
             </div>
             
-            {/* زر سريع للمشرف لزيادة الحد إذا لزم الأمر */}
             {isSupervisor && (
                 <button 
                     onClick={() => setIsSettingsModalOpen(true)}
@@ -1677,7 +1519,6 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
     </div>
 )}
 
-            {/* Content */}
             <div className="max-w-7xl mx-auto px-4 py-6 print:hidden">
                 
                 {loading ? <Loading /> : filteredAppointments.length === 0 ? (
@@ -1862,68 +1703,8 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
             {/* Add Modal */}
             <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="إضافة موعد جديد">
                 <div className="space-y-4">
-                    <div className="flex gap-2">
-                        <button 
-                            onClick={() => { setScanMode('local'); fileInputRef.current?.click(); }}
-                            className="flex-1 py-3 rounded-xl bg-blue-50 text-blue-600 font-bold border border-blue-200 hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                        >
-                            <i className="fas fa-camera"></i>{t('appt.scanLocal')}
-                        </button>
-                        <button 
-                            onClick={() => { setScanMode('ai'); fileInputRef.current?.click(); }}
-                            className="flex-1 py-3 rounded-xl bg-purple-50 text-purple-600 font-bold border border-purple-200 hover:bg-purple-100 transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                        >
-                            <i className="fas fa-robot"></i>{t('appt.scanAI')}
-                        </button>
-                    </div>
-
-                    <div className="relative">
-                        <button 
-                            onClick={handleExternalGemini}
-                            className="w-full py-4 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 text-white font-bold shadow-lg hover:shadow-emerald-200 hover:scale-[1.02] transition-all flex items-center justify-center gap-3 border border-emerald-400 cursor-pointer"
-                        >
-                            <span className="bg-white/20 p-1.5 rounded-lg"><i className="fas fa-external-link-alt text-lg"></i></span>
-                            <div className="text-right">
-                                <p className="text-xs opacity-90">{t('appt.geminiUse')}</p>
-                                <p className="text-sm font-black">{t('appt.geminiCopy')}</p>
-                            </div>
-                        </button>
-                        
-                        <div className="mt-3 bg-slate-50 border-2 border-dashed border-teal-200 rounded-xl p-3">
-                            <textarea 
-                                className="w-full bg-transparent text-sm font-medium text-slate-700 outline-none resize-none placeholder-slate-400 min-h-[60px]"
-                                placeholder="الصق النتيجة من Gemini هنا (JSON)..."
-                                value={pastedGeminiText}
-                                onChange={(e) => setPastedGeminiText(e.target.value)}
-                            />
-                            {pastedGeminiText && (
-                                <button 
-                                    onClick={handleSmartPaste}
-                                    className="w-full mt-2 bg-teal-600 text-white py-2 rounded-lg font-bold text-xs hover:bg-teal-700 transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                                >
-                                    <i className="fas fa-magic"></i>{t('appt.autoFill')}
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                    
-                    <input 
-                        ref={fileInputRef}
-                        type="file" 
-                        accept="image/*" 
-                        capture="environment"
-                        className="hidden"
-                        onChange={handleFileChange}
-                    />
-
-                    {isScanning && (
-                        <div className="text-center py-4 bg-slate-50 rounded-xl border border-dashed border-indigo-200">
-                            <i className="fas fa-spinner fa-spin text-2xl text-indigo-500 mb-2"></i>
-                            <p className="text-sm font-bold text-slate-600">{ocrStatus}</p>
-                        </div>
-                    )}
-
-                    <form onSubmit={handleManualSubmit} className="space-y-4 border-t border-slate-100 pt-4">
+                    {/* Manual Form Only - Scan Removed */}
+                    <form onSubmit={handleManualSubmit} className="space-y-4 pt-2">
                         <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 mb-4">
                             <p className="text-xs text-blue-800 font-bold mb-2">{t('appt.manualData')}</p>
                             <div className="grid grid-cols-2 gap-2">
@@ -1934,13 +1715,13 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
                                 <div>
                                     <label className="text-[10px] font-bold text-slate-500">{t('time')}</label>
                                     {modalitySettings[examType]?.slots?.length > 0 ? (
-                                        <select className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm font-bold" value={manualTime} onChange={e=>setManualTime(e.target.value)}>
+                                        <select className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm font-bold" value={manualTime} onChange={e=>setManualTimeState(e.target.value)}>
                                             {modalitySettings[examType].slots.map(slot => (
                                                 <option key={slot} value={slot}>{slot}</option>
                                             ))}
                                         </select>
                                     ) : (
-                                        <input type="time" className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm font-bold" value={manualTime} onChange={e=>setManualTime(e.target.value)} />
+                                        <input type="time" className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm font-bold" value={manualTime} onChange={e=>setManualTimeState(e.target.value)} />
                                     )}
                                 </div>
                             </div>
@@ -1952,7 +1733,7 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
 
                         <input 
                             className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" 
-                            placeholder={t('appt.patientName')} // تم التغيير هنا
+                            placeholder={t('appt.patientName')} 
                             value={patientName} 
                             onChange={e => setPatientName(e.target.value)} 
                             required 
@@ -2295,7 +2076,6 @@ setBookingWarning(warningMsg);                    setIsDayLimitReached(true);
                                         className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" 
                                         value={bookingTime} 
                                         onChange={e => setBookingTime(e.target.value)} 
-                                        // If empty slots but not limited yet (unlikely here due to above check), fallback
                                     />
                                 )
                             )}

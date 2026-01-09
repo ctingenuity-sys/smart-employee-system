@@ -14,7 +14,20 @@ const playSystemSound = (type: 'success' | 'error' | 'info') => {
     const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioContext) return;
     
+    // Create context only when needed
     const ctx = new AudioContext();
+    
+    // Only proceed if context is running or suspended (and can resume)
+    if (ctx.state === 'closed') return;
+    
+    // Resume if suspended (browsers block autoplay until interaction)
+    if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {
+            // If resume fails (no user interaction yet), just exit silently
+            return;
+        });
+    }
+
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
@@ -54,13 +67,15 @@ const playSystemSound = (type: 'success' | 'error' | 'info') => {
       osc.stop(ctx.currentTime + 0.5);
     }
   } catch (e) {
-    // Silently ignore audio context errors (e.g. user didn't interact with page yet)
+    // Silently ignore audio context errors
   }
 };
 
 const Toast: React.FC<ToastProps> = ({ message, type, duration = 4000, onClose }) => {
   useEffect(() => {
+    // Attempt to play sound, but don't crash if it fails
     playSystemSound(type);
+    
     const timer = setTimeout(onClose, duration);
     return () => clearTimeout(timer);
   }, [type, onClose, duration]);

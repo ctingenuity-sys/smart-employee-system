@@ -53,7 +53,7 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
     const fetchLogs = async () => {
         // 1. التأكد من وجود قيم صحيحة للتواريخ قبل تنفيذ الطلب
         if (!startDate || !endDate) {
-            console.warn("Dates are missing, skipping fetch");
+            // Dates missing - skipping fetch silently to keep console clean
             return;
         }
 

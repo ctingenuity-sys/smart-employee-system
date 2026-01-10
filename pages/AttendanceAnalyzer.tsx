@@ -49,7 +49,7 @@ const SummaryCard: React.FC<{ icon: React.ReactNode; label: string; value: strin
   </div>
 );
 
-const FileUpload: React.FC<{ onFileUpload: (file: File) => void; isLoading: boolean }> = ({ onFileUpload, isLoading }) => {
+const FileUpload: React.FC<{ onFileUpload: (file: File) => void; onJsonUpload: (file: File) => void; isLoading: boolean }> = ({ onFileUpload, onJsonUpload, isLoading }) => {
   const { t } = useLanguage();
   const [dragActive, setDragActive] = useState(false);
 
@@ -65,9 +65,14 @@ const FileUpload: React.FC<{ onFileUpload: (file: File) => void; isLoading: bool
     e.stopPropagation();
     setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      onFileUpload(e.dataTransfer.files[0]);
+      const file = e.dataTransfer.files[0];
+      if (file.name.toLowerCase().endsWith('.json')) {
+          onJsonUpload(file);
+      } else {
+          onFileUpload(file);
+      }
     }
-  }, [onFileUpload]);
+  }, [onFileUpload, onJsonUpload]);
   
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     e.preventDefault();
@@ -76,26 +81,33 @@ const FileUpload: React.FC<{ onFileUpload: (file: File) => void; isLoading: bool
     }
   };
 
+  const handleJsonChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      e.preventDefault();
+      if (e.target.files && e.target.files[0]) {
+          onJsonUpload(e.target.files[0]);
+      }
+  };
+
   return (
-    <div className="text-center print:hidden">
+    <div className="text-center print:hidden space-y-4">
       <label
         htmlFor="file-upload"
         onDragEnter={handleDrag}
         onDragOver={handleDrag}
         onDragLeave={handleDrag}
         onDrop={handleDrop}
-        className={`relative flex flex-col items-center justify-center w-full h-64 rounded-3xl border-2 border-dashed p-6 transition-all duration-300
+        className={`relative flex flex-col items-center justify-center w-full h-64 rounded-3xl border-2 border-dashed p-6 transition-all duration-300 group
         ${dragActive ? 'border-sky-500 bg-sky-50 scale-105' : 'border-slate-300 bg-slate-50 hover:bg-white hover:border-sky-400'}
         ${isLoading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
       >
-        <div className="w-20 h-20 bg-white rounded-full shadow-md flex items-center justify-center mb-4">
-            <i className="fas fa-cloud-upload-alt text-4xl text-sky-500"></i>
+        <div className="w-20 h-20 bg-white rounded-full shadow-md flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+            <i className="fas fa-file-excel text-4xl text-emerald-500"></i>
         </div>
         <span className="text-lg font-bold text-slate-700">
           {t('att.upload.label')}
         </span>
         <span className="mt-2 text-xs font-bold text-slate-400 bg-slate-200 px-3 py-1 rounded-full">
-            Supports Excel (XLSX, XLS) - Smart Detection
+            Supports Excel (XLSX, XLS)
         </span>
         <input
             id="file-upload"
@@ -107,6 +119,25 @@ const FileUpload: React.FC<{ onFileUpload: (file: File) => void; isLoading: bool
             disabled={isLoading}
         />
       </label>
+
+      {/* JSON Import Option */}
+      <div className="relative border-t pt-6 mt-4">
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-slate-50 px-4 text-xs font-bold text-slate-400">OR</div>
+          
+          <label className="inline-flex items-center gap-3 bg-slate-800 text-white px-8 py-4 rounded-xl font-bold text-sm cursor-pointer hover:bg-slate-700 transition-all shadow-lg hover:-translate-y-1">
+              <i className="fas fa-file-code text-yellow-400 text-xl"></i>
+              <span>استيراد ملف أرشيف (JSON)</span>
+              <input 
+                  type="file" 
+                  accept=".json" 
+                  className="hidden" 
+                  onChange={handleJsonChange} 
+                  disabled={isLoading}
+              />
+          </label>
+          <p className="text-[10px] text-slate-400 mt-2">تحليل ملفات البيانات التي تم تصديرها من الأرشيف</p>
+      </div>
+
        {isLoading && (
         <p className="mt-4 text-sm font-bold text-sky-600 animate-pulse">
           {t('loading')}
@@ -263,6 +294,81 @@ const AttendanceAnalyzer: React.FC = () => {
 
   // Constants
   const OVERTIME_THRESHOLD = 9; // Hours
+
+  // --- Handle JSON Import (Archive Data) ---
+  const handleJsonImport = (file: File) => {
+      setIsLoading(true);
+      setError(null);
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+          try {
+              const result = e.target?.result as string;
+              const json = JSON.parse(result);
+              
+              if (!Array.isArray(json)) throw new Error("Invalid JSON format. Expected an array.");
+
+              // Map JSON data to DetailedAttendanceRecord
+              const mappedRecords: DetailedAttendanceRecord[] = [];
+              const groupedData: Record<string, any[]> = {};
+
+              // Group by User + Date first to handle punches
+              json.forEach((log: any) => {
+                  const name = log.userName || log.name || 'Unknown';
+                  // Handle flexible date format from archives
+                  let date = log.date;
+                  if (!date && log.timestamp) {
+                      const ts = log.timestamp.seconds ? new Date(log.timestamp.seconds * 1000) : new Date(log.timestamp);
+                      date = ts.toISOString().split('T')[0];
+                  }
+                  
+                  const key = `${name}_${date}`;
+                  if (!groupedData[key]) groupedData[key] = [];
+                  groupedData[key].push(log);
+              });
+
+              Object.values(groupedData).forEach(logs => {
+                  if (logs.length === 0) return;
+                  
+                  // Sort logs by time
+                  logs.sort((a, b) => {
+                      const tA = a.timestamp?.seconds || (new Date(a.timestamp || 0).getTime()/1000);
+                      const tB = b.timestamp?.seconds || (new Date(b.timestamp || 0).getTime()/1000);
+                      return tA - tB;
+                  });
+
+                  const ins = logs.filter((l: any) => l.type === 'IN');
+                  const outs = logs.filter((l: any) => l.type === 'OUT');
+
+                  // Helper to get time HH:MM
+                  const getHHMM = (l: any) => {
+                      if (!l) return null;
+                      const d = l.timestamp?.seconds ? new Date(l.timestamp.seconds * 1000) : new Date(l.timestamp);
+                      if (isNaN(d.getTime())) return null;
+                      return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+                  };
+
+                  mappedRecords.push({
+                      employeeName: logs[0].userName || logs[0].name || 'Unknown',
+                      date: logs[0].date || new Date().toISOString().split('T')[0],
+                      clockIn: getHHMM(ins[0]),
+                      breakOut: getHHMM(outs[0]), // If split, this is break start
+                      breakIn: getHHMM(ins[1]),
+                      clockOut: getHHMM(outs[outs.length - 1]), // Last out
+                  });
+              });
+
+              if (mappedRecords.length === 0) throw new Error("No valid attendance records found in JSON.");
+              analyzeData(mappedRecords);
+
+          } catch (err: any) {
+              console.error(err);
+              setError("Failed to parse JSON: " + err.message);
+              setIsLoading(false);
+          }
+      };
+      reader.readAsText(file);
+  };
 
   // Main File Processor
   const handleFileUpload = async (file: File) => {
@@ -659,6 +765,13 @@ const AttendanceAnalyzer: React.FC = () => {
     setError(null);
   };
 
+  // Logic to handle JSON import via file input change
+  const onJsonInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files[0]) {
+          handleJsonImport(e.target.files[0]);
+      }
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-20 print:p-0 print:pb-0 print:space-y-2 print:max-w-none print:w-full" dir={dir}>
         
@@ -684,8 +797,12 @@ const AttendanceAnalyzer: React.FC = () => {
             <div className="bg-white p-8 rounded-3xl shadow-lg border border-slate-100 space-y-8 animate-fade-in-up print:hidden">
                 <div className="pt-4">
                     <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><i className="fas fa-upload text-sky-500"></i> {t('att.step2')}</h3>
-                    <p className="text-sm text-slate-500 mb-4">Upload Excel. Auto-detects Split Shifts (4 punches) & 1AM Exits.</p>
-                    <FileUpload onFileUpload={handleFileUpload} isLoading={isLoading} />
+                    <p className="text-sm text-slate-500 mb-4">Upload Excel or JSON Archive. Auto-detects Split Shifts (4 punches) & 1AM Exits.</p>
+                    <FileUpload 
+                        onFileUpload={handleFileUpload} 
+                        onJsonUpload={handleJsonImport}
+                        isLoading={isLoading} 
+                    />
                 </div>
             </div>
         )}
@@ -695,6 +812,12 @@ const AttendanceAnalyzer: React.FC = () => {
                 <div className="flex flex-col md:flex-row justify-between items-center gap-4 print:hidden">
                     <h2 className="text-2xl font-black text-slate-800">{t('att.step3')}</h2>
                     <div className="flex gap-2">
+                        {/* Import JSON Button in Analysis View */}
+                        <label className="bg-slate-700 text-white px-6 py-2 rounded-xl font-bold text-sm hover:bg-slate-600 shadow-lg flex items-center gap-2 cursor-pointer">
+                            <i className="fas fa-file-code"></i> Import JSON
+                            <input type="file" accept=".json" className="hidden" onChange={onJsonInputChange} />
+                        </label>
+
                         <button onClick={handleExportExcel} className="bg-emerald-600 text-white px-6 py-2 rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-lg flex items-center gap-2">
                             <i className="fas fa-file-excel"></i> Export Excel
                         </button>

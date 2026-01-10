@@ -217,6 +217,13 @@ const translations: Record<string, { ar: string; en: string }> = {
     ar: 'فشل حفظ الإعدادات', 
     en: 'Failed to save settings' 
   },
+  "appt.toast.finish": { 
+    ar: 'تم انهاء الحاله', 
+    en: 'Done ✅' 
+  },'appt.toast.panic': { 
+    ar: 'تم انهاء الحاله وتسجيل التقرير', 
+    en: 'DONE,RECORDED REPORT' 
+  },
 
   // --- Login ---,
   'login.title': { ar: 'تسجيل الدخول', en: 'Login' },

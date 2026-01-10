@@ -31,12 +31,13 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
     const [loading, setLoading] = useState(true);
     const [startDate, setStartDate] = useState(getLocalToday());
     const [endDate, setEndDate] = useState(getLocalToday());
+    const [isArchiveMode, setIsArchiveMode] = useState(false); // New Flag
     
     // Counter Settings
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [currentCounter, setCurrentCounter] = useState<number>(0);
     const [newCounter, setNewCounter] = useState<string>('');
-    const [toast, setToast] = useState<{msg: string, type: 'success'|'error'} | null>(null);
+    const [toast, setToast] = useState<{msg: string, type: 'success'|'error'|'info'} | null>(null);
 
     // Color Maps
     const colors: Record<string, string> = {
@@ -51,16 +52,12 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
     const activeBgClass = activeColorClass.split(' ')[0] || 'bg-slate-600';
 
     const fetchLogs = async () => {
-        // 1. التأكد من وجود قيم صحيحة للتواريخ قبل تنفيذ الطلب
-        if (!startDate || !endDate) {
-            // Dates missing - skipping fetch silently to keep console clean
-            return;
-        }
+        setIsArchiveMode(false); // Reset archive mode on live fetch
+        if (!startDate || !endDate) return;
 
         setLoading(true);
         
         try {
-            // إضافة التوقيت لتغطية اليوم كاملاً لأن completedAt يحتوي على وقت
             const queryStart = `${startDate}T00:00:00`;
             const queryEnd = `${endDate}T23:59:59`;
 
@@ -68,18 +65,15 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
                 .from('appointments')
                 .select('*')
                 .eq('status', 'done')
-                // البحث بتاريخ الإنجاز الفعلي وليس تاريخ الحجز
                 .gte('completedAt', queryStart)
                 .lte('completedAt', queryEnd);
 
             if (type === 'X-RAY') {
-                // X-RAY usually includes General Xray
                 query = query.in('examType', ['X-RAY', 'OTHER']);
             } else {
                 query = query.eq('examType', type);
             }
 
-            // الترتيب حسب وقت الإنجاز
             const { data, error } = await query.order('completedAt', { ascending: true });
 
             if (error) throw error;
@@ -89,6 +83,36 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleImportArchive = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const json = JSON.parse(event.target?.result as string);
+                if (Array.isArray(json)) {
+                    // Filter loaded data for current modality type
+                    const filtered = json.filter((a: any) => {
+                        // Handle potential slight schema diffs
+                        const eType = a.examType || 'OTHER';
+                        if (type === 'X-RAY') return eType === 'X-RAY' || eType === 'OTHER';
+                        return eType === type;
+                    });
+                    
+                    setLogs(filtered);
+                    setIsArchiveMode(true);
+                    setToast({ msg: `تم تحميل ${filtered.length} سجل من الأرشيف (وضع العرض المحلي)`, type: 'success' });
+                } else {
+                    setToast({ msg: 'ملف غير صالح', type: 'error' });
+                }
+            } catch (err) {
+                setToast({ msg: 'خطأ في قراءة الملف', type: 'error' });
+            }
+        };
+        reader.readAsText(file);
     };
 
     const fetchCounter = async () => {
@@ -118,8 +142,6 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
 
         try {
             const docRef = doc(db, 'system_settings', 'appointment_slots');
-            // We need to update specifically the [type].currentCounter field
-            // Firestore allows dot notation for nested updates
             await updateDoc(docRef, {
                 [`${type}.currentCounter`]: val
             });
@@ -135,7 +157,7 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
         <div className="min-h-screen bg-slate-50 pb-20 font-sans print:bg-white print:p-0" dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
             
-            <PrintHeader title={`سجل حالات قسم - ${title}`} subtitle={`${startDate} إلى ${endDate}`} themeColor={colorTheme} />
+            <PrintHeader title={`سجل حالات قسم - ${title}`} subtitle={isArchiveMode ? "نسخة أرشيفية (محلية)" : `${startDate} إلى ${endDate}`} themeColor={colorTheme} />
 
             <div className="max-w-7xl mx-auto px-4 py-8 print:p-0 print:max-w-none">
                 
@@ -152,19 +174,40 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-2xl shadow-sm border border-slate-200">
-                        <div className="flex items-center gap-2 px-2 border-r border-slate-100">
-                            <span className="text-xs font-bold text-slate-400">From:</span>
-                            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-slate-50 border-none rounded-lg text-xs font-bold py-2" />
-                        </div>
-                        <div className="flex items-center gap-2 px-2">
-                            <span className="text-xs font-bold text-slate-400">To:</span>
-                            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-slate-50 border-none rounded-lg text-xs font-bold py-2" />
-                        </div>
+                        {isArchiveMode ? (
+                            <div className="px-3 py-1 bg-amber-100 text-amber-800 rounded-lg text-xs font-bold border border-amber-200 flex items-center gap-2">
+                                <i className="fas fa-history"></i> وضع عرض الأرشيف
+                                <button onClick={fetchLogs} className="text-red-500 hover:text-red-700 underline ml-2">عودة للمباشر</button>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="flex items-center gap-2 px-2 border-r border-slate-100">
+                                    <span className="text-xs font-bold text-slate-400">From:</span>
+                                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-slate-50 border-none rounded-lg text-xs font-bold py-2" />
+                                </div>
+                                <div className="flex items-center gap-2 px-2">
+                                    <span className="text-xs font-bold text-slate-400">To:</span>
+                                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-slate-50 border-none rounded-lg text-xs font-bold py-2" />
+                                </div>
+                                <button onClick={fetchLogs} className={`w-9 h-9 rounded-lg text-white flex items-center justify-center hover:opacity-90 transition-all shadow-md ${activeBgClass}`}>
+                                    <i className="fas fa-sync-alt"></i>
+                                </button>
+                            </>
+                        )}
                         
-                        <button onClick={fetchLogs} className={`w-9 h-9 rounded-lg text-white flex items-center justify-center hover:opacity-90 transition-all shadow-md ${activeBgClass}`}>
-                            <i className="fas fa-sync-alt"></i>
-                        </button>
-                        
+                        <div className="relative">
+                            <input 
+                                type="file" 
+                                accept=".json" 
+                                onChange={handleImportArchive} 
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                                title="استيراد ملف أرشيف JSON"
+                            />
+                            <button className="bg-slate-100 text-slate-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-slate-200 flex items-center gap-2 border border-slate-200">
+                                <i className="fas fa-file-upload"></i> أرشيف
+                            </button>
+                        </div>
+
                         <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-700 flex items-center gap-2">
                             <i className="fas fa-print"></i> طباعة
                         </button>
@@ -193,7 +236,7 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 print:divide-slate-300">
                                     {logs.length === 0 ? (
-                                        <tr><td colSpan={7} className="p-8 text-center text-slate-400">لا توجد سجلات منجزة في هذه الفترة</td></tr>
+                                        <tr><td colSpan={7} className="p-8 text-center text-slate-400">لا توجد سجلات للعرض</td></tr>
                                     ) : (
                                         logs.map((row, i) => (
                                             <tr key={row.id} className="hover:bg-slate-50 print:break-inside-avoid">

@@ -19,7 +19,6 @@ interface LayoutProps {
   permissions?: string[]; 
 }
 
-// ... (Notification logic remains the same) ...
 const playNotificationSound = (type: 'normal' | 'alert' = 'normal') => {
   try {
     const src = type === 'alert' 
@@ -29,9 +28,7 @@ const playNotificationSound = (type: 'normal' | 'alert' = 'normal') => {
     audio.volume = 1.0; 
     const playPromise = audio.play();
     if (playPromise !== undefined) {
-        playPromise.catch(error => {
-            // Auto-play restricted
-        });
+        playPromise.catch(error => {});
     }
   } catch (e) {}
 };
@@ -69,18 +66,15 @@ const GlobalNotificationListener: React.FC<{ userId: string, userRole: string }>
         if (!userId) return;
 
         // Announcements
-        const unsubAnnounce = onSnapshot(query(collection(db, 'announcements'), orderBy('createdAt', 'desc'), limit(1)), (snap) => {
+        const unsubAnnounce = onSnapshot(query(collection(db, 'announcements'), orderBy('createdAt', 'desc'), limit(1)), (snap: any) => {
             if (isFirstRun.current) return;
-            snap.docChanges().forEach(change => {
+            snap.docChanges().forEach((change: any) => {
                 if (change.type === 'added') {
                     const data = change.doc.data();
                     showBrowserNotification(`تعميم: ${data.title}`, data.content);
                 }
             });
         });
-
-        // Other Listeners (Simplified for brevity in update)
-        // ... Keep existing listeners ...
 
         return () => {
             unsubAnnounce();
@@ -144,14 +138,12 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
   const sidebarPosition = dir === 'rtl' ? 'right-0' : 'left-0';
   const transformDirection = dir === 'rtl' ? 'translate-x-full' : '-translate-x-full';
 
-  // --- ACCESS CONTROL HELPER ---
   const canAccess = (feature: string) => {
       if (userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR) return true;
-      if (!permissions || permissions.length === 0) return true; // Default allow if legacy
+      if (!permissions || permissions.length === 0) return true;
       return permissions.includes(feature);
   };
 
-  // --- MAIN LAYOUT ---
   return (
     <div className="flex h-screen overflow-hidden print:h-auto print:overflow-visible" dir={dir}>
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
@@ -207,6 +199,11 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
               <Link to="/attendance" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/attendance')}`}>
                 <i className="fas fa-robot w-6"></i>
                 <span className="font-medium">{t('nav.attendance')}</span>
+              </Link>
+              {/* Added Archiver Link */}
+              <Link to="/supervisor/archive" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/archive')}`}>
+                <i className="fas fa-archive w-6"></i>
+                <span className="font-medium">أرشيف البيانات</span>
               </Link>
             </>
           )}

@@ -58,6 +58,28 @@ const timeToMinutes = (timeStr: string) => {
     return parseInt(parts[0]) * 60 + parseInt(parts[1]);
 };
 
+// Helper to hydrate archived logs (convert ISO strings back to objects with .toDate)
+const hydrateArchiveLogs = (jsonLogs: any[]): AttendanceLog[] => {
+    return jsonLogs.map(log => {
+        // Create mock Firestore Timestamp objects
+        const createMockTimestamp = (isoStr: string) => {
+            if (!isoStr) return null;
+            const d = new Date(isoStr);
+            return {
+                seconds: Math.floor(d.getTime() / 1000),
+                nanoseconds: 0,
+                toDate: () => d
+            };
+        };
+
+        return {
+            ...log,
+            timestamp: typeof log.timestamp === 'string' ? createMockTimestamp(log.timestamp) : log.timestamp,
+            clientTimestamp: typeof log.clientTimestamp === 'string' ? createMockTimestamp(log.clientTimestamp) : log.clientTimestamp,
+        };
+    });
+};
+
 interface DailyDetail {
     date: string;
     day: string;
@@ -118,6 +140,10 @@ const SupervisorAttendance: React.FC = () => {
     const [toast, setToast] = useState<{msg: string, type: 'success'|'info'|'error'} | null>(null);
     const [showOnlySuspicious, setShowOnlySuspicious] = useState(false);
 
+    // --- Offline Mode State ---
+    const [isOfflineMode, setIsOfflineMode] = useState(false);
+    const [offlineLogs, setOfflineLogs] = useState<AttendanceLog[]>([]);
+
     // Map Modal
     const [mapModal, setMapModal] = useState<{isOpen: boolean, lat: number, lng: number, title: string}>({ isOpen: false, lat: 0, lng: 0, title: '' });
 
@@ -130,6 +156,44 @@ const SupervisorAttendance: React.FC = () => {
     useEffect(() => {
         getDocs(collection(db, 'users')).then(snap => setUsers(snap.docs.map(d => ({id:d.id, ...d.data()} as User))));
     }, []);
+
+    const handleImportArchive = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const json = JSON.parse(event.target?.result as string);
+                if (Array.isArray(json)) {
+                    const hydrated = hydrateArchiveLogs(json);
+                    setOfflineLogs(hydrated);
+                    setIsOfflineMode(true);
+                    
+                    // Auto-set dates based on imported data
+                    const dates = hydrated.map(l => l.date).sort();
+                    if (dates.length > 0) {
+                        setAttFilterStart(dates[0]);
+                        setAttFilterEnd(dates[dates.length - 1]);
+                    }
+                    
+                    setToast({ msg: `تم استيراد ${hydrated.length} سجل. وضع الأوفلاين مفعل.`, type: 'success' });
+                } else {
+                    setToast({ msg: 'ملف غير صالح', type: 'error' });
+                }
+            } catch (err) {
+                setToast({ msg: 'خطأ في قراءة الملف', type: 'error' });
+            }
+        };
+        reader.readAsText(file);
+    };
+
+    const clearOfflineMode = () => {
+        setIsOfflineMode(false);
+        setOfflineLogs([]);
+        setAttendanceSummaries([]);
+        setToast({ msg: 'تم العودة للوضع المباشر', type: 'info' });
+    };
 
     const calculateAttendance = async () => {
     setIsCalculatingAtt(true);
@@ -176,14 +240,24 @@ const SupervisorAttendance: React.FC = () => {
             schedulesByUser.get(s.userId)!.push(s);
         });
 
-        // --- 2. FETCH LOGS ---
-        const qLogs = query(
-            collection(db, 'attendance_logs'), 
-            where('date', '>=', startD.toISOString().split('T')[0]), 
-            where('date', '<=', fetchEndD.toISOString().split('T')[0])
-        );
-        const snapLogs = await getDocs(qLogs);
-        const allLogs = snapLogs.docs.map(doc => doc.data() as AttendanceLog);
+        // --- 2. FETCH LOGS (LIVE OR OFFLINE) ---
+        let allLogs: AttendanceLog[] = [];
+        
+        if (isOfflineMode) {
+            // Filter offline logs by date
+            const fetchEndDateStr = fetchEndD.toISOString().split('T')[0];
+            const startStr = startD.toISOString().split('T')[0];
+            allLogs = offlineLogs.filter(l => l.date >= startStr && l.date <= fetchEndDateStr);
+        } else {
+            // Fetch from Firebase
+            const qLogs = query(
+                collection(db, 'attendance_logs'), 
+                where('date', '>=', startD.toISOString().split('T')[0]), 
+                where('date', '<=', fetchEndD.toISOString().split('T')[0])
+            );
+            const snapLogs = await getDocs(qLogs);
+            allLogs = snapLogs.docs.map(doc => doc.data() as AttendanceLog);
+        }
         
         const logsMap = new Map<string, AttendanceLog[]>();
         allLogs.forEach(log => {
@@ -193,7 +267,12 @@ const SupervisorAttendance: React.FC = () => {
         });
         
         logsMap.forEach((logsList) => {
-            logsList.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+            // FIX: Safe sort checking for null timestamps
+            logsList.sort((a, b) => {
+                const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
+                const tB = b.timestamp?.seconds || b.clientTimestamp?.seconds || 0;
+                return tA - tB;
+            });
         });
 
         // --- 3. FETCH LEAVES ---
@@ -402,6 +481,7 @@ const SupervisorAttendance: React.FC = () => {
 };
 
     const handleSyncAbsences = async () => {
+        if (isOfflineMode) return setToast({ msg: 'Cannot sync absences in offline mode', type: 'error' });
         if (attendanceSummaries.length === 0) return setToast({msg: 'Please calculate attendance first', type: 'info'});
         if (!confirm(`Are you sure you want to register absences for the period ${attFilterStart} to ${attFilterEnd}? This will affect employee reports.`)) return;
 
@@ -525,6 +605,26 @@ const SupervisorAttendance: React.FC = () => {
         if (!manualTime) return;
         try {
             const d = new Date(manualModal.date + 'T' + manualTime);
+            
+            // If offline mode, just update local state
+            if (isOfflineMode) {
+                const newLog: any = {
+                    userId: manualModal.uid,
+                    userName: manualModal.name,
+                    date: manualModal.date,
+                    type: manualModal.type,
+                    timestamp: { seconds: d.getTime()/1000, toDate: () => d },
+                    clientTimestamp: { seconds: d.getTime()/1000, toDate: () => d },
+                    method: 'supervisor_manual_offline',
+                    isSuspicious: false,
+                    manualEntry: true
+                };
+                setOfflineLogs(prev => [...prev, newLog]);
+                setToast({ msg: 'تمت الإضافة محلياً (لن تحفظ في قاعدة البيانات)', type: 'info' });
+                setManualModal({ ...manualModal, isOpen: false });
+                return;
+            }
+
             await addDoc(collection(db, 'attendance_logs'), {
                 userId: manualModal.uid,
                 userName: manualModal.name,
@@ -551,6 +651,16 @@ const SupervisorAttendance: React.FC = () => {
         <div className="min-h-screen bg-slate-50 font-sans pb-12 print:bg-white print:pb-0" dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
             
+            {/* OFFLINE BANNER */}
+            {isOfflineMode && (
+                <div className="bg-amber-500 text-white text-center py-2 font-bold text-sm sticky top-0 z-50 shadow-md">
+                    ⚠️ OFFLINE MODE: Viewing Archived Data ({offlineLogs.length} records)
+                    <button onClick={clearOfflineMode} className="ml-4 bg-white text-amber-600 px-3 py-0.5 rounded text-xs hover:bg-slate-100">
+                        Exit to Live
+                    </button>
+                </div>
+            )}
+
             <PrintHeader title="Attendance Report" subtitle={`${attFilterStart} to ${attFilterEnd}`} />
 
             <div className="max-w-7xl mx-auto px-4 py-8 animate-fade-in print:p-0 print:max-w-none">
@@ -565,6 +675,14 @@ const SupervisorAttendance: React.FC = () => {
                     </div>
                     
                     <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-xl shadow-sm border border-slate-200">
+                        {/* OFFLINE IMPORT BUTTON */}
+                        {!isOfflineMode && (
+                            <label className="bg-amber-100 text-amber-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-amber-200 transition-all flex items-center gap-2 cursor-pointer border border-amber-200">
+                                <i className="fas fa-box-open"></i> Import Archive
+                                <input type="file" accept=".json" className="hidden" onChange={handleImportArchive} />
+                            </label>
+                        )}
+
                         <input type="date" className="bg-slate-50 border-none rounded-lg px-3 py-2 text-xs font-bold text-slate-700" value={attFilterStart} onChange={e => setAttFilterStart(e.target.value)} />
                         <span className="text-slate-400">➜</span>
                         <input type="date" className="bg-slate-50 border-none rounded-lg px-3 py-2 text-xs font-bold text-slate-700" value={attFilterEnd} onChange={e => setAttFilterEnd(e.target.value)} />
@@ -574,7 +692,7 @@ const SupervisorAttendance: React.FC = () => {
                             {users.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
                         </select>
                         <button onClick={calculateAttendance} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all flex items-center gap-2">
-                            {isCalculatingAtt ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-sync-alt"></i>} Refresh
+                            {isCalculatingAtt ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-sync-alt"></i>} {isOfflineMode ? 'Recalculate' : 'Refresh'}
                         </button>
                         
                         {/* Show Suspicious Toggle */}
@@ -586,7 +704,7 @@ const SupervisorAttendance: React.FC = () => {
                             <i className="fas fa-shield-alt"></i> Risk Filter
                         </button>
 
-                        <button onClick={handleSyncAbsences} disabled={isSyncing || attendanceSummaries.length === 0} className="bg-rose-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-rose-700 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed" title="Register absent days to reports">
+                        <button onClick={handleSyncAbsences} disabled={isSyncing || attendanceSummaries.length === 0 || isOfflineMode} className="bg-rose-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-rose-700 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed" title="Register absent days to reports">
                             {isSyncing ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-file-export"></i>} Sync
                         </button>
                         <button onClick={handleExportExcel} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-emerald-700 transition-all flex items-center gap-2">

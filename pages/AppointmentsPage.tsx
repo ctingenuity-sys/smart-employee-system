@@ -321,6 +321,12 @@ const AppointmentsPage: React.FC = () => {
             const cleanDate = (d: any) => (d ? String(d).split('T')[0] : getLocalToday());
 
             payload.forEach((p: any) => {
+                // FIX: IGNORE RECORDS WITH RESULTS BUT NO NEW ORDERS (Report Writing)
+                // If xrayPatientDetails is empty but xrayResultDetails has data, it's an old case being reported.
+                if ((!p.xrayPatientDetails || p.xrayPatientDetails.length === 0) && (p.xrayResultDetails && p.xrayResultDetails.length > 0)) {
+                    return; // Skip this record completely
+                }
+
                 const pName = findValue(p, ['patientName', 'engName', 'name', 'patName', 'fullName']) || 'Unknown';
                 const cleanName = pName.includes(' - ') ? pName.split(' - ')[1] : pName;
                 const fNum = findValue(p, ['fileNumber', 'fileNo', 'mrn', 'patientId', 'pid']) || '';

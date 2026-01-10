@@ -391,6 +391,16 @@ export const calculateShiftStatus = (
                 };
             }
 
+          if (now >= windowOpen && now < start) {
+            return {
+                state: 'READY_IN',
+                message: 'READY TO CHECK IN',
+                sub: 'Early Check-in',
+                canPunch: true,
+                color: 'text-cyan-500'
+
+            };
+        }
             // Absent
             if (effectiveNow > end) {
                 if (!isLastShift) continue; 

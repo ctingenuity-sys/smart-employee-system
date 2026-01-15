@@ -86,6 +86,21 @@ const styles = `
     50% { opacity: 0.5; }
     100% { transform: scale(1.3); opacity: 0; }
 }
+    @keyframes loading-bar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+.animate-loading-bar {
+  animation: loading-bar 1.2s infinite linear;
+}
+@keyframes pulse-soft {
+  0%,100% { box-shadow: 0 0 0 rgba(34,211,238,0); }
+  50% { box-shadow: 0 0 30px rgba(34,211,238,.4); }
+}
+.animate-pulse-soft {
+  animation: pulse-soft 2.5s infinite;
+}
+
 @keyframes rotate-slow {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
@@ -176,13 +191,18 @@ const AttendancePage: React.FC = () => {
     // --- Performance Optimization: Cached GPS ---
     // Instead of waiting for GPS on click, we watch it and use the latest value if fresh.
     const [cachedPosition, setCachedPosition] = useState<GeolocationPosition | null>(null);
+    const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
 
     useEffect(() => {
         let watchId: number;
         if ('geolocation' in navigator) {
+            // Warm-up call immediately
+            navigator.geolocation.getCurrentPosition(()=>{},()=>{},{timeout: 3000, maximumAge: 0});
+
             watchId = navigator.geolocation.watchPosition(
                 (pos) => {
                     setCachedPosition(pos);
+                    setGpsAccuracy(pos.coords.accuracy);
                 }, 
                 (err) => {
                     console.log("GPS Watch Error (non-fatal):", err);
@@ -194,6 +214,34 @@ const AttendancePage: React.FC = () => {
             if (watchId !== undefined) navigator.geolocation.clearWatch(watchId);
         };
     }, []);
+
+    // Manual Refresh GPS Function
+    const refreshGPS = () => {
+        setCachedPosition(null);
+        setGpsAccuracy(null);
+        setStatus('SCANNING_LOC');
+        
+        if (!navigator.geolocation) {
+            setToast({msg: 'GPS not supported', type: 'error'});
+            setStatus('IDLE');
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                setCachedPosition(pos);
+                setGpsAccuracy(pos.coords.accuracy);
+                setStatus('IDLE');
+                setToast({ msg: `تم تحديث الإشارة: دقة ${pos.coords.accuracy.toFixed(0)} متر`, type: 'success' });
+            },
+            (err) => {
+                setStatus('ERROR');
+                setErrorDetails({ title: 'GPS Failed', msg: err.message });
+                setToast({msg: 'فشل تحديث الموقع. تأكد من تفعيل GPS', type: 'error'});
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    };
 
     // 1. SYNC SERVER TIME
     useEffect(() => {
@@ -875,8 +923,8 @@ const AttendancePage: React.FC = () => {
                 <div className={`
                     flex items-center justify-center gap-3 px-6 py-3 rounded-2xl shadow-2xl border backdrop-blur-xl transition-colors duration-300
                     ${timeLeft <= 10 
-                        ? 'bg-red-600/90 border-red-400 animate-shake' 
-                        : 'bg-orange-600/80 border-white/20 animate-bounce'
+                        ? 'bg-red-600/90 border-red-400 animate-shake ' 
+                        : 'bg-orange-600/80 border-white/20 animate-bounce '
                     } text-white`}
                 >
                     <i className={`fas ${timeLeft <= 10 ? 'fa-triangle-exclamation' : 'fa-clock-rotate-left'} text-xl`}></i>
@@ -893,7 +941,40 @@ const AttendancePage: React.FC = () => {
         )}
             <div className="flex-1 flex flex-col items-center justify-center relative z-20 px-4 pb-24">
                 
+                <div className={`${status === 'SCANNING_LOC' ? 'opacity-60 grayscale' : ''}`}>
                 {currentTime && <DigitalClock date={currentTime} />}
+                </div>
+                {/* GPS Status & Refresh Button */}
+                <div className="mb-6 -mt-9 md:-mt-10 flex flex-col items-center gap-1">
+                    <div className="flex items-center gap-3 bg-white/5 rounded-full px-4 py- border border-white/5 backdrop-blur-sm">
+                        <div className={`w-2 h-2 rounded-full ${gpsAccuracy && gpsAccuracy < 100 ? 'animate-pulse-soft' : ''}`}></div>
+                        <span className="text-[15px] text-white/70 font-bold uppercase tracking-wide py-2">
+                           <span className="text-[15px] font-bold uppercase tracking-wide py-2 flex items-center gap-2">
+                            {gpsAccuracy ? (
+                                <>
+                                GPS READY
+                                <span className="text-white/40">~{gpsAccuracy.toFixed(0)}m</span>
+                                </>
+                            ) : (
+                                <>
+                                SCANNING
+                                <span className="w-12 h-1 bg-white/10 rounded overflow-hidden">
+                                    <span className="block h-full w-1/2 bg-cyan-400 animate-loading-bar"></span>
+                                </span>
+                                </>
+                            )}
+                            </span>
+                        </span>
+                    </div>
+                    <button 
+                        onClick={refreshGPS}
+                        disabled={status === 'SCANNING_LOC'}
+                        className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 uppercase tracking-widest flex items-center gap-2 px-3 py-1 hover:bg-white/5 rounded-full transition-all"
+                    >
+                        <i className={`fas fa-sync-alt ${status === 'SCANNING_LOC' ? 'animate-spin' : ''}`}></i>
+                        تحديث الموقع (Refresh GPS)
+                    </button>
+                </div>
 
 <div className="relative group scale-90 md:scale-100 transition-transform duration-500 flex items-center justify-center">
     

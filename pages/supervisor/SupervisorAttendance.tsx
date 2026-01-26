@@ -58,6 +58,14 @@ const timeToMinutes = (timeStr: string) => {
     return parseInt(parts[0]) * 60 + parseInt(parts[1]);
 };
 
+// --- NEW HELPER: Format Hours to HH.MM (Minutes as decimal part) ---
+const formatAsDotMinutes = (decimalHours: number) => {
+    if (!decimalHours || isNaN(decimalHours)) return '0.00';
+    const h = Math.floor(decimalHours);
+    const m = Math.round((decimalHours - h) * 60);
+    return `${h}.${m.toString().padStart(2, '0')}`;
+};
+
 // Helper to hydrate archived logs (convert ISO strings back to objects with .toDate)
 const hydrateArchiveLogs = (jsonLogs: any[]): AttendanceLog[] => {
     return jsonLogs.map(log => {
@@ -104,10 +112,10 @@ interface DailyDetail {
     serverTimestamp?: any;
     clientTimestamp?: any;
 
-    lateMinutes: number;
-    earlyMinutes: number;
-    dailyWorkMinutes: number;
-    overtimeMinutes: number;
+    lateHours: number;
+    earlyHours: number;
+    dailyWorkHours: number;
+    overtimeHours: number;
     status: 'Present' | 'Absent' | 'Incomplete' | 'Off' | 'Partial Absent';
     absentValue: number; // 0, 0.5, 1.0
     riskFlags: string[];
@@ -118,8 +126,8 @@ interface EmployeeAttendanceSummary {
     userName: string;
     totalWorkDays: number;
     fridaysWorked: number;
-    totalLateMinutes: number;
-    totalEarlyMinutes: number;
+    totalLateHours: number;
+    totalEarlyHours: number;
     totalOvertimeHours: number;
     absentDays: number;
     riskCount: number;
@@ -139,6 +147,9 @@ const SupervisorAttendance: React.FC = () => {
     const [expandedUser, setExpandedUser] = useState<string | null>(null);
     const [toast, setToast] = useState<{msg: string, type: 'success'|'info'|'error'} | null>(null);
     const [showOnlySuspicious, setShowOnlySuspicious] = useState(false);
+    
+    // OVERTIME SETTING
+    const [overtimeThreshold, setOvertimeThreshold] = useState<number>(9); // Default 9 hours
 
     // --- Offline Mode State ---
     const [isOfflineMode, setIsOfflineMode] = useState(false);
@@ -213,8 +224,8 @@ const SupervisorAttendance: React.FC = () => {
             userName: u.name || u.email, 
             totalWorkDays: 0, 
             fridaysWorked: 0, 
-            totalLateMinutes: 0, 
-            totalEarlyMinutes: 0,
+            totalLateHours: 0, 
+            totalEarlyHours: 0,
             totalOvertimeHours: 0, 
             absentDays: 0, 
             riskCount: 0,
@@ -279,6 +290,9 @@ const SupervisorAttendance: React.FC = () => {
         const qLeaves = query(collection(db, 'leaveRequests'), where('status', '==', 'approved'));
         const snapLeaves = await getDocs(qLeaves);
         const leaves = snapLeaves.docs.map(d => d.data());
+
+        // Overtime Threshold in Minutes
+        const otThresholdMins = overtimeThreshold * 60;
 
         // --- 4. MAIN CALCULATION LOOP ---
         for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
@@ -409,7 +423,21 @@ const SupervisorAttendance: React.FC = () => {
                     if (myShifts[0] && in1) {
                         const schedStart = timeToMinutes(myShifts[0].start);
                         const actStart = timeToMinutes(fmtTime(in1)!);
-                        if (actStart > schedStart + 15) lateMins += (actStart - schedStart);
+                        
+                        // Modified Late Logic for Grace Period 15-20 min
+                        const diff = actStart - schedStart;
+                        if (diff > 15) {
+                            if (diff <= 20) {
+                                // If late between 15-20 mins:
+                                // 1. Treat as full overtime (add lost minutes back to workMinutes)
+                                // 2. Do not record as late minutes
+                                workMinutes += diff; 
+                            } else {
+                                // If late > 20 mins:
+                                // Full penalty
+                                lateMins += diff;
+                            }
+                        }
                     }
                     
                     // Early Logic (Shift 1 - only if out1 exists)
@@ -431,9 +459,23 @@ const SupervisorAttendance: React.FC = () => {
                     }
                 }
 
+                // Overtime Calculation
+                let dailyOvertime = 0;
+                if (workMinutes > otThresholdMins) {
+                    dailyOvertime = workMinutes - otThresholdMins;
+                    
+                    // --- NEW RULE: Round up OT if minutes part >= 40 ---
+                    const remainder = dailyOvertime % 60;
+                    if (remainder >= 40) {
+                        // Add the missing minutes to reach the next full hour
+                        dailyOvertime += (60 - remainder);
+                    }
+                }
+
                 summary.absentDays += absentValue;
-                summary.totalLateMinutes += lateMins;
-                summary.totalEarlyMinutes += earlyMins;
+                summary.totalLateHours += (lateMins / 60);
+                summary.totalEarlyHours += (earlyMins / 60);
+                summary.totalOvertimeHours += (dailyOvertime / 60); // Accumulate adjusted hours
 
                 [in1, out1, in2, out2].forEach(l => {
                     if (l) {
@@ -459,12 +501,12 @@ const SupervisorAttendance: React.FC = () => {
                     actualIn2: fmtTime(in2), actualOut2: fmtTime(out2),
                     in2Lat: in2?.locationLat, in2Lng: in2?.locationLng,
                     out2Lat: out2?.locationLat, out2Lng: out2?.locationLng,
-                    lateMinutes: lateMins, 
-                    earlyMinutes: earlyMins,
+                    lateHours: lateMins / 60, 
+                    earlyHours: earlyMins / 60,
                     serverTimestamp: in1?.timestamp,
                     clientTimestamp: in1?.clientTimestamp,
-                    dailyWorkMinutes: workMinutes, 
-                    overtimeMinutes: workMinutes > 540 ? workMinutes - 540 : 0, 
+                    dailyWorkHours: workMinutes / 60, 
+                    overtimeHours: dailyOvertime / 60, 
                     status,
                     absentValue,
                     riskFlags: [...new Set(flags)] 
@@ -551,9 +593,9 @@ const SupervisorAttendance: React.FC = () => {
                 "Work Days": s.totalWorkDays,
                 "Fridays Worked": s.fridaysWorked,
                 "Absent Days": s.absentDays,
-                "Total Late (Mins)": s.totalLateMinutes,
-                "Total Early Leave (Mins)": s.totalEarlyMinutes,
-                "Total Overtime (Hrs)": s.totalOvertimeHours.toFixed(2),
+                "Total Late (Hrs.Mins)": formatAsDotMinutes(s.totalLateHours),
+                "Total Early Leave (Hrs.Mins)": formatAsDotMinutes(s.totalEarlyHours),
+                "Total Overtime (Hrs.Mins)": formatAsDotMinutes(s.totalOvertimeHours),
                 "Risk Flags": s.riskCount
             }));
             const wsSummary = window.XLSX.utils.json_to_sheet(summaryData);
@@ -570,9 +612,10 @@ const SupervisorAttendance: React.FC = () => {
                         "Shift 1 Out": d.actualOut1 || '--:--',
                         "Shift 2 In": d.actualIn2 || '--:--',
                         "Shift 2 Out": d.actualOut2 || '--:--',
-                        "Work (Mins)": d.dailyWorkMinutes,
-                        "Late (Mins)": d.lateMinutes,
-                        "Early (Mins)": d.earlyMinutes,
+                        "Work (Hrs.Mins)": formatAsDotMinutes(d.dailyWorkHours),
+                        "Late (Hrs.Mins)": formatAsDotMinutes(d.lateHours),
+                        "Early (Hrs.Mins)": formatAsDotMinutes(d.earlyHours),
+                        "Overtime (Hrs.Mins)": formatAsDotMinutes(d.overtimeHours),
                         "Status": d.status,
                         "Absence Value": d.absentValue,
                         "Risks": d.riskFlags.join(', ')
@@ -644,7 +687,7 @@ const SupervisorAttendance: React.FC = () => {
     };
 
     const totalAbsent = attendanceSummaries.reduce((acc, curr) => acc + curr.absentDays, 0);
-    const totalLate = attendanceSummaries.reduce((acc, curr) => acc + curr.totalLateMinutes, 0);
+    const totalLate = attendanceSummaries.reduce((acc, curr) => acc + curr.totalLateHours, 0);
     const totalOvertime = attendanceSummaries.reduce((acc, curr) => acc + curr.totalOvertimeHours, 0);
 
     return (
@@ -691,6 +734,21 @@ const SupervisorAttendance: React.FC = () => {
                             <option value="">All Staff</option>
                             {users.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
                         </select>
+                        
+                        {/* Overtime Setting */}
+                        <div className="flex items-center gap-2 px-2 border-l border-slate-200">
+                            <span className="text-xs font-bold text-slate-500">OT starts after:</span>
+                            <input
+                                type="number"
+                                min="1"
+                                max="24"
+                                className="w-12 bg-slate-50 border-none rounded-lg text-xs font-bold text-center text-slate-700 focus:ring-2 focus:ring-emerald-200"
+                                value={overtimeThreshold}
+                                onChange={(e) => setOvertimeThreshold(Number(e.target.value))}
+                            />
+                            <span className="text-xs font-bold text-slate-500">Hrs</span>
+                        </div>
+
                         <button onClick={calculateAttendance} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all flex items-center gap-2">
                             {isCalculatingAtt ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-sync-alt"></i>} {isOfflineMode ? 'Recalculate' : 'Refresh'}
                         </button>
@@ -731,7 +789,7 @@ const SupervisorAttendance: React.FC = () => {
                         <div className="flex justify-between items-start">
                             <div>
                                 <p className="text-amber-100 font-bold text-xs uppercase tracking-wider mb-1">Total Lateness</p>
-                                <h3 className="text-3xl font-black">{totalLate} <span className="text-sm font-medium opacity-80">Mins</span></h3>
+                                <h3 className="text-3xl font-black">{formatAsDotMinutes(totalLate)} <span className="text-sm font-medium opacity-80">Hrs</span></h3>
                             </div>
                             <div className="bg-white/20 p-3 rounded-xl"><i className="fas fa-clock text-2xl"></i></div>
                         </div>
@@ -740,7 +798,7 @@ const SupervisorAttendance: React.FC = () => {
                         <div className="flex justify-between items-start">
                             <div>
                                 <p className="text-emerald-100 font-bold text-xs uppercase tracking-wider mb-1">Total Overtime</p>
-                                <h3 className="text-3xl font-black">{totalOvertime.toFixed(1)} <span className="text-sm font-medium opacity-80">Hours</span></h3>
+                                <h3 className="text-3xl font-black">{formatAsDotMinutes(totalOvertime)} <span className="text-sm font-medium opacity-80">Hours</span></h3>
                             </div>
                             <div className="bg-white/20 p-3 rounded-xl"><i className="fas fa-coins text-2xl"></i></div>
                         </div>
@@ -759,8 +817,8 @@ const SupervisorAttendance: React.FC = () => {
                                             <th className="p-3 text-center">Work Days</th>
                                             <th className="p-3 text-center">Fridays</th>
                                             <th className="p-3 text-center text-red-600">Absent Days</th>
-                                            <th className="p-3 text-center text-amber-600">Late (Mins)</th>
-                                            <th className="p-3 text-center text-orange-600">Early (Mins)</th>
+                                            <th className="p-3 text-center text-amber-600">Late (Hrs)</th>
+                                            <th className="p-3 text-center text-orange-600">Early (Hrs)</th>
                                             <th className="p-3 text-center text-emerald-600">Overtime (Hrs)</th>
                                             <th className="p-3 text-center text-purple-600">Risks</th>
                                             <th className="p-3 text-center print:hidden">Details</th>
@@ -779,9 +837,9 @@ const SupervisorAttendance: React.FC = () => {
                                                         <td className="p-3 text-center font-mono">{summary.totalWorkDays}</td>
                                                         <td className="p-3 text-center font-mono">{summary.fridaysWorked}</td>
                                                         <td className="p-3 text-center font-bold text-red-600">{summary.absentDays}</td>
-                                                        <td className="p-3 text-center font-bold text-amber-600">{summary.totalLateMinutes}</td>
-                                                        <td className="p-3 text-center font-bold text-orange-600">{summary.totalEarlyMinutes}</td>
-                                                        <td className="p-3 text-center font-bold text-emerald-600">{summary.totalOvertimeHours > 0 ? summary.totalOvertimeHours.toFixed(1) : '-'}</td>
+                                                        <td className="p-3 text-center font-bold text-amber-600">{formatAsDotMinutes(summary.totalLateHours)}</td>
+                                                        <td className="p-3 text-center font-bold text-orange-600">{formatAsDotMinutes(summary.totalEarlyHours)}</td>
+                                                        <td className="p-3 text-center font-bold text-emerald-600">{summary.totalOvertimeHours > 0 ? formatAsDotMinutes(summary.totalOvertimeHours) : '-'}</td>
                                                         <td className="p-3 text-center font-bold text-purple-600">
                                                             {summary.riskCount > 0 ? <span className="bg-red-500 text-white px-2 py-0.5 rounded-full shadow-sm animate-pulse text-[10px]">{summary.riskCount} ALERTS</span> : '-'}
                                                         </td>
@@ -808,9 +866,10 @@ const SupervisorAttendance: React.FC = () => {
                                                                                 <th className="p-2 text-center text-blue-700">Shift 1 Out</th>
                                                                                 <th className="p-2 text-center text-indigo-700 border-l border-slate-300">Shift 2 In</th>
                                                                                 <th className="p-2 text-center text-indigo-700">Shift 2 Out</th>
-                                                                                <th className="p-2 text-center border-l border-slate-300">Work (Mins)</th>
-                                                                                <th className="p-2 text-center text-amber-700">Late</th>
-                                                                                <th className="p-2 text-center text-orange-700">Early</th>
+                                                                                <th className="p-2 text-center border-l border-slate-300">Work (Hrs)</th>
+                                                                                <th className="p-2 text-center text-amber-700">Late (Hrs)</th>
+                                                                                <th className="p-2 text-center text-orange-700">Early (Hrs)</th>
+                                                                                <th className="p-2 text-center text-emerald-700">Overtime</th>
                                                                                 <th className="p-2 text-center">Status</th>
                                                                                 <th className="p-2 text-center">Risk</th>
                                                                             </tr>
@@ -867,9 +926,10 @@ const SupervisorAttendance: React.FC = () => {
                                                                                         {detail.out2Lat && <button onClick={() => openMapModal(detail.out2Lat!, detail.out2Lng!, 'OUT 2')} className="ml-1 text-red-400"><i className="fas fa-map-marker-alt"></i></button>}
                                                                                     </td>
 
-                                                                                    <td className="p-2 text-center font-mono border-l border-slate-100">{detail.dailyWorkMinutes > 0 ? detail.dailyWorkMinutes : '-'}</td>
-                                                                                    <td className="p-2 text-center text-amber-600 font-bold">{detail.lateMinutes > 0 ? detail.lateMinutes : '-'}</td>
-                                                                                    <td className="p-2 text-center text-orange-600 font-bold">{detail.earlyMinutes > 0 ? detail.earlyMinutes : '-'}</td>
+                                                                                    <td className="p-2 text-center font-mono border-l border-slate-100">{detail.dailyWorkHours > 0 ? formatAsDotMinutes(detail.dailyWorkHours) : '-'}</td>
+                                                                                    <td className="p-2 text-center text-amber-600 font-bold">{detail.lateHours > 0 ? formatAsDotMinutes(detail.lateHours) : '-'}</td>
+                                                                                    <td className="p-2 text-center text-orange-600 font-bold">{detail.earlyHours > 0 ? formatAsDotMinutes(detail.earlyHours) : '-'}</td>
+                                                                                    <td className="p-2 text-center text-emerald-600 font-bold">{detail.overtimeHours > 0 ? formatAsDotMinutes(detail.overtimeHours) : '-'}</td>
                                                                                     
                                                                                     <td className="p-2 text-center">
                                                                                         <span className={`px-2 py-0.5 rounded ${detail.status === 'Present' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{detail.status}</span>

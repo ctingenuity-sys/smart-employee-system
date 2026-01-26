@@ -86,21 +86,6 @@ const styles = `
     50% { opacity: 0.5; }
     100% { transform: scale(1.3); opacity: 0; }
 }
-    @keyframes loading-bar {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(200%); }
-}
-.animate-loading-bar {
-  animation: loading-bar 1.2s infinite linear;
-}
-@keyframes pulse-soft {
-  0%,100% { box-shadow: 0 0 0 rgba(34,211,238,0); }
-  50% { box-shadow: 0 0 30px rgba(34,211,238,.4); }
-}
-.animate-pulse-soft {
-  animation: pulse-soft 2.5s infinite;
-}
-
 @keyframes rotate-slow {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
@@ -152,8 +137,8 @@ const AttendancePage: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
     
-    // UI State
-    const [currentTime, setCurrentTime] = useState<Date | null>(null);
+    // UI State - Initialize IMMEDIATELY to avoid loading state
+    const [currentTime, setCurrentTime] = useState<Date | null>(new Date());
     const [logicTicker, setLogicTicker] = useState(0); 
     const [timeOffset, setTimeOffset] = useState<number>(0);
     const [isTimeSynced, setIsTimeSynced] = useState(false);
@@ -192,6 +177,24 @@ const AttendancePage: React.FC = () => {
     // Instead of waiting for GPS on click, we watch it and use the latest value if fresh.
     const [cachedPosition, setCachedPosition] = useState<GeolocationPosition | null>(null);
     const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+
+    // Initial Startup Optimization
+    useEffect(() => {
+        // 1. Force logic tick immediately for fast UI
+        setLogicTicker(prev => prev + 1);
+
+        // 2. Warm up GPS silently
+        if ('geolocation' in navigator) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    setCachedPosition(pos);
+                    setGpsAccuracy(pos.coords.accuracy);
+                }, 
+                (err) => console.log("GPS Warmup:", err), 
+                { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+            );
+        }
+    }, []);
 
     useEffect(() => {
         let watchId: number;
@@ -303,7 +306,9 @@ const AttendancePage: React.FC = () => {
     }, [isTimeSynced, timeOffset, overrideExpiry]);
 
 
-    // 3. Data Subscriptions
+    // 3. Data Subscriptions (DEPEND ON currentTime to refresh when day changes)
+    const todayDateKey = useMemo(() => currentTime ? getLocalDateKey(currentTime) : '', [currentTime]);
+
     useEffect(() => {
         if (!currentUserId || !currentTime) return;
 
@@ -311,6 +316,7 @@ const AttendancePage: React.FC = () => {
             if(docSnap.exists()) setUserProfile(docSnap.data());
         });
 
+        // Use todayDateKey to ensure it refreshes if the day changes
         const todayStr = getLocalDateKey(currentTime);
         const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', todayStr));
         const unsubLogs = onSnapshot(qLogs, (snap) => {
@@ -393,7 +399,7 @@ const AttendancePage: React.FC = () => {
         const unsubSch = onSnapshot(qSch, (snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
 
         return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); unsubActions(); };
-    }, [currentUserId, isTimeSynced, timeOffset]);
+    }, [currentUserId, isTimeSynced, timeOffset, todayDateKey]); // Depends on todayDateKey to refresh daily
 
 
     // 4. Calculate Shifts (Data layer)
@@ -923,8 +929,8 @@ const AttendancePage: React.FC = () => {
                 <div className={`
                     flex items-center justify-center gap-3 px-6 py-3 rounded-2xl shadow-2xl border backdrop-blur-xl transition-colors duration-300
                     ${timeLeft <= 10 
-                        ? 'bg-red-600/90 border-red-400 animate-shake ' 
-                        : 'bg-orange-600/80 border-white/20 animate-bounce '
+                        ? 'bg-red-600/90 border-red-400 animate-shake' 
+                        : 'bg-orange-600/80 border-white/20 animate-bounce'
                     } text-white`}
                 >
                     <i className={`fas ${timeLeft <= 10 ? 'fa-triangle-exclamation' : 'fa-clock-rotate-left'} text-xl`}></i>
@@ -941,29 +947,14 @@ const AttendancePage: React.FC = () => {
         )}
             <div className="flex-1 flex flex-col items-center justify-center relative z-20 px-4 pb-24">
                 
-                <div className={`${status === 'SCANNING_LOC' ? 'opacity-60 grayscale' : ''}`}>
                 {currentTime && <DigitalClock date={currentTime} />}
-                </div>
+
                 {/* GPS Status & Refresh Button */}
-                <div className="mb-6 -mt-9 md:-mt-10 flex flex-col items-center gap-1">
-                    <div className="flex items-center gap-3 bg-white/5 rounded-full px-4 py- border border-white/5 backdrop-blur-sm">
-                        <div className={`w-2 h-2 rounded-full ${gpsAccuracy && gpsAccuracy < 100 ? 'animate-pulse-soft' : ''}`}></div>
-                        <span className="text-[15px] text-white/70 font-bold uppercase tracking-wide py-2">
-                           <span className="text-[15px] font-bold uppercase tracking-wide py-2 flex items-center gap-2">
-                            {gpsAccuracy ? (
-                                <>
-                                GPS READY
-                                <span className="text-white/40">~{gpsAccuracy.toFixed(0)}m</span>
-                                </>
-                            ) : (
-                                <>
-                                SCANNING
-                                <span className="w-12 h-1 bg-white/10 rounded overflow-hidden">
-                                    <span className="block h-full w-1/2 bg-cyan-400 animate-loading-bar"></span>
-                                </span>
-                                </>
-                            )}
-                            </span>
+                <div className="mb-6 flex flex-col items-center gap-2">
+                    <div className="flex items-center gap-2 bg-white/5 rounded-full px-4 py-1.5 border border-white/5 backdrop-blur-sm">
+                        <div className={`w-2 h-2 rounded-full ${gpsAccuracy && gpsAccuracy < 100 ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
+                        <span className="text-[10px] text-white/70 font-bold uppercase tracking-wide">
+                            GPS ACCURACY: {gpsAccuracy ? `~${gpsAccuracy.toFixed(0)}m` : 'Scanning...'}
                         </span>
                     </div>
                     <button 

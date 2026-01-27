@@ -22,6 +22,7 @@ const SupervisorLocations = React.lazy(() => import('./pages/supervisor/Supervis
 const SupervisorHistory = React.lazy(() => import('./pages/supervisor/SupervisorHistory'));
 const SupervisorPerformance = React.lazy(() => import('./pages/supervisor/SupervisorPerformance'));
 const PanicReportsPage = React.lazy(() => import('./pages/supervisor/PanicReportsPage'));
+const SupervisorRotation = React.lazy(() => import('./pages/supervisor/SupervisorRotation')); // NEW
 
 const UserDashboard = React.lazy(() => import('./pages/UserDashboard'));
 const UserSchedule = React.lazy(() => import('./pages/UserSchedule'));
@@ -44,7 +45,7 @@ const DoctorDashboard = React.lazy(() => import('./pages/DoctorDashboard'));
 const AttendancePage = React.lazy(() => import('./pages/AttendancePage'));
 const AppointmentsPage = React.lazy(() => import('./pages/AppointmentsPage'));
 const PatientTicket = React.lazy(() => import('./pages/PatientTicket'));
-const DataArchiver = React.lazy(() => import('./pages/DataArchiver')); // NEW PAGE
+const DataArchiver = React.lazy(() => import('./pages/DataArchiver')); 
 
 const ModalityLogbook = React.lazy(() => import('./pages/ModalityLogbook'));
 
@@ -205,6 +206,9 @@ const AppRoutes: React.FC = () => {
         <Route path="/supervisor/performance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorPerformance /></ProtectedRoute>} />
         <Route path="/supervisor/panic-reports" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><PanicReportsPage /></ProtectedRoute>} />
         
+        {/* NEW: Rotation Page */}
+        <Route path="/supervisor/rotation" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorRotation /></ProtectedRoute>} />
+
         {/* NEW: Data Archiver Route */}
         <Route path="/supervisor/archive" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><DataArchiver /></ProtectedRoute>} />
 

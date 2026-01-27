@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 // @ts-ignore
-import { collection, addDoc, getDocs, Timestamp, query, where, writeBatch, doc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, Timestamp, query, where, writeBatch, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { ModalityColumn, CommonDuty, FridayScheduleRow, HolidayScheduleRow, HeaderMap, SavedTemplate, User, Location, VisualStaff, DoctorScheduleRow, DoctorFridayRow, DoctorFridayHeaderMap, DoctorWeeklyHeaderMap } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import GeneralScheduleView from '../components/schedule/GeneralScheduleView';
@@ -88,7 +88,7 @@ const normalizeDate = (inputDate: string): string => {
     return trimmed;
 };
 
-// --- NEW: Smart Date Range Parser (Fixes Year Rollover) ---
+// --- Smart Date Range Parser ---
 const parseDateRangeRow = (input: string, currentMonth: string) => {
     const [yStr, mStr] = currentMonth.split('-');
     const targetYear = parseInt(yStr);
@@ -100,7 +100,6 @@ const parseDateRangeRow = (input: string, currentMonth: string) => {
 
     if (!input) return { from, to };
 
-    // Clean input (handle th, st, nd, rd case-insensitively)
     const cleanInput = input.toUpperCase().replace(/(?:TH|ST|ND|RD|,)/g, ' ').trim();
     
     const monthsMap: Record<string, number> = {
@@ -117,38 +116,26 @@ const parseDateRangeRow = (input: string, currentMonth: string) => {
         const d2 = parseInt(matches[1][1]);
         const m2Str = matches[1][2];
 
-        // Logic to determine Year based on target month
         const getYearForMonth = (mIndex: number) => {
-            // If target is Jan (0) and input is Dec (11) -> Previous Year
             if (targetMonthIndex === 0 && mIndex === 11) return targetYear - 1;
-            // If target is Dec (11) and input is Jan (0) -> Next Year
             if (targetMonthIndex === 11 && mIndex === 0) return targetYear + 1;
             return targetYear;
         };
 
-        // 1. Calculate Date 1
         let date1: Date;
         if (m1Str && monthsMap[m1Str] !== undefined) {
             const m1 = monthsMap[m1Str];
             date1 = new Date(getYearForMonth(m1), m1, d1);
         } else {
-            // Default to target month
             date1 = new Date(targetYear, targetMonthIndex, d1);
         }
 
-        // 2. Calculate Date 2
         let date2: Date;
         if (m2Str && monthsMap[m2Str] !== undefined) {
             const m2 = monthsMap[m2Str];
             date2 = new Date(getYearForMonth(m2), m2, d2);
         } else {
-            // Infer based on Date 1
-            // Clone Date 1 year/month
             date2 = new Date(date1.getFullYear(), date1.getMonth(), d2);
-            
-            // If end day is smaller than start day (e.g., 27 to 1), add one month
-            // This handles Dec 27 -> Jan 1 (Year rollover handled by Date object automatically)
-            // It also handles Nov 29 -> Dec 4
             if (d2 < d1) {
                 date2.setMonth(date2.getMonth() + 1);
             }
@@ -168,7 +155,6 @@ const parseDateRangeRow = (input: string, currentMonth: string) => {
     return { from, to };
 };
 
-// Updated Default Headers to match PDF exactly
 const defaultHeaders: HeaderMap = {
     morning: 'MORNING (8AM-5PM)',
     evening: 'EVENING (3PM-12MN)',
@@ -204,11 +190,14 @@ const defaultDoctorWeeklyHeaders: DoctorWeeklyHeaderMap = {
 
 const ScheduleBuilder: React.FC = () => {
     const { t, dir } = useLanguage();
-    const [activeTab, setActiveTab] = useState<'visual'>('visual'); // Default to visual
     const [visualSubTab, setVisualSubTab] = useState<'general' | 'friday' | 'holiday' | 'doctor' | 'doctor_friday'>('general');
     const [isEditingVisual, setIsEditingVisual] = useState(true);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     
+    // Active Template Tracking
+    const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
+    const [activeTemplateName, setActiveTemplateName] = useState<string>('');
+
     // Data States
     const [generalData, setGeneralData] = useState<ModalityColumn[]>([
         { id: '1', title: 'MRI', defaultTime: '8 AM - 8 PM', colorClass: 'bg-blue-100 text-blue-900', staff: [] },
@@ -233,15 +222,11 @@ const ScheduleBuilder: React.FC = () => {
     const [loading, setLoading] = useState(true);
     
     const [publishMonth, setPublishMonth] = useState(new Date().toISOString().slice(0, 7));
-    
-    // New Global Date Range States
     const [globalStartDate, setGlobalStartDate] = useState('');
     const [globalEndDate, setGlobalEndDate] = useState('');
-    // New: Schedule Note State
     const [scheduleNote, setScheduleNote] = useState('');
 
     const [searchTerm, setSearchTerm] = useState('');
-    
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'|'info'} | null>(null);
     const [confirmation, setConfirmation] = useState<{isOpen: boolean, title: string, message: string, onConfirm: () => void}>({
         isOpen: false, title: '', message: '', onConfirm: () => {}
@@ -250,7 +235,6 @@ const ScheduleBuilder: React.FC = () => {
     const [newTemplateName, setNewTemplateName] = useState('');
     const [saveTargetMonth, setSaveTargetMonth] = useState('');
     
-    // UI State for Template Drawer
     const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
     const [templateSearch, setTemplateSearch] = useState('');
 
@@ -274,20 +258,23 @@ const ScheduleBuilder: React.FC = () => {
     }, []);
 
     const handleSaveTemplate = () => {
-        setNewTemplateName(`Schedule ${new Date().toLocaleDateString()}`);
+        if (activeTemplateId) {
+            setNewTemplateName(activeTemplateName);
+        } else {
+            setNewTemplateName(`Schedule ${new Date().toLocaleDateString()}`);
+        }
         setSaveTargetMonth(publishMonth);
         setIsSaveModalOpen(true);
     };
 
-    const confirmSaveTemplate = async () => {
+    const confirmSaveTemplate = async (isNew: boolean = false) => {
         if (!newTemplateName) return;
         setIsSaveModalOpen(false);
         setLoading(true);
         try {
-            const template: Omit<SavedTemplate, 'id'> = {
+            const templateData = {
                 name: newTemplateName,
                 targetMonth: saveTargetMonth,
-                createdAt: Timestamp.now(),
                 generalData,
                 commonDuties,
                 fridayData,
@@ -302,9 +289,27 @@ const ScheduleBuilder: React.FC = () => {
                 globalEndDate,
                 scheduleNote
             };
-            const docRef = await addDoc(collection(db, 'schedule_templates'), template);
-            setSavedTemplates([...savedTemplates, { id: docRef.id, ...template }]);
-            setToast({ msg: t('save'), type: 'success' });
+
+            if (activeTemplateId && !isNew) {
+                // Update Existing
+                await updateDoc(doc(db, 'schedule_templates', activeTemplateId), {
+                    ...templateData,
+                    updatedAt: Timestamp.now()
+                });
+                setSavedTemplates(prev => prev.map(t => t.id === activeTemplateId ? { ...t, ...templateData } : t));
+                setToast({ msg: t('update'), type: 'success' });
+            } else {
+                // Save as New
+                const docRef = await addDoc(collection(db, 'schedule_templates'), {
+                    ...templateData,
+                    createdAt: Timestamp.now()
+                });
+                const newTpl = { id: docRef.id, ...templateData, createdAt: Timestamp.now() };
+                setSavedTemplates([...savedTemplates, newTpl]);
+                setActiveTemplateId(docRef.id);
+                setActiveTemplateName(newTemplateName);
+                setToast({ msg: t('save'), type: 'success' });
+            }
         } catch (e) {
             setToast({ msg: 'Error', type: 'error' });
         } finally {
@@ -318,6 +323,10 @@ const ScheduleBuilder: React.FC = () => {
         try {
             await deleteDoc(doc(db, 'schedule_templates', id));
             setSavedTemplates(prev => prev.filter(t => t.id !== id));
+            if (activeTemplateId === id) {
+                setActiveTemplateId(null);
+                setActiveTemplateName('');
+            }
             setToast({ msg: t('delete'), type: 'success' });
         } catch (error) {
             setToast({ msg: 'Error deleting template', type: 'error' });
@@ -330,6 +339,8 @@ const ScheduleBuilder: React.FC = () => {
             title: t('confirm'),
             message: `Load "${tpl.name}"? Unsaved changes will be lost.`,
             onConfirm: () => {
+                setActiveTemplateId(tpl.id);
+                setActiveTemplateName(tpl.name);
                 setGeneralData(tpl.generalData || []);
                 setCommonDuties(tpl.commonDuties || []);
                 setFridayData(tpl.fridayData || []);
@@ -341,15 +352,12 @@ const ScheduleBuilder: React.FC = () => {
                 setDoctorFridayHeaders(tpl.doctorFridayHeaders || {...defaultDoctorFridayHeaders});
                 setDoctorWeeklyHeaders(tpl.doctorWeeklyHeaders || {...defaultDoctorWeeklyHeaders});
                 if(tpl.targetMonth) setPublishMonth(tpl.targetMonth);
-                
-                // Load global fields
                 setGlobalStartDate(tpl.globalStartDate || '');
                 setGlobalEndDate(tpl.globalEndDate || '');
                 setScheduleNote(tpl.scheduleNote || '');
 
                 setConfirmation(prev => ({ ...prev, isOpen: false }));
-                setActiveTab('visual');
-                setIsTemplatesOpen(false); // Close drawer after loading
+                setIsTemplatesOpen(false); 
                 setToast({ msg: 'Loaded', type: 'success' });
             }
         });
@@ -373,7 +381,6 @@ const ScheduleBuilder: React.FC = () => {
                     if (docs.length === 0) {
                         setToast({ msg: 'No schedules found to clear.', type: 'info' });
                     } else {
-                        // Chunk deletions to avoid batch limit
                         for (let i = 0; i < docs.length; i += batchSize) {
                             const chunk = docs.slice(i, i + batchSize);
                             const batch = writeBatch(db);
@@ -391,7 +398,6 @@ const ScheduleBuilder: React.FC = () => {
         });
     };
 
-    // New Function to Clear Swaps with Client-side Filtering to avoid Index Error
     const handleClearSwaps = () => {
         if (!publishMonth) return setToast({ msg: 'Select Month', type: 'error' });
         setConfirmation({
@@ -402,21 +408,13 @@ const ScheduleBuilder: React.FC = () => {
                 setConfirmation(prev => ({ ...prev, isOpen: false }));
                 setLoading(true);
                 try {
-                    // FIX: Query only by month to avoid "Requires Index" error
-                    const q = query(
-                        collection(db, 'schedules'), 
-                        where('month', '==', publishMonth)
-                    );
+                    const q = query(collection(db, 'schedules'), where('month', '==', publishMonth));
                     const snapshot = await getDocs(q);
-                    
-                    // Client-side filtering
                     const swapDocs = snapshot.docs.filter(doc => {
                         const loc = doc.data().locationId;
                         return loc && typeof loc === 'string' && loc.startsWith('Swap');
                     });
-                    
                     const batchSize = 500;
-                    
                     if (swapDocs.length === 0) {
                         setToast({ msg: 'No swaps found.', type: 'info' });
                     } else {
@@ -453,13 +451,11 @@ const ScheduleBuilder: React.FC = () => {
     const executePublish = async () => {
         setLoading(true);
         try {
-            // STEP 1: Delete existing schedules
             const q = query(collection(db, 'schedules'), where('month', '==', publishMonth));
             const snapshot = await getDocs(q);
             if (!snapshot.empty) {
                 const batchSize = 500;
                 const docs = snapshot.docs;
-                // Delete in chunks
                 for (let i = 0; i < docs.length; i += batchSize) {
                     const chunk = docs.slice(i, i + batchSize);
                     const deleteBatch = writeBatch(db);
@@ -468,36 +464,22 @@ const ScheduleBuilder: React.FC = () => {
                 }
             }
 
-            // STEP 2: Create new schedules
             const batch = writeBatch(db);
             const scheduleRef = collection(db, 'schedules');
-            
             const [y, m] = publishMonth.split('-');
             const lastDay = new Date(parseInt(y), parseInt(m), 0).getDate();
             const monthEnd = `${publishMonth}-${lastDay}`;
             const monthStart = `${publishMonth}-01`;
 
-            // Improved staff resolver: returns ID if linked, otherwise generated ID
             const resolveStaff = (staff: VisualStaff): { id: string, name: string } | null => {
                 if (!staff.name || staff.name.trim() === '') return null;
-                
                 let id = staff.userId;
-                
-                // If no ID, try to match by name
                 if (!id) {
                     const cleanName = staff.name.replace(/[（(].*?[）)]/g, '').trim().toLowerCase();
-                    const found = allUsers.find(u => 
-                        (u.name && u.name.toLowerCase().trim() === cleanName) ||
-                        (u.email && u.email.toLowerCase().trim() === cleanName)
-                    );
+                    const found = allUsers.find(u => (u.name && u.name.toLowerCase().trim() === cleanName) || (u.email && u.email.toLowerCase().trim() === cleanName));
                     if (found) id = found.id;
                 }
-
-                // If still no ID (Unlinked staff), generate a deterministic fake ID
-                if (!id) {
-                    id = `unlinked_${staff.name.replace(/\s+/g, '_').toLowerCase()}_${Date.now()}`;
-                }
-
+                if (!id) id = `unlinked_${staff.name.replace(/\s+/g, '_').toLowerCase()}_${Date.now()}`;
                 return { id, name: staff.name };
             };
 
@@ -510,90 +492,70 @@ const ScheduleBuilder: React.FC = () => {
                 }
             };
 
-            // 1. General & Common
-            // Uses global date fallback
             for (const col of generalData) {
                 const parsed = parseMultiShifts(col.defaultTime);
                 const shifts = (parsed && parsed.length > 0) ? parsed : [{ start: '08:00', end: '16:00' }];
-                
                 for (const staff of col.staff) {
                     const resolved = resolveStaff(staff);
                     if (resolved) {
-                        const newDoc = doc(scheduleRef);
                         const shiftData: any = {
                             userId: resolved.id,
                             staffName: resolved.name, 
                             locationId: col.title,
                             month: publishMonth,
-                            // Use individual dates if set, otherwise global, otherwise full month
                             validFrom: staff.startDate || globalStartDate || monthStart,
                             validTo: staff.endDate || globalEndDate || monthEnd,
                             userType: 'user',
                             shifts: shifts,
-                            // *** MODIFIED: Append staff note to location title for display in ticket ***
                             note: staff.note ? `${col.title} - ${staff.note}` : col.title,
                             week: 'all',
                             createdAt: Timestamp.now()
                         };
-                        
                         if(staff.time) {
                              const customShifts = parseMultiShifts(staff.time);
                              if(customShifts.length > 0) shiftData.shifts = customShifts;
                         }
-
-                        batch.set(newDoc, shiftData);
+                        batch.set(doc(scheduleRef), shiftData);
                         await checkBatch();
                     }
                 }
             }
 
-            // 2. Common Duties
-            // Uses global date fallback
             for (const duty of commonDuties) {
                 const parsed = parseMultiShifts(duty.time);
                 const shifts = (parsed && parsed.length > 0) ? parsed : [{ start: '08:00', end: '16:00' }];
                 for (const staff of duty.staff) {
                     const resolved = resolveStaff(staff);
                     if (resolved) {
-                        const newDoc = doc(scheduleRef);
                         const shiftData: any = {
                             userId: resolved.id,
                             staffName: resolved.name, 
                             locationId: 'common_duty',
                             month: publishMonth,
-                            // Use individual dates if set, otherwise global, otherwise full month
                             validFrom: staff.startDate || globalStartDate || monthStart,
                             validTo: staff.endDate || globalEndDate || monthEnd,
                             userType: 'user',
                             shifts: shifts,
-                            // *** MODIFIED: Append staff note ***
                             note: staff.note ? `${duty.section} - ${staff.note}` : duty.section,
                             week: 'all',
                             createdAt: Timestamp.now()
                         };
-                        
                         if(staff.time) {
                              const customShifts = parseMultiShifts(staff.time);
                              if(customShifts.length > 0) shiftData.shifts = customShifts;
                         }
-
-                        batch.set(newDoc, shiftData);
+                        batch.set(doc(scheduleRef), shiftData);
                         await checkBatch();
                     }
                 }
             }
 
-            // 3. Friday Data - UPDATED LOGIC TO USE HEADERS
             for (const row of fridayData) {
                 if(!row.date) continue;
                 const date = normalizeDate(row.date);
-                
                 const processFridayCol = async (staffList: VisualStaff[], colKey: string, timeSource: string, fallbackTime: string) => {
                     let shifts = parseMultiShifts(timeSource);
-                    if (shifts.length === 0) {
-                        shifts = parseMultiShifts(fallbackTime) || [{start:'08:00', end:'16:00'}];
-                    }
-
+                    if (shifts.length === 0) shifts = parseMultiShifts(fallbackTime) || [{start:'08:00', end:'16:00'}];
                     for (const staff of staffList) {
                         const resolved = resolveStaff(staff);
                         if (resolved) {
@@ -602,9 +564,7 @@ const ScheduleBuilder: React.FC = () => {
                                 const specific = parseMultiShifts(staff.time);
                                 if (specific.length > 0) finalShifts = specific;
                             }
-
-                            const newDoc = doc(scheduleRef);
-                            batch.set(newDoc, {
+                            batch.set(doc(scheduleRef), {
                                 userId: resolved.id,
                                 staffName: resolved.name, 
                                 locationId: 'Friday Shift',
@@ -619,8 +579,6 @@ const ScheduleBuilder: React.FC = () => {
                         }
                     }
                 };
-
-                // Use the HEADERS as the source of time, falling back to defaults if empty
                 await processFridayCol(row.morning, 'Morning', fridayHeaders.morning || '8AM-5PM', '08:00 - 17:00'); 
                 await processFridayCol(row.evening, 'Evening', fridayHeaders.evening || '3PM-12MN', '15:00 - 24:00');
                 await processFridayCol(row.broken, 'Broken', fridayHeaders.broken || '9AM-1PM/5PM-10PM', '09:00 - 13:00, 17:00 - 22:00');
@@ -629,24 +587,15 @@ const ScheduleBuilder: React.FC = () => {
                 await processFridayCol(row.night, 'Night', fridayHeaders.night || '11PM-8AM', '23:00 - 08:00');
             }
 
-            // 4. Doctor Weekly Data
             for (const row of doctorData) {
-                if(!row.dateRange && !row.startDate) continue; // Basic validation
-                
-                // Main Range
+                if(!row.dateRange && !row.startDate) continue;
                 const { from, to } = parseDateRangeRow(row.dateRange || (row.startDate ? `${row.startDate}-${row.endDate}` : ''), publishMonth);
-                // Night Override
                 const nightFrom = row.nightStartDate || from;
                 const nightTo = row.nightEndDate || to;
-                
                 const processDocCol = async (staffList: VisualStaff[], shiftType: string, timeSourceStr: string, fallbackTime: string, isNight: boolean = false) => {
-                    // Try to parse from header text first
                     let shifts = parseMultiShifts(timeSourceStr);
-                    if (shifts.length === 0) {
-                        shifts = parseMultiShifts(fallbackTime);
-                    }
+                    if (shifts.length === 0) shifts = parseMultiShifts(fallbackTime);
                     if (shifts.length === 0) shifts = [{start:'08:00', end:'16:00'}]; 
-
                     for (const staff of staffList) {
                         const resolved = resolveStaff(staff);
                         if (resolved) {
@@ -655,9 +604,7 @@ const ScheduleBuilder: React.FC = () => {
                                 const specific = parseMultiShifts(staff.time);
                                 if (specific.length > 0) finalShifts = specific;
                             }
-
-                            const newDoc = doc(scheduleRef);
-                            batch.set(newDoc, {
+                            batch.set(doc(scheduleRef), {
                                 userId: resolved.id,
                                 staffName: resolved.name, 
                                 locationId: 'Doctor Schedule',
@@ -666,14 +613,13 @@ const ScheduleBuilder: React.FC = () => {
                                 validTo: isNight ? nightTo : to,
                                 userType: 'doctor',
                                 shifts: finalShifts,
-                                note: shiftType, // Doctors don't use note field heavily in this context, usually shiftType is key
+                                note: shiftType,
                                 createdAt: Timestamp.now()
                             });
                             await checkBatch();
                         }
                     }
                 }
-                
                 await processDocCol(row.broken1, doctorWeeklyHeaders.col1Title || 'Broken 1', doctorWeeklyHeaders.col1Sub, '09:00 - 13:00, 17:00 - 21:00');
                 await processDocCol(row.broken2, doctorWeeklyHeaders.col2Title || 'Broken 2', doctorWeeklyHeaders.col2Sub, '09:00 - 13:00, 17:00 - 21:00');
                 await processDocCol(row.morning, doctorWeeklyHeaders.col3Title || 'Straight Morning', doctorWeeklyHeaders.col3Sub, '09:00 - 17:00');
@@ -681,16 +627,13 @@ const ScheduleBuilder: React.FC = () => {
                 await processDocCol(row.night, doctorWeeklyHeaders.col5Title || 'Night Shift', doctorWeeklyHeaders.col5Sub, '01:00 - 09:00', true);
             }
 
-            // 5. Doctor Friday Data
             for (const row of doctorFridayData) {
                 if (!row.date) continue;
                 const date = normalizeDate(row.date);
-
                 const processDrFridayCol = async (staffList: VisualStaff[], colKey: string, timeKey: keyof DoctorFridayHeaderMap, titleKey: keyof DoctorFridayHeaderMap) => {
                     const timeStr = doctorFridayHeaders[timeKey] || '';
                     const titleStr = doctorFridayHeaders[titleKey] || colKey;
                     const shifts = parseMultiShifts(timeStr).length > 0 ? parseMultiShifts(timeStr) : [{ start: '08:00', end: '16:00' }];
-
                     for (const staff of staffList) {
                         const resolved = resolveStaff(staff);
                         if (resolved) {
@@ -699,9 +642,7 @@ const ScheduleBuilder: React.FC = () => {
                                 const specific = parseMultiShifts(staff.time);
                                 if (specific.length > 0) finalShifts = specific;
                             }
-
-                            const newDoc = doc(scheduleRef);
-                            batch.set(newDoc, {
+                            batch.set(doc(scheduleRef), {
                                 userId: resolved.id,
                                 staffName: resolved.name,
                                 locationId: 'Doctor Friday Shift',
@@ -716,14 +657,12 @@ const ScheduleBuilder: React.FC = () => {
                         }
                     }
                 }
-
                 await processDrFridayCol(row.col1, 'col1', 'col1Time', 'col1Title');
                 await processDrFridayCol(row.col2, 'col2', 'col2Time', 'col2Title');
                 await processDrFridayCol(row.col3, 'col3', 'col3Time', 'col3Title');
                 await processDrFridayCol(row.col4, 'col4', 'col4Time', 'col4Title');
             }
 
-            // 6. Holiday Data
             for (const row of holidayData) {
                 if(!row.occasion) continue;
                 if(row.occasion.match(/^\d{4}-\d{2}-\d{2}$/) || row.occasion.match(/^\d{1,2}[-./]\d{1,2}[-./]\d{4}$/)) {
@@ -732,8 +671,7 @@ const ScheduleBuilder: React.FC = () => {
                         for (const staff of staffList) {
                             const resolved = resolveStaff(staff);
                             if(resolved) {
-                                const newDoc = doc(scheduleRef);
-                                batch.set(newDoc, {
+                                batch.set(doc(scheduleRef), {
                                     userId: resolved.id,
                                     staffName: resolved.name,
                                     locationId: 'Holiday Shift',
@@ -754,9 +692,7 @@ const ScheduleBuilder: React.FC = () => {
 
             await batch.commit();
             setToast({ msg: 'Published Successfully!', type: 'success' });
-
         } catch (e: any) {
-            console.error(e);
             setToast({ msg: 'Error: ' + e.message, type: 'error' });
         } finally {
             setLoading(false);
@@ -771,16 +707,22 @@ const ScheduleBuilder: React.FC = () => {
 
             <div className="flex-1 flex flex-col h-full overflow-hidden print:h-auto print:overflow-visible relative">
                 {/* Top Bar */}
-                <div className="bg-white border-b border-gray-200 p-4 flex justify-between items-center print:hidden">
-                    <div className="flex items-center gap-4">
+                <div className="bg-white border-b border-gray-200 p-4 flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
+                    <div className="flex items-center gap-4 w-full sm:w-auto">
                         <button 
                             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                             className={`p-2 rounded-lg transition-colors ${isSidebarOpen ? 'bg-slate-100 text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
-                            title="Toggle Staff List"
                         >
                             <i className="fas fa-users"></i>
                         </button>
-                        <h1 className="text-xl font-bold text-slate-800">{t('nav.scheduleBuilder')}</h1>
+                        <div>
+                            <h1 className="text-xl font-bold text-slate-800">{t('nav.scheduleBuilder')}</h1>
+                            {activeTemplateId && (
+                                <p className="text-[10px] font-bold text-blue-600 uppercase flex items-center gap-1">
+                                    <i className="fas fa-file-alt"></i> {t('sb.activeTemplate')} {activeTemplateName}
+                                </p>
+                            )}
+                        </div>
                         <input 
                             type="month" 
                             value={publishMonth} 
@@ -789,37 +731,26 @@ const ScheduleBuilder: React.FC = () => {
                         />
                     </div>
                     
-                    <div className="flex gap-2">
-                        <button 
-                            onClick={() => setIsEditingVisual(!isEditingVisual)}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${isEditingVisual ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}
-                        >
-                            <i className={`fas ${isEditingVisual ? 'fa-eye' : 'fa-pen'}`}></i>
-                            {isEditingVisual ? 'Preview Mode' : 'Edit Mode'}
+                    <div className="flex flex-wrap gap-2">
+                        <button onClick={() => setIsEditingVisual(!isEditingVisual)} className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${isEditingVisual ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                            <i className={`fas ${isEditingVisual ? 'fa-eye' : 'fa-pen'}`}></i> {isEditingVisual ? 'Preview Mode' : 'Edit Mode'}
                         </button>
-
-                        <button onClick={handleSaveTemplate} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-100 flex items-center gap-2">
-                            <i className="fas fa-save"></i> Save Template
+                        <button onClick={handleSaveTemplate} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center gap-2 shadow-sm">
+                            <i className="fas fa-save"></i> {t('save')}
                         </button>
                         <button onClick={() => window.print()} className="bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-200 flex items-center gap-2">
                             <i className="fas fa-print"></i> Print
                         </button>
-                        <button onClick={handlePublishSchedule} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-200 flex items-center gap-2">
+                        <button onClick={handlePublishSchedule} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-emerald-700 shadow-lg flex items-center gap-2">
                             <i className="fas fa-upload"></i> {t('sb.publish')}
                         </button>
-                        <button onClick={handleClearSwaps} className="bg-purple-50 text-purple-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-purple-100 flex items-center gap-2">
-                            <i className="fas fa-eraser"></i> Clr Swaps
-                        </button>
-                        <button onClick={handleUnpublish} className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-100 flex items-center gap-2">
-                            <i className="fas fa-trash"></i> Clear All
-                        </button>
+                        <button onClick={handleClearSwaps} className="bg-purple-50 text-purple-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-purple-100"><i className="fas fa-eraser"></i></button>
+                        <button onClick={handleUnpublish} className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-100"><i className="fas fa-trash"></i></button>
                     </div>
                 </div>
 
-                {/* Main Content (Scrollable) */}
+                {/* Main Content */}
                 <div className="flex-1 overflow-y-auto p-6 bg-slate-50 print:p-0 print:bg-white print:overflow-visible">
-                    
-                    {/* View Switcher */}
                     <div className="flex gap-2 mb-6 overflow-x-auto pb-2 print:hidden">
                         {[
                             { id: 'general', label: 'General Duty' },
@@ -838,21 +769,13 @@ const ScheduleBuilder: React.FC = () => {
                         ))}
                     </div>
 
-                    {/* Views */}
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-h-[500px] print:shadow-none print:border-none print:p-0">
                         {visualSubTab === 'general' && (
                             <GeneralScheduleView 
-                                data={generalData} 
-                                commonDuties={commonDuties}
-                                isEditing={isEditingVisual}
-                                publishMonth={publishMonth}
-                                globalStartDate={globalStartDate}
-                                globalEndDate={globalEndDate}
-                                setGlobalStartDate={setGlobalStartDate}
-                                setGlobalEndDate={setGlobalEndDate}
-                                // Pass note state
-                                scheduleNote={scheduleNote}
-                                setScheduleNote={setScheduleNote}
+                                data={generalData} commonDuties={commonDuties} isEditing={isEditingVisual}
+                                publishMonth={publishMonth} globalStartDate={globalStartDate} globalEndDate={globalEndDate}
+                                setGlobalStartDate={setGlobalStartDate} setGlobalEndDate={setGlobalEndDate}
+                                scheduleNote={scheduleNote} setScheduleNote={setScheduleNote}
                                 onUpdateColumn={(i, d) => { const n = [...generalData]; n[i] = d; setGeneralData(n); }}
                                 onUpdateDuty={(i, d) => { const n = [...commonDuties]; n[i] = d; setCommonDuties(n); }}
                                 onAddColumn={() => setGeneralData([...generalData, { id: Date.now().toString(), title: 'New', defaultTime: '', colorClass: 'bg-blue-100 text-blue-900', staff: [] }])}
@@ -860,119 +783,69 @@ const ScheduleBuilder: React.FC = () => {
                                 onReorderColumns={(from, to) => { const n = [...generalData]; const [rem] = n.splice(from, 1); n.splice(to, 0, rem); setGeneralData(n); }}
                                 onAddDuty={() => setCommonDuties([...commonDuties, { section: 'New Duty', time: '', staff: [] }])}
                                 onRemoveDuty={(i) => setCommonDuties(commonDuties.filter((_, idx) => idx !== i))}
-                                searchTerm={searchTerm}
-                                locations={allLocations}
-                                allUsers={allUsers}
+                                locations={allLocations} allUsers={allUsers} searchTerm={searchTerm}
                             />
                         )}
-                        
-                        {/* Other views remain similar... */}
                         {visualSubTab === 'friday' && (
                             <FridayScheduleView 
-                                data={fridayData}
-                                isEditing={isEditingVisual}
-                                allUsers={allUsers}
-                                publishMonth={publishMonth}
+                                data={fridayData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}
                                 onUpdateRow={(i, d) => { const n = [...fridayData]; n[i] = d; setFridayData(n); }}
                                 onAddRow={() => setFridayData([...fridayData, { id: Date.now().toString(), date: '', morning: [], evening: [], broken: [], cathLab: [], mri: [], night: [] }])}
                                 onRemoveRow={(i) => setFridayData(fridayData.filter((_, idx) => idx !== i))}
-                                headers={fridayHeaders}
-                                onHeaderChange={setFridayHeaders}
-                                searchTerm={searchTerm}
+                                headers={fridayHeaders} onHeaderChange={setFridayHeaders} searchTerm={searchTerm}
                             />
                         )}
-
                         {visualSubTab === 'holiday' && (
                             <HolidayScheduleView 
-                                data={holidayData}
-                                isEditing={isEditingVisual}
-                                allUsers={allUsers}
-                                publishMonth={publishMonth}
+                                data={holidayData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}
                                 onUpdateRow={(i, d) => { const n = [...holidayData]; n[i] = d; setHolidayData(n); }}
                                 onAddRow={() => setHolidayData([...holidayData, { id: Date.now().toString(), occasion: '', morning: [], evening: [], broken: [], cathLab: [], mri: [], night: [] }])}
                                 onRemoveRow={(i) => setHolidayData(holidayData.filter((_, idx) => idx !== i))}
-                                headers={holidayHeaders}
-                                onHeaderChange={setHolidayHeaders}
-                                searchTerm={searchTerm}
+                                headers={holidayHeaders} onHeaderChange={setHolidayHeaders} searchTerm={searchTerm}
                             />
                         )}
-
                         {visualSubTab === 'doctor' && (
                             <DoctorScheduleView 
-                                data={doctorData}
-                                isEditing={isEditingVisual}
-                                allUsers={allUsers}
-                                publishMonth={publishMonth}
+                                data={doctorData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}
                                 onUpdateRow={(i, d) => { const n = [...doctorData]; n[i] = d; setDoctorData(n); }}
                                 onAddRow={() => setDoctorData([...doctorData, { id: Date.now().toString(), dateRange: '', broken1: [], broken2: [], morning: [], evening: [], night: [] }])}
                                 onRemoveRow={(i) => setDoctorData(doctorData.filter((_, idx) => idx !== i))}
-                                headers={doctorWeeklyHeaders}
-                                onHeaderChange={setDoctorWeeklyHeaders}
-                                searchTerm={searchTerm}
+                                headers={doctorWeeklyHeaders} onHeaderChange={setDoctorWeeklyHeaders} searchTerm={searchTerm}
                             />
                         )}
-
                         {visualSubTab === 'doctor_friday' && (
                             <DoctorFridayScheduleView 
-                                data={doctorFridayData}
-                                isEditing={isEditingVisual}
-                                allUsers={allUsers}
-                                publishMonth={publishMonth}
+                                data={doctorFridayData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}
                                 onUpdateRow={(i, d) => { const n = [...doctorFridayData]; n[i] = d; setDoctorFridayData(n); }}
                                 onAddRow={() => setDoctorFridayData([...doctorFridayData, { id: Date.now().toString(), date: '', col1: [], col2: [], col3: [], col4: [] }])}
                                 onRemoveRow={(i) => setDoctorFridayData(doctorFridayData.filter((_, idx) => idx !== i))}
-                                headers={doctorFridayHeaders}
-                                onHeaderChange={setDoctorFridayHeaders}
-                                searchTerm={searchTerm}
+                                headers={doctorFridayHeaders} onHeaderChange={setDoctorFridayHeaders} searchTerm={searchTerm}
                             />
                         )}
                     </div>
                 </div>
 
-                {/* Templates Floating Action Button */}
+                {/* Templates FAB */}
                 <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2 print:hidden">
-                    
-                    {/* The List Panel */}
                     {isTemplatesOpen && (
-                        <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-80 mb-2 animate-fade-in-up max-h-96 overflow-y-auto">
+                        <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-80 mb-2 animate-fade-in-up max-h-[70vh] overflow-y-auto">
                             <div className="flex flex-col gap-2 mb-3 border-b border-slate-100 pb-2">
                                 <div className="flex justify-between items-center">
                                     <h3 className="font-bold text-slate-800">{t('sb.btn.saved')}</h3>
                                     <button onClick={() => setIsTemplatesOpen(false)} className="text-slate-400 hover:text-slate-600"><i className="fas fa-times"></i></button>
                                 </div>
-                                <input 
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold outline-none focus:ring-1 focus:ring-indigo-100"
-                                    placeholder="Search Templates..."
-                                    value={templateSearch}
-                                    onChange={e => setTemplateSearch(e.target.value)}
-                                />
+                                <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold outline-none" placeholder="Search Templates..." value={templateSearch} onChange={e => setTemplateSearch(e.target.value)} />
                             </div>
-                            
-                            {savedTemplates.length === 0 ? (
-                                <p className="text-xs text-slate-400 text-center py-4">{t('sb.empty')}</p>
-                            ) : (
+                            {savedTemplates.length === 0 ? <p className="text-xs text-slate-400 text-center py-4">{t('sb.empty')}</p> : (
                                 <div className="space-y-2">
-                                    {savedTemplates
-                                        .filter(tpl => 
-                                            tpl.name.toLowerCase().includes(templateSearch.toLowerCase()) || 
-                                            (tpl.targetMonth && tpl.targetMonth.includes(templateSearch))
-                                        )
-                                        .map(tpl => (
-                                        <div key={tpl.id} className="p-3 rounded-xl bg-slate-50 hover:bg-blue-50 border border-slate-100 hover:border-blue-200 transition-all group">
+                                    {savedTemplates.filter(tpl => tpl.name.toLowerCase().includes(templateSearch.toLowerCase()) || (tpl.targetMonth && tpl.targetMonth.includes(templateSearch))).map(tpl => (
+                                        <div key={tpl.id} className={`p-3 rounded-xl border transition-all group ${activeTemplateId === tpl.id ? 'bg-blue-50 border-blue-300' : 'bg-slate-50 border-slate-100 hover:bg-blue-50 hover:border-blue-200'}`}>
                                             <div className="flex justify-between items-start">
                                                 <div onClick={() => handleLoadTemplate(tpl)} className="cursor-pointer flex-1">
-                                                    <h4 className="font-bold text-sm text-slate-700 group-hover:text-blue-700">{tpl.name}</h4>
-                                                    <p className="text-[10px] text-slate-400 mt-1">
-                                                        <i className="far fa-calendar-alt mr-1"></i> {tpl.targetMonth || 'No Date'}
-                                                    </p>
+                                                    <h4 className={`font-bold text-sm ${activeTemplateId === tpl.id ? 'text-blue-700' : 'text-slate-700'}`}>{tpl.name}</h4>
+                                                    <p className="text-[10px] text-slate-400 mt-1"><i className="far fa-calendar-alt mr-1"></i> {tpl.targetMonth || 'No Date'}</p>
                                                 </div>
-                                                <button 
-                                                    onClick={(e) => handleDeleteTemplate(e, tpl.id)}
-                                                    className="text-slate-300 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                    title={t('delete')}
-                                                >
-                                                    <i className="fas fa-trash"></i>
-                                                </button>
+                                                <button onClick={(e) => handleDeleteTemplate(e, tpl.id)} className="text-slate-300 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity"><i className="fas fa-trash"></i></button>
                                             </div>
                                         </div>
                                     ))}
@@ -980,37 +853,42 @@ const ScheduleBuilder: React.FC = () => {
                             )}
                         </div>
                     )}
-
-                    {/* The Toggle Button */}
-                    <button 
-                        onClick={() => setIsTemplatesOpen(!isTemplatesOpen)} 
-                        className={`w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-white text-xl transition-all hover:scale-110 ${isTemplatesOpen ? 'bg-slate-600 rotate-45' : 'bg-indigo-600'}`}
-                        title="Saved Templates"
-                    >
+                    <button onClick={() => setIsTemplatesOpen(!isTemplatesOpen)} className={`w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-white text-xl transition-all hover:scale-110 ${isTemplatesOpen ? 'bg-slate-600 rotate-45' : 'bg-indigo-600'}`}>
                         {isTemplatesOpen ? <i className="fas fa-plus"></i> : <i className="fas fa-folder-open"></i>}
                     </button>
                 </div>
-
             </div>
 
-            {/* Save Template Modal */}
-            <Modal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} title="Save Template">
-                <div className="space-y-4">
+            <Modal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} title={activeTemplateId ? t('sb.updateExisting') : t('sb.newTemplateName')}>
+                <div className="space-y-6">
                     <div>
-                        <label className="text-xs font-bold text-slate-500">Template Name</label>
-                        <input 
-                            className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 outline-none"
-                            value={newTemplateName}
-                            onChange={e => setNewTemplateName(e.target.value)}
-                        />
+                        <label className="text-xs font-bold text-slate-500 mb-2 block">{t('sb.newTemplateName')}</label>
+                        <input className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-blue-100" value={newTemplateName} onChange={e => setNewTemplateName(e.target.value)} />
                     </div>
-                    <button onClick={confirmSaveTemplate} className="w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700">
-                        Confirm Save
-                    </button>
+
+                    {activeTemplateId && (
+                        <div className="p-4 bg-blue-50 rounded-xl border border-blue-100 space-y-4">
+                            <button onClick={() => confirmSaveTemplate(false)} className="w-full bg-blue-600 text-white py-3 rounded-xl font-black shadow-lg hover:bg-blue-700 flex items-center justify-center gap-2">
+                                <i className="fas fa-sync-alt"></i> {t('sb.updateExisting')}
+                            </button>
+                            <div className="relative text-center">
+                                <span className="bg-blue-50 px-2 text-[10px] font-bold text-blue-400 relative z-10">أو</span>
+                                <div className="absolute top-1/2 left-0 w-full h-px bg-blue-200"></div>
+                            </div>
+                            <button onClick={() => confirmSaveTemplate(true)} className="w-full bg-white border-2 border-blue-200 text-blue-600 py-3 rounded-xl font-bold hover:bg-white/50 flex items-center justify-center gap-2">
+                                <i className="fas fa-copy"></i> {t('sb.saveAsNew')}
+                            </button>
+                        </div>
+                    )}
+
+                    {!activeTemplateId && (
+                        <button onClick={() => confirmSaveTemplate(false)} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black shadow-lg hover:bg-black">
+                            {t('save')}
+                        </button>
+                    )}
                 </div>
             </Modal>
 
-            {/* Confirm Modal */}
             <Modal isOpen={confirmation.isOpen} onClose={() => setConfirmation({...confirmation, isOpen: false})} title={confirmation.title}>
                 <div className="space-y-4">
                     <p className="text-slate-600 font-medium">{confirmation.message}</p>
@@ -1020,7 +898,6 @@ const ScheduleBuilder: React.FC = () => {
                     </div>
                 </div>
             </Modal>
-
         </div>
     );
 };

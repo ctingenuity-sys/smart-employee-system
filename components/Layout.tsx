@@ -192,6 +192,10 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                 <i className="fas fa-calendar-alt w-6"></i>
                 <span className="font-medium">{t('nav.scheduleBuilder')}</span>
               </Link>
+              <Link to="/supervisor/rotation" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/rotation')}`}>
+                <i className="fas fa-sync-alt w-6"></i>
+                <span className="font-medium">{t('nav.rotation')}</span>
+              </Link>
               <Link to="/reports" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/reports')}`}>
                 <i className="fas fa-file-contract w-6"></i>
                 <span className="font-medium">{t('nav.reports')}</span>

@@ -74,8 +74,10 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
 }) => {
     const [editDragItem, setEditDragItem] = useState<{ rowIndex: number, column: keyof FridayScheduleRow, index: number } | null>(null);
     
-    // Manual Header Color State
+    // Manual Header Color State & Title Override
     const [headerColor, setHeaderColor] = useState<any>('teal');
+    const [customTitle, setCustomTitle] = useState('');
+    const [customSubtitle, setCustomSubtitle] = useState('FRIDAY DUTY');
 
     // Dynamic classes for the main table date column based on selected color
     const activeDateColumnClasses = {
@@ -332,41 +334,66 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
             {/* Modern Print Header */}
        <div className="print:mb-1">
             <PrintHeader 
-                month={publishMonth} 
-                subtitle="FRIDAY DUTY" 
+                month={customTitle || publishMonth} 
+                subtitle={customSubtitle}
                 dateRange="24 HOUR COVERAGE" 
                 themeColor={headerColor} 
             />
         </div> 
         
         {/* Screen Header & Color Control */}
-        <div className={`bg-slate-800 text-white p-4 rounded-xl shadow-md flex flex-col md:flex-row justify-between items-center gap-4 print:hidden transition-colors duration-300`}>
-            <div>
-                <h2 className="text-xl font-bold uppercase tracking-wide">Friday 24 Hour Coverage</h2>
-                <p className="text-slate-300 text-sm font-medium opacity-90">Specific Duty Assignments</p>
+        <div className={`bg-slate-800 text-white p-4 rounded-xl shadow-md flex flex-col justify-between gap-4 print:hidden transition-colors duration-300`}>
+            <div className="flex justify-between items-center">
+                <div>
+                    <h2 className="text-xl font-bold uppercase tracking-wide">Friday 24 Hour Coverage</h2>
+                    <p className="text-slate-300 text-sm font-medium opacity-90">Specific Duty Assignments</p>
+                </div>
+                
+                {isEditing && (
+                    <div className="flex flex-col gap-1 items-end">
+                        <label className="text-[10px] uppercase font-bold opacity-70">Theme Color</label>
+                        <div className="flex gap-1 bg-white/10 p-1 rounded-full">
+                            {['teal', 'blue', 'purple', 'rose', 'indigo', 'amber', 'cyan', 'emerald'].map(c => (
+                                <button 
+                                    key={c}
+                                    onClick={() => setHeaderColor(c)}
+                                    className={`w-6 h-6 rounded-full border-2 border-white/50 hover:scale-110 transition-transform ${
+                                        c === 'teal' ? 'bg-teal-600' :
+                                        c === 'blue' ? 'bg-blue-600' :
+                                        c === 'purple' ? 'bg-purple-600' :
+                                        c === 'rose' ? 'bg-rose-600' :
+                                        c === 'indigo' ? 'bg-indigo-600' :
+                                        c === 'amber' ? 'bg-amber-600' :
+                                        c === 'cyan' ? 'bg-cyan-600' :
+                                        'bg-emerald-600'
+                                    } ${headerColor === c ? 'ring-2 ring-white scale-110' : ''}`}
+                                    title={c}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
-            
+
             {isEditing && (
-                <div className="flex flex-col gap-1 items-center">
-                    <label className="text-[10px] uppercase font-bold opacity-70">Theme Color</label>
-                    <div className="flex gap-1 bg-white/10 p-1 rounded-full">
-                        {['teal', 'blue', 'purple', 'rose', 'indigo', 'amber', 'cyan', 'emerald'].map(c => (
-                            <button 
-                                key={c}
-                                onClick={() => setHeaderColor(c)}
-                                className={`w-6 h-6 rounded-full border-2 border-white/50 hover:scale-110 transition-transform ${
-                                    c === 'teal' ? 'bg-teal-600' :
-                                    c === 'blue' ? 'bg-blue-600' :
-                                    c === 'purple' ? 'bg-purple-600' :
-                                    c === 'rose' ? 'bg-rose-600' :
-                                    c === 'indigo' ? 'bg-indigo-600' :
-                                    c === 'amber' ? 'bg-amber-600' :
-                                    c === 'cyan' ? 'bg-cyan-600' :
-                                    'bg-emerald-600'
-                                } ${headerColor === c ? 'ring-2 ring-white scale-110' : ''}`}
-                                title={c}
-                            />
-                        ))}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-white/10">
+                    <div className="flex flex-col gap-1">
+                        <label className="text-[10px] uppercase font-bold opacity-70">Custom Title (Overrides Month)</label>
+                        <input
+                            value={customTitle}
+                            onChange={(e) => setCustomTitle(e.target.value)}
+                            className="bg-white/10 border border-white/20 rounded px-2 py-1.5 text-white placeholder-white/40 text-xs font-bold outline-none focus:bg-white/20 transition-all"
+                            placeholder="e.g. EID AL-FITR SCHEDULE"
+                        />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <label className="text-[10px] uppercase font-bold opacity-70">Custom Subtitle</label>
+                        <input
+                            value={customSubtitle}
+                            onChange={(e) => setCustomSubtitle(e.target.value)}
+                            className="bg-white/10 border border-white/20 rounded px-2 py-1.5 text-white placeholder-white/40 text-xs font-bold outline-none focus:bg-white/20 transition-all"
+                            placeholder="e.g. FRIDAY DUTY"
+                        />
                     </div>
                 </div>
             )}

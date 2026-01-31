@@ -8,6 +8,8 @@ import { PrintHeader, PrintFooter } from '../PrintLayout';
 // =================================================================
 interface StaffMember {
     name: string;
+    time?: string;
+    note?: string;
     color: string;
 }
 
@@ -46,7 +48,7 @@ const colorClasses = [
 
 const getStaffColor = (name: string): string => {
     const trimmedName = name.trim();
-    if (!trimmedName) return 'bg-slate-100 text-slate-700 border-slate-200';
+    if (!trimmedName || trimmedName === 'New Staff') return 'bg-slate-100 text-slate-700 border-slate-200';
     if (staffColorMap.has(trimmedName)) {
         return staffColorMap.get(trimmedName)!;
     }
@@ -57,10 +59,11 @@ const getStaffColor = (name: string): string => {
 
 const mapVisualToStaff = (list: VisualStaff[]): StaffMember[] => {
     return list
-        .filter(s => s.name && s.name.trim() !== '')
         .map(s => ({
-            name: s.name.trim() + (s.time ? ` • ${s.time}` : ''),
-            color: getStaffColor(s.name.trim()),
+            name: s.name,
+            time: s.time,
+            note: s.note,
+            color: getStaffColor(s.name || ''),
         }));
 };
 
@@ -93,7 +96,7 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
     // --- Customizable Print Headers State ---
     const [printTitle, setPrintTitle] = useState("HOLIDAY SCHEDULE");
     const [printSubtitle, setPrintSubtitle] = useState("HOLIDAY COVERAGE");
-    const [headerColor, setHeaderColor] = useState("purple");
+    const [headerColor, setHeaderColor] = useState<any>("purple");
 
     // Dynamic styles based on selected color - Controls Main Title & Holiday Name Cell
     const activeColorClasses = {
@@ -117,10 +120,11 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
         }));
     }, [data]);
 
-    const handleStaffNameChange = useCallback((rowIndex: number, column: keyof HolidayScheduleRow, index: number, newName: string) => {
+    // Enhanced Handler to support field updates (name, time, note)
+    const handleStaffChange = useCallback((rowIndex: number, column: keyof HolidayScheduleRow, index: number, field: keyof VisualStaff, value: string) => {
         const row = { ...data[rowIndex] };
         const currentList = [...(row[column] as VisualStaff[])];
-        currentList[index] = { ...currentList[index], name: newName };
+        currentList[index] = { ...currentList[index], [field]: value };
         onUpdateRow(rowIndex, { ...row, [column]: currentList });
     }, [data, onUpdateRow]);
 
@@ -223,15 +227,14 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
   }
 
     // Header Renderer - Section Names (Morning, Evening, etc.)
-    // These should remain standard dark color in print
     const renderHeader = (key: keyof HeaderMap, bgColorClass: string, borderClass: string) => {
         return (
-            <th scope="col" className={`px-2 py-4 text-center text-xs font-black text-white uppercase tracking-wider border-r border-white/20 ${bgColorClass} ${borderClass}print:px-1 print:py-2 print:text-xs font-sans`}>
+            <th scope="col" className={`px-2 py-4 text-center text-xs font-black text-white uppercase tracking-wider border-r border-white/20 ${bgColorClass} ${borderClass} print:bg-slate-900 print:text-white print:px-1 print:py-2 print:text-xs font-sans`}>
                 {isEditing ? (
                     <textarea 
                         value={headers[key]}
                         onChange={(e) => handleHeaderChange(key, e.target.value)}
-                        className="bg-black/20 text-white text-center w-full rounded px-1 py-0.5 outline-none placeholder-black/50 min-h-[40px] text-[10px] resize-none focus:bg-black/30 transition-colors"
+                        className="bg-black/50 text-white text-center w-full rounded px-1 py-0.5 outline-none placeholder-black/70 min-h-[40px] text-[10px] resize-none focus:bg-black/100 transition-colors"
                         placeholder="Header Name"
                     />
                 ) : (
@@ -251,23 +254,41 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
                     onDrop={(e) => onEditDrop(e, rowIndex, column)}
                 >
                     {rawList.map((s, i) => (
-                        <div key={i} draggable onDragStart={(e) => onEditDragStart(e, rowIndex, column, i)} className="flex items-start gap-1 group bg-white border border-slate-200 p-1 rounded-md shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-300 hover:shadow-md transition-all">
-                            <div className={`p-1 rounded-full bg-slate-100 mt-1`}>
-                                <i className="fas fa-grip-vertical text-xs text-slate-400"></i>
+                        <div key={i} draggable onDragStart={(e) => onEditDragStart(e, rowIndex, column, i)} className="flex flex-col gap-1 group bg-white border border-slate-200 p-1.5 rounded-md shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-300 hover:shadow-md transition-all relative">
+                            {/* Header: Grip, Name, Delete */}
+                            <div className="flex items-center gap-1 w-full">
+                                <div className={`p-1 rounded-full bg-slate-100 cursor-grab`}>
+                                    <i className="fas fa-grip-vertical text-slate-500 text-[10px]"></i>
+                                </div>
+                                <input
+                                    value={s.name}
+                                    onChange={(e) => handleStaffChange(rowIndex, column, i, 'name', e.target.value)}
+                                    className="w-full text-xs font-bold p-1 bg-gray-50 focus:bg-white border-b border-transparent focus:border-blue-300 outline-none text-gray-900"
+                                    placeholder="Name"
+                                />
+                                <button 
+                                    onClick={() => removeStaffMember(rowIndex, column, i)}
+                                    className="text-slate-300 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-all"
+                                >
+                                    <i className="fas fa-times text-xs"></i>
+                                </button>
                             </div>
-                            <textarea
-                                value={s.name}
-                                onChange={(e) => handleStaffNameChange(rowIndex, column, i, e.target.value)}
-                                className="w-full text-xs font-medium p-1 bg-gray-50 focus:bg-white border border-transparent focus:border-blue-200 rounded resize-y min-h-[40px] overflow-hidden text-gray-900"
-                                placeholder="Name"
-                                rows={2}
-                            />
-                            <button 
-                                onClick={() => removeStaffMember(rowIndex, column, i)}
-                                className="text-slate-300 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-all"
-                            >
-                                <i className="fas fa-times text-xs"></i>
-                            </button>
+
+                            {/* Details: Time & Note */}
+                            <div className="flex gap-1 pl-5">
+                                <input
+                                    value={s.time || ''}
+                                    onChange={(e) => handleStaffChange(rowIndex, column, i, 'time', e.target.value)}
+                                    className="w-1/2 text-[10px] p-1 bg-slate-50 border border-slate-200 rounded outline-none focus:border-blue-300 placeholder-slate-400"
+                                    placeholder="Time"
+                                />
+                                <input
+                                    value={s.note || ''}
+                                    onChange={(e) => handleStaffChange(rowIndex, column, i, 'note', e.target.value)}
+                                    className="w-1/2 text-[10px] p-1 bg-yellow-50 border border-yellow-200 rounded outline-none focus:border-yellow-400 text-yellow-900 placeholder-yellow-400"
+                                    placeholder="Note"
+                                />
+                            </div>
                         </div>
                     ))}
                     <button
@@ -279,16 +300,32 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
                 </div>
             );
         }
+        
+        // VIEW / PRINT MODE
         return (
             <div className="flex flex-col gap-1 w-full items-center">
                 {staffList.map((s, idx) => (
                     <div 
                         key={idx} 
-                        className={`text-sm px-2 py-1.5 rounded-lg border shadow-sm flex items-center justify-center text-center break-words w-full print-color-adjust-exact ${s.color} 
-                        print:shadow-none print:px-1 print:py-0.5 print:rounded print:text-[11px] print:font-bold print:leading-tight print:border-transparent font-sans`}
+                        className={`text-sm px-2 py-1.5 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center break-words w-full print-color-adjust-exact ${s.color} 
+                        print:shadow-none print:px-1 print:py-0.5 print:rounded print:border-transparent font-sans`}
                         dir="ltr"
                     >
-                        {highlightMatch(s.name)}
+                        <span className="font-bold print:text-[10px] leading-tight">
+                            {highlightMatch(s.name)}
+                        </span>
+                        
+                        {s.time && (
+                            <span className="text-[10px] font-mono bg-white/50 px-1 rounded mt-0.5 print:text-[9px] print:bg-transparent print:p-0 print:mt-0 leading-none">
+                                {s.time}
+                            </span>
+                        )}
+                        
+                        {s.note && (
+                            <span className="text-[9px] text-slate-900 bg-yellow-200/50 border border-yellow-200 px-1.5 py-0.5 rounded-md mt-1 w-full font-semibold print:text-[8px] print:bg-yellow-100 print:border-none print:mt-0.5 print:leading-none whitespace-pre-wrap">
+                                {s.note}
+                            </span>
+                        )}
                     </div>
                 ))}
             </div>
@@ -358,20 +395,9 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
       <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-lg bg-white print:block print:shadow-none print:overflow-visible print:border-none print:flex-grow relative z-10 print:bg-transparent">
         <table className="min-w-full divide-y divide-slate-200 print:divide-slate-900 print:border-2 print:border-slate-900 h-full print-color-adjust-exact print:table-fixed">
           {/* Main Table Header: Always Dark in Print */}
-          <thead className="  print:text-black print-color-adjust-exact">
+          <thead className="bg-slate-50 print:bg-slate-900 print:text-white print-color-adjust-exact">
             <tr className="print:h-fit">
-              <th scope="col" className="
-    px-6 py-4 text-center text-xs font-black uppercase tracking-wider
-    min-w-[220px]
-    border-r border-slate-200
-    bg-slate-100 text-slate-800
-    print:bg-slate-100
-    print:text-black
-    print:border-slate-400
-    print:px-2 print:py-2 print:text-xs
-    font-sans
-    print-color-adjust-exact
-  ">Occasion / Date</th>
+              <th scope="col" className="px-6 py-4 text-left text-xs font-black text-slate-600 uppercase tracking-wider min-w-[220px] border-r border-slate-200 print:px-2 print:py-2 print:text-xs print:w-24 print:border-r print:border-white/20 print:text-white print:text-center font-sans">Occasion / Date</th>
               {renderHeader('morning', 'bg-indigo-50 text-indigo-700', 'border-indigo-100')}
               {renderHeader('evening', 'bg-violet-50 text-violet-700', 'border-violet-100')}
               {renderHeader('broken', 'bg-amber-50 text-amber-700', 'border-amber-100')}

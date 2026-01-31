@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback } from 'react';
 import { FridayScheduleRow, VisualStaff, User, HeaderMap } from '../../types';
 import { PrintHeader, PrintFooter } from '../PrintLayout';
@@ -72,6 +73,36 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
     onHeaderChange
 }) => {
     const [editDragItem, setEditDragItem] = useState<{ rowIndex: number, column: keyof FridayScheduleRow, index: number } | null>(null);
+    
+    // Manual Header Color State
+    const [headerColor, setHeaderColor] = useState<any>('teal');
+
+    // Dynamic classes for the main table date column based on selected color
+    const activeDateColumnClasses = {
+        teal: 'print:bg-teal-50 print:text-teal-900',
+        blue: 'print:bg-blue-50 print:text-blue-900',
+        purple: 'print:bg-purple-50 print:text-purple-900',
+        rose: 'print:bg-rose-50 print:text-rose-900',
+        indigo: 'print:bg-indigo-50 print:text-indigo-900',
+        amber: 'print:bg-amber-50 print:text-amber-900',
+        cyan: 'print:bg-cyan-50 print:text-cyan-900',
+        emerald: 'print:bg-emerald-50 print:text-emerald-900',
+        slate: 'print:bg-slate-50 print:text-slate-900',
+        violet: 'print:bg-violet-50 print:text-violet-900'
+    }[headerColor] || 'print:bg-teal-50 print:text-teal-900';
+
+    const activeHeaderBg = {
+        teal: 'print:bg-teal-800',
+        blue: 'print:bg-blue-800',
+        purple: 'print:bg-purple-800',
+        rose: 'print:bg-rose-800',
+        indigo: 'print:bg-indigo-800',
+        amber: 'print:bg-amber-700',
+        cyan: 'print:bg-cyan-800',
+        emerald: 'print:bg-emerald-800',
+        slate: 'print:bg-slate-800',
+        violet: 'print:bg-violet-800'
+    }[headerColor] || 'print:bg-teal-800';
 
     // --- Edit Handlers ---
     const handleStaffChange = useCallback((rowIndex: number, column: keyof FridayScheduleRow, index: number, field: keyof VisualStaff, value: string) => {
@@ -185,7 +216,7 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
     // Header Renderer
     const renderHeader = (key: keyof HeaderMap, bgColorClass: string, borderClass: string) => {
         return (
-            <th scope="col" className={`px-2 py-4 text-center text-xs font-extrabold text-white uppercase tracking-wider border-r border-white/20 ${bgColorClass} ${borderClass}`}>
+            <th scope="col" className={`px-2 py-4 text-center text-xs font-extrabold text-white uppercase tracking-wider border-r border-white/20 ${bgColorClass} ${borderClass} ${activeHeaderBg} print:text-white`}>
                 {isEditing ? (
                     <textarea 
                         value={headers[key]}
@@ -304,24 +335,46 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                 month={publishMonth} 
                 subtitle="FRIDAY DUTY" 
                 dateRange="24 HOUR COVERAGE" 
-                themeColor="teal" 
+                themeColor={headerColor} 
             />
         </div> 
         
-        {/* Screen Header */}
-        <div className="bg-teal-700 text-white p-4 rounded-xl shadow-md flex justify-between items-center print:hidden">
+        {/* Screen Header & Color Control */}
+        <div className={`bg-slate-800 text-white p-4 rounded-xl shadow-md flex flex-col md:flex-row justify-between items-center gap-4 print:hidden transition-colors duration-300`}>
             <div>
                 <h2 className="text-xl font-bold uppercase tracking-wide">Friday 24 Hour Coverage</h2>
-                <p className="text-teal-100 text-sm font-medium opacity-90">Specific Duty Assignments</p>
+                <p className="text-slate-300 text-sm font-medium opacity-90">Specific Duty Assignments</p>
             </div>
-            <div className="hidden sm:flex items-center gap-2 text-xs bg-teal-800 px-3 py-1.5 rounded-lg border border-teal-600 shadow-sm">
-                <span>Note: Late/Early hours deducted from Friday duties only</span>
-            </div>
+            
+            {isEditing && (
+                <div className="flex flex-col gap-1 items-center">
+                    <label className="text-[10px] uppercase font-bold opacity-70">Theme Color</label>
+                    <div className="flex gap-1 bg-white/10 p-1 rounded-full">
+                        {['teal', 'blue', 'purple', 'rose', 'indigo', 'amber', 'cyan', 'emerald'].map(c => (
+                            <button 
+                                key={c}
+                                onClick={() => setHeaderColor(c)}
+                                className={`w-6 h-6 rounded-full border-2 border-white/50 hover:scale-110 transition-transform ${
+                                    c === 'teal' ? 'bg-teal-600' :
+                                    c === 'blue' ? 'bg-blue-600' :
+                                    c === 'purple' ? 'bg-purple-600' :
+                                    c === 'rose' ? 'bg-rose-600' :
+                                    c === 'indigo' ? 'bg-indigo-600' :
+                                    c === 'amber' ? 'bg-amber-600' :
+                                    c === 'cyan' ? 'bg-cyan-600' :
+                                    'bg-emerald-600'
+                                } ${headerColor === c ? 'ring-2 ring-white scale-110' : ''}`}
+                                title={c}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-lg bg-white print:block print:shadow-none print:overflow-visible print:border-none print:flex-grow relative z-10 print:bg-transparent">
         <table className="min-w-full divide-y divide-slate-200 print:divide-slate-900 print:border-2 print:border-slate-900 h-full print-color-adjust-exact print:table-fixed">
-          <thead className="bg-slate-50 print:bg-teal-900 print:text-white print-color-adjust-exact">
+          <thead className={`bg-slate-50 ${activeHeaderBg} print:text-white print-color-adjust-exact`}>
            <tr className="print:h-fit">
               {/* 3. ضغط عناوين الأعمدة: استخدام print:py-0 و print:leading-none */}
               <th scope="col" className="px-6 py-4 text-left text-xs font-extrabold text-slate-600 uppercase tracking-wider min-w-[160px] border-r border-slate-200 
@@ -338,20 +391,19 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                 Date
               </th>
               
-              {/* ملاحظة هامة: يجب تعديل دالة renderHeader لتشمل print:py-0 و print:leading-none */}
-              {renderHeader('morning', 'bg-indigo-50 text-indigo-700 print:bg-teal-900 print:text-white', 'border-indigo-100')}
-              {renderHeader('evening', 'bg-violet-50 text-violet-700 print:bg-teal-900 print:text-white', 'border-violet-100')}
-              {renderHeader('broken', 'bg-amber-50 text-amber-700 print:bg-teal-900 print:text-white', 'border-amber-100')}
-              {renderHeader('cathLab', 'bg-rose-50 text-rose-700 print:bg-teal-900 print:text-white', 'border-rose-100')}
-              {renderHeader('mri', 'bg-teal-50 text-teal-700 print:bg-teal-900 print:text-white', 'border-teal-100')}
-              {renderHeader('night', 'bg-slate-100 text-slate-800 print:bg-teal-900 print:text-white', 'border-slate-200')}
+              {renderHeader('morning', `bg-indigo-50 text-indigo-700 ${activeHeaderBg} print:text-white`, 'border-indigo-100')}
+              {renderHeader('evening', `bg-violet-50 text-violet-700 ${activeHeaderBg} print:text-white`, 'border-violet-100')}
+              {renderHeader('broken', `bg-amber-50 text-amber-700 ${activeHeaderBg} print:text-white`, 'border-amber-100')}
+              {renderHeader('cathLab', `bg-rose-50 text-rose-700 ${activeHeaderBg} print:text-white`, 'border-rose-100')}
+              {renderHeader('mri', `bg-teal-50 text-teal-700 ${activeHeaderBg} print:text-white`, 'border-teal-100')}
+              {renderHeader('night', `bg-slate-100 text-slate-800 ${activeHeaderBg} print:text-white`, 'border-slate-200')}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-slate-200 print:divide-slate-300 print:bg-transparent">
             {data.map((row, idx) => (
               <tr key={idx} className="hover:bg-slate-50 transition-colors print:break-inside-avoid h-full print:bg-white">
                 {/* Date Column with Fix for Print Mode */}
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-900 border-r border-slate-200 align-middle print:px-1 print:py-2 print:text-xs print:border-r print:border-slate-300 print:bg-teal-50/50 print-color-adjust-exact">
+                <td className={`px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-900 border-r border-slate-200 align-middle print:px-1 print:py-2 print:text-xs print:border-r print:border-slate-300 ${activeDateColumnClasses} print-color-adjust-exact`}>
                     <div className="flex items-center justify-center">
                         {isEditing && (
                              <input 
@@ -361,7 +413,7 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                                 placeholder="DD-MM-YYYY"
                             />
                         )}
-                        <div className={`font-black text-center whitespace-normal print:w-full print:text-teal-900 ${isEditing ? 'hidden print:block' : ''}`}>
+                        <div className={`font-black text-center whitespace-normal print:w-full ${isEditing ? 'hidden print:block' : ''}`}>
                             {row.date}
                         </div>
                     </div>
@@ -408,7 +460,7 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
         )}
       </div>
       
-      <PrintFooter themeColor="teal" />
+      <PrintFooter themeColor={headerColor} />
     </div>
   );
 };

@@ -800,15 +800,17 @@ const ScheduleBuilder: React.FC = () => {
                                 headers={fridayHeaders} onHeaderChange={setFridayHeaders} searchTerm={searchTerm}
                             />
                         )}
-                        {visualSubTab === 'holiday' && (
-                            <HolidayScheduleView 
-                                data={holidayData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}
-                                onUpdateRow={(i, d) => { const n = [...holidayData]; n[i] = d; setHolidayData(n); }}
-                                onAddRow={() => setHolidayData([...holidayData, { id: Date.now().toString(), occasion: '', morning: [], evening: [], broken: [], cathLab: [], mri: [], night: [] }])}
-                                onRemoveRow={(i) => setHolidayData(holidayData.filter((_, idx) => idx !== i))}
-                                headers={holidayHeaders} onHeaderChange={setHolidayHeaders} searchTerm={searchTerm}
-                            />
-                        )}
+                      
+                    {visualSubTab === 'holiday' && (
+                        <HolidayScheduleView 
+                            data={holidayData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}
+                            onUpdateRow={(i, d) => { const n = [...holidayData]; n[i] = d; setHolidayData(n); }}
+                            onAddRow={() => setHolidayData([...holidayData, { id: Date.now().toString(), occasion: '', morning: [], evening: [], broken: [], cathLab: [], mri: [], night: [] }])}
+                            onRemoveRow={(i) => setHolidayData(holidayData.filter((_, idx) => idx !== i))}
+                            headers={holidayHeaders} onHeaderChange={setHolidayHeaders} searchTerm={searchTerm}
+                        />
+                    )}
+
                         {visualSubTab === 'doctor' && (
                             <DoctorScheduleView 
                                 data={doctorData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}

@@ -89,6 +89,21 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
     onHeaderChange
 }) => {
     const [editDragItem, setEditDragItem] = useState<{ rowIndex: number, column: keyof HolidayScheduleRow, index: number } | null>(null);
+    
+    // --- Customizable Print Headers State ---
+    const [printTitle, setPrintTitle] = useState("HOLIDAY SCHEDULE");
+    const [printSubtitle, setPrintSubtitle] = useState("HOLIDAY COVERAGE");
+    const [headerColor, setHeaderColor] = useState("purple");
+
+    // Dynamic styles based on selected color - Controls Main Title & Holiday Name Cell
+    const activeColorClasses = {
+        purple: 'bg-purple-700 print:bg-purple-800 text-white border-purple-900',
+        indigo: 'bg-indigo-700 print:bg-indigo-800 text-white border-indigo-900',
+        rose: 'bg-rose-700 print:bg-rose-800 text-white border-rose-900',
+        teal: 'bg-teal-700 print:bg-teal-800 text-white border-teal-900',
+        slate: 'bg-slate-700 print:bg-slate-800 text-white border-slate-900',
+        violet: 'bg-violet-700 print:bg-violet-800 text-white border-violet-900'
+    }[headerColor] || 'bg-purple-700 print:bg-purple-800 text-white';
 
     const staffData = useMemo(() => {
         return data.map(row => ({
@@ -190,10 +205,10 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
     };
 
   const highlightMatch = (text: string) => {
-    if (!searchTerm) return <span className="font-bold">{text}</span>;
+    if (!searchTerm) return <span className="font-bold font-sans">{text}</span>;
     const parts = text.split(new RegExp(`(${searchTerm})`, 'gi'));
     return (
-      <span className="font-bold">
+      <span className="font-bold font-sans">
         {parts.map((part, i) => 
           part.toLowerCase() === searchTerm.toLowerCase() ? 
             <span key={i} className="bg-yellow-300 text-black px-1 rounded">{part}</span> : part
@@ -207,19 +222,20 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
       return list.some(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
   }
 
-    // Header Renderer
+    // Header Renderer - Section Names (Morning, Evening, etc.)
+    // These should remain standard dark color in print
     const renderHeader = (key: keyof HeaderMap, bgColorClass: string, borderClass: string) => {
         return (
-            <th scope="col" className={`px-6 py-4 text-center text-xs font-extrabold text-white uppercase tracking-wider border-r border-white/20 ${bgColorClass} ${borderClass}`}>
+            <th scope="col" className={`px-2 py-4 text-center text-xs font-black text-white uppercase tracking-wider border-r border-white/20 ${bgColorClass} ${borderClass}print:px-1 print:py-2 print:text-xs font-sans`}>
                 {isEditing ? (
-                    <input 
+                    <textarea 
                         value={headers[key]}
                         onChange={(e) => handleHeaderChange(key, e.target.value)}
-                        className="bg-white/20 text-white text-center w-full rounded px-1 py-0.5 outline-none placeholder-white/50"
+                        className="bg-black/20 text-white text-center w-full rounded px-1 py-0.5 outline-none placeholder-black/50 min-h-[40px] text-[10px] resize-none focus:bg-black/30 transition-colors"
                         placeholder="Header Name"
                     />
                 ) : (
-                    headers[key]
+                    <div className="whitespace-pre-wrap leading-tight print:leading-none">{headers[key]}</div>
                 )}
             </th>
         );
@@ -269,7 +285,7 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
                     <div 
                         key={idx} 
                         className={`text-sm px-2 py-1.5 rounded-lg border shadow-sm flex items-center justify-center text-center break-words w-full print-color-adjust-exact ${s.color} 
-                        print:shadow-none print:px-2 print:py-1 print:rounded-md print:text-[9px] print:font-bold print:leading-tight print:border-transparent`}
+                        print:shadow-none print:px-1 print:py-0.5 print:rounded print:text-[11px] print:font-bold print:leading-tight print:border-transparent font-sans`}
                         dir="ltr"
                     >
                         {highlightMatch(s.name)}
@@ -283,50 +299,103 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
     <div className="space-y-6 animate-fade-in print:space-y-2 print:w-full relative">
         
         <PrintHeader 
-            month={publishMonth} 
-            subtitle="HOLIDAY SCHEDULE" 
-            dateRange="HOLIDAY COVERAGE" 
-            themeColor="purple" 
+            title={printTitle} 
+            subtitle={printSubtitle} 
+            month="" 
+            themeColor={headerColor} 
         />
 
-        <div className="bg-purple-700 text-white p-4 rounded-xl shadow-md flex justify-between items-center print:hidden">
-            <div>
-                <h2 className="text-xl font-bold uppercase tracking-wide">Holiday & Occasions Schedule</h2>
-                <p className="text-purple-100 text-sm font-medium opacity-90">Special Duty Assignments</p>
+        {/* Config Area - Visible only on Screen */}
+        <div className={`bg-slate-800 text-white p-4 rounded-xl shadow-md flex flex-col md:flex-row justify-between items-center gap-4 print:hidden transition-colors duration-300`}>
+            <div className="w-full">
+                {isEditing ? (
+                    <div className="flex flex-col gap-3">
+                        <div className="flex justify-between items-center">
+                            <label className="text-[10px] uppercase font-bold opacity-80">Print Header Configuration</label>
+                            <div className="flex gap-1 bg-white/10 p-1 rounded-full">
+                                {['purple', 'indigo', 'rose', 'teal', 'slate', 'violet'].map(c => (
+                                    <button 
+                                        key={c}
+                                        onClick={() => setHeaderColor(c)}
+                                        className={`w-6 h-6 rounded-full border-2 border-white/50 hover:scale-110 transition-transform ${
+                                            c === 'purple' ? 'bg-purple-600' :
+                                            c === 'indigo' ? 'bg-indigo-600' :
+                                            c === 'rose' ? 'bg-rose-600' :
+                                            c === 'teal' ? 'bg-teal-600' :
+                                            c === 'slate' ? 'bg-slate-600' :
+                                            'bg-violet-600'
+                                        } ${headerColor === c ? 'ring-2 ring-white scale-110' : ''}`}
+                                        title={c}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                        <input 
+                            value={printTitle}
+                            onChange={(e) => setPrintTitle(e.target.value)}
+                            className="bg-white/20 border border-white/30 rounded px-2 py-1 text-white font-bold placeholder-white/50 outline-none focus:bg-white/30 w-full"
+                            placeholder="Main Title (e.g. EID SCHEDULE)"
+                        />
+                        <input 
+                            value={printSubtitle}
+                            onChange={(e) => setPrintSubtitle(e.target.value)}
+                            className="bg-white/20 border border-white/30 rounded px-2 py-1 text-xs text-white placeholder-white/50 outline-none focus:bg-white/30 w-full"
+                            placeholder="Subtitle (e.g. Coverage Plan)"
+                        />
+                    </div>
+                ) : (
+                    <div>
+                        <h2 className="text-xl font-bold uppercase tracking-wide">{printTitle}</h2>
+                        <p className="text-white/80 text-sm font-medium">{printSubtitle}</p>
+                    </div>
+                )}
             </div>
             <div className="flex items-center gap-2">
-                 <i className="fas fa-magic text-yellow-300"></i>
+                 <i className="fas fa-magic text-yellow-300 text-2xl"></i>
             </div>
         </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-lg bg-white print:block print:shadow-none print:overflow-visible print:border-none print:flex-grow relative z-10 print:bg-transparent">
         <table className="min-w-full divide-y divide-slate-200 print:divide-slate-900 print:border-2 print:border-slate-900 h-full print-color-adjust-exact print:table-fixed">
-          <thead className="bg-slate-50 print:bg-purple-900 print:text-white print-color-adjust-exact">
-            <tr>
-              <th scope="col" className="px-6 py-4 text-left text-xs font-extrabold text-slate-600 uppercase tracking-wider min-w-[220px] border-r border-slate-200 print:px-2 print:py-2 print:text-[10px] print:w-24 print:border-r print:border-white/20 print:text-white print:text-center">Occasion / Date</th>
-              {renderHeader('morning', 'bg-indigo-50 text-indigo-700 print:bg-purple-900 print:text-white', 'border-indigo-100')}
-              {renderHeader('evening', 'bg-violet-50 text-violet-700 print:bg-purple-900 print:text-white', 'border-violet-100')}
-              {renderHeader('broken', 'bg-amber-50 text-amber-700 print:bg-purple-900 print:text-white', 'border-amber-100')}
-              {renderHeader('cathLab', 'bg-rose-50 text-rose-700 print:bg-purple-900 print:text-white', 'border-rose-100')}
-              {renderHeader('mri', 'bg-teal-50 text-teal-700 print:bg-purple-900 print:text-white', 'border-teal-100')}
-              {renderHeader('night', 'bg-slate-100 text-slate-800 print:bg-purple-900 print:text-white', 'border-slate-200')}
+          {/* Main Table Header: Always Dark in Print */}
+          <thead className="  print:text-black print-color-adjust-exact">
+            <tr className="print:h-fit">
+              <th scope="col" className="
+    px-6 py-4 text-center text-xs font-black uppercase tracking-wider
+    min-w-[220px]
+    border-r border-slate-200
+    bg-slate-100 text-slate-800
+    print:bg-slate-100
+    print:text-black
+    print:border-slate-400
+    print:px-2 print:py-2 print:text-xs
+    font-sans
+    print-color-adjust-exact
+  ">Occasion / Date</th>
+              {renderHeader('morning', 'bg-indigo-50 text-indigo-700', 'border-indigo-100')}
+              {renderHeader('evening', 'bg-violet-50 text-violet-700', 'border-violet-100')}
+              {renderHeader('broken', 'bg-amber-50 text-amber-700', 'border-amber-100')}
+              {renderHeader('cathLab', 'bg-rose-50 text-rose-700', 'border-rose-100')}
+              {renderHeader('mri', 'bg-teal-50 text-teal-700', 'border-teal-100')}
+              {renderHeader('night', 'bg-slate-100 text-slate-800', 'border-slate-200')}
               {isEditing && <th className="px-2 py-3 w-10 print:hidden"></th>}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-slate-200 print:divide-slate-300 print:bg-transparent">
             {staffData.map((row, idx) => (
               <tr key={idx} className="hover:bg-slate-50 transition-colors print:break-inside-avoid h-full print:bg-white">
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-900 border-r border-slate-200 align-middle print:px-1 print:py-2 print:text-xs print:border-r print:border-slate-300 print:bg-purple-50/50 print-color-adjust-exact">
+                {/* Occasion / Date Cell: Takes the DAZZLING Color */}
+                <td className={`px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-900 border-r border-slate-200 align-middle print:px-1 print:py-2 print:text-sm print:border-r print:border-slate-300 print-color-adjust-exact ${activeColorClasses}`}>
                     <div className="flex items-center justify-center">
                         {isEditing ? (
                              <input 
                                 value={row.occasion} 
                                 onChange={(e) => onUpdateRow(idx, {...data[idx], occasion: e.target.value})}
-                                className="w-full border border-slate-300 rounded-lg p-2 text-base font-bold text-center outline-none focus:ring-2 focus:ring-purple-200 shadow-sm bg-gray-50 text-gray-900"
+                                className="w-full border border-white/30 rounded-lg p-2 text-base font-bold text-center outline-none focus:ring-2 focus:ring-white/50 shadow-sm bg-black/20 text-white placeholder-white/70 print:bg-transparent print:text-black print:placeholder-transparent"
                                 placeholder="Occasion / Date"
                             />
                         ) : (
-                            <div className="font-black text-center print:block whitespace-normal print:w-full print:text-purple-900">
+                            <div className={`font-black text-center print:block whitespace-normal print:w-full text-white font-sans text-lg`}>
                                 {row.occasion}
                             </div>
                         )}
@@ -336,7 +405,7 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
                 {['morning', 'evening', 'broken', 'cathLab', 'mri', 'night'].map((colKey) => (
                     <td 
                         key={colKey}
-                        className={`px-6 py-4 text-sm text-slate-700 align-middle border-r border-slate-100 print:px-1 print:py-2 print:border-r print:border-slate-300 print:text-[10px] print:align-middle ${!isEditing && hasMatch(row[colKey as keyof typeof row] as StaffMember[]) ? 'bg-yellow-50' : ''}`}
+                        className={`px-6 py-4 text-sm text-slate-700 align-middle border-r border-slate-100 print:px-1 print:py-1 print:border-r print:border-slate-300 print:text-[10px] print:align-middle ${!isEditing && hasMatch(row[colKey as keyof typeof row] as StaffMember[]) ? 'bg-yellow-50' : ''}`}
                     >
                         {renderStaffList(row[colKey as keyof typeof row] as StaffMember[], idx, colKey as keyof HolidayScheduleRow)}
                     </td>
@@ -364,14 +433,14 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
         {isEditing && (
              <button 
                 onClick={onAddRow}
-                className="w-full py-4 bg-purple-50 border-t border-purple-200 text-purple-600 font-medium hover:bg-purple-100 flex items-center justify-center gap-2 transition-colors print:hidden"
+                className="w-full py-4 bg-slate-50 border-t border-slate-200 text-slate-500 font-medium hover:bg-slate-100 flex items-center justify-center gap-2 transition-colors print:hidden"
              >
                  <i className="fas fa-plus mr-2"></i> Add New Holiday Row
              </button>
         )}
       </div>
 
-      <PrintFooter themeColor="purple" />
+      <PrintFooter themeColor={headerColor} />
     </div>
   );
 };

@@ -341,16 +341,21 @@ const ScheduleBuilder: React.FC = () => {
             onConfirm: () => {
                 setActiveTemplateId(tpl.id);
                 setActiveTemplateName(tpl.name);
-                setGeneralData(tpl.generalData || []);
-                setCommonDuties(tpl.commonDuties || []);
-                setFridayData(tpl.fridayData || []);
-                setHolidayData(tpl.holidayData || []);
-                setDoctorData(tpl.doctorData || []);
-                setDoctorFridayData(tpl.doctorFridayData || []);
-                setFridayHeaders(tpl.fridayHeaders || {...defaultHeaders});
-                setHolidayHeaders(tpl.holidayHeaders || {...defaultHeaders});
-                setDoctorFridayHeaders(tpl.doctorFridayHeaders || {...defaultDoctorFridayHeaders});
-                setDoctorWeeklyHeaders(tpl.doctorWeeklyHeaders || {...defaultDoctorWeeklyHeaders});
+
+                // FIX: Deep clone to prevent mutating the savedTemplates array reference
+                setGeneralData(JSON.parse(JSON.stringify(tpl.generalData || [])));
+                setCommonDuties(JSON.parse(JSON.stringify(tpl.commonDuties || [])));
+                setFridayData(JSON.parse(JSON.stringify(tpl.fridayData || [])));
+                setHolidayData(JSON.parse(JSON.stringify(tpl.holidayData || [])));
+                setDoctorData(JSON.parse(JSON.stringify(tpl.doctorData || [])));
+                setDoctorFridayData(JSON.parse(JSON.stringify(tpl.doctorFridayData || [])));
+                
+                // Headers are objects, also need cloning
+                setFridayHeaders(JSON.parse(JSON.stringify(tpl.fridayHeaders || {...defaultHeaders})));
+                setHolidayHeaders(JSON.parse(JSON.stringify(tpl.holidayHeaders || {...defaultHeaders})));
+                setDoctorFridayHeaders(JSON.parse(JSON.stringify(tpl.doctorFridayHeaders || {...defaultDoctorFridayHeaders})));
+                setDoctorWeeklyHeaders(JSON.parse(JSON.stringify(tpl.doctorWeeklyHeaders || {...defaultDoctorWeeklyHeaders})));
+
                 if(tpl.targetMonth) setPublishMonth(tpl.targetMonth);
                 setGlobalStartDate(tpl.globalStartDate || '');
                 setGlobalEndDate(tpl.globalEndDate || '');

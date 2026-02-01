@@ -218,12 +218,12 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
     // Header Renderer
     const renderHeader = (key: keyof HeaderMap, bgColorClass: string, borderClass: string) => {
         return (
-            <th scope="col" className={`px-2 py-4 text-center text-xs font-extrabold text-white uppercase tracking-wider border-r border-white/20 ${bgColorClass} ${borderClass} ${activeHeaderBg} print:text-white`}>
+            <th scope="col" className={`px-2 py-4 text-center text-xs font-extrabold text-black uppercase tracking-wider border-r border-black/20 ${bgColorClass} ${borderClass} ${activeHeaderBg} print:text-white`}>
                 {isEditing ? (
                     <textarea 
                         value={headers[key]}
                         onChange={(e) => handleHeaderChange(key, e.target.value)}
-                        className="bg-white/20 text-white text-center w-full rounded px-1 py-0.5 outline-none placeholder-white/50 resize-none min-h-[40px] text-xs font-bold"
+                        className="bg-black/20 text-black text-center w-full rounded px-1 py-0.5 outline-none placeholder-black/50 resize-none min-h-[40px] text-xs font-bold"
                         placeholder="Header Name"
                     />
                 ) : (

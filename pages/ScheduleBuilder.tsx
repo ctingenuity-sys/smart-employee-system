@@ -198,7 +198,7 @@ const ScheduleBuilder: React.FC = () => {
     const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
     const [activeTemplateName, setActiveTemplateName] = useState<string>('');
 
-    // Data States
+    // Data States - Initialized Empty/Default
     const [generalData, setGeneralData] = useState<ModalityColumn[]>([
         { id: '1', title: 'MRI', defaultTime: '8 AM - 8 PM', colorClass: 'bg-blue-100 text-blue-900', staff: [] },
         { id: '2', title: 'CT Scan', defaultTime: '24 Hours', colorClass: 'bg-green-100 text-green-900', staff: [] }
@@ -272,19 +272,20 @@ const ScheduleBuilder: React.FC = () => {
         setIsSaveModalOpen(false);
         setLoading(true);
         try {
+            // Construct the Full Payload from current State
             const templateData = {
                 name: newTemplateName,
                 targetMonth: saveTargetMonth,
-                generalData,
-                commonDuties,
-                fridayData,
-                holidayData,
-                doctorData,
-                doctorFridayData,
-                fridayHeaders,
-                holidayHeaders,
-                doctorFridayHeaders,
-                doctorWeeklyHeaders,
+                generalData: JSON.parse(JSON.stringify(generalData)), // Deep copy to detach references
+                commonDuties: JSON.parse(JSON.stringify(commonDuties)),
+                fridayData: JSON.parse(JSON.stringify(fridayData)),
+                holidayData: JSON.parse(JSON.stringify(holidayData)),
+                doctorData: JSON.parse(JSON.stringify(doctorData)),
+                doctorFridayData: JSON.parse(JSON.stringify(doctorFridayData)),
+                fridayHeaders: {...fridayHeaders},
+                holidayHeaders: {...holidayHeaders},
+                doctorFridayHeaders: {...doctorFridayHeaders},
+                doctorWeeklyHeaders: {...doctorWeeklyHeaders},
                 globalStartDate,
                 globalEndDate,
                 scheduleNote
@@ -297,7 +298,7 @@ const ScheduleBuilder: React.FC = () => {
                     updatedAt: Timestamp.now()
                 });
                 setSavedTemplates(prev => prev.map(t => t.id === activeTemplateId ? { ...t, ...templateData } : t));
-                setToast({ msg: t('update'), type: 'success' });
+                setToast({ msg: 'Template Updated Successfully (All Sections)', type: 'success' });
             } else {
                 // Save as New
                 const docRef = await addDoc(collection(db, 'schedule_templates'), {
@@ -308,10 +309,10 @@ const ScheduleBuilder: React.FC = () => {
                 setSavedTemplates([...savedTemplates, newTpl]);
                 setActiveTemplateId(docRef.id);
                 setActiveTemplateName(newTemplateName);
-                setToast({ msg: t('save'), type: 'success' });
+                setToast({ msg: 'New Template Saved Successfully (All Sections)', type: 'success' });
             }
         } catch (e) {
-            setToast({ msg: 'Error', type: 'error' });
+            setToast({ msg: 'Error saving template', type: 'error' });
         } finally {
             setLoading(false);
         }
@@ -337,12 +338,17 @@ const ScheduleBuilder: React.FC = () => {
         setConfirmation({
             isOpen: true,
             title: t('confirm'),
-            message: `Load "${tpl.name}"? Unsaved changes will be lost.`,
+            message: `Load "${tpl.name}"? This will REPLACE all current data in all tabs.`,
             onConfirm: () => {
+                setLoading(true);
+                // 1. Set ID and Name
                 setActiveTemplateId(tpl.id);
                 setActiveTemplateName(tpl.name);
 
-                // FIX: Deep clone to prevent mutating the savedTemplates array reference
+                // 2. Set Month (Important so Publish works for the right month)
+                if(tpl.targetMonth) setPublishMonth(tpl.targetMonth);
+
+                // 3. Deep Clone and Set ALL Data States (Handling potential missing fields from old templates)
                 setGeneralData(JSON.parse(JSON.stringify(tpl.generalData || [])));
                 setCommonDuties(JSON.parse(JSON.stringify(tpl.commonDuties || [])));
                 setFridayData(JSON.parse(JSON.stringify(tpl.fridayData || [])));
@@ -350,20 +356,21 @@ const ScheduleBuilder: React.FC = () => {
                 setDoctorData(JSON.parse(JSON.stringify(tpl.doctorData || [])));
                 setDoctorFridayData(JSON.parse(JSON.stringify(tpl.doctorFridayData || [])));
                 
-                // Headers are objects, also need cloning
+                // 4. Set Headers
                 setFridayHeaders(JSON.parse(JSON.stringify(tpl.fridayHeaders || {...defaultHeaders})));
                 setHolidayHeaders(JSON.parse(JSON.stringify(tpl.holidayHeaders || {...defaultHeaders})));
                 setDoctorFridayHeaders(JSON.parse(JSON.stringify(tpl.doctorFridayHeaders || {...defaultDoctorFridayHeaders})));
                 setDoctorWeeklyHeaders(JSON.parse(JSON.stringify(tpl.doctorWeeklyHeaders || {...defaultDoctorWeeklyHeaders})));
 
-                if(tpl.targetMonth) setPublishMonth(tpl.targetMonth);
+                // 5. Set Globals
                 setGlobalStartDate(tpl.globalStartDate || '');
                 setGlobalEndDate(tpl.globalEndDate || '');
                 setScheduleNote(tpl.scheduleNote || '');
 
                 setConfirmation(prev => ({ ...prev, isOpen: false }));
                 setIsTemplatesOpen(false); 
-                setToast({ msg: 'Loaded', type: 'success' });
+                setLoading(false);
+                setToast({ msg: 'Template Loaded Successfully', type: 'success' });
             }
         });
     };
@@ -445,7 +452,7 @@ const ScheduleBuilder: React.FC = () => {
         setConfirmation({
             isOpen: true,
             title: t('sb.publish'),
-            message: `Publish for ${publishMonth}? This will OVERWRITE existing shifts.`,
+            message: `Publish for ${publishMonth}? This will OVERWRITE existing shifts for this month.`,
             onConfirm: async () => {
                 setConfirmation(prev => ({ ...prev, isOpen: false }));
                 executePublish();
@@ -456,6 +463,7 @@ const ScheduleBuilder: React.FC = () => {
     const executePublish = async () => {
         setLoading(true);
         try {
+            // 1. DELETE EXISTING FOR MONTH
             const q = query(collection(db, 'schedules'), where('month', '==', publishMonth));
             const snapshot = await getDocs(q);
             if (!snapshot.empty) {
@@ -469,6 +477,7 @@ const ScheduleBuilder: React.FC = () => {
                 }
             }
 
+            // 2. PREPARE NEW BATCH
             const batch = writeBatch(db);
             const scheduleRef = collection(db, 'schedules');
             const [y, m] = publishMonth.split('-');
@@ -497,6 +506,7 @@ const ScheduleBuilder: React.FC = () => {
                 }
             };
 
+            // --- GENERAL DATA ---
             for (const col of generalData) {
                 const parsed = parseMultiShifts(col.defaultTime);
                 const shifts = (parsed && parsed.length > 0) ? parsed : [{ start: '08:00', end: '16:00' }];
@@ -526,6 +536,7 @@ const ScheduleBuilder: React.FC = () => {
                 }
             }
 
+            // --- COMMON DUTIES ---
             for (const duty of commonDuties) {
                 const parsed = parseMultiShifts(duty.time);
                 const shifts = (parsed && parsed.length > 0) ? parsed : [{ start: '08:00', end: '16:00' }];
@@ -555,6 +566,7 @@ const ScheduleBuilder: React.FC = () => {
                 }
             }
 
+            // --- FRIDAY DATA ---
             for (const row of fridayData) {
                 if(!row.date) continue;
                 const date = normalizeDate(row.date);
@@ -592,6 +604,7 @@ const ScheduleBuilder: React.FC = () => {
                 await processFridayCol(row.night, 'Night', fridayHeaders.night || '11PM-8AM', '23:00 - 08:00');
             }
 
+            // --- DOCTOR WEEKLY DATA ---
             for (const row of doctorData) {
                 if(!row.dateRange && !row.startDate) continue;
                 const { from, to } = parseDateRangeRow(row.dateRange || (row.startDate ? `${row.startDate}-${row.endDate}` : ''), publishMonth);
@@ -632,6 +645,7 @@ const ScheduleBuilder: React.FC = () => {
                 await processDocCol(row.night, doctorWeeklyHeaders.col5Title || 'Night Shift', doctorWeeklyHeaders.col5Sub, '01:00 - 09:00', true);
             }
 
+            // --- DOCTOR FRIDAY DATA ---
             for (const row of doctorFridayData) {
                 if (!row.date) continue;
                 const date = normalizeDate(row.date);
@@ -668,6 +682,7 @@ const ScheduleBuilder: React.FC = () => {
                 await processDrFridayCol(row.col4, 'col4', 'col4Time', 'col4Title');
             }
 
+            // --- HOLIDAY DATA ---
             for (const row of holidayData) {
                 if(!row.occasion) continue;
                 if(row.occasion.match(/^\d{4}-\d{2}-\d{2}$/) || row.occasion.match(/^\d{1,2}[-./]\d{1,2}[-./]\d{4}$/)) {
@@ -692,11 +707,16 @@ const ScheduleBuilder: React.FC = () => {
                         }
                     }
                     await processHolCol(row.morning, 'Morning');
+                    await processHolCol(row.evening, 'Evening');
+                    await processHolCol(row.broken, 'Broken');
+                    await processHolCol(row.cathLab, 'Cath Lab');
+                    await processHolCol(row.mri, 'MRI');
+                    await processHolCol(row.night, 'Night');
                 }
             }
 
             await batch.commit();
-            setToast({ msg: 'Published Successfully!', type: 'success' });
+            setToast({ msg: 'Published Successfully (All Sections)', type: 'success' });
         } catch (e: any) {
             setToast({ msg: 'Error: ' + e.message, type: 'error' });
         } finally {

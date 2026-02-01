@@ -108,6 +108,16 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
         violet: 'bg-violet-700 print:bg-violet-800 text-white border-violet-900'
     }[headerColor] || 'bg-purple-700 print:bg-purple-800 text-white';
 
+
+    const activePrintBg = {
+        purple: 'print:bg-purple-800',
+        indigo: 'print:bg-indigo-800',
+        rose: 'print:bg-rose-800',
+        teal: 'print:bg-teal-800',
+        slate: 'print:bg-slate-800',
+        violet: 'print:bg-violet-800'
+    }[headerColor] || 'print:bg-purple-800';
+
     const staffData = useMemo(() => {
         return data.map(row => ({
             ...row,
@@ -227,22 +237,23 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
   }
 
     // Header Renderer - Section Names (Morning, Evening, etc.)
-    const renderHeader = (key: keyof HeaderMap, bgColorClass: string, borderClass: string) => {
-        return (
-            <th scope="col" className={`px-2 py-4 text-center text-xs font-black text-white uppercase tracking-wider border-r border-white/20 ${bgColorClass} ${borderClass} print:bg-slate-900 print:text-white print:px-1 print:py-2 print:text-xs font-sans`}>
-                {isEditing ? (
-                    <textarea 
-                        value={headers[key]}
-                        onChange={(e) => handleHeaderChange(key, e.target.value)}
-                        className="bg-black/50 text-white text-center w-full rounded px-1 py-0.5 outline-none placeholder-black/70 min-h-[40px] text-[10px] resize-none focus:bg-black/100 transition-colors"
-                        placeholder="Header Name"
-                    />
-                ) : (
-                    <div className="whitespace-pre-wrap leading-tight print:leading-none">{headers[key]}</div>
-                )}
-            </th>
-        );
-    };
+const renderHeader = (key: keyof HeaderMap, bgColorClass: string, borderClass: string) => {
+    return (
+        // تم استبدال print:bg-slate-900 بـ ${activePrintBg}
+        <th scope="col" className={`px-2 py-4 text-center text-xs font-black text-white uppercase tracking-wider border-r border-white/20 ${bgColorClass} ${borderClass} ${activePrintBg} print:text-white print:px-1 print:py-2 print:text-xs font-sans`}>
+            {isEditing ? (
+                <textarea 
+                    value={headers[key]}
+                    onChange={(e) => handleHeaderChange(key, e.target.value)}
+                    className="bg-black/50 text-white text-center w-full rounded px-1 py-0.5 outline-none placeholder-black/70 min-h-[40px] text-[10px] resize-none focus:bg-black/100 transition-colors"
+                    placeholder="Header Name"
+                />
+            ) : (
+                <div className="whitespace-pre-wrap leading-tight print:leading-none">{headers[key]}</div>
+            )}
+        </th>
+    );
+};
 
     const renderStaffList = (staffList: StaffMember[], rowIndex: number, column: keyof HolidayScheduleRow) => {
         if (isEditing) {
@@ -394,19 +405,24 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-lg bg-white print:block print:shadow-none print:overflow-visible print:border-none print:flex-grow relative z-10 print:bg-transparent">
         <table className="min-w-full divide-y divide-slate-200 print:divide-slate-900 print:border-2 print:border-slate-900 h-full print-color-adjust-exact print:table-fixed">
-          {/* Main Table Header: Always Dark in Print */}
-          <thead className="bg-slate-50 print:bg-slate-900 print:text-white print-color-adjust-exact">
-            <tr className="print:h-fit">
-              <th scope="col" className="px-6 py-4 text-left text-xs font-black text-slate-600 uppercase tracking-wider min-w-[220px] border-r border-slate-200 print:px-2 print:py-2 print:text-xs print:w-24 print:border-r print:border-white/20 print:text-white print:text-center font-sans">Occasion / Date</th>
-              {renderHeader('morning', 'bg-indigo-50 text-indigo-700', 'border-indigo-100')}
-              {renderHeader('evening', 'bg-violet-50 text-violet-700', 'border-violet-100')}
-              {renderHeader('broken', 'bg-amber-50 text-amber-700', 'border-amber-100')}
-              {renderHeader('cathLab', 'bg-rose-50 text-rose-700', 'border-rose-100')}
-              {renderHeader('mri', 'bg-teal-50 text-teal-700', 'border-teal-100')}
-              {renderHeader('night', 'bg-slate-100 text-slate-800', 'border-slate-200')}
-              {isEditing && <th className="px-2 py-3 w-10 print:hidden"></th>}
-            </tr>
-          </thead>
+  {/* هنا تم استبدال print:bg-slate-900 بالمتغير الجديد activePrintBg */}
+  <thead className={`bg-slate-50 ${activePrintBg} print:text-white print-color-adjust-exact`}>
+    <tr className="print:h-fit">
+      {/* تحديث أول خلية لتأخذ نفس اللون في الطباعة */}
+      <th scope="col" className={`px-6 py-4 text-left text-xs font-black text-slate-600 uppercase tracking-wider min-w-[220px] border-r border-slate-200 print:px-2 print:py-2 print:text-xs print:w-24 print:border-r print:border-white/20 print:text-white print:text-center font-sans ${activePrintBg}`}>
+        Occasion / Date
+      </th>
+      
+      {/* باقي الهيدرز ستعمل تلقائياً لأنك عدلت وظيفة renderHeader */}
+      {renderHeader('morning', 'bg-indigo-50 text-indigo-700', 'border-indigo-100')}
+      {renderHeader('evening', 'bg-violet-50 text-violet-700', 'border-violet-100')}
+      {renderHeader('broken', 'bg-amber-50 text-amber-700', 'border-amber-100')}
+      {renderHeader('cathLab', 'bg-rose-50 text-rose-700', 'border-rose-100')}
+      {renderHeader('mri', 'bg-teal-50 text-teal-700', 'border-teal-100')}
+      {renderHeader('night', 'bg-slate-100 text-slate-800', 'border-slate-200')}
+      {isEditing && <th className="px-2 py-3 w-10 print:hidden"></th>}
+    </tr>
+  </thead>
           <tbody className="bg-white divide-y divide-slate-200 print:divide-slate-300 print:bg-transparent">
             {staffData.map((row, idx) => (
               <tr key={idx} className="hover:bg-slate-50 transition-colors print:break-inside-avoid h-full print:bg-white">

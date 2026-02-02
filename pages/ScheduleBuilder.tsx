@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 // @ts-ignore
 import { collection, addDoc, getDocs, Timestamp, query, where, writeBatch, doc, deleteDoc, updateDoc } from 'firebase/firestore';
-import { ModalityColumn, CommonDuty, FridayScheduleRow, HolidayScheduleRow, HeaderMap, SavedTemplate, User, Location, VisualStaff, DoctorScheduleRow, DoctorFridayRow, DoctorFridayHeaderMap, DoctorWeeklyHeaderMap } from '../types';
+import { ModalityColumn, CommonDuty, FridayScheduleRow, HolidayScheduleRow, SavedTemplate, User, Location, VisualStaff, DoctorScheduleRow, DoctorFridayRow, ScheduleColumn } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import GeneralScheduleView from '../components/schedule/GeneralScheduleView';
 import FridayScheduleView from '../components/schedule/FridayScheduleView';
@@ -54,10 +54,7 @@ const convertTo24Hour = (timeStr: string): string | null => {
 
 const parseMultiShifts = (text: string) => {
     if (!text) return [];
-    // Clean text more aggressively for PDF formats like "9AM 1PM" (missing separator)
     let cleanText = text.replace(/[()（）]/g, ' ').trim();
-    
-    // Handle "9AM-1PM/5PM-10PM" format
     const segments = cleanText.split(/[\/,]|\s+and\s+|&|\s+(?=\d{1,2}(?::\d{2})?\s*(?:am|pm|mn|noon))/i);
     const shifts: { start: string, end: string }[] = [];
     
@@ -155,38 +152,39 @@ const parseDateRangeRow = (input: string, currentMonth: string) => {
     return { from, to };
 };
 
-const defaultHeaders: HeaderMap = {
-    morning: 'MORNING (8AM-5PM)',
-    evening: 'EVENING (3PM-12MN)',
-    broken: 'BROKEN (9AM-1PM/5PM-10PM)',
-    cathLab: 'CATH LAB',
-    mri: 'MRI (9AM-1PM/5PM-10PM)',
-    night: 'NIGHT (11PM-8AM)'
-};
+// --- DEFAULT COLUMNS ---
+const defaultFridayCols: ScheduleColumn[] = [
+    { id: 'morning', title: 'MORNING', time: '08:00 - 17:00' },
+    { id: 'evening', title: 'EVENING', time: '15:00 - 24:00' },
+    { id: 'broken', title: 'BROKEN', time: '09:00 - 13:00, 17:00 - 22:00' },
+    { id: 'cathLab', title: 'CATH LAB', time: '08:00 - 20:00' },
+    { id: 'mri', title: 'MRI', time: '09:00 - 13:00, 17:00 - 22:00' },
+    { id: 'night', title: 'NIGHT', time: '23:00 - 08:00' }
+];
 
-const defaultDoctorFridayHeaders: DoctorFridayHeaderMap = {
-    col1Time: '9am-1pm & 5pm-9pm',
-    col1Title: 'CT & MRI',
-    col2Time: '9am-1pm & 5pm-9pm',
-    col2Title: 'ROUTINE + USG',
-    col3Time: '1pm-9pm',
-    col3Title: 'ROUTINE + USG',
-    col4Time: '9pm-9am',
-    col4Title: 'NIGHT SHIFT'
-};
+const defaultHolidayCols: ScheduleColumn[] = [
+    { id: 'morning', title: 'MORNING', time: '08:00 - 20:00' },
+    { id: 'evening', title: 'EVENING', time: '20:00 - 08:00' },
+    { id: 'broken', title: 'BROKEN', time: '' },
+    { id: 'cathLab', title: 'CATH LAB', time: '' },
+    { id: 'mri', title: 'MRI', time: '' },
+    { id: 'night', title: 'NIGHT', time: '' }
+];
 
-const defaultDoctorWeeklyHeaders: DoctorWeeklyHeaderMap = {
-    col1Title: 'BROKEN SHIFT',
-    col1Sub: '9am-1pm & 5pm-9pm\nCT AND MRI\nstarting from 12 Mn Thursday',
-    col2Title: 'BROKEN SHIFT',
-    col2Sub: '9am-1pm & 5pm-9pm\nXRAYS + USG + PORT.USG & PROCEDURES (PP)',
-    col3Title: 'STRAIGHT MORNING',
-    col3Sub: '9am-5pm\nXRAYS + USG + PORT.USG & PROCEDURES (PP)',
-    col4Title: 'STRAIGHT EVENING',
-    col4Sub: '5pm-1am\nXRAYS + USG + PORT.USG & PROCEDURES (PP)',
-    col5Title: 'NIGHT SHIFT',
-    col5Sub: '(SAT-THUR) (1am-9am)\n(FRIDAY 9pm-9am)\n1am-9am Sat-Thursday\n9pm-9am Friday'
-};
+const defaultDoctorCols: ScheduleColumn[] = [
+    { id: 'broken1', title: 'BROKEN SHIFT', subTitle: '9am-1pm & 5pm-9pm\nCT AND MRI', time: '09:00 - 13:00, 17:00 - 21:00' },
+    { id: 'broken2', title: 'BROKEN SHIFT', subTitle: '9am-1pm & 5pm-9pm\nXRAYS + USG', time: '09:00 - 13:00, 17:00 - 21:00' },
+    { id: 'morning', title: 'STRAIGHT MORNING', subTitle: '9am-5pm\nXRAYS + USG', time: '09:00 - 17:00' },
+    { id: 'evening', title: 'STRAIGHT EVENING', subTitle: '5pm-1am\nXRAYS + USG', time: '17:00 - 01:00' },
+    { id: 'night', title: 'NIGHT SHIFT', subTitle: '1am-9am', time: '01:00 - 09:00' }
+];
+
+const defaultDoctorFridayCols: ScheduleColumn[] = [
+    { id: 'col1', title: 'CT & MRI', time: '09:00 - 13:00, 17:00 - 21:00' },
+    { id: 'col2', title: 'ROUTINE + USG', time: '09:00 - 13:00, 17:00 - 21:00' },
+    { id: 'col3', title: 'ROUTINE + USG', time: '13:00 - 21:00' },
+    { id: 'col4', title: 'NIGHT SHIFT', time: '21:00 - 09:00' }
+];
 
 const ScheduleBuilder: React.FC = () => {
     const { t, dir } = useLanguage();
@@ -198,7 +196,7 @@ const ScheduleBuilder: React.FC = () => {
     const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
     const [activeTemplateName, setActiveTemplateName] = useState<string>('');
 
-    // Data States - Initialized Empty/Default
+    // Data States
     const [generalData, setGeneralData] = useState<ModalityColumn[]>([
         { id: '1', title: 'MRI', defaultTime: '8 AM - 8 PM', colorClass: 'bg-blue-100 text-blue-900', staff: [] },
         { id: '2', title: 'CT Scan', defaultTime: '24 Hours', colorClass: 'bg-green-100 text-green-900', staff: [] }
@@ -206,15 +204,18 @@ const ScheduleBuilder: React.FC = () => {
     const [commonDuties, setCommonDuties] = useState<CommonDuty[]>([
         { section: 'Night Shift', time: '11 PM - 8 AM', staff: [] }
     ]);
+    
+    // Rows
     const [fridayData, setFridayData] = useState<FridayScheduleRow[]>([]);
     const [holidayData, setHolidayData] = useState<HolidayScheduleRow[]>([]);
     const [doctorData, setDoctorData] = useState<DoctorScheduleRow[]>([]);
     const [doctorFridayData, setDoctorFridayData] = useState<DoctorFridayRow[]>([]);
     
-    const [fridayHeaders, setFridayHeaders] = useState<HeaderMap>({...defaultHeaders});
-    const [holidayHeaders, setHolidayHeaders] = useState<HeaderMap>({...defaultHeaders});
-    const [doctorFridayHeaders, setDoctorFridayHeaders] = useState<DoctorFridayHeaderMap>({...defaultDoctorFridayHeaders});
-    const [doctorWeeklyHeaders, setDoctorWeeklyHeaders] = useState<DoctorWeeklyHeaderMap>({...defaultDoctorWeeklyHeaders});
+    // Dynamic Columns State
+    const [fridayColumns, setFridayColumns] = useState<ScheduleColumn[]>(defaultFridayCols);
+    const [holidayColumns, setHolidayColumns] = useState<ScheduleColumn[]>(defaultHolidayCols);
+    const [doctorColumns, setDoctorColumns] = useState<ScheduleColumn[]>(defaultDoctorCols);
+    const [doctorFridayColumns, setDoctorFridayColumns] = useState<ScheduleColumn[]>(defaultDoctorFridayCols);
 
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [allLocations, setAllLocations] = useState<Location[]>([]);
@@ -257,6 +258,30 @@ const ScheduleBuilder: React.FC = () => {
         initData();
     }, []);
 
+    // --- Dynamic Column Handlers ---
+    const handleAddColumn = (type: 'friday' | 'holiday' | 'doctor' | 'doctor_friday') => {
+        const newCol: ScheduleColumn = { id: `col_${Date.now()}`, title: 'NEW SECTION', time: '' };
+        if (type === 'friday') setFridayColumns([...fridayColumns, newCol]);
+        if (type === 'holiday') setHolidayColumns([...holidayColumns, newCol]);
+        if (type === 'doctor') setDoctorColumns([...doctorColumns, newCol]);
+        if (type === 'doctor_friday') setDoctorFridayColumns([...doctorFridayColumns, newCol]);
+    };
+
+    const handleRemoveColumn = (type: 'friday' | 'holiday' | 'doctor' | 'doctor_friday', colId: string) => {
+        if (!confirm('Are you sure? Data in this column will be hidden/lost.')) return;
+        if (type === 'friday') setFridayColumns(fridayColumns.filter(c => c.id !== colId));
+        if (type === 'holiday') setHolidayColumns(holidayColumns.filter(c => c.id !== colId));
+        if (type === 'doctor') setDoctorColumns(doctorColumns.filter(c => c.id !== colId));
+        if (type === 'doctor_friday') setDoctorFridayColumns(doctorFridayColumns.filter(c => c.id !== colId));
+    };
+
+    const handleUpdateColumn = (type: 'friday' | 'holiday' | 'doctor' | 'doctor_friday', colIndex: number, newCol: ScheduleColumn) => {
+        if (type === 'friday') { const n = [...fridayColumns]; n[colIndex] = newCol; setFridayColumns(n); }
+        if (type === 'holiday') { const n = [...holidayColumns]; n[colIndex] = newCol; setHolidayColumns(n); }
+        if (type === 'doctor') { const n = [...doctorColumns]; n[colIndex] = newCol; setDoctorColumns(n); }
+        if (type === 'doctor_friday') { const n = [...doctorFridayColumns]; n[colIndex] = newCol; setDoctorFridayColumns(n); }
+    };
+
     const handleSaveTemplate = () => {
         if (activeTemplateId) {
             setNewTemplateName(activeTemplateName);
@@ -272,20 +297,20 @@ const ScheduleBuilder: React.FC = () => {
         setIsSaveModalOpen(false);
         setLoading(true);
         try {
-            // Construct the Full Payload from current State
-            const templateData = {
+            const templateData: any = {
                 name: newTemplateName,
                 targetMonth: saveTargetMonth,
-                generalData: JSON.parse(JSON.stringify(generalData)), // Deep copy to detach references
-                commonDuties: JSON.parse(JSON.stringify(commonDuties)),
-                fridayData: JSON.parse(JSON.stringify(fridayData)),
-                holidayData: JSON.parse(JSON.stringify(holidayData)),
-                doctorData: JSON.parse(JSON.stringify(doctorData)),
-                doctorFridayData: JSON.parse(JSON.stringify(doctorFridayData)),
-                fridayHeaders: {...fridayHeaders},
-                holidayHeaders: {...holidayHeaders},
-                doctorFridayHeaders: {...doctorFridayHeaders},
-                doctorWeeklyHeaders: {...doctorWeeklyHeaders},
+                generalData,
+                commonDuties,
+                fridayData,
+                holidayData,
+                doctorData,
+                doctorFridayData,
+                // Save Dynamic Columns
+                fridayColumns,
+                holidayColumns,
+                doctorColumns,
+                doctorFridayColumns,
                 globalStartDate,
                 globalEndDate,
                 scheduleNote
@@ -298,7 +323,7 @@ const ScheduleBuilder: React.FC = () => {
                     updatedAt: Timestamp.now()
                 });
                 setSavedTemplates(prev => prev.map(t => t.id === activeTemplateId ? { ...t, ...templateData } : t));
-                setToast({ msg: 'Template Updated Successfully (All Sections)', type: 'success' });
+                setToast({ msg: t('update'), type: 'success' });
             } else {
                 // Save as New
                 const docRef = await addDoc(collection(db, 'schedule_templates'), {
@@ -309,10 +334,10 @@ const ScheduleBuilder: React.FC = () => {
                 setSavedTemplates([...savedTemplates, newTpl]);
                 setActiveTemplateId(docRef.id);
                 setActiveTemplateName(newTemplateName);
-                setToast({ msg: 'New Template Saved Successfully (All Sections)', type: 'success' });
+                setToast({ msg: t('save'), type: 'success' });
             }
         } catch (e) {
-            setToast({ msg: 'Error saving template', type: 'error' });
+            setToast({ msg: 'Error', type: 'error' });
         } finally {
             setLoading(false);
         }
@@ -338,17 +363,12 @@ const ScheduleBuilder: React.FC = () => {
         setConfirmation({
             isOpen: true,
             title: t('confirm'),
-            message: `Load "${tpl.name}"? This will REPLACE all current data in all tabs.`,
+            message: `Load "${tpl.name}"? Unsaved changes will be lost.`,
             onConfirm: () => {
-                setLoading(true);
-                // 1. Set ID and Name
                 setActiveTemplateId(tpl.id);
                 setActiveTemplateName(tpl.name);
 
-                // 2. Set Month (Important so Publish works for the right month)
-                if(tpl.targetMonth) setPublishMonth(tpl.targetMonth);
-
-                // 3. Deep Clone and Set ALL Data States (Handling potential missing fields from old templates)
+                // Clone Data
                 setGeneralData(JSON.parse(JSON.stringify(tpl.generalData || [])));
                 setCommonDuties(JSON.parse(JSON.stringify(tpl.commonDuties || [])));
                 setFridayData(JSON.parse(JSON.stringify(tpl.fridayData || [])));
@@ -356,21 +376,20 @@ const ScheduleBuilder: React.FC = () => {
                 setDoctorData(JSON.parse(JSON.stringify(tpl.doctorData || [])));
                 setDoctorFridayData(JSON.parse(JSON.stringify(tpl.doctorFridayData || [])));
                 
-                // 4. Set Headers
-                setFridayHeaders(JSON.parse(JSON.stringify(tpl.fridayHeaders || {...defaultHeaders})));
-                setHolidayHeaders(JSON.parse(JSON.stringify(tpl.holidayHeaders || {...defaultHeaders})));
-                setDoctorFridayHeaders(JSON.parse(JSON.stringify(tpl.doctorFridayHeaders || {...defaultDoctorFridayHeaders})));
-                setDoctorWeeklyHeaders(JSON.parse(JSON.stringify(tpl.doctorWeeklyHeaders || {...defaultDoctorWeeklyHeaders})));
+                // Load Dynamic Columns (Fallback to default if new property missing)
+                setFridayColumns(tpl.fridayColumns ? JSON.parse(JSON.stringify(tpl.fridayColumns)) : defaultFridayCols);
+                setHolidayColumns(tpl.holidayColumns ? JSON.parse(JSON.stringify(tpl.holidayColumns)) : defaultHolidayCols);
+                setDoctorColumns(tpl.doctorColumns ? JSON.parse(JSON.stringify(tpl.doctorColumns)) : defaultDoctorCols);
+                setDoctorFridayColumns(tpl.doctorFridayColumns ? JSON.parse(JSON.stringify(tpl.doctorFridayColumns)) : defaultDoctorFridayCols);
 
-                // 5. Set Globals
+                if(tpl.targetMonth) setPublishMonth(tpl.targetMonth);
                 setGlobalStartDate(tpl.globalStartDate || '');
                 setGlobalEndDate(tpl.globalEndDate || '');
                 setScheduleNote(tpl.scheduleNote || '');
 
                 setConfirmation(prev => ({ ...prev, isOpen: false }));
                 setIsTemplatesOpen(false); 
-                setLoading(false);
-                setToast({ msg: 'Template Loaded Successfully', type: 'success' });
+                setToast({ msg: 'Loaded', type: 'success' });
             }
         });
     };
@@ -452,7 +471,7 @@ const ScheduleBuilder: React.FC = () => {
         setConfirmation({
             isOpen: true,
             title: t('sb.publish'),
-            message: `Publish for ${publishMonth}? This will OVERWRITE existing shifts for this month.`,
+            message: `Publish for ${publishMonth}? This will OVERWRITE existing shifts.`,
             onConfirm: async () => {
                 setConfirmation(prev => ({ ...prev, isOpen: false }));
                 executePublish();
@@ -463,7 +482,7 @@ const ScheduleBuilder: React.FC = () => {
     const executePublish = async () => {
         setLoading(true);
         try {
-            // 1. DELETE EXISTING FOR MONTH
+            // 1. Clear Existing
             const q = query(collection(db, 'schedules'), where('month', '==', publishMonth));
             const snapshot = await getDocs(q);
             if (!snapshot.empty) {
@@ -477,7 +496,6 @@ const ScheduleBuilder: React.FC = () => {
                 }
             }
 
-            // 2. PREPARE NEW BATCH
             const batch = writeBatch(db);
             const scheduleRef = collection(db, 'schedules');
             const [y, m] = publishMonth.split('-');
@@ -506,14 +524,14 @@ const ScheduleBuilder: React.FC = () => {
                 }
             };
 
-            // --- GENERAL DATA ---
+            // General & Common
             for (const col of generalData) {
                 const parsed = parseMultiShifts(col.defaultTime);
                 const shifts = (parsed && parsed.length > 0) ? parsed : [{ start: '08:00', end: '16:00' }];
                 for (const staff of col.staff) {
                     const resolved = resolveStaff(staff);
                     if (resolved) {
-                        const shiftData: any = {
+                        batch.set(doc(scheduleRef), {
                             userId: resolved.id,
                             staffName: resolved.name, 
                             locationId: col.title,
@@ -521,29 +539,23 @@ const ScheduleBuilder: React.FC = () => {
                             validFrom: staff.startDate || globalStartDate || monthStart,
                             validTo: staff.endDate || globalEndDate || monthEnd,
                             userType: 'user',
-                            shifts: shifts,
+                            shifts: staff.time ? parseMultiShifts(staff.time) : shifts,
                             note: staff.note ? `${col.title} - ${staff.note}` : col.title,
                             week: 'all',
                             createdAt: Timestamp.now()
-                        };
-                        if(staff.time) {
-                             const customShifts = parseMultiShifts(staff.time);
-                             if(customShifts.length > 0) shiftData.shifts = customShifts;
-                        }
-                        batch.set(doc(scheduleRef), shiftData);
+                        });
                         await checkBatch();
                     }
                 }
             }
 
-            // --- COMMON DUTIES ---
             for (const duty of commonDuties) {
                 const parsed = parseMultiShifts(duty.time);
                 const shifts = (parsed && parsed.length > 0) ? parsed : [{ start: '08:00', end: '16:00' }];
                 for (const staff of duty.staff) {
                     const resolved = resolveStaff(staff);
                     if (resolved) {
-                        const shiftData: any = {
+                        batch.set(doc(scheduleRef), {
                             userId: resolved.id,
                             staffName: resolved.name, 
                             locationId: 'common_duty',
@@ -551,172 +563,157 @@ const ScheduleBuilder: React.FC = () => {
                             validFrom: staff.startDate || globalStartDate || monthStart,
                             validTo: staff.endDate || globalEndDate || monthEnd,
                             userType: 'user',
-                            shifts: shifts,
+                            shifts: staff.time ? parseMultiShifts(staff.time) : shifts,
                             note: staff.note ? `${duty.section} - ${staff.note}` : duty.section,
                             week: 'all',
                             createdAt: Timestamp.now()
-                        };
-                        if(staff.time) {
-                             const customShifts = parseMultiShifts(staff.time);
-                             if(customShifts.length > 0) shiftData.shifts = customShifts;
-                        }
-                        batch.set(doc(scheduleRef), shiftData);
+                        });
                         await checkBatch();
                     }
                 }
             }
 
-            // --- FRIDAY DATA ---
+            // Friday Schedule (Dynamic Columns)
             for (const row of fridayData) {
                 if(!row.date) continue;
                 const date = normalizeDate(row.date);
-                const processFridayCol = async (staffList: VisualStaff[], colKey: string, timeSource: string, fallbackTime: string) => {
-                    let shifts = parseMultiShifts(timeSource);
-                    if (shifts.length === 0) shifts = parseMultiShifts(fallbackTime) || [{start:'08:00', end:'16:00'}];
-                    for (const staff of staffList) {
-                        const resolved = resolveStaff(staff);
-                        if (resolved) {
-                            let finalShifts = shifts;
-                            if (staff.time && staff.time.trim()) {
-                                const specific = parseMultiShifts(staff.time);
-                                if (specific.length > 0) finalShifts = specific;
-                            }
-                            batch.set(doc(scheduleRef), {
-                                userId: resolved.id,
-                                staffName: resolved.name, 
-                                locationId: 'Friday Shift',
-                                month: publishMonth,
-                                date: date,
-                                userType: 'user',
-                                shifts: finalShifts,
-                                note: staff.note ? `Friday - ${colKey} - ${staff.note}` : `Friday - ${colKey}`,
-                                createdAt: Timestamp.now()
-                            });
-                            await checkBatch();
-                        }
-                    }
-                };
-                await processFridayCol(row.morning, 'Morning', fridayHeaders.morning || '8AM-5PM', '08:00 - 17:00'); 
-                await processFridayCol(row.evening, 'Evening', fridayHeaders.evening || '3PM-12MN', '15:00 - 24:00');
-                await processFridayCol(row.broken, 'Broken', fridayHeaders.broken || '9AM-1PM/5PM-10PM', '09:00 - 13:00, 17:00 - 22:00');
-                await processFridayCol(row.cathLab, 'Cath Lab', fridayHeaders.cathLab || '8AM-8PM', '08:00 - 20:00');
-                await processFridayCol(row.mri, 'MRI', fridayHeaders.mri || '9AM-1PM/5PM-10PM', '09:00 - 13:00, 17:00 - 22:00');
-                await processFridayCol(row.night, 'Night', fridayHeaders.night || '11PM-8AM', '23:00 - 08:00');
-            }
+                
+                for (const col of fridayColumns) {
+                    const staffList = row[col.id] as VisualStaff[];
+                    if (staffList && Array.isArray(staffList)) {
+                        let shifts = parseMultiShifts(col.time || '08:00 - 16:00');
+                        if (shifts.length === 0) shifts = [{start:'08:00', end:'16:00'}];
 
-            // --- DOCTOR WEEKLY DATA ---
-            for (const row of doctorData) {
-                if(!row.dateRange && !row.startDate) continue;
-                const { from, to } = parseDateRangeRow(row.dateRange || (row.startDate ? `${row.startDate}-${row.endDate}` : ''), publishMonth);
-                const nightFrom = row.nightStartDate || from;
-                const nightTo = row.nightEndDate || to;
-                const processDocCol = async (staffList: VisualStaff[], shiftType: string, timeSourceStr: string, fallbackTime: string, isNight: boolean = false) => {
-                    let shifts = parseMultiShifts(timeSourceStr);
-                    if (shifts.length === 0) shifts = parseMultiShifts(fallbackTime);
-                    if (shifts.length === 0) shifts = [{start:'08:00', end:'16:00'}]; 
-                    for (const staff of staffList) {
-                        const resolved = resolveStaff(staff);
-                        if (resolved) {
-                            let finalShifts = shifts;
-                            if (staff.time && staff.time.trim()) {
-                                const specific = parseMultiShifts(staff.time);
-                                if (specific.length > 0) finalShifts = specific;
-                            }
-                            batch.set(doc(scheduleRef), {
-                                userId: resolved.id,
-                                staffName: resolved.name, 
-                                locationId: 'Doctor Schedule',
-                                month: publishMonth,
-                                validFrom: isNight ? nightFrom : from,
-                                validTo: isNight ? nightTo : to,
-                                userType: 'doctor',
-                                shifts: finalShifts,
-                                note: shiftType,
-                                createdAt: Timestamp.now()
-                            });
-                            await checkBatch();
-                        }
-                    }
-                }
-                await processDocCol(row.broken1, doctorWeeklyHeaders.col1Title || 'Broken 1', doctorWeeklyHeaders.col1Sub, '09:00 - 13:00, 17:00 - 21:00');
-                await processDocCol(row.broken2, doctorWeeklyHeaders.col2Title || 'Broken 2', doctorWeeklyHeaders.col2Sub, '09:00 - 13:00, 17:00 - 21:00');
-                await processDocCol(row.morning, doctorWeeklyHeaders.col3Title || 'Straight Morning', doctorWeeklyHeaders.col3Sub, '09:00 - 17:00');
-                await processDocCol(row.evening, doctorWeeklyHeaders.col4Title || 'Straight Evening', doctorWeeklyHeaders.col4Sub, '17:00 - 01:00');
-                await processDocCol(row.night, doctorWeeklyHeaders.col5Title || 'Night Shift', doctorWeeklyHeaders.col5Sub, '01:00 - 09:00', true);
-            }
-
-            // --- DOCTOR FRIDAY DATA ---
-            for (const row of doctorFridayData) {
-                if (!row.date) continue;
-                const date = normalizeDate(row.date);
-                const processDrFridayCol = async (staffList: VisualStaff[], colKey: string, timeKey: keyof DoctorFridayHeaderMap, titleKey: keyof DoctorFridayHeaderMap) => {
-                    const timeStr = doctorFridayHeaders[timeKey] || '';
-                    const titleStr = doctorFridayHeaders[titleKey] || colKey;
-                    const shifts = parseMultiShifts(timeStr).length > 0 ? parseMultiShifts(timeStr) : [{ start: '08:00', end: '16:00' }];
-                    for (const staff of staffList) {
-                        const resolved = resolveStaff(staff);
-                        if (resolved) {
-                            let finalShifts = shifts;
-                            if (staff.time && staff.time.trim()) {
-                                const specific = parseMultiShifts(staff.time);
-                                if (specific.length > 0) finalShifts = specific;
-                            }
-                            batch.set(doc(scheduleRef), {
-                                userId: resolved.id,
-                                staffName: resolved.name,
-                                locationId: 'Doctor Friday Shift',
-                                month: publishMonth,
-                                date: date,
-                                userType: 'doctor',
-                                shifts: finalShifts,
-                                note: titleStr,
-                                createdAt: Timestamp.now()
-                            });
-                            await checkBatch();
-                        }
-                    }
-                }
-                await processDrFridayCol(row.col1, 'col1', 'col1Time', 'col1Title');
-                await processDrFridayCol(row.col2, 'col2', 'col2Time', 'col2Title');
-                await processDrFridayCol(row.col3, 'col3', 'col3Time', 'col3Title');
-                await processDrFridayCol(row.col4, 'col4', 'col4Time', 'col4Title');
-            }
-
-            // --- HOLIDAY DATA ---
-            for (const row of holidayData) {
-                if(!row.occasion) continue;
-                if(row.occasion.match(/^\d{4}-\d{2}-\d{2}$/) || row.occasion.match(/^\d{1,2}[-./]\d{1,2}[-./]\d{4}$/)) {
-                    const date = normalizeDate(row.occasion);
-                    const processHolCol = async (staffList: VisualStaff[], colKey: string) => {
                         for (const staff of staffList) {
                             const resolved = resolveStaff(staff);
-                            if(resolved) {
+                            if (resolved) {
                                 batch.set(doc(scheduleRef), {
                                     userId: resolved.id,
-                                    staffName: resolved.name,
-                                    locationId: 'Holiday Shift',
+                                    staffName: resolved.name, 
+                                    locationId: 'Friday Shift',
                                     month: publishMonth,
                                     date: date,
                                     userType: 'user',
-                                    shifts: [{start:'08:00', end:'20:00'}], 
-                                    note: staff.note ? `Holiday - ${colKey} - ${staff.note}` : `Holiday - ${colKey}`,
+                                    shifts: staff.time ? parseMultiShifts(staff.time) : shifts,
+                                    note: staff.note ? `Friday - ${col.title} - ${staff.note}` : `Friday - ${col.title}`,
                                     createdAt: Timestamp.now()
                                 });
                                 await checkBatch();
                             }
                         }
                     }
-                    await processHolCol(row.morning, 'Morning');
-                    await processHolCol(row.evening, 'Evening');
-                    await processHolCol(row.broken, 'Broken');
-                    await processHolCol(row.cathLab, 'Cath Lab');
-                    await processHolCol(row.mri, 'MRI');
-                    await processHolCol(row.night, 'Night');
+                }
+            }
+
+            // Holiday Schedule (Dynamic Columns)
+            for (const row of holidayData) {
+                if(!row.occasion) continue;
+                const isDate = row.occasion.match(/^\d{4}-\d{2}-\d{2}$/) || row.occasion.match(/^\d{1,2}[-./]\d{1,2}[-./]\d{4}$/);
+                const date = isDate ? normalizeDate(row.occasion) : undefined;
+                
+                for (const col of holidayColumns) {
+                    const staffList = row[col.id] as VisualStaff[];
+                    if (staffList && Array.isArray(staffList)) {
+                        let shifts = parseMultiShifts(col.time || '08:00 - 20:00');
+                        if (shifts.length === 0) shifts = [{start:'08:00', end:'20:00'}];
+
+                        for (const staff of staffList) {
+                            const resolved = resolveStaff(staff);
+                            if (resolved) {
+                                const payload: any = {
+                                    userId: resolved.id,
+                                    staffName: resolved.name, 
+                                    locationId: 'Holiday Shift',
+                                    month: publishMonth,
+                                    userType: 'user',
+                                    shifts: staff.time ? parseMultiShifts(staff.time) : shifts,
+                                    note: staff.note ? `Holiday - ${col.title} - ${staff.note}` : `Holiday - ${col.title}`,
+                                    createdAt: Timestamp.now()
+                                };
+                                if (date) payload.date = date;
+                                else {
+                                    payload.validFrom = globalStartDate || monthStart;
+                                    payload.validTo = globalEndDate || monthEnd;
+                                }
+                                batch.set(doc(scheduleRef), payload);
+                                await checkBatch();
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Doctor Weekly (Dynamic Columns)
+            for (const row of doctorData) {
+                if(!row.dateRange && !row.startDate) continue;
+                const { from, to } = parseDateRangeRow(row.dateRange || (row.startDate ? `${row.startDate}-${row.endDate}` : ''), publishMonth);
+                const nightFrom = row.nightStartDate || from;
+                const nightTo = row.nightEndDate || to;
+
+                for (const col of doctorColumns) {
+                    const staffList = row[col.id] as VisualStaff[];
+                    if (staffList && Array.isArray(staffList)) {
+                        let shifts = parseMultiShifts(col.time || '08:00 - 16:00');
+                        if (shifts.length === 0) shifts = [{start:'08:00', end:'16:00'}];
+                        
+                        const isNight = col.id === 'night' || col.title.toLowerCase().includes('night');
+
+                        for (const staff of staffList) {
+                            const resolved = resolveStaff(staff);
+                            if (resolved) {
+                                batch.set(doc(scheduleRef), {
+                                    userId: resolved.id,
+                                    staffName: resolved.name, 
+                                    locationId: 'Doctor Schedule',
+                                    month: publishMonth,
+                                    validFrom: isNight ? nightFrom : from,
+                                    validTo: isNight ? nightTo : to,
+                                    userType: 'doctor',
+                                    shifts: staff.time ? parseMultiShifts(staff.time) : shifts,
+                                    note: col.title,
+                                    createdAt: Timestamp.now()
+                                });
+                                await checkBatch();
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Doctor Friday (Dynamic Columns)
+            for (const row of doctorFridayData) {
+                if (!row.date) continue;
+                const date = normalizeDate(row.date);
+                
+                for (const col of doctorFridayColumns) {
+                    const staffList = row[col.id] as VisualStaff[];
+                    if (staffList && Array.isArray(staffList)) {
+                        let shifts = parseMultiShifts(col.time || '09:00 - 21:00');
+                        if (shifts.length === 0) shifts = [{start:'09:00', end:'21:00'}];
+
+                        for (const staff of staffList) {
+                            const resolved = resolveStaff(staff);
+                            if (resolved) {
+                                batch.set(doc(scheduleRef), {
+                                    userId: resolved.id,
+                                    staffName: resolved.name,
+                                    locationId: 'Doctor Friday Shift',
+                                    month: publishMonth,
+                                    date: date,
+                                    userType: 'doctor',
+                                    shifts: staff.time ? parseMultiShifts(staff.time) : shifts,
+                                    note: col.title,
+                                    createdAt: Timestamp.now()
+                                });
+                                await checkBatch();
+                            }
+                        }
+                    }
                 }
             }
 
             await batch.commit();
-            setToast({ msg: 'Published Successfully (All Sections)', type: 'success' });
+            setToast({ msg: 'Published Successfully!', type: 'success' });
         } catch (e: any) {
             setToast({ msg: 'Error: ' + e.message, type: 'error' });
         } finally {
@@ -795,6 +792,19 @@ const ScheduleBuilder: React.FC = () => {
                     </div>
 
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-h-[500px] print:shadow-none print:border-none print:p-0">
+                        {/* Dynamic Column Control Bar (Visible in Edit Mode) */}
+                        {isEditingVisual && visualSubTab !== 'general' && (
+                            <div className="mb-4 p-3 bg-slate-50 rounded-xl border border-dashed border-slate-300 flex items-center justify-between print:hidden">
+                                <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Column Manager</span>
+                                <button 
+                                    onClick={() => handleAddColumn(visualSubTab)}
+                                    className="bg-white border border-slate-300 text-slate-600 hover:text-blue-600 hover:border-blue-300 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-all"
+                                >
+                                    <i className="fas fa-plus-circle"></i> Add Column
+                                </button>
+                            </div>
+                        )}
+
                         {visualSubTab === 'general' && (
                             <GeneralScheduleView 
                                 data={generalData} commonDuties={commonDuties} isEditing={isEditingVisual}
@@ -815,38 +825,48 @@ const ScheduleBuilder: React.FC = () => {
                             <FridayScheduleView 
                                 data={fridayData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}
                                 onUpdateRow={(i, d) => { const n = [...fridayData]; n[i] = d; setFridayData(n); }}
-                                onAddRow={() => setFridayData([...fridayData, { id: Date.now().toString(), date: '', morning: [], evening: [], broken: [], cathLab: [], mri: [], night: [] }])}
+                                onAddRow={() => setFridayData([...fridayData, { id: Date.now().toString(), date: '' }])}
                                 onRemoveRow={(i) => setFridayData(fridayData.filter((_, idx) => idx !== i))}
-                                headers={fridayHeaders} onHeaderChange={setFridayHeaders} searchTerm={searchTerm}
+                                columns={fridayColumns}
+                                onUpdateColumn={(idx, col) => handleUpdateColumn('friday', idx, col)}
+                                onRemoveColumn={(id) => handleRemoveColumn('friday', id)}
+                                searchTerm={searchTerm}
                             />
                         )}
-                      
-                    {visualSubTab === 'holiday' && (
-                        <HolidayScheduleView 
-                            data={holidayData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}
-                            onUpdateRow={(i, d) => { const n = [...holidayData]; n[i] = d; setHolidayData(n); }}
-                            onAddRow={() => setHolidayData([...holidayData, { id: Date.now().toString(), occasion: '', morning: [], evening: [], broken: [], cathLab: [], mri: [], night: [] }])}
-                            onRemoveRow={(i) => setHolidayData(holidayData.filter((_, idx) => idx !== i))}
-                            headers={holidayHeaders} onHeaderChange={setHolidayHeaders} searchTerm={searchTerm}
-                        />
-                    )}
-
+                        {visualSubTab === 'holiday' && (
+                            <HolidayScheduleView 
+                                data={holidayData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}
+                                onUpdateRow={(i, d) => { const n = [...holidayData]; n[i] = d; setHolidayData(n); }}
+                                onAddRow={() => setHolidayData([...holidayData, { id: Date.now().toString(), occasion: '' }])}
+                                onRemoveRow={(i) => setHolidayData(holidayData.filter((_, idx) => idx !== i))}
+                                columns={holidayColumns}
+                                onUpdateColumn={(idx, col) => handleUpdateColumn('holiday', idx, col)}
+                                onRemoveColumn={(id) => handleRemoveColumn('holiday', id)}
+                                searchTerm={searchTerm}
+                            />
+                        )}
                         {visualSubTab === 'doctor' && (
                             <DoctorScheduleView 
                                 data={doctorData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}
                                 onUpdateRow={(i, d) => { const n = [...doctorData]; n[i] = d; setDoctorData(n); }}
-                                onAddRow={() => setDoctorData([...doctorData, { id: Date.now().toString(), dateRange: '', broken1: [], broken2: [], morning: [], evening: [], night: [] }])}
+                                onAddRow={() => setDoctorData([...doctorData, { id: Date.now().toString(), dateRange: '' }])}
                                 onRemoveRow={(i) => setDoctorData(doctorData.filter((_, idx) => idx !== i))}
-                                headers={doctorWeeklyHeaders} onHeaderChange={setDoctorWeeklyHeaders} searchTerm={searchTerm}
+                                columns={doctorColumns}
+                                onUpdateColumn={(idx, col) => handleUpdateColumn('doctor', idx, col)}
+                                onRemoveColumn={(id) => handleRemoveColumn('doctor', id)}
+                                searchTerm={searchTerm}
                             />
                         )}
                         {visualSubTab === 'doctor_friday' && (
                             <DoctorFridayScheduleView 
                                 data={doctorFridayData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}
                                 onUpdateRow={(i, d) => { const n = [...doctorFridayData]; n[i] = d; setDoctorFridayData(n); }}
-                                onAddRow={() => setDoctorFridayData([...doctorFridayData, { id: Date.now().toString(), date: '', col1: [], col2: [], col3: [], col4: [] }])}
+                                onAddRow={() => setDoctorFridayData([...doctorFridayData, { id: Date.now().toString(), date: '' }])}
                                 onRemoveRow={(i) => setDoctorFridayData(doctorFridayData.filter((_, idx) => idx !== i))}
-                                headers={doctorFridayHeaders} onHeaderChange={setDoctorFridayHeaders} searchTerm={searchTerm}
+                                columns={doctorFridayColumns}
+                                onUpdateColumn={(idx, col) => handleUpdateColumn('doctor_friday', idx, col)}
+                                onRemoveColumn={(id) => handleRemoveColumn('doctor_friday', id)}
+                                searchTerm={searchTerm}
                             />
                         )}
                     </div>

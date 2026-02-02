@@ -1,16 +1,13 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { HolidayScheduleRow, VisualStaff, User, HeaderMap } from '../../types';
+import { HolidayScheduleRow, VisualStaff, User, ScheduleColumn } from '../../types';
 import { PrintHeader, PrintFooter } from '../PrintLayout';
 
-// =================================================================
-// 💡 Logic for Fixed Colors & Type Mapping
-// =================================================================
 interface StaffMember {
     name: string;
+    color: string;
     time?: string;
     note?: string;
-    color: string;
 }
 
 const staffColorMap = new Map<string, string>();
@@ -20,25 +17,21 @@ const colorClasses = [
   'bg-rose-50 text-rose-900 border-rose-200',
   'bg-amber-50 text-amber-900 border-amber-200',
   'bg-purple-50 text-purple-900 border-purple-200',
-
   'bg-cyan-50 text-cyan-900 border-cyan-200',
   'bg-lime-50 text-lime-900 border-lime-200',
   'bg-fuchsia-50 text-fuchsia-900 border-fuchsia-200',
   'bg-orange-50 text-orange-900 border-orange-200',
   'bg-teal-50 text-teal-900 border-teal-200',
-
   'bg-indigo-50 text-indigo-900 border-indigo-200',
   'bg-pink-50 text-pink-900 border-pink-200',
   'bg-sky-50 text-sky-900 border-sky-200',
   'bg-yellow-50 text-yellow-900 border-yellow-200',
   'bg-violet-50 text-violet-900 border-violet-200',
-
   'bg-green-100 text-green-900 border-green-200',
   'bg-blue-100 text-blue-900 border-blue-200',
   'bg-red-100 text-red-900 border-red-200',
   'bg-amber-100 text-amber-900 border-amber-200',
   'bg-purple-100 text-purple-900 border-purple-200',
-
   'bg-slate-50 text-slate-900 border-slate-200',
   'bg-gray-50 text-gray-900 border-gray-200',
   'bg-zinc-50 text-zinc-900 border-zinc-200',
@@ -48,7 +41,7 @@ const colorClasses = [
 
 const getStaffColor = (name: string): string => {
     const trimmedName = name.trim();
-    if (!trimmedName || trimmedName === 'New Staff') return 'bg-slate-100 text-slate-700 border-slate-200';
+    if (!trimmedName) return 'bg-slate-100 text-slate-700 border-slate-200';
     if (staffColorMap.has(trimmedName)) {
         return staffColorMap.get(trimmedName)!;
     }
@@ -58,12 +51,14 @@ const getStaffColor = (name: string): string => {
 };
 
 const mapVisualToStaff = (list: VisualStaff[]): StaffMember[] => {
+    if (!list || !Array.isArray(list)) return [];
     return list
+        .filter(s => s.name && s.name.trim() !== '')
         .map(s => ({
-            name: s.name,
+            name: s.name.trim(),
+            color: getStaffColor(s.name.trim()),
             time: s.time,
-            note: s.note,
-            color: getStaffColor(s.name || ''),
+            note: s.note
         }));
 };
 
@@ -76,8 +71,10 @@ interface HolidayScheduleViewProps {
   onUpdateRow: (index: number, newRow: HolidayScheduleRow) => void;
   onAddRow: () => void;
   onRemoveRow: (index: number) => void;
-  headers: HeaderMap;
-  onHeaderChange: (newHeaders: HeaderMap) => void;
+  
+  columns: ScheduleColumn[];
+  onUpdateColumn: (index: number, newCol: ScheduleColumn) => void;
+  onRemoveColumn: (colId: string) => void;
 }
 
 const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({ 
@@ -88,17 +85,16 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
     onAddRow,
     onRemoveRow,
     publishMonth,
-    headers,
-    onHeaderChange
+    columns,
+    onUpdateColumn,
+    onRemoveColumn
 }) => {
-    const [editDragItem, setEditDragItem] = useState<{ rowIndex: number, column: keyof HolidayScheduleRow, index: number } | null>(null);
-    
-    // --- Customizable Print Headers State ---
+    const [editDragItem, setEditDragItem] = useState<{ rowIndex: number, column: string, index: number } | null>(null);
     const [printTitle, setPrintTitle] = useState("HOLIDAY SCHEDULE");
     const [printSubtitle, setPrintSubtitle] = useState("HOLIDAY COVERAGE");
     const [headerColor, setHeaderColor] = useState<any>("purple");
 
-    // Dynamic styles based on selected color - Controls Main Title & Holiday Name Cell
+    // Dynamic styles
     const activeColorClasses = {
         purple: 'bg-purple-700 print:bg-purple-800 text-white border-purple-900',
         indigo: 'bg-indigo-700 print:bg-indigo-800 text-white border-indigo-900',
@@ -108,57 +104,51 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
         violet: 'bg-violet-700 print:bg-violet-800 text-white border-violet-900'
     }[headerColor] || 'bg-purple-700 print:bg-purple-800 text-white';
 
-
-    const activePrintBg = {
-        purple: 'print:bg-purple-800',
-        indigo: 'print:bg-indigo-800',
-        rose: 'print:bg-rose-800',
-        teal: 'print:bg-teal-800',
-        slate: 'print:bg-slate-800',
-        violet: 'print:bg-violet-800'
-    }[headerColor] || 'print:bg-purple-800';
+    const printHeaderBg = {
+        purple: 'print:bg-purple-800 print:text-white print:border-purple-900',
+        indigo: 'print:bg-indigo-800 print:text-white print:border-indigo-900',
+        rose: 'print:bg-rose-800 print:text-white print:border-rose-900',
+        teal: 'print:bg-teal-800 print:text-white print:border-teal-900',
+        slate: 'print:bg-slate-800 print:text-white print:border-slate-900',
+        violet: 'print:bg-violet-800 print:text-white print:border-violet-900'
+    }[headerColor] || 'print:bg-slate-900 print:text-white';
 
     const staffData = useMemo(() => {
-        return data.map(row => ({
-            ...row,
-            morning: mapVisualToStaff(row.morning),
-            evening: mapVisualToStaff(row.evening),
-            broken: mapVisualToStaff(row.broken),
-            cathLab: mapVisualToStaff(row.cathLab),
-            mri: mapVisualToStaff(row.mri),
-            night: mapVisualToStaff(row.night),
-        }));
-    }, [data]);
+        return data.map(row => {
+            const mappedRow: any = { ...row };
+            columns.forEach(col => {
+                mappedRow[col.id] = mapVisualToStaff(row[col.id] as VisualStaff[]);
+            });
+            return mappedRow;
+        });
+    }, [data, columns]);
 
-    // Enhanced Handler to support field updates (name, time, note)
-    const handleStaffChange = useCallback((rowIndex: number, column: keyof HolidayScheduleRow, index: number, field: keyof VisualStaff, value: string) => {
+    const handleStaffFieldChange = useCallback((rowIndex: number, columnId: string, index: number, field: keyof VisualStaff, value: string) => {
         const row = { ...data[rowIndex] };
-        const currentList = [...(row[column] as VisualStaff[])];
-        currentList[index] = { ...currentList[index], [field]: value };
-        onUpdateRow(rowIndex, { ...row, [column]: currentList });
+        const currentList = [...(row[columnId] as VisualStaff[] || [])];
+        if (currentList[index]) {
+            currentList[index] = { ...currentList[index], [field]: value };
+            onUpdateRow(rowIndex, { ...row, [columnId]: currentList });
+        }
     }, [data, onUpdateRow]);
 
-    const handleAddNewStaff = useCallback((rowIndex: number, column: keyof HolidayScheduleRow) => {
+    const handleAddNewStaff = useCallback((rowIndex: number, columnId: string) => {
         const row = { ...data[rowIndex] };
-        const currentList = [...(row[column] as VisualStaff[])];
+        const currentList = [...(row[columnId] as VisualStaff[] || [])];
         currentList.push({ name: 'New Staff' });
-        onUpdateRow(rowIndex, { ...row, [column]: currentList });
+        onUpdateRow(rowIndex, { ...row, [columnId]: currentList });
     }, [data, onUpdateRow]);
 
-    const removeStaffMember = useCallback((rowIndex: number, column: keyof HolidayScheduleRow, index: number) => {
+    const removeStaffMember = useCallback((rowIndex: number, columnId: string, index: number) => {
          const row = { ...data[rowIndex] };
-         const currentList = [...(row[column] as VisualStaff[])];
+         const currentList = [...(row[columnId] as VisualStaff[] || [])];
          currentList.splice(index, 1);
-         onUpdateRow(rowIndex, { ...row, [column]: currentList });
+         onUpdateRow(rowIndex, { ...row, [columnId]: currentList });
     }, [data, onUpdateRow]);
-
-    const handleHeaderChange = (key: keyof HeaderMap, value: string) => {
-        onHeaderChange({ ...headers, [key]: value });
-    };
 
     // Drag & Drop (Edit Mode)
-    const onEditDragStart = (e: React.DragEvent, rowIndex: number, column: keyof HolidayScheduleRow, index: number) => {
-        setEditDragItem({ rowIndex, column, index });
+    const onEditDragStart = (e: React.DragEvent, rowIndex: number, columnId: string, index: number) => {
+        setEditDragItem({ rowIndex, column: columnId, index });
         e.dataTransfer.effectAllowed = "move";
     };
 
@@ -167,28 +157,28 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
         e.dataTransfer.dropEffect = editDragItem ? "move" : "copy";
     };
 
-    const onEditDrop = (e: React.DragEvent, targetRowIndex: number, targetColumn: keyof HolidayScheduleRow) => {
+    const onEditDrop = (e: React.DragEvent, targetRowIndex: number, targetColumnId: string) => {
         e.preventDefault();
 
         // 1. Internal Drag
         if (editDragItem) {
             const { rowIndex: srcRowIdx, column: srcCol, index: srcIndex } = editDragItem;
-            if (srcRowIdx === targetRowIndex && srcCol === targetColumn) {
+            if (srcRowIdx === targetRowIndex && srcCol === targetColumnId) {
                 setEditDragItem(null);
                 return;
             }
 
             const sourceRow = { ...data[srcRowIdx] };
-            const sourceList = [...(sourceRow[srcCol] as VisualStaff[])];
+            const sourceList = [...(sourceRow[srcCol] as VisualStaff[] || [])];
             const itemToMove = sourceList[srcIndex];
 
             sourceList.splice(srcIndex, 1);
             const updatedSourceRow = { ...sourceRow, [srcCol]: sourceList };
 
             const targetRow = (srcRowIdx === targetRowIndex) ? updatedSourceRow : { ...data[targetRowIndex] };
-            const targetList = [...(targetRow[targetColumn] as VisualStaff[])];
+            const targetList = [...(targetRow[targetColumnId] as VisualStaff[] || [])];
             targetList.push(itemToMove);
-            const updatedTargetRow = { ...targetRow, [targetColumn]: targetList };
+            const updatedTargetRow = { ...targetRow, [targetColumnId]: targetList };
 
             if (srcRowIdx === targetRowIndex) {
                 onUpdateRow(srcRowIdx, updatedTargetRow);
@@ -206,14 +196,14 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
             if (rawData) {
                  const staffData = JSON.parse(rawData);
                  const row = { ...data[targetRowIndex] };
-                 const currentList = [...(row[targetColumn] as VisualStaff[])];
+                 const currentList = [...(row[targetColumnId] as VisualStaff[] || [])];
                  
                  currentList.push({ 
                      name: staffData.name,
                      userId: staffData.id
                  });
                  
-                 onUpdateRow(targetRowIndex, { ...row, [targetColumn]: currentList });
+                 onUpdateRow(targetRowIndex, { ...row, [targetColumnId]: currentList });
             }
         } catch(err) { console.error(err); }
     };
@@ -232,78 +222,99 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
   };
 
   const hasMatch = (list: StaffMember[]) => {
-      if(!searchTerm) return false;
+      if(!searchTerm || !list) return false;
       return list.some(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
   }
 
-    // Header Renderer - Section Names (Morning, Evening, etc.)
-const renderHeader = (key: keyof HeaderMap, bgColorClass: string, borderClass: string) => {
-    return (
-        // تم استبدال print:bg-slate-900 بـ ${activePrintBg}
-        <th scope="col" className={`px-2 py-4 text-center text-xs font-black text-white uppercase tracking-wider border-r border-white/20 ${bgColorClass} ${borderClass} ${activePrintBg} print:text-white print:px-1 print:py-2 print:text-xs font-sans`}>
-            {isEditing ? (
-                <textarea 
-                    value={headers[key]}
-                    onChange={(e) => handleHeaderChange(key, e.target.value)}
-                    className="bg-black/50 text-white text-center w-full rounded px-1 py-0.5 outline-none placeholder-black/70 min-h-[40px] text-[10px] resize-none focus:bg-black/100 transition-colors"
-                    placeholder="Header Name"
-                />
-            ) : (
-                <div className="whitespace-pre-wrap leading-tight print:leading-none">{headers[key]}</div>
-            )}
-        </th>
-    );
-};
-
-    const renderStaffList = (staffList: StaffMember[], rowIndex: number, column: keyof HolidayScheduleRow) => {
+    // Dynamic Header Renderer
+const renderHeader = (col: ScheduleColumn, index: number) => {
+        return (
+            <th 
+                key={col.id} 
+                scope="col" 
+                className={`group relative px-2 py-4 text-center text-xs font-extrabold text-white uppercase tracking-wider border-r border-white/20 bg-slate-700 ${printHeaderBg} print:text-white`}
+            >
+                {isEditing ? (
+                    <div className="flex flex-col gap-1">
+                        <input 
+                            value={col.title}
+                            onChange={(e) => onUpdateColumn(index, { ...col, title: e.target.value })}
+                            className="bg-white/20 text-white text-center w-full rounded px-1 py-0.5 outline-none placeholder-white/50 text-[10px] font-bold"
+                            placeholder="Title"
+                        />
+                        <input 
+                            value={col.time || ''}
+                            onChange={(e) => onUpdateColumn(index, { ...col, time: e.target.value })}
+                            className="bg-white/10 text-white/80 text-center w-full rounded px-1 py-0.5 outline-none placeholder-white/30 text-[9px]"
+                            placeholder="08:00 - 16:00"
+                        />
+                        <button 
+                            onClick={() => onRemoveColumn(col.id)}
+                            className="absolute top-1 right-1 text-red-300 hover:text-red-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Delete Column"
+                        >
+                            <i className="fas fa-trash text-[10px]"></i>
+                        </button>
+                    </div>
+                ) : (
+                    <div className="flex flex-col items-center">
+                        <div className="whitespace-pre-wrap leading-tight">{col.title}</div>
+                        {/* عرض الوقت أسفل العنوان في حالة العرض فقط إذا وجد */}
+                        {col.time && <span className="text-[9px] opacity-80 mt-1 font-mono font-normal lowercase tracking-normal">{col.time}</span>}
+                    </div>
+                )}
+            </th>
+        );
+    };
+    const renderStaffList = (staffList: StaffMember[], rowIndex: number, columnId: string) => {
+        const safeList = staffList || [];
         if (isEditing) {
-            const rawList = data[rowIndex][column] as VisualStaff[];
+            const rawList = (data[rowIndex][columnId] as VisualStaff[]) || [];
             return (
                 <div 
                     className="space-y-2 p-1 min-w-[140px] min-h-[60px]"
                     onDragOver={onEditDragOver}
-                    onDrop={(e) => onEditDrop(e, rowIndex, column)}
+                    onDrop={(e) => onEditDrop(e, rowIndex, columnId)}
                 >
                     {rawList.map((s, i) => (
-                        <div key={i} draggable onDragStart={(e) => onEditDragStart(e, rowIndex, column, i)} className="flex flex-col gap-1 group bg-white border border-slate-200 p-1.5 rounded-md shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-300 hover:shadow-md transition-all relative">
-                            {/* Header: Grip, Name, Delete */}
+                        <div key={i} draggable onDragStart={(e) => onEditDragStart(e, rowIndex, columnId, i)} className="flex flex-col gap-1 group bg-white border border-slate-200 p-1.5 rounded-md shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-300 hover:shadow-md transition-all">
                             <div className="flex items-center gap-1 w-full">
-                                <div className={`p-1 rounded-full bg-slate-100 cursor-grab`}>
-                                    <i className="fas fa-grip-vertical text-slate-500 text-[10px]"></i>
+                                <div className={`p-1 rounded-full bg-slate-100 mt-1`}>
+                                    <i className="fas fa-grip-vertical text-xs text-slate-400"></i>
                                 </div>
                                 <input
                                     value={s.name}
-                                    onChange={(e) => handleStaffChange(rowIndex, column, i, 'name', e.target.value)}
+                                    onChange={(e) => handleStaffFieldChange(rowIndex, columnId, i, 'name', e.target.value)}
                                     className="w-full text-xs font-bold p-1 bg-gray-50 focus:bg-white border-b border-transparent focus:border-blue-300 outline-none text-gray-900"
                                     placeholder="Name"
                                 />
                                 <button 
-                                    onClick={() => removeStaffMember(rowIndex, column, i)}
+                                    onClick={() => removeStaffMember(rowIndex, columnId, i)}
                                     className="text-slate-300 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-all"
                                 >
                                     <i className="fas fa-times text-xs"></i>
                                 </button>
                             </div>
-
-                            {/* Details: Time & Note */}
+                            
+                            {/* Extra fields for holiday */}
                             <div className="flex gap-1 pl-5">
                                 <input
                                     value={s.time || ''}
-                                    onChange={(e) => handleStaffChange(rowIndex, column, i, 'time', e.target.value)}
-                                    className="w-1/2 text-[10px] p-1 bg-slate-50 border border-slate-200 rounded outline-none focus:border-blue-300 placeholder-slate-400"
+                                    onChange={(e) => handleStaffFieldChange(rowIndex, columnId, i, 'time', e.target.value)}
+                                    className="w-1/2 text-[10px] p-1 bg-slate-50 border border-slate-200 rounded outline-none focus:border-blue-300"
                                     placeholder="Time"
                                 />
                                 <input
                                     value={s.note || ''}
-                                    onChange={(e) => handleStaffChange(rowIndex, column, i, 'note', e.target.value)}
-                                    className="w-1/2 text-[10px] p-1 bg-yellow-50 border border-yellow-200 rounded outline-none focus:border-yellow-400 text-yellow-900 placeholder-yellow-400"
+                                    onChange={(e) => handleStaffFieldChange(rowIndex, columnId, i, 'note', e.target.value)}
+                                    className="w-1/2 text-[10px] p-1 bg-yellow-50 border border-yellow-200 rounded outline-none focus:border-yellow-400 text-yellow-800"
                                     placeholder="Note"
                                 />
                             </div>
                         </div>
                     ))}
                     <button
-                        onClick={() => handleAddNewStaff(rowIndex, column)}
+                        onClick={() => handleAddNewStaff(rowIndex, columnId)}
                         className="w-full mt-2 py-1.5 text-blue-600 hover:bg-blue-50 border border-dashed border-blue-200 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
                     >
                         <i className="fas fa-plus text-xs mr-1"></i> Add
@@ -311,18 +322,16 @@ const renderHeader = (key: keyof HeaderMap, bgColorClass: string, borderClass: s
                 </div>
             );
         }
-        
-        // VIEW / PRINT MODE
         return (
             <div className="flex flex-col gap-1 w-full items-center">
-                {staffList.map((s, idx) => (
+                {safeList.map((s, idx) => (
                     <div 
                         key={idx} 
                         className={`text-sm px-2 py-1.5 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center break-words w-full print-color-adjust-exact ${s.color} 
                         print:shadow-none print:px-1 print:py-0.5 print:rounded print:border-transparent font-sans`}
                         dir="ltr"
                     >
-                        <span className="font-bold print:text-[10px] leading-tight">
+                        <span className="font-bold print:text-[11px] leading-tight">
                             {highlightMatch(s.name)}
                         </span>
                         
@@ -405,24 +414,14 @@ const renderHeader = (key: keyof HeaderMap, bgColorClass: string, borderClass: s
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-lg bg-white print:block print:shadow-none print:overflow-visible print:border-none print:flex-grow relative z-10 print:bg-transparent">
         <table className="min-w-full divide-y divide-slate-200 print:divide-slate-900 print:border-2 print:border-slate-900 h-full print-color-adjust-exact print:table-fixed">
-  {/* هنا تم استبدال print:bg-slate-900 بالمتغير الجديد activePrintBg */}
-  <thead className={`bg-slate-50 ${activePrintBg} print:text-white print-color-adjust-exact`}>
-    <tr className="print:h-fit">
-      {/* تحديث أول خلية لتأخذ نفس اللون في الطباعة */}
-      <th scope="col" className={`px-6 py-4 text-left text-xs font-black text-slate-600 uppercase tracking-wider min-w-[220px] border-r border-slate-200 print:px-2 print:py-2 print:text-xs print:w-24 print:border-r print:border-white/20 print:text-white print:text-center font-sans ${activePrintBg}`}>
-        Occasion / Date
-      </th>
-      
-      {/* باقي الهيدرز ستعمل تلقائياً لأنك عدلت وظيفة renderHeader */}
-      {renderHeader('morning', 'bg-indigo-50 text-indigo-700', 'border-indigo-100')}
-      {renderHeader('evening', 'bg-violet-50 text-violet-700', 'border-violet-100')}
-      {renderHeader('broken', 'bg-amber-50 text-amber-700', 'border-amber-100')}
-      {renderHeader('cathLab', 'bg-rose-50 text-rose-700', 'border-rose-100')}
-      {renderHeader('mri', 'bg-teal-50 text-teal-700', 'border-teal-100')}
-      {renderHeader('night', 'bg-slate-100 text-slate-800', 'border-slate-200')}
-      {isEditing && <th className="px-2 py-3 w-10 print:hidden"></th>}
-    </tr>
-  </thead>
+          {/* Main Table Header: Dynamic Color in Print */}
+          <thead className={`bg-slate-50 ${printHeaderBg} print-color-adjust-exact`}>
+            <tr className="print:h-fit">
+              <th scope="col" className="px-6 py-4 text-left text-xs font-black text-slate-600 uppercase tracking-wider min-w-[220px] border-r border-slate-200 print:px-2 print:py-2 print:text-xs print:w-24 print:border-r print:border-white/20 print:text-white print:text-center font-sans">Occasion / Date</th>
+              {columns.map((col, idx) => renderHeader(col, idx))}
+              {isEditing && <th className="px-2 py-3 w-10 print:hidden"></th>}
+            </tr>
+          </thead>
           <tbody className="bg-white divide-y divide-slate-200 print:divide-slate-300 print:bg-transparent">
             {staffData.map((row, idx) => (
               <tr key={idx} className="hover:bg-slate-50 transition-colors print:break-inside-avoid h-full print:bg-white">
@@ -444,12 +443,12 @@ const renderHeader = (key: keyof HeaderMap, bgColorClass: string, borderClass: s
                     </div>
                 </td>
                 
-                {['morning', 'evening', 'broken', 'cathLab', 'mri', 'night'].map((colKey) => (
+                {columns.map((col) => (
                     <td 
-                        key={colKey}
-                        className={`px-6 py-4 text-sm text-slate-700 align-middle border-r border-slate-100 print:px-1 print:py-1 print:border-r print:border-slate-300 print:text-[10px] print:align-middle ${!isEditing && hasMatch(row[colKey as keyof typeof row] as StaffMember[]) ? 'bg-yellow-50' : ''}`}
+                        key={col.id}
+                        className={`px-6 py-4 text-sm text-slate-700 align-middle border-r border-slate-100 print:px-1 print:py-1 print:border-r print:border-slate-300 print:text-[10px] print:align-middle ${!isEditing && hasMatch(row[col.id] as StaffMember[]) ? 'bg-yellow-50' : ''}`}
                     >
-                        {renderStaffList(row[colKey as keyof typeof row] as StaffMember[], idx, colKey as keyof HolidayScheduleRow)}
+                        {renderStaffList(row[col.id] as StaffMember[], idx, col.id)}
                     </td>
                 ))}
 

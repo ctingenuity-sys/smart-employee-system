@@ -250,26 +250,25 @@ export interface CommonDuty {
   staff: VisualStaff[]; // Changed from string[] to VisualStaff[]
 }
 
+// --- Dynamic Column Definition ---
+export interface ScheduleColumn {
+    id: string;
+    title: string;
+    subTitle?: string;
+    time?: string;
+}
+
+// Flexible Rows for Dynamic Columns
 export interface FridayScheduleRow {
   id: string;
   date: string;
-  morning: VisualStaff[];
-  evening: VisualStaff[];
-  broken: VisualStaff[];
-  cathLab: VisualStaff[];
-  mri: VisualStaff[];
-  night: VisualStaff[];
+  [key: string]: any; // Allow dynamic column keys (e.g. 'col1', 'col2')
 }
 
 export interface HolidayScheduleRow {
   id: string;
   occasion: string;
-  morning: VisualStaff[];
-  evening: VisualStaff[];
-  broken: VisualStaff[];
-  cathLab: VisualStaff[];
-  mri: VisualStaff[];
-  night: VisualStaff[];
+  [key: string]: any; // Allow dynamic column keys
 }
 
 // --- NEW: Doctor Schedule Row ---
@@ -283,56 +282,18 @@ export interface DoctorScheduleRow {
   nightStartDate?: string; 
   nightEndDate?: string;
 
-  broken1: VisualStaff[]; // 9am-1pm & 5pm-9pm (CT/MRI)
-  broken2: VisualStaff[]; // 9am-1pm & 5pm-9pm (Xray/USG)
-  morning: VisualStaff[]; // Straight Morning
-  evening: VisualStaff[]; // Straight Evening
-  night: VisualStaff[];   // Night Shift
+  [key: string]: any; // Allow dynamic columns
 }
 
 // --- UPDATED: Doctor Friday Schedule Row to match Image ---
 export interface DoctorFridayRow {
   id: string;
   date: string;
-  col1: VisualStaff[]; 
-  col2: VisualStaff[]; 
-  col3: VisualStaff[]; 
-  col4: VisualStaff[]; 
+  [key: string]: any; // Allow dynamic columns
 }
 
 export interface HeaderMap {
-    morning: string;
-    evening: string;
-    broken: string;
-    cathLab: string;
-    mri: string;
-    night: string;
-}
-
-// New Header Map for Doctor Friday Table
-export interface DoctorFridayHeaderMap {
-    col1Time: string;
-    col1Title: string;
-    col2Time: string;
-    col2Title: string;
-    col3Time: string;
-    col3Title: string;
-    col4Time: string;
-    col4Title: string;
-}
-
-// New Header Map for Doctor Weekly Table
-export interface DoctorWeeklyHeaderMap {
-    col1Title: string;
-    col1Sub: string;
-    col2Title: string;
-    col2Sub: string;
-    col3Title: string;
-    col3Sub: string;
-    col4Title: string;
-    col4Sub: string;
-    col5Title: string;
-    col5Sub: string;
+    [key: string]: string;
 }
 
 export interface SavedTemplate {
@@ -346,10 +307,13 @@ export interface SavedTemplate {
   holidayData: HolidayScheduleRow[];
   doctorData?: DoctorScheduleRow[]; 
   doctorFridayData?: DoctorFridayRow[]; 
-  fridayHeaders?: HeaderMap;
-  holidayHeaders?: HeaderMap;
-  doctorFridayHeaders?: DoctorFridayHeaderMap; 
-  doctorWeeklyHeaders?: DoctorWeeklyHeaderMap;
+  
+  // Dynamic Columns Configuration
+  fridayColumns?: ScheduleColumn[];
+  holidayColumns?: ScheduleColumn[];
+  doctorColumns?: ScheduleColumn[];
+  doctorFridayColumns?: ScheduleColumn[];
+
   // Global fields
   globalStartDate?: string;
   globalEndDate?: string;
@@ -388,8 +352,8 @@ export interface ProcessedRecord {
   totalHours: number;
   overtimeHours: number;
   shortfallHours: number;
-  latenessMinutes: number;
-  earlyDepartureMinutes: number;
+  latenessHours: number;
+  earlyDepartureHours: number;
 }
 
 export interface EmployeeSummary {
@@ -399,8 +363,8 @@ export interface EmployeeSummary {
   absentDays: number;
   totalOvertimeHours: number;
   totalShortfallHours: number;
-  totalLatenessMinutes: number;
-  totalEarlyDepartureMinutes: number;
+  totalLatenessHours: number;
+  totalEarlyDepartureHours: number;
   records: ProcessedRecord[];
   riskCount?: number;
 }

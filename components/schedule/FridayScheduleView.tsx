@@ -1,6 +1,6 @@
 
-import React, { useState, useCallback } from 'react';
-import { FridayScheduleRow, VisualStaff, User, HeaderMap } from '../../types';
+import React, { useState, useCallback, useEffect } from 'react';
+import { FridayScheduleRow, VisualStaff, User, ScheduleColumn } from '../../types';
 import { PrintHeader, PrintFooter } from '../PrintLayout';
 
 const staffColorMap = new Map<string, string>();
@@ -10,25 +10,21 @@ const colorClasses = [
   'bg-rose-50 text-rose-900 border-rose-200',
   'bg-amber-50 text-amber-900 border-amber-200',
   'bg-purple-50 text-purple-900 border-purple-200',
-
   'bg-cyan-50 text-cyan-900 border-cyan-200',
   'bg-lime-50 text-lime-900 border-lime-200',
   'bg-fuchsia-50 text-fuchsia-900 border-fuchsia-200',
   'bg-orange-50 text-orange-900 border-orange-200',
   'bg-teal-50 text-teal-900 border-teal-200',
-
   'bg-indigo-50 text-indigo-900 border-indigo-200',
   'bg-pink-50 text-pink-900 border-pink-200',
   'bg-sky-50 text-sky-900 border-sky-200',
   'bg-yellow-50 text-yellow-900 border-yellow-200',
   'bg-violet-50 text-violet-900 border-violet-200',
-
   'bg-green-100 text-green-900 border-green-200',
   'bg-blue-100 text-blue-900 border-blue-200',
   'bg-red-100 text-red-900 border-red-200',
   'bg-amber-100 text-amber-900 border-amber-200',
   'bg-purple-100 text-purple-900 border-purple-200',
-
   'bg-slate-50 text-slate-900 border-slate-200',
   'bg-gray-50 text-gray-900 border-gray-200',
   'bg-zinc-50 text-zinc-900 border-zinc-200',
@@ -56,8 +52,11 @@ interface FridayScheduleViewProps {
   onUpdateRow: (index: number, newRow: FridayScheduleRow) => void;
   onAddRow: () => void;
   onRemoveRow: (index: number) => void;
-  headers: HeaderMap;
-  onHeaderChange: (newHeaders: HeaderMap) => void;
+  
+  // Dynamic Columns
+  columns: ScheduleColumn[];
+  onUpdateColumn: (index: number, newCol: ScheduleColumn) => void;
+  onRemoveColumn: (colId: string) => void;
 }
 
 const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({ 
@@ -69,17 +68,19 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
     onUpdateRow,
     onAddRow,
     onRemoveRow,
-    headers,
-    onHeaderChange
+    columns,
+    onUpdateColumn,
+    onRemoveColumn
 }) => {
-    const [editDragItem, setEditDragItem] = useState<{ rowIndex: number, column: keyof FridayScheduleRow, index: number } | null>(null);
-    
-    // Manual Header Color State & Title Override
+    const [editDragItem, setEditDragItem] = useState<{ rowIndex: number, column: string, index: number } | null>(null);
     const [headerColor, setHeaderColor] = useState<any>('teal');
     const [customTitle, setCustomTitle] = useState('');
-    const [customSubtitle, setCustomSubtitle] = useState('FRIDAY DUTY');
 
-    // Dynamic classes for the main table date column based on selected color
+    useEffect(() => {
+        // Reset custom title when month changes (optional, keeps UI clean)
+        // setCustomTitle('');
+    }, [publishMonth]);
+
     const activeDateColumnClasses = {
         teal: 'print:bg-teal-50 print:text-teal-900',
         blue: 'print:bg-blue-50 print:text-blue-900',
@@ -107,35 +108,32 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
     }[headerColor] || 'print:bg-teal-800';
 
     // --- Edit Handlers ---
-    const handleStaffChange = useCallback((rowIndex: number, column: keyof FridayScheduleRow, index: number, field: keyof VisualStaff, value: string) => {
+    const handleStaffChange = useCallback((rowIndex: number, columnId: string, index: number, field: keyof VisualStaff, value: string) => {
         const row = { ...data[rowIndex] };
-        const currentList = [...(row[column] as VisualStaff[])];
+        const currentList = [...(row[columnId] as VisualStaff[] || [])];
+        if (!currentList[index]) return;
         currentList[index] = { ...currentList[index], [field]: value };
-        onUpdateRow(rowIndex, { ...row, [column]: currentList });
+        onUpdateRow(rowIndex, { ...row, [columnId]: currentList });
     }, [data, onUpdateRow]);
 
-    const handleAddNewStaff = useCallback((rowIndex: number, column: keyof FridayScheduleRow) => {
+    const handleAddNewStaff = useCallback((rowIndex: number, columnId: string) => {
         const row = { ...data[rowIndex] };
-        const currentList = [...(row[column] as VisualStaff[])];
+        const currentList = [...(row[columnId] as VisualStaff[] || [])];
         currentList.push({ name: 'New Staff' }); 
-        onUpdateRow(rowIndex, { ...row, [column]: currentList });
+        onUpdateRow(rowIndex, { ...row, [columnId]: currentList });
     }, [data, onUpdateRow]);
 
-    const removeStaffMember = useCallback((rowIndex: number, column: keyof FridayScheduleRow, index: number) => {
+    const removeStaffMember = useCallback((rowIndex: number, columnId: string, index: number) => {
          const row = { ...data[rowIndex] };
-         const currentList = [...(row[column] as VisualStaff[])];
+         const currentList = [...(row[columnId] as VisualStaff[] || [])];
          currentList.splice(index, 1);
-         onUpdateRow(rowIndex, { ...row, [column]: currentList });
+         onUpdateRow(rowIndex, { ...row, [columnId]: currentList });
     }, [data, onUpdateRow]);
-
-    const handleHeaderChange = (key: keyof HeaderMap, value: string) => {
-        onHeaderChange({ ...headers, [key]: value });
-    };
 
     // --- Drag & Drop ---
-    const onEditDragStart = (e: React.DragEvent, rowIndex: number, column: keyof FridayScheduleRow, index: number) => {
+    const onEditDragStart = (e: React.DragEvent, rowIndex: number, columnId: string, index: number) => {
         e.stopPropagation();
-        setEditDragItem({ rowIndex, column, index });
+        setEditDragItem({ rowIndex, column: columnId, index });
         e.dataTransfer.effectAllowed = "move";
     };
 
@@ -145,29 +143,29 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
         e.dataTransfer.dropEffect = editDragItem ? "move" : "copy";
     };
 
-    const onEditDrop = (e: React.DragEvent, targetRowIndex: number, targetColumn: keyof FridayScheduleRow) => {
+    const onEditDrop = (e: React.DragEvent, targetRowIndex: number, targetColumnId: string) => {
         e.preventDefault();
         e.stopPropagation();
         
-        // 1. Internal Drag
         if (editDragItem) {
             const { rowIndex: srcRowIdx, column: srcCol, index: srcIndex } = editDragItem;
-            if (srcRowIdx === targetRowIndex && srcCol === targetColumn) {
+            // Prevent drop on same cell
+            if (srcRowIdx === targetRowIndex && srcCol === targetColumnId) {
                  setEditDragItem(null);
                  return;
             }
 
             const sourceRow = { ...data[srcRowIdx] };
-            const sourceList = [...(sourceRow[srcCol] as VisualStaff[])];
+            const sourceList = [...(sourceRow[srcCol] as VisualStaff[] || [])];
             const itemToMove = sourceList[srcIndex];
 
             sourceList.splice(srcIndex, 1);
             const updatedSourceRow = { ...sourceRow, [srcCol]: sourceList };
 
             const targetRow = (srcRowIdx === targetRowIndex) ? updatedSourceRow : { ...data[targetRowIndex] };
-            const targetList = [...(targetRow[targetColumn] as VisualStaff[])];
+            const targetList = [...(targetRow[targetColumnId] as VisualStaff[] || [])];
             targetList.push(itemToMove);
-            const updatedTargetRow = { ...targetRow, [targetColumn]: targetList };
+            const updatedTargetRow = { ...targetRow, [targetColumnId]: targetList };
 
             if (srcRowIdx === targetRowIndex) {
                 onUpdateRow(srcRowIdx, updatedTargetRow);
@@ -179,20 +177,14 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
             return;
         }
 
-        // 2. External Drop (Sidebar)
         try {
             const rawData = e.dataTransfer.getData('application/react-dnd-staff');
             if (rawData) {
                  const staffData = JSON.parse(rawData);
                  const row = { ...data[targetRowIndex] };
-                 const currentList = [...(row[targetColumn] as VisualStaff[])];
-                 
-                 currentList.push({ 
-                     name: staffData.name,
-                     userId: staffData.id
-                 });
-                 
-                 onUpdateRow(targetRowIndex, { ...row, [targetColumn]: currentList });
+                 const currentList = [...(row[targetColumnId] as VisualStaff[] || [])];
+                 currentList.push({ name: staffData.name, userId: staffData.id });
+                 onUpdateRow(targetRowIndex, { ...row, [targetColumnId]: currentList });
             }
         } catch(err) { console.error(err); }
     };
@@ -211,43 +203,59 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
     };
 
     const hasMatch = (list: VisualStaff[]) => {
-        if(!searchTerm) return false;
+        if(!searchTerm || !list) return false;
         return list.some(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
     }
 
-    // Header Renderer
-    const renderHeader = (key: keyof HeaderMap, bgColorClass: string, borderClass: string) => {
+    // Dynamic Header Renderer
+    const renderHeader = (col: ScheduleColumn, index: number) => {
         return (
-            <th scope="col" className={`px-2 py-4 text-center text-xs font-extrabold text-black uppercase tracking-wider border-r border-black/20 ${bgColorClass} ${borderClass} ${activeHeaderBg} print:text-white`}>
+            <th key={col.id} scope="col" className={`group relative px-2 py-4 text-center text-xs font-extrabold text-white uppercase tracking-wider border-r border-white/20 bg-slate-700 ${activeHeaderBg} print:text-white`}>
                 {isEditing ? (
-                    <textarea 
-                        value={headers[key]}
-                        onChange={(e) => handleHeaderChange(key, e.target.value)}
-                        className="bg-black/20 text-black text-center w-full rounded px-1 py-0.5 outline-none placeholder-black/50 resize-none min-h-[40px] text-xs font-bold"
-                        placeholder="Header Name"
-                    />
+                    <div className="flex flex-col gap-1">
+                        <input 
+                            value={col.title}
+                            onChange={(e) => onUpdateColumn(index, { ...col, title: e.target.value })}
+                            className="bg-white/20 text-white text-center w-full rounded px-1 py-0.5 outline-none placeholder-white/50 text-[10px] font-bold"
+                            placeholder="Title"
+                        />
+                        <input 
+                            value={col.time || ''}
+                            onChange={(e) => onUpdateColumn(index, { ...col, time: e.target.value })}
+                            className="bg-white/10 text-white/80 text-center w-full rounded px-1 py-0.5 outline-none placeholder-white/30 text-[9px]"
+                            placeholder="08:00 - 16:00"
+                        />
+                        <button 
+                            onClick={() => onRemoveColumn(col.id)}
+                            className="absolute top-1 right-1 text-red-300 hover:text-red-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Delete Column"
+                        >
+                            <i className="fas fa-trash text-[10px]"></i>
+                        </button>
+                    </div>
                 ) : (
-                    <div className="whitespace-pre-wrap">{headers[key]}</div>
+                    <div className="whitespace-pre-wrap">{col.title}</div>
                 )}
             </th>
         );
     };
 
     // Main Renderer for Staff Lists
-    const renderStaffList = (staffList: VisualStaff[], rowIndex: number, column: keyof FridayScheduleRow) => {
+    const renderStaffList = (staffList: VisualStaff[], rowIndex: number, columnId: string) => {
+        const list = staffList || [];
         // --- EDIT MODE ---
         if (isEditing) {
             return (
                 <div 
                     className="space-y-2 p-1 min-w-[140px] min-h-[60px] transition-colors rounded"
                     onDragOver={onEditDragOver}
-                    onDrop={(e) => onEditDrop(e, rowIndex, column)}
+                    onDrop={(e) => onEditDrop(e, rowIndex, columnId)}
                 >
-                    {staffList.map((s, i) => (
+                    {list.map((s, i) => (
                         <div 
                             key={i} 
                             draggable
-                            onDragStart={(e) => onEditDragStart(e, rowIndex, column, i)}
+                            onDragStart={(e) => onEditDragStart(e, rowIndex, columnId, i)}
                             className="flex flex-col gap-1 group bg-white border border-slate-300 p-1.5 rounded-md shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-400 hover:shadow-md transition-all relative"
                         >
                             <div className="flex items-center gap-1 w-full">
@@ -256,12 +264,12 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                                 </div>
                                 <input
                                     value={s.name}
-                                    onChange={(e) => handleStaffChange(rowIndex, column, i, 'name', e.target.value)}
+                                    onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'name', e.target.value)}
                                     className="w-full text-xs font-bold p-1 bg-gray-50 focus:bg-white border-b border-transparent focus:border-blue-300 outline-none text-gray-900"
                                     placeholder="Name"
                                 />
                                 <button 
-                                    onClick={() => removeStaffMember(rowIndex, column, i)}
+                                    onClick={() => removeStaffMember(rowIndex, columnId, i)}
                                     className="text-slate-400 hover:text-red-500 p-1 transition-all"
                                 >
                                     <i className="fas fa-times text-xs"></i>
@@ -272,13 +280,13 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                             <div className="flex gap-1 pl-5">
                                 <input
                                     value={s.time || ''}
-                                    onChange={(e) => handleStaffChange(rowIndex, column, i, 'time', e.target.value)}
+                                    onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'time', e.target.value)}
                                     className="w-1/2 text-[10px] p-1 bg-slate-50 border border-slate-200 rounded outline-none focus:border-blue-300"
-                                    placeholder="Time (Optional)"
+                                    placeholder="Time"
                                 />
                                 <input
                                     value={s.note || ''}
-                                    onChange={(e) => handleStaffChange(rowIndex, column, i, 'note', e.target.value)}
+                                    onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'note', e.target.value)}
                                     className="w-1/2 text-[10px] p-1 bg-yellow-50 border border-yellow-200 rounded outline-none focus:border-yellow-400 text-yellow-800"
                                     placeholder="Note"
                                 />
@@ -286,7 +294,7 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                         </div>
                     ))}
                     <button
-                        onClick={() => handleAddNewStaff(rowIndex, column)}
+                        onClick={() => handleAddNewStaff(rowIndex, columnId)}
                         className="w-full mt-2 py-1.5 text-blue-700 bg-blue-50 hover:bg-blue-100 border border-dashed border-blue-300 rounded-md text-xs font-bold flex items-center justify-center gap-1 transition-colors"
                     >
                         <i className="fas fa-plus text-xs mr-1"></i> Add
@@ -298,7 +306,7 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
         // --- VIEW / PRINT MODE ---
         return (
             <div className="flex flex-col gap-1 w-full items-center">
-                {staffList.map((s, idx) => {
+                {list.map((s, idx) => {
                     const colorClass = getStaffColor(s.name);
                     return (
                         <div 
@@ -335,65 +343,46 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
        <div className="print:mb-1">
             <PrintHeader 
                 month={customTitle || publishMonth} 
-                subtitle={customSubtitle}
+                subtitle="FRIDAY DUTY" 
                 dateRange="24 HOUR COVERAGE" 
                 themeColor={headerColor} 
             />
         </div> 
         
         {/* Screen Header & Color Control */}
-        <div className={`bg-slate-800 text-white p-4 rounded-xl shadow-md flex flex-col justify-between gap-4 print:hidden transition-colors duration-300`}>
-            <div className="flex justify-between items-center">
-                <div>
-                    <h2 className="text-xl font-bold uppercase tracking-wide">Friday 24 Hour Coverage</h2>
-                    <p className="text-slate-300 text-sm font-medium opacity-90">Specific Duty Assignments</p>
-                </div>
-                
-                {isEditing && (
-                    <div className="flex flex-col gap-1 items-end">
-                        <label className="text-[10px] uppercase font-bold opacity-70">Theme Color</label>
-                        <div className="flex gap-1 bg-white/10 p-1 rounded-full">
-                            {['teal', 'blue', 'purple', 'rose', 'indigo', 'amber', 'cyan', 'emerald'].map(c => (
-                                <button 
-                                    key={c}
-                                    onClick={() => setHeaderColor(c)}
-                                    className={`w-6 h-6 rounded-full border-2 border-white/50 hover:scale-110 transition-transform ${
-                                        c === 'teal' ? 'bg-teal-600' :
-                                        c === 'blue' ? 'bg-blue-600' :
-                                        c === 'purple' ? 'bg-purple-600' :
-                                        c === 'rose' ? 'bg-rose-600' :
-                                        c === 'indigo' ? 'bg-indigo-600' :
-                                        c === 'amber' ? 'bg-amber-600' :
-                                        c === 'cyan' ? 'bg-cyan-600' :
-                                        'bg-emerald-600'
-                                    } ${headerColor === c ? 'ring-2 ring-white scale-110' : ''}`}
-                                    title={c}
-                                />
-                            ))}
-                        </div>
-                    </div>
-                )}
+        <div className={`bg-slate-800 text-white p-4 rounded-xl shadow-md flex flex-col md:flex-row justify-between items-center gap-4 print:hidden transition-colors duration-300`}>
+            <div className="flex-1">
+                <h2 className="text-xl font-bold uppercase tracking-wide">Friday 24 Hour Coverage</h2>
+                <p className="text-slate-300 text-sm font-medium opacity-90">Specific Duty Assignments</p>
             </div>
-
+            
             {isEditing && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-white/10">
-                    <div className="flex flex-col gap-1">
-                        <label className="text-[10px] uppercase font-bold opacity-70">Custom Title (Overrides Month)</label>
-                        <input
-                            value={customTitle}
-                            onChange={(e) => setCustomTitle(e.target.value)}
-                            className="bg-white/10 border border-white/20 rounded px-2 py-1.5 text-white placeholder-white/40 text-xs font-bold outline-none focus:bg-white/20 transition-all"
-                            placeholder="e.g. EID AL-FITR SCHEDULE"
-                        />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <label className="text-[10px] uppercase font-bold opacity-70">Custom Subtitle</label>
-                        <input
-                            value={customSubtitle}
-                            onChange={(e) => setCustomSubtitle(e.target.value)}
-                            className="bg-white/10 border border-white/20 rounded px-2 py-1.5 text-white placeholder-white/40 text-xs font-bold outline-none focus:bg-white/20 transition-all"
-                            placeholder="e.g. FRIDAY DUTY"
-                        />
+                <div className="flex flex-col gap-2 items-center w-full md:w-auto">
+                     <input 
+                        className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white placeholder-white/50 w-full font-bold focus:bg-white/20 outline-none transition-colors"
+                        placeholder="Custom Title (Overrides Month)"
+                        value={customTitle}
+                        onChange={(e) => setCustomTitle(e.target.value)}
+                    />
+                    
+                    <div className="flex gap-1 bg-white/10 p-1 rounded-full">
+                        {['teal', 'blue', 'purple', 'rose', 'indigo', 'amber', 'cyan', 'emerald'].map(c => (
+                            <button 
+                                key={c}
+                                onClick={() => setHeaderColor(c)}
+                                className={`w-6 h-6 rounded-full border-2 border-white/50 hover:scale-110 transition-transform ${
+                                    c === 'teal' ? 'bg-teal-600' :
+                                    c === 'blue' ? 'bg-blue-600' :
+                                    c === 'purple' ? 'bg-purple-600' :
+                                    c === 'rose' ? 'bg-rose-600' :
+                                    c === 'indigo' ? 'bg-indigo-600' :
+                                    c === 'amber' ? 'bg-amber-600' :
+                                    c === 'cyan' ? 'bg-cyan-600' :
+                                    'bg-emerald-600'
+                                } ${headerColor === c ? 'ring-2 ring-white scale-110' : ''}`}
+                                title={c}
+                            />
+                        ))}
                     </div>
                 </div>
             )}
@@ -403,7 +392,6 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
         <table className="min-w-full divide-y divide-slate-200 print:divide-slate-900 print:border-2 print:border-slate-900 h-full print-color-adjust-exact print:table-fixed">
           <thead className={`bg-slate-50 ${activeHeaderBg} print:text-white print-color-adjust-exact`}>
            <tr className="print:h-fit">
-              {/* 3. ضغط عناوين الأعمدة: استخدام print:py-0 و print:leading-none */}
               <th scope="col" className="px-6 py-4 text-left text-xs font-extrabold text-slate-600 uppercase tracking-wider min-w-[160px] border-r border-slate-200 
                 print:px-1 
                 print:py-0 
@@ -418,12 +406,7 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                 Date
               </th>
               
-              {renderHeader('morning', `bg-indigo-50 text-indigo-700 ${activeHeaderBg} print:text-white`, 'border-indigo-100')}
-              {renderHeader('evening', `bg-violet-50 text-violet-700 ${activeHeaderBg} print:text-white`, 'border-violet-100')}
-              {renderHeader('broken', `bg-amber-50 text-amber-700 ${activeHeaderBg} print:text-white`, 'border-amber-100')}
-              {renderHeader('cathLab', `bg-rose-50 text-rose-700 ${activeHeaderBg} print:text-white`, 'border-rose-100')}
-              {renderHeader('mri', `bg-teal-50 text-teal-700 ${activeHeaderBg} print:text-white`, 'border-teal-100')}
-              {renderHeader('night', `bg-slate-100 text-slate-800 ${activeHeaderBg} print:text-white`, 'border-slate-200')}
+              {columns.map((col, idx) => renderHeader(col, idx))}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-slate-200 print:divide-slate-300 print:bg-transparent">
@@ -446,13 +429,13 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                     </div>
                 </td>
                 
-                {/* Shift Columns */}
-                {['morning', 'evening', 'broken', 'cathLab', 'mri', 'night'].map((colKey) => (
+                {/* Dynamic Shift Columns */}
+                {columns.map((col) => (
                     <td 
-                        key={colKey}
-                        className={`px-6 py-4 text-sm text-slate-700 align-middle border-r border-slate-100 print:px-1 print:py-1 print:border-r print:border-slate-300 print:text-[10px] print:align-middle ${!isEditing && hasMatch(row[colKey as keyof typeof row] as VisualStaff[]) ? 'bg-yellow-50' : ''}`}
+                        key={col.id}
+                        className={`px-6 py-4 text-sm text-slate-700 align-middle border-r border-slate-100 print:px-1 print:py-1 print:border-r print:border-slate-300 print:text-[10px] print:align-middle ${!isEditing && hasMatch(row[col.id] as VisualStaff[]) ? 'bg-yellow-50' : ''}`}
                     >
-                        {renderStaffList(row[colKey as keyof typeof row] as VisualStaff[], idx, colKey as keyof FridayScheduleRow)}
+                        {renderStaffList(row[col.id] as VisualStaff[], idx, col.id)}
                     </td>
                 ))}
 

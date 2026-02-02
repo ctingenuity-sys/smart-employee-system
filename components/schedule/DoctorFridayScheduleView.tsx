@@ -80,6 +80,7 @@ const DoctorFridayScheduleView: React.FC<DoctorFridayScheduleViewProps> = ({
     onRemoveColumn
 }) => {
     const [editDragItem, setEditDragItem] = useState<{ rowIndex: number, column: string, index: number } | null>(null);
+    const [customTitle, setCustomTitle] = useState('');
 
     const staffData = useMemo(() => {
         if (!data || !Array.isArray(data)) return [];
@@ -311,13 +312,24 @@ const DoctorFridayScheduleView: React.FC<DoctorFridayScheduleViewProps> = ({
 
   return (
     <div className="space-y-6 animate-fade-in print:space-y-1 print:w-full relative print:bg-white print:text-left">
-        <PrintHeader month={publishMonth} subtitle="DOCTORS FRIDAY SCHEDULE" themeColor="slate" />
+        <PrintHeader month={customTitle || publishMonth} subtitle="DOCTORS FRIDAY SCHEDULE" themeColor="slate" />
 
-        <div className="bg-slate-800 text-white p-4 rounded-xl shadow-md flex justify-between items-center print:hidden">
+        <div className="bg-slate-800 text-white p-4 rounded-xl shadow-md flex flex-col md:flex-row justify-between items-center gap-4 print:hidden">
             <div>
                 <h2 className="text-xl font-bold uppercase tracking-wide">Doctors Friday Schedule</h2>
                 <p className="text-slate-300 text-sm font-medium opacity-90">Manage Friday shifts for doctors</p>
             </div>
+            
+            {isEditing && (
+                <div className="flex flex-col min-w-[200px]">
+                    <input 
+                        className="bg-slate-700 text-white px-3 py-1.5 rounded border border-slate-600 text-sm font-bold w-full focus:bg-slate-600 transition-colors"
+                        placeholder="Custom Print Title (Overrides Month)"
+                        value={customTitle}
+                        onChange={(e) => setCustomTitle(e.target.value)}
+                    />
+                </div>
+            )}
         </div>
 
       <div className="overflow-x-auto rounded-none border-2 border-slate-800 shadow-none bg-white print:block print:overflow-visible print:border-2 print:border-slate-900 print:w-full">

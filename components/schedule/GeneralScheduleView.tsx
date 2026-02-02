@@ -119,6 +119,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
   
   const [draggedItem, setDraggedItem] = useState<{ colIndex: number, staffIndex: number } | null>(null);
   const [draggedColIndex, setDraggedColIndex] = useState<number | null>(null);
+  const [customTitle, setCustomTitle] = useState('');
 
   // --- Helpers ---
   const highlightMatch = (text: string) => {
@@ -496,7 +497,18 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                   <h2 className="text-lg font-bold uppercase tracking-wider text-slate-200">Global Settings</h2>
                   <p className="text-xs text-slate-400">Defaults for all staff unless overridden</p>
               </div>
-              <div className="flex gap-2 w-full md:w-auto">
+              <div className="flex gap-2 w-full md:w-auto items-end">
+                  {isEditing && (
+                      <div className="flex flex-col flex-1 min-w-[200px]">
+                          <label className="text-[10px] uppercase font-bold text-slate-400">Print Title Override</label>
+                          <input 
+                              className="bg-slate-700 text-white px-3 py-1.5 rounded border border-slate-600 text-sm font-bold w-full focus:bg-slate-600 transition-colors"
+                              placeholder="Custom Print Title"
+                              value={customTitle}
+                              onChange={(e) => setCustomTitle(e.target.value)}
+                          />
+                      </div>
+                  )}
                   <div className="flex flex-col">
                       <label className="text-[10px] uppercase font-bold text-slate-400">Global Start</label>
                       <input 
@@ -515,23 +527,23 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                           className="bg-slate-700 text-white px-2 py-1 rounded border border-slate-600 text-xs"
                       />
                   </div>
-                  <div className="flex flex-col flex-1">
-                      <label className="text-[10px] uppercase font-bold text-slate-400">Schedule Note</label>
-                      <input 
-                          value={scheduleNote}
-                          onChange={e => setScheduleNote(e.target.value)}
-                          className="bg-slate-700 text-white px-2 py-1 rounded border border-slate-600 text-xs w-full"
-                          placeholder="e.g. Approved By..."
-                      />
-                  </div>
               </div>
+          </div>
+          <div className="mt-3">
+              <label className="text-[10px] uppercase font-bold text-slate-400">Schedule Note</label>
+              <input 
+                  value={scheduleNote}
+                  onChange={e => setScheduleNote(e.target.value)}
+                  className="bg-slate-700 text-white px-2 py-1 rounded border border-slate-600 text-xs w-full"
+                  placeholder="e.g. Approved By..."
+              />
           </div>
       </div>
 
       {/* Print Header with Global Dates & Note Passed */}
       <div className="print:block">
           <PrintHeader 
-            month={publishMonth} 
+            month={customTitle || publishMonth} 
             subtitle="DUTY SCHEDULE" 
             dateRange={globalStartDate && globalEndDate ? `FROM ${formatDate(globalStartDate)} TO ${formatDate(globalEndDate)}` : undefined}
             note={scheduleNote}

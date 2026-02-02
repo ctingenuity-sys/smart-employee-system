@@ -17,6 +17,7 @@ export interface User {
   biometricRegisteredAt?: any;
   createdAt?: any;
   permissions?: string[]; // Array of allowed page IDs
+  color?: string;
 }
 
 export interface Location {

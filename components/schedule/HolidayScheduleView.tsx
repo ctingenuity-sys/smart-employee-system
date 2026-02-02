@@ -232,7 +232,7 @@ const renderHeader = (col: ScheduleColumn, index: number) => {
             <th 
                 key={col.id} 
                 scope="col" 
-                className={`group relative px-2 py-4 text-center text-xs font-extrabold text-white uppercase tracking-wider border-r border-white/20 bg-slate-700 ${printHeaderBg} print:text-white`}
+                className={`group relative px-2 py-4 text-center text-xs font-extrabold text-white uppercase tracking-wider border-r border-white/20 bg-slate-700 ${printHeaderBg} print:text-white print:py-1`}
             >
                 {isEditing ? (
                     <div className="flex flex-col gap-1">
@@ -257,10 +257,14 @@ const renderHeader = (col: ScheduleColumn, index: number) => {
                         </button>
                     </div>
                 ) : (
-                    <div className="flex flex-col items-center">
-                        <div className="whitespace-pre-wrap leading-tight">{col.title}</div>
-                        {/* عرض الوقت أسفل العنوان في حالة العرض فقط إذا وجد */}
-                        {col.time && <span className="text-[9px] opacity-80 mt-1 font-mono font-normal lowercase tracking-normal">{col.time}</span>}
+                    <div className="flex flex-col items-center justify-center leading-tight">
+                        <div className="whitespace-pre-wrap">{col.title}</div>
+                        {/* عرض الوقت أسفل العنوان بشكل مضغوط جداً في الطباعة */}
+                        {col.time && (
+                            <div className="text-[9px] opacity-90 mt-0.5 font-normal lowercase tracking-tighter border-t border-white/10 pt-0.5 w-full print:text-[10px] print:mt-0 print:pt-0 print:border-none print:font-bold print:leading-none">
+                                {col.time}
+                            </div>
+                        )}
                     </div>
                 )}
             </th>

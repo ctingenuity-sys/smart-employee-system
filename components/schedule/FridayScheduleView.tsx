@@ -208,9 +208,10 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
     }
 
     // Dynamic Header Renderer
+    // Dynamic Header Renderer
     const renderHeader = (col: ScheduleColumn, index: number) => {
         return (
-            <th key={col.id} scope="col" className={`group relative px-2 py-4 text-center text-xs font-extrabold text-white uppercase tracking-wider border-r border-white/20 bg-slate-700 ${activeHeaderBg} print:text-white`}>
+            <th key={col.id} scope="col" className={`group relative px-2 py-4 text-center text-xs font-extrabold text-white uppercase tracking-wider border-r border-white/20 bg-slate-700 ${activeHeaderBg} print:text-white print:py-1`}>
                 {isEditing ? (
                     <div className="flex flex-col gap-1">
                         <input 
@@ -234,7 +235,15 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                         </button>
                     </div>
                 ) : (
-                    <div className="whitespace-pre-wrap">{col.title}</div>
+                    /* هذا الجزء هو المسؤول عن العرض والطباعة */
+                    <div className="flex flex-col items-center justify-center">
+                        <div className="whitespace-pre-wrap leading-tight">{col.title}</div>
+                        {col.time && (
+                            <div className="text-[11px] font-normal opacity-90 mt-0.5 border-t border-white/20 pt-0.5 w-full print:text-[11px] print:font-bold print:leading-none">
+                                {col.time}
+                            </div>
+                        )}
+                    </div>
                 )}
             </th>
         );

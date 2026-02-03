@@ -17,7 +17,6 @@ export interface User {
   biometricRegisteredAt?: any;
   createdAt?: any;
   permissions?: string[]; // Array of allowed page IDs
-  color?: string;
 }
 
 export interface Location {
@@ -293,6 +292,16 @@ export interface DoctorFridayRow {
   [key: string]: any; // Allow dynamic columns
 }
 
+// --- NEW: Date Exception Type for Schedule Builder ---
+export interface DateException {
+  id: string;
+  date: string;
+  note: string; // The Occasion Name
+  columns: ModalityColumn[]; // The schedule structure for this day (Staff)
+  doctorData?: DoctorScheduleRow[]; // Added for Doctor support
+  doctorColumns?: ScheduleColumn[]; // Structure for Doctors
+}
+
 export interface HeaderMap {
     [key: string]: string;
 }
@@ -314,6 +323,9 @@ export interface SavedTemplate {
   holidayColumns?: ScheduleColumn[];
   doctorColumns?: ScheduleColumn[];
   doctorFridayColumns?: ScheduleColumn[];
+  
+  // Exceptions
+  exceptions?: DateException[];
 
   // Global fields
   globalStartDate?: string;

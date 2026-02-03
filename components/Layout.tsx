@@ -192,6 +192,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                 <i className="fas fa-calendar-alt w-6"></i>
                 <span className="font-medium">{t('nav.scheduleBuilder')}</span>
               </Link>
+              
               <Link to="/supervisor/rotation" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/rotation')}`}>
                 <i className="fas fa-sync-alt w-6"></i>
                 <span className="font-medium">{t('nav.rotation')}</span>
@@ -204,7 +205,6 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                 <i className="fas fa-robot w-6"></i>
                 <span className="font-medium">{t('nav.attendance')}</span>
               </Link>
-              {/* Added Archiver Link */}
               <Link to="/supervisor/archive" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/archive')}`}>
                 <i className="fas fa-archive w-6"></i>
                 <span className="font-medium">أرشيف البيانات</span>

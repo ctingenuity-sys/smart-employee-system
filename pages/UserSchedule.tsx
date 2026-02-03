@@ -28,6 +28,13 @@ const EID_RANGES = [
     { start: '2026-05-23', end: '2026-06-02', name: 'EID AL ADHA' }, 
 ];
 
+// Specific Single Day Holidays (Month is 0-indexed in JS Date, but lets use 1-12 strings for simplicity here)
+// Feb = 02, Sept = 09
+const NATIONAL_HOLIDAYS = [
+    { month: '02', day: '22', name: 'FOUNDING DAY', icon: 'fa-chess-rook' }, // Youm Al-Ta'sees
+    { month: '09', day: '23', name: 'NATIONAL DAY', icon: 'fa-flag' }      // National Day
+];
+
 // --- Helper Functions ---
 const convertTo24Hour = (timeStr: string): string | null => {
     if (!timeStr) return null;
@@ -138,7 +145,22 @@ const isOverlap = (startA: string, endA: string, startB: string, endB: string) =
     return (startA <= endB) && (endA >= startB);
 };
 
-// --- Islamic/Occasion Helper (Expanded for Testing) ---
+// --- Occasion Helpers ---
+
+const getNationalHoliday = (dateStr: string | undefined): { name: string, icon: string } | null => {
+    if (!dateStr) return null;
+    const date = parseDateString(dateStr);
+    if (!date) return null;
+    
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    
+    for (const h of NATIONAL_HOLIDAYS) {
+        if (h.month === m && h.day === d) return { name: h.name, icon: h.icon };
+    }
+    return null;
+};
+
 const getIslamicOccasion = (dateStr: string | undefined): 'ramadan' | 'eid' | null => {
     if (!dateStr) return null;
     const date = parseDateString(dateStr);
@@ -430,10 +452,15 @@ const UserSchedule: React.FC = () => {
         let occasionSuffix = null;
 
         if (sch.date) {
-            // Specific Date: Priority to Eid, then Ramadan
-            occasionSuffix = getEidName(sch.date);
-            if (!occasionSuffix && getIslamicOccasion(sch.date) === 'ramadan') {
-                occasionSuffix = 'RAMADAN';
+            // Specific Date Check: National > Eid > Ramadan
+            const national = getNationalHoliday(sch.date);
+            if (national) {
+                occasionSuffix = national.name;
+            } else {
+                occasionSuffix = getEidName(sch.date);
+                if (!occasionSuffix && getIslamicOccasion(sch.date) === 'ramadan') {
+                    occasionSuffix = 'RAMADAN';
+                }
             }
         } 
         else if (sch.locationId === 'Holiday Shift') {
@@ -499,11 +526,14 @@ const UserSchedule: React.FC = () => {
             }
             // If present in past, check occasion to style it nicely, else default completed
             const occasion = getIslamicOccasion(sch.date);
+            const national = getNationalHoliday(sch.date);
+            if (national) return { label: 'COMPLETED', theme: 'emerald', icon: 'fa-check-circle', grayscale: true, isNational: true };
             if (occasion === 'ramadan') return { label: 'COMPLETED', theme: 'indigo', icon: 'fa-check-circle', grayscale: true, isRamadan: true };
             return { label: 'COMPLETED', theme: 'slate', icon: 'fa-check-circle', grayscale: true };
         }
 
-        // --- OCCASION CHECK (RAMADAN / EID) ---
+        // --- OCCASION CHECK (NATIONAL / RAMADAN / EID) ---
+        const national = getNationalHoliday(sch.date);
         const occasion = getIslamicOccasion(sch.date);
         const isRamadan = occasion === 'ramadan';
         const isEid = occasion === 'eid';
@@ -511,12 +541,13 @@ const UserSchedule: React.FC = () => {
         if (isSwap) return { label: 'SWAP', theme: 'violet', icon: 'fa-exchange-alt', pulse: true, isRamadan, isEid };
         
         if (shiftDate.getTime() === today.getTime()) {
-            return { label: 'TODAY', theme: 'amber', icon: 'fa-briefcase', pulse: true, isRamadan, isEid };
+            return { label: 'TODAY', theme: 'amber', icon: 'fa-briefcase', pulse: true, isRamadan, isEid, isNational: !!national };
         }
         
-        // If it's Ramadan/Eid, return that status primarily for styling
-        if (isRamadan) return { label: 'RAMADAN', theme: 'indigo', icon: 'fa-moon', isRamadan: true };
+        // Priority: National > Eid > Ramadan
+        if (national) return { label: national.name, theme: 'emerald', icon: national.icon, isNational: true };
         if (isEid) return { label: 'EID MUBARAK', theme: 'teal', icon: 'fa-star', isEid: true };
+        if (isRamadan) return { label: 'RAMADAN', theme: 'indigo', icon: 'fa-moon', isRamadan: true };
 
         if (sch.locationId.includes('Friday')) return { label: 'FRIDAY', theme: 'emerald', icon: 'fa-mosque' };
         if (sch.locationId.includes('Holiday')) return { label: 'HOLIDAY', theme: 'rose', icon: 'fa-gift' };
@@ -524,15 +555,18 @@ const UserSchedule: React.FC = () => {
         return { label: 'UPCOMING', theme: 'sky', icon: 'fa-calendar-day' };
     };
 
-    const getGradient = (theme: string, isGrayscale: boolean, isRamadan?: boolean, isEid?: boolean, isAbsent?: boolean) => {
+    const getGradient = (theme: string, isGrayscale: boolean, isRamadan?: boolean, isEid?: boolean, isNational?: boolean, isAbsent?: boolean) => {
         if (isAbsent) return 'bg-gradient-to-br from-red-50 to-red-100 border-red-300 text-red-800';
         if (isGrayscale) return 'bg-gradient-to-r from-slate-200 to-slate-300 text-slate-500 border-slate-300';
         
-        // RAMADAN THEME: Deep Blue/Gold - PRIORITIZED
+        // NATIONAL THEME: Green/Gold
+        if (isNational) return 'bg-gradient-to-br from-emerald-700 via-green-800 to-teal-900 text-white border-amber-400';
+
+        // RAMADAN THEME: Deep Blue/Gold
         if (isRamadan) return 'bg-gradient-to-br from-indigo-900 via-slate-800 to-indigo-900 text-amber-100 border-amber-500/50';
         
-        // EID THEME: Vibrant - PRIORITIZED
-if (isEid) return 'bg-gradient-to-br from-pink-500 via-rose-400 to-fuchsia-600 text-white border-pink-200';
+        // EID THEME: Vibrant
+if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-white border-pink-300';
 
         const themes: Record<string, string> = {
             purple: 'bg-gradient-to-br from-purple-700 via-purple-600 to-indigo-700 text-white border-purple-500',
@@ -596,7 +630,7 @@ if (isEid) return 'bg-gradient-to-br from-pink-500 via-rose-400 to-fuchsia-600 t
                 <div className="grid grid-cols-1 gap-8">
                   {schedules.map((sch) => {
                     const status = getTicketStatus(sch);
-                    const gradientClass = getGradient(status.theme || 'blue', status.grayscale || false, status.isRamadan, status.isEid, status.isAbsent);
+                    const gradientClass = getGradient(status.theme || 'blue', status.grayscale || false, status.isRamadan, status.isEid, status.isNational, status.isAbsent);
                     
                     let detailedDesc = sch.note && SHIFT_DESCRIPTIONS[sch.note] ? SHIFT_DESCRIPTIONS[sch.note] : '';
                     let customNote = '';
@@ -633,6 +667,17 @@ if (isEid) return 'bg-gradient-to-br from-pink-500 via-rose-400 to-fuchsia-600 t
                             <div className={`flex-1 relative overflow-hidden ${gradientClass} p-0 flex flex-col`}>
                                 
                                 {/* Decorations */}
+                                {status.isNational && (
+                                    <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+                                        <div className="absolute top-[-50%] right-[-10%] w-[80%] h-[150%] bg-white/5 skew-x-12"></div>
+                                        <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/20 to-transparent"></div>
+                                        <div className="absolute inset-0 flex items-center justify-center opacity-10">
+                                            {/* Palm Tree Icon or Similar for Saudi Identity */}
+                                            <i className="fas fa-chess-rook text-[15rem] text-white transform rotate-12"></i>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {status.isRamadan && (
                                     <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
                                          {/* The Hanging Rope (Zina) */}
@@ -756,7 +801,7 @@ if (isEid) return 'bg-gradient-to-br from-pink-500 via-rose-400 to-fuchsia-600 t
                                                 <div key={i} className={`flex items-center gap-4 bg-black/20 backdrop-blur-sm rounded-xl p-3 border border-white/10 hover:bg-black/30 transition-colors group/shift ${status.isRamadan ? 'border-amber-500/30' : ''}`}>
                                                     <div className="flex flex-col min-w-[60px]">
                                                         <span className="text-[9px] uppercase font-bold opacity-50 tracking-wider">Start</span>
-                                                        <span className={`text-xl font-mono font-bold tracking-tight group-hover/shift:text-emerald-300 transition-colors ${status.isRamadan ? 'text-amber-200' : 'text-white'}`}>{formatTime12(s.start)}</span>
+                                                        <span className={`text-xl font-mono font-bold tracking-tight group-hover/shift:text-emerald-300 transition-colors ${status.isRamadan ? 'text-amber-200' : status.isNational ? 'text-amber-100' : 'text-white'}`}>{formatTime12(s.start)}</span>
                                                     </div>
                                                     
                                                     {/* Visual Flight Path */}
@@ -767,7 +812,7 @@ if (isEid) return 'bg-gradient-to-br from-pink-500 via-rose-400 to-fuchsia-600 t
 
                                                     <div className="flex flex-col text-right min-w-[60px]">
                                                         <span className="text-[9px] uppercase font-bold opacity-50 tracking-wider">End</span>
-                                                        <span className={`text-xl font-mono font-bold tracking-tight group-hover/shift:text-emerald-300 transition-colors ${status.isRamadan ? 'text-amber-200' : 'text-white'}`}>{formatTime12(s.end)}</span>
+                                                        <span className={`text-xl font-mono font-bold tracking-tight group-hover/shift:text-emerald-300 transition-colors ${status.isRamadan ? 'text-amber-200' : status.isNational ? 'text-amber-100' : 'text-white'}`}>{formatTime12(s.end)}</span>
                                                     </div>
                                                 </div>
                                             ))}

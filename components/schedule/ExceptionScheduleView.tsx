@@ -49,6 +49,7 @@ const ExceptionScheduleView: React.FC<ExceptionScheduleViewProps> = ({
                 { id: '1', title: 'MRI', defaultTime: '08:00 - 20:00', colorClass: 'bg-blue-100', staff: [] },
                 { id: '2', title: 'CT Scan', defaultTime: '24 Hours', colorClass: 'bg-green-100', staff: [] }
             ],
+            commonDuties: [{ section: 'Night Shift', time: '23:00 - 08:00', staff: [] }], // Init with default common duty
             doctorData: [{
                 id: `doc_ex_${Date.now()}`,
                 dateRange: 'Single Day',
@@ -86,11 +87,13 @@ const ExceptionScheduleView: React.FC<ExceptionScheduleViewProps> = ({
             if (tpl.generalData) {
                 newException.columns = JSON.parse(JSON.stringify(tpl.generalData));
             }
+            if (tpl.commonDuties) {
+                newException.commonDuties = JSON.parse(JSON.stringify(tpl.commonDuties));
+            }
         } else {
              // Import Doctor Data if available
              if (tpl.doctorData && tpl.doctorData.length > 0) {
                  // We need to map the first row of template doctor data to this exception
-                 // But typically templates have multiple rows for weeks. We take the first one as structure.
                  if(tpl.doctorColumns) newException.doctorColumns = JSON.parse(JSON.stringify(tpl.doctorColumns));
                  
                  // Reset data to single row with new columns structure
@@ -198,7 +201,7 @@ const ExceptionScheduleView: React.FC<ExceptionScheduleViewProps> = ({
                     {activeSubTab === 'staff' ? (
                         <GeneralScheduleView 
                             data={activeException.columns}
-                            commonDuties={[]} // No common duties section for exceptions to keep it simple
+                            commonDuties={activeException.commonDuties || []}
                             isEditing={isEditing}
                             publishMonth="" 
                             globalStartDate=""
@@ -232,7 +235,21 @@ const ExceptionScheduleView: React.FC<ExceptionScheduleViewProps> = ({
                                 newCols.splice(to, 0, moved);
                                 updateActiveException({...activeException, columns: newCols});
                             }}
-                            onUpdateDuty={()=>{}} onAddDuty={()=>{}} onRemoveDuty={()=>{}}
+                            // --- COMMON DUTIES HANDLERS ---
+                            onUpdateDuty={(idx, newDuty) => {
+                                const newDuties = [...(activeException.commonDuties || [])];
+                                newDuties[idx] = newDuty;
+                                updateActiveException({...activeException, commonDuties: newDuties});
+                            }}
+                            onAddDuty={() => {
+                                const newDuties = [...(activeException.commonDuties || [])];
+                                newDuties.push({ section: 'New Duty', time: '', staff: [] });
+                                updateActiveException({...activeException, commonDuties: newDuties});
+                            }}
+                            onRemoveDuty={(idx) => {
+                                const newDuties = (activeException.commonDuties || []).filter((_, i) => i !== idx);
+                                updateActiveException({...activeException, commonDuties: newDuties});
+                            }}
                             locations={locations} allUsers={allUsers} searchTerm=""
                         />
                     ) : (
@@ -277,7 +294,7 @@ const ExceptionScheduleView: React.FC<ExceptionScheduleViewProps> = ({
             {/* Import Modal */}
             <Modal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} title="Import Pattern to Exception">
                 <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-                    <p className="text-xs text-slate-500 mb-2">Select a template to overwrite the current {activeSubTab === 'staff' ? 'Staff' : 'Doctor'} schedule for this exception day.</p>
+                    <p className="text-xs text-slate-500 mb-2">Select a template to overwrite the current {activeSubTab === 'staff' ? 'Staff' : 'Doctor'} schedule for this exception day. <span className="font-bold text-amber-600">Includes Common Duties.</span></p>
                     {savedTemplates.map(tpl => (
                         <button
                             key={tpl.id}

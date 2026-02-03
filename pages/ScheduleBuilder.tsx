@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 // @ts-ignore
@@ -180,11 +179,11 @@ const ScheduleBuilder: React.FC = () => {
             setLoading(true);
             try {
                 const uSnap = await getDocs(collection(db, "users"));
-                setAllUsers(uSnap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
+                setAllUsers(uSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) } as User)));
                 const lSnap = await getDocs(collection(db, "locations"));
-                setAllLocations(lSnap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
+                setAllLocations(lSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) } as Location)));
                 const tSnap = await getDocs(collection(db, "schedule_templates"));
-                setSavedTemplates(tSnap.docs.map(d => ({ id: d.id, ...d.data() } as SavedTemplate)));
+                setSavedTemplates(tSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) } as SavedTemplate)));
             } catch (error: any) {
                 setToast({ msg: 'Error loading data: ' + error.message, type: 'error' });
             } finally {
@@ -383,7 +382,7 @@ const ScheduleBuilder: React.FC = () => {
                     const q = query(collection(db, 'schedules'), where('month', '==', publishMonth));
                     const snapshot = await getDocs(q);
                     const swapDocs = snapshot.docs.filter(doc => {
-                        const loc = doc.data().locationId;
+                        const loc = (doc.data() as any).locationId;
                         return loc && typeof loc === 'string' && loc.startsWith('Swap');
                     });
                     const batchSize = 500;
@@ -555,6 +554,14 @@ const ScheduleBuilder: React.FC = () => {
                         await saveStaff(col.staff, col.title, col.title, col.defaultTime, ex.date);
                     }
                 }
+                
+                // Common Duties Exceptions (New Feature)
+                if (ex.commonDuties) {
+                    for (const duty of ex.commonDuties) {
+                        await saveStaff(duty.staff, 'common_duty', duty.section, duty.time, ex.date);
+                    }
+                }
+
                 // Doctor Exceptions (New)
                 if (ex.doctorData && ex.doctorData.length > 0) {
                      // Using the first row of doctorData as the source for this day

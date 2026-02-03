@@ -298,6 +298,7 @@ export interface DateException {
   date: string;
   note: string; // The Occasion Name
   columns: ModalityColumn[]; // The schedule structure for this day (Staff)
+  commonDuties?: CommonDuty[]; // Added Common Duties for Exception
   doctorData?: DoctorScheduleRow[]; // Added for Doctor support
   doctorColumns?: ScheduleColumn[]; // Structure for Doctors
 }

@@ -413,7 +413,12 @@ const AttendancePage: React.FC = () => {
             
             const specific = schedules.find(s => s.date === dateStr);
             if (specific) {
-                resultShifts = specific.shifts || parseMultiShifts(specific.note || "");
+                // CRITICAL FIX: Robustly check for shifts array or parse from note
+                if (specific.shifts && specific.shifts.length > 0) {
+                    resultShifts = specific.shifts;
+                } else {
+                    resultShifts = parseMultiShifts(specific.note || "");
+                }
             } else {
                 schedules.forEach(sch => {
                     if (sch.date) return;

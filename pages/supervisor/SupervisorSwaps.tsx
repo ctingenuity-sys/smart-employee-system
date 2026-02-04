@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch, getDocs, Timestamp, getDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch, getDocs, Timestamp, getDoc, addDoc } from 'firebase/firestore';
 import { SwapRequest, Schedule, User } from '../../types';
 import Toast from '../../components/Toast';
 import Modal from '../../components/Modal';
@@ -24,6 +24,12 @@ const SupervisorSwaps: React.FC = () => {
     const [selectedReq, setSelectedReq] = useState<SwapRequest | null>(null);
     const [isOptionModalOpen, setIsOptionModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
+
+    // Exception Modal State
+    const [isExceptionModalOpen, setIsExceptionModalOpen] = useState(false);
+    const [exceptionDate, setExceptionDate] = useState('');
+    const [exceptionTargetUser, setExceptionTargetUser] = useState('');
+    const [currentMonthReq, setCurrentMonthReq] = useState<SwapRequest | null>(null);
 
     useEffect(() => {
         const unsubUsers = onSnapshot(collection(db, 'users'), snap => {
@@ -140,7 +146,7 @@ const SupervisorSwaps: React.FC = () => {
                       batch.update(d.ref, {
                           userId: req.to,
                           staffName: nameB,
-                          note: `Month Swap: Was ${nameA}`,
+                          note: (sch.note || '') + ` - Month Swap: Was ${nameA}`,
                           updatedAt: Timestamp.now()
                       });
                       count++;
@@ -154,7 +160,7 @@ const SupervisorSwaps: React.FC = () => {
                       batch.update(d.ref, {
                           userId: req.from,
                           staffName: nameA,
-                          note: `Month Swap: Was ${nameB}`,
+                          note: (sch.note || '') + ` - Month Swap: Was ${nameB}`,
                           updatedAt: Timestamp.now()
                       });
                       count++;
@@ -234,75 +240,189 @@ const SupervisorSwaps: React.FC = () => {
 
     // --- REVERT FUNCTIONALITY ---
     const handleRevertSwap = async (req: SwapRequest) => {
-        if (!confirm('هل أنت متأكد من إلغاء هذا التبديل وإعادة الجداول لأصحابها؟')) return;
+        if (!confirm('هل أنت متأكد من إلغاء هذا التبديل وإعادة الجداول لأصحابها تماماً؟')) return;
         
         try {
             const batch = writeBatch(db);
-            const nameA = getUserName(req.from); // Original Owner A
-            const nameB = getUserName(req.to);   // Original Owner B
-            const targetMonth = req.startDate ? req.startDate.slice(0, 7) : '';
-            const excludeFridays = (req as any).swapOption === 'exclude_fridays';
+            
+            // Helper to clean notes from swap text
+            const cleanNote = (note: string) => {
+                return note.replace(/ ?-? ?Month Swap: Was.+/gi, '').trim();
+            };
 
-            // IMPORTANT: "Reverting" means moving items CURRENTLY held by B (but marked as 'Was A') back to A.
-            // And items CURRENTLY held by A (marked 'Was B') back to B.
+            if (req.type === 'month') {
+                const nameA = getUserName(req.from); // Original Owner A
+                const nameB = getUserName(req.to);   // Original Owner B
+                const targetMonth = req.startDate ? req.startDate.slice(0, 7) : '';
 
-            // 1. Find tickets currently with User A (that were B's)
-            const qA_holding_B = query(
-                collection(db, 'schedules'), 
-                where('userId', '==', req.from), 
-                where('month', '==', targetMonth)
-            );
-            // 2. Find tickets currently with User B (that were A's)
-            const qB_holding_A = query(
-                collection(db, 'schedules'), 
-                where('userId', '==', req.to), 
-                where('month', '==', targetMonth)
-            );
+                // 1. Find tickets currently with User A (that were originally B's)
+                const qA_holding_B = query(
+                    collection(db, 'schedules'), 
+                    where('userId', '==', req.from), 
+                    where('month', '==', targetMonth)
+                );
+                // 2. Find tickets currently with User B (that were originally A's)
+                const qB_holding_A = query(
+                    collection(db, 'schedules'), 
+                    where('userId', '==', req.to), 
+                    where('month', '==', targetMonth)
+                );
 
-            const snapA = await getDocs(qA_holding_B);
-            const snapB = await getDocs(qB_holding_A);
+                const snapA = await getDocs(qA_holding_B);
+                const snapB = await getDocs(qB_holding_A);
 
-            let revertedCount = 0;
-
-            // Move B's original tickets back to B (currently held by A)
-            snapA.docs.forEach(d => {
-                const data = d.data() as Schedule;
-                // Only revert if it looks like a swapped ticket OR simply revert everything if it's a full swap
-                // Safer check: look for note or simply reverse the swap logic
-                if (excludeFridays && isFridayShift(data)) return;
-
-                batch.update(d.ref, {
-                    userId: req.to,
-                    staffName: nameB,
-                    note: `Reverted: Was ${nameA}`, // Clear or update note
-                    updatedAt: Timestamp.now()
+                // Revert B's tickets (currently at A) back to B
+                snapA.docs.forEach(d => {
+                    const data = d.data() as Schedule;
+                    // Check if this ticket was part of a swap
+                    if ((data.note || '').includes('Month Swap: Was')) {
+                        batch.update(d.ref, {
+                            userId: req.to, // Give back to B
+                            staffName: nameB,
+                            note: cleanNote(data.note || ''), // Remove swap text
+                            updatedAt: Timestamp.now()
+                        });
+                    }
                 });
-                revertedCount++;
-            });
 
-            // Move A's original tickets back to A (currently held by B)
-            snapB.docs.forEach(d => {
-                const data = d.data() as Schedule;
-                if (excludeFridays && isFridayShift(data)) return;
-
-                batch.update(d.ref, {
-                    userId: req.from,
-                    staffName: nameA,
-                    note: `Reverted: Was ${nameB}`,
-                    updatedAt: Timestamp.now()
+                // Revert A's tickets (currently at B) back to A
+                snapB.docs.forEach(d => {
+                    const data = d.data() as Schedule;
+                    if ((data.note || '').includes('Month Swap: Was')) {
+                        batch.update(d.ref, {
+                            userId: req.from, // Give back to A
+                            staffName: nameA,
+                            note: cleanNote(data.note || ''), // Remove swap text
+                            updatedAt: Timestamp.now()
+                        });
+                    }
                 });
-                revertedCount++;
-            });
 
-            // Mark request as reverted or deleted
-            batch.update(doc(db, 'swapRequests', req.id), { status: 'reverted' });
+            } else {
+                // --- DAY SWAP REVERT ---
+                // Find and DELETE the specific schedule docs created for this day
+                const qDaySwaps = query(
+                    collection(db, 'schedules'),
+                    where('date', '==', req.startDate),
+                    where('note', '>=', 'Swap Approved'),
+                    where('note', '<=', 'Swap Approved\uf8ff')
+                );
+                
+                const snapDay = await getDocs(qDaySwaps);
+                snapDay.docs.forEach(d => {
+                    // Only delete docs belonging to these two users
+                    const data = d.data();
+                    if (data.userId === req.from || data.userId === req.to) {
+                        batch.delete(d.ref);
+                    }
+                });
+            }
+
+            // Change status to 'rejected' so it disappears from "Active History" 
+            batch.update(doc(db, 'swapRequests', req.id), { status: 'rejected' });
 
             await batch.commit();
-            setToast({ msg: `Swap Reverted Successfully (${revertedCount} shifts restored).`, type: 'success' });
+            setToast({ msg: `تم إلغاء التبديل وإعادة الجداول لحالتها الأصلية.`, type: 'success' });
 
         } catch (e: any) {
             console.error(e);
             setToast({ msg: 'Revert Error: ' + e.message, type: 'error' });
+        }
+    };
+
+    // --- EXCEPTION DAY HANDLER (Swap Back Specific Day) ---
+    const handleOpenException = (req: SwapRequest) => {
+        setCurrentMonthReq(req);
+        // Default to reversing the swap: If User A holds the month, target is User B (original owner)
+        // Since 'req.to' is holding 'req.from' shifts usually (or vice versa), let's default to the *original requester* (req.from)
+        // Actually, we should check who holds the month now.
+        // req.from sent to req.to. So req.to holds req.from's shift.
+        // If we want to swap back, we take from req.to and give to req.from.
+        setExceptionTargetUser(req.from); 
+        setExceptionDate(req.startDate || '');
+        setIsExceptionModalOpen(true);
+    };
+
+    const confirmExceptionSwap = async () => {
+        if (!currentMonthReq || !exceptionDate || !exceptionTargetUser) return;
+        
+        try {
+            // Who currently "owns" the shift for this month?
+            // In a Month Swap (A -> B), B holds A's shift.
+            // We want to move this specific day from [Current Holder] to [Target User].
+            
+            // Note: Since Month Swap physically moved the shift to B, B is the current owner in DB.
+            // We just need to perform a "Day Swap" logic where:
+            // FROM: The person currently working (likely req.to or req.from depending on perspective)
+            // TO: The person we selected (exceptionTargetUser)
+            
+            // To be safe, we query the schedule for this date/month to find the *actual* shift object
+            // regardless of who holds it, then re-assign it for this specific day.
+            
+            const monthStr = exceptionDate.slice(0, 7);
+            const targetName = getUserName(exceptionTargetUser);
+
+            // 1. Find ANY schedule for the original participants on this date/month
+            // We search for schedules belonging to either A or B for this month.
+            const qSch = query(
+                collection(db, 'schedules'),
+                where('month', '==', monthStr),
+                where('userId', 'in', [currentMonthReq.from, currentMonthReq.to])
+            );
+            
+            const snap = await getDocs(qSch);
+            const schedules = snap.docs.map(d => d.data() as Schedule);
+            
+            // We need to find the shift that is ACTIVE on this day.
+            // Since it's a month swap, the 'userId' field in DB reflects the current worker.
+            // We want to find the shift currently assigned to the OTHER person, and give it to 'exceptionTargetUser'.
+            
+            // Identify the "Current Holder" who needs to give up the shift
+            // It is the person who is NOT the 'exceptionTargetUser'
+            const currentHolderId = (currentMonthReq.from === exceptionTargetUser) ? currentMonthReq.to : currentMonthReq.from;
+            const currentHolderName = getUserName(currentHolderId);
+
+            // Resolve shift for the Current Holder
+            const shiftToSwap = resolveShiftForUserDate(currentHolderId, exceptionDate, schedules);
+            
+            if (!shiftToSwap) {
+                setToast({ msg: 'No shift found for the current holder on this date.', type: 'error' });
+                return;
+            }
+
+            // Create Exception (Day Override)
+            await addDoc(collection(db, 'schedules'), {
+                userId: exceptionTargetUser,
+                staffName: targetName,
+                date: exceptionDate,
+                month: monthStr,
+                locationId: `Swap Duty - ${shiftToSwap.locationId}`,
+                shifts: shiftToSwap.shifts || [],
+                note: `Day Exception (Month Swap Override) - Was ${currentHolderName}`,
+                userType: 'user',
+                createdAt: Timestamp.now()
+            });
+
+            // We also need to make sure the Current Holder doesn't show up.
+            // We create an "Off" or "Swap Duty - Off" ticket for them for this day.
+            await addDoc(collection(db, 'schedules'), {
+                userId: currentHolderId,
+                staffName: currentHolderName,
+                date: exceptionDate,
+                month: monthStr,
+                locationId: 'Swap Duty - Off', // Marker for OFF
+                shifts: [],
+                note: `Day Exception - Covered by ${targetName}`,
+                userType: 'user',
+                createdAt: Timestamp.now()
+            });
+
+            setToast({ msg: 'تم استثناء اليوم وتبديله بنجاح!', type: 'success' });
+            setIsExceptionModalOpen(false);
+
+        } catch (e: any) {
+            console.error(e);
+            setToast({ msg: 'Error: ' + e.message, type: 'error' });
         }
     };
 
@@ -375,12 +495,21 @@ const SupervisorSwaps: React.FC = () => {
                                         </button>
                                     </>
                                 ) : (
-                                    // REVERT BUTTON FOR HISTORY
-                                    req.type === 'month' && (
+                                    // HISTORY ACTIONS: REVERT & EXCEPTION
+                                    <div className="flex gap-2">
+                                        {req.type === 'month' && (
+                                            <button 
+                                                onClick={() => handleOpenException(req)}
+                                                className="bg-amber-50 text-amber-700 px-4 py-2 rounded-xl font-bold hover:bg-amber-100 border border-amber-200 transition-all text-xs flex items-center gap-2"
+                                                title="تبديل يوم محدد داخل الشهر"
+                                            >
+                                                <i className="fas fa-calendar-day"></i> استثناء يوم
+                                            </button>
+                                        )}
                                         <button onClick={() => handleRevertSwap(req)} className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl font-bold hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all text-xs flex items-center gap-2 shadow-sm">
-                                            <i className="fas fa-undo"></i> Revert Swap
+                                            <i className="fas fa-undo"></i> إلغاء التبديل
                                         </button>
-                                    )
+                                    </div>
                                 )}
                             </div>
                         </div>
@@ -416,6 +545,59 @@ const SupervisorSwaps: React.FC = () => {
                         className="text-slate-400 text-sm mt-2 hover:text-slate-600"
                     >
                         إلغاء
+                    </button>
+                </div>
+            </Modal>
+
+            {/* Exception Day Modal */}
+            <Modal isOpen={isExceptionModalOpen} onClose={() => setIsExceptionModalOpen(false)} title="استثناء يوم (تبديل جزئي)">
+                <div className="space-y-4">
+                    <div className="bg-amber-50 p-3 rounded-xl text-amber-800 text-xs font-bold border border-amber-200">
+                        <i className="fas fa-info-circle mr-1"></i> سيتم إنشاء "تبديل يومي" للتاريخ المحدد، مما يغطي على التبديل الشهري لهذا اليوم فقط.
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">اختر التاريخ</label>
+                        <input 
+                            type="date" 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold"
+                            value={exceptionDate}
+                            onChange={e => setExceptionDate(e.target.value)}
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">الموظف البديل لهذا اليوم</label>
+                        <select 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold"
+                            value={exceptionTargetUser}
+                            onChange={e => setExceptionTargetUser(e.target.value)}
+                        >
+                            <option value="">اختر موظف...</option>
+                            {/* Option 1: The original requester (Swap Back) */}
+                            {currentMonthReq && (
+                                <>
+                                    <option value={currentMonthReq.from}>
+                                        {getUserName(currentMonthReq.from)} (إرجاع للأصل)
+                                    </option>
+                                    <option value={currentMonthReq.to}>
+                                        {getUserName(currentMonthReq.to)} (تثبيت للبديل)
+                                    </option>
+                                </>
+                            )}
+                            <option disabled>-----------</option>
+                            {/* Option 2: Anyone else */}
+                            {users.map(u => (
+                                <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <button 
+                        onClick={confirmExceptionSwap}
+                        className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-black transition-all"
+                    >
+                        تأكيد التبديل الجزئي
                     </button>
                 </div>
             </Modal>

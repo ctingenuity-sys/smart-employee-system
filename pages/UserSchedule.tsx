@@ -1,5 +1,4 @@
 
-// ... existing imports
 import React, { useState, useEffect, useCallback } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
@@ -29,12 +28,14 @@ const EID_RANGES = [
     { start: '2026-05-23', end: '2026-06-02', name: 'EID AL ADHA' }, 
 ];
 
+// Specific Single Day Holidays (Month is 0-indexed in JS Date, but lets use 1-12 strings for simplicity here)
+// Feb = 02, Sept = 09
 const NATIONAL_HOLIDAYS = [
-    { month: '02', day: '22', name: 'FOUNDING DAY', icon: 'fa-chess-rook' }, 
-    { month: '09', day: '23', name: 'NATIONAL DAY', icon: 'fa-flag' }      
+    { month: '02', day: '22', name: 'FOUNDING DAY', icon: 'fa-chess-rook' }, // Youm Al-Ta'sees
+    { month: '09', day: '23', name: 'NATIONAL DAY', icon: 'fa-flag' }      // National Day
 ];
 
-// Helper functions 
+// --- Helper Functions ---
 const convertTo24Hour = (timeStr: string): string | null => {
     if (!timeStr) return null;
     let s = timeStr.toLowerCase().trim();
@@ -99,15 +100,14 @@ const formatDateSimple = (dateStr: string) => {
 const isDateInMonth = (dateStr: string, targetMonth: string) => {
     if (!dateStr) return false;
     if (dateStr.startsWith(targetMonth)) return true;
-    // Fallback for different formats
     const parts = dateStr.split(/[-/]/);
     if (parts.length === 3) {
-        if (parts[2].length === 4) { // DD-MM-YYYY
+        if (parts[2].length === 4) {
             const y = parts[2];
             const m = parts[1].padStart(2, '0');
             return `${y}-${m}` === targetMonth;
         }
-        if (parts[0].length === 4) { // YYYY-MM-DD
+        if (parts[0].length === 4) {
             const y = parts[0];
             const m = parts[1].padStart(2, '0');
             return `${y}-${m}` === targetMonth;
@@ -116,16 +116,21 @@ const isDateInMonth = (dateStr: string, targetMonth: string) => {
     return false;
 }
 
+// Robust Date Parser
 const parseDateString = (dateStr: string): Date | null => {
     if (!dateStr) return null;
     let d = new Date(dateStr);
-    if (!isNaN(d.getTime())) return d;
+    if (!isNaN(d.getTime())) return d; // ISO Standard OK
+
+    // Try parsing DD/MM/YYYY
     const parts = dateStr.split(/[-/]/);
     if (parts.length === 3) {
+        // Assume YYYY first
         if (parts[0].length === 4) {
              d = new Date(`${parts[0]}-${parts[1]}-${parts[2]}`);
              if (!isNaN(d.getTime())) return d;
         }
+        // Assume Year last
         if (parts[2].length === 4) {
              d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
              if (!isNaN(d.getTime())) return d;
@@ -134,16 +139,22 @@ const parseDateString = (dateStr: string): Date | null => {
     return null;
 }
 
+// --- Check Overlap Function ---
+// Returns true if Range A overlaps with Range B
 const isOverlap = (startA: string, endA: string, startB: string, endB: string) => {
     return (startA <= endB) && (endA >= startB);
 };
+
+// --- Occasion Helpers ---
 
 const getNationalHoliday = (dateStr: string | undefined): { name: string, icon: string } | null => {
     if (!dateStr) return null;
     const date = parseDateString(dateStr);
     if (!date) return null;
+    
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
+    
     for (const h of NATIONAL_HOLIDAYS) {
         if (h.month === m && h.day === d) return { name: h.name, icon: h.icon };
     }
@@ -154,60 +165,75 @@ const getIslamicOccasion = (dateStr: string | undefined): 'ramadan' | 'eid' | nu
     if (!dateStr) return null;
     const date = parseDateString(dateStr);
     if (!date) return null;
+    
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
     const isoDate = `${y}-${m}-${d}`;
+
+    // Check Ramadan
     for (const range of RAMADAN_RANGES) {
         if (isoDate >= range.start && isoDate <= range.end) return 'ramadan';
     }
+    // Check Eid
     for (const range of EID_RANGES) {
         if (isoDate >= range.start && isoDate <= range.end) return 'eid';
     }
     return null;
 };
 
+// --- NEW HELPER: Check ONLY for Ramadan overlap (ignoring Eid) ---
 const checkRamadanOverlap = (validFrom: string | undefined, validTo: string | undefined, monthStr?: string): boolean => {
     let start = validFrom;
     let end = validTo;
+
+    // Fallback to month boundaries
     if (!start && monthStr) {
         start = `${monthStr}-01`;
         end = `${monthStr}-28`;
     }
+
     const safeStart = start || '0000-00-00';
     const safeEnd = end || '9999-99-99';
+
     for (const range of RAMADAN_RANGES) {
         if (isOverlap(safeStart, safeEnd, range.start, range.end)) return true;
     }
     return false;
 };
 
+// Check for Eid overlap (for styling mainly)
 const checkEidOverlap = (validFrom: string | undefined, validTo: string | undefined, monthStr?: string): boolean => {
     let start = validFrom;
     let end = validTo;
     if (!start && monthStr) { start = `${monthStr}-01`; end = `${monthStr}-28`; }
     const safeStart = start || '0000-00-00';
     const safeEnd = end || '9999-99-99';
+
     for (const range of EID_RANGES) {
         if (isOverlap(safeStart, safeEnd, range.start, range.end)) return true;
     }
     return false;
 };
 
+// Helper to get exact Eid Name for a specific date
 const getEidName = (dateStr: string | undefined): string | null => {
     if (!dateStr) return null;
     const date = parseDateString(dateStr);
     if (!date) return null;
+    
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
     const isoDate = `${y}-${m}-${d}`;
+
     for (const range of EID_RANGES) {
         if (isoDate >= range.start && isoDate <= range.end) return range.name;
     }
     return null;
 }
 
+// Helper to get exact Eid Name for a RANGE
 const getEidNameForRange = (validFrom: string | undefined, validTo: string | undefined): string | null => {
     if (!validFrom) return null;
     const end = validTo || '2030-12-31';
@@ -217,11 +243,13 @@ const getEidNameForRange = (validFrom: string | undefined, validTo: string | und
     return null;
 }
 
+
 const SHIFT_DESCRIPTIONS: Record<string, string> = {
     'Straight Morning': '9am-5pm\nXRAYS + USG',
     'Straight Evening': '5pm-1am\nXRAYS + USG',
 };
 
+// --- Personal Notepad Component ---
 const PersonalNotepad: React.FC = () => {
     const [note, setNote] = useState('');
     useEffect(() => {
@@ -250,6 +278,7 @@ const PersonalNotepad: React.FC = () => {
     );
 };
 
+// --- Visual CSS Barcode Component ---
 const Barcode: React.FC = () => (
     <div className="flex justify-center items-center h-12 w-full overflow-hidden opacity-40 mix-blend-multiply gap-[3px]">
         {[...Array(25)].map((_, i) => (
@@ -267,16 +296,21 @@ const UserSchedule: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
     const [isNoteOpen, setIsNoteOpen] = useState(false);
+    
+    // Store punched dates to detect absence
     const [punchedDates, setPunchedDates] = useState<Set<string>>(new Set());
 
     useEffect(() => {
         setLoading(true);
+        // Locations
         const unsubLocs = onSnapshot(collection(db, 'locations'), (snap) => {
             setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
         });
 
         if (currentUserId) {
+            // 1. Fetch Attendance Logs for the selected month to check for absence
             const [y, m] = selectedMonth.split('-');
+            // Fetch slight range around selected month to be safe
             const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId));
             const unsubLogs = onSnapshot(qLogs, (snap) => {
                 const dates = new Set<string>();
@@ -287,12 +321,11 @@ const UserSchedule: React.FC = () => {
                 setPunchedDates(dates);
             });
 
-            // Start date of selected month
+            // 2. Schedules - Fetch Wider Range
             const d = new Date(parseInt(y), parseInt(m) - 1, 1);
             
-            // --- UPDATED FETCH LOGIC: Broader lookback (-3 to +2 months) ---
             const monthsToFetch = [];
-            for (let i = -3; i <= 2; i++) {
+            for (let i = -2; i <= 2; i++) {
                 const temp = new Date(d);
                 temp.setMonth(d.getMonth() + i);
                 monthsToFetch.push(temp.toISOString().slice(0, 7));
@@ -306,34 +339,21 @@ const UserSchedule: React.FC = () => {
             const unsubSch = onSnapshot(qSch, snap => {
                 const fetchedData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule));
                 
-                // Calculate precise start/end for the selected month to handle overlaps correctly
-                const [selY, selM] = selectedMonth.split('-').map(Number);
-                const lastDay = new Date(selY, selM, 0).getDate(); // Gets last day of specific month
-                const monthStart = `${selectedMonth}-01`;
-                const monthEnd = `${selectedMonth}-${lastDay}`;
-                
-                // Enhanced Filtering
+                // Filter
                 const data = fetchedData.filter(sch => {
-                    // 1. Direct Month Match (Legacy)
                     if (sch.month === selectedMonth) return true;
-                    
-                    // 2. Specific Date Match
                     if (sch.date) return isDateInMonth(sch.date, selectedMonth);
-                    
-                    // 3. Range Overlap Match (The Core Fix)
                     if (sch.validFrom) {
+                        const monthStart = `${selectedMonth}-01`;
+                        const monthEnd = `${selectedMonth}-31`; 
                         const vFrom = sch.validFrom;
                         const vTo = sch.validTo || '9999-99-99';
-                        
-                        // Overlap Logic: (StartA <= EndB) and (EndA >= StartB)
-                        // Schedule Range: [vFrom, vTo]
-                        // Month Range: [monthStart, monthEnd]
                         return vFrom <= monthEnd && vTo >= monthStart;
                     }
                     return false;
                 });
 
-                // Fetch Actions (Leaves/Absence)
+                // Fetch Actions
                 const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
                 const unsubActions = onSnapshot(qActions, actionSnap => {
                     const fetchedActions = actionSnap.docs
@@ -341,8 +361,7 @@ const UserSchedule: React.FC = () => {
                         .filter(a => {
                             const start = a.fromDate;
                             const end = a.toDate;
-                            // Overlap check for actions
-                            return (start <= monthEnd && end >= monthStart);
+                            return (start && start <= `${selectedMonth}-31` && end >= `${selectedMonth}-01`);
                         });
                     
                     const actionSchedules: Schedule[] = [];
@@ -370,16 +389,12 @@ const UserSchedule: React.FC = () => {
 
                     const actionDates = new Set(actionSchedules.map(s => s.date));
                     const filteredRegularSchedules = data.filter(s => !s.date || !actionDates.has(s.date));
-                    const combined = [...filteredRegularSchedules, ...actionSchedules];
                     
+                    const combined = [...filteredRegularSchedules, ...actionSchedules];
                     combined.sort((a, b) => {
                         const dateA = a.date || a.validFrom || '9999-99-99';
                         const dateB = b.date || b.validFrom || '9999-99-99';
-                        const dateDiff = dateA.localeCompare(dateB);
-                        if (dateDiff !== 0) return dateDiff;
-                        const tA = a.createdAt?.seconds || 0;
-                        const tB = b.createdAt?.seconds || 0;
-                        return tA - tB;
+                        return dateA.localeCompare(dateB);
                     });
 
                     setSchedules(combined);
@@ -405,10 +420,12 @@ const UserSchedule: React.FC = () => {
         }
         
         let display = '';
+
+        // 1. Determine Base Title
         if (sch.locationId === 'Holiday Shift') {
              const parts = (sch.note || '').split(' - ');
              if (parts.length >= 2 && parts[0] === 'Holiday') {
-                 display = parts[1]; 
+                 display = parts[1]; // "MORNING"
                  if (parts.length > 2 && parts[2]) {
                      display += ` - ${parts[2]}`;
                  }
@@ -430,36 +447,32 @@ const UserSchedule: React.FC = () => {
             display = l ? l.name : sch.locationId;
         }
 
+        // 2. APPEND EID OR RAMADAN NAME (CONDITIONAL)
         const upperDisplay = display.toUpperCase();
         let occasionSuffix = null;
 
-        // ** Priority: Manual Flag **
-        if (sch.isRamadan === true) {
-            occasionSuffix = 'RAMADAN';
-        } else {
-            if (sch.date) {
-                const national = getNationalHoliday(sch.date);
-                if (national) {
-                    occasionSuffix = national.name;
-                } else {
-                    const eid = getEidName(sch.date);
-                    if (eid) {
-                         occasionSuffix = eid;
-                    } else if (sch.isRamadan === undefined) {
-                         if (getIslamicOccasion(sch.date) === 'ramadan') {
-                             occasionSuffix = 'RAMADAN';
-                         }
-                    }
+        if (sch.date) {
+            // Specific Date Check: National > Eid > Ramadan
+            const national = getNationalHoliday(sch.date);
+            if (national) {
+                occasionSuffix = national.name;
+            } else {
+                occasionSuffix = getEidName(sch.date);
+                if (!occasionSuffix && getIslamicOccasion(sch.date) === 'ramadan') {
+                    occasionSuffix = 'RAMADAN';
                 }
-            } 
-            else if (sch.locationId === 'Holiday Shift') {
-                occasionSuffix = getEidNameForRange(sch.validFrom, sch.validTo);
             }
-            else {
-                if (sch.isRamadan === undefined) {
-                    const isRamadan = checkRamadanOverlap(sch.validFrom, sch.validTo, sch.month);
-                    if (isRamadan) occasionSuffix = 'RAMADAN';
-                }
+        } 
+        else if (sch.locationId === 'Holiday Shift') {
+            // Holiday Shift Range: Priority to Eid
+            occasionSuffix = getEidNameForRange(sch.validFrom, sch.validTo);
+        }
+        else {
+            // General Range (Common Duty, etc): Only check Ramadan!
+            // Explicitly verify Ramadan overlap for general shifts
+            const isRamadan = checkRamadanOverlap(sch.validFrom, sch.validTo, sch.month);
+            if (isRamadan) {
+                occasionSuffix = 'RAMADAN';
             }
         }
 
@@ -472,8 +485,9 @@ const UserSchedule: React.FC = () => {
         return display;
     }, [locations]);
 
-    // Enhanced Status Logic with Absence Detection AND Manual Flag
+    // Enhanced Status Logic with Absence Detection
     const getTicketStatus = (sch: Schedule) => {
+        // 1. Explicit Actions (Leaves) - High Priority
         if (sch.locationId === 'LEAVE_ACTION') {
             if ((sch.note || '').includes('absence')) return { label: 'ABSENT', theme: 'red', icon: 'fa-user-slash', isAction: true };
             return { label: 'ON LEAVE', theme: 'purple', icon: 'fa-umbrella-beach', isAction: true };
@@ -481,16 +495,10 @@ const UserSchedule: React.FC = () => {
 
         const isSwap = (sch.locationId || '').toLowerCase().includes('swap') || (sch.note || '').toLowerCase().includes('swap');
         
-        // ** Check Manual Ramadan Flag **
-        const isManualRamadan = sch.isRamadan === true;
-        const isExplicitNotRamadan = sch.isRamadan === false;
-
+        // 2. Recurring Tickets (Validity Ranges)
         if (!sch.date) {
-          let isRamadanRange = false;
-          if (isManualRamadan) isRamadanRange = true;
-          else if (isExplicitNotRamadan) isRamadanRange = false;
-          else isRamadanRange = checkRamadanOverlap(sch.validFrom, sch.validTo, sch.month);
-          
+          // Independent checks for styling
+          const isRamadanRange = checkRamadanOverlap(sch.validFrom, sch.validTo, sch.month);
           const isEidRange = checkEidOverlap(sch.validFrom, sch.validTo, sch.month);
 
           if(sch.locationId === 'common_duty') return { label: isRamadanRange ? 'RAMADAN' : 'GENERAL', theme: isRamadanRange ? 'indigo' : 'purple', icon: isRamadanRange ? 'fa-moon' : 'fa-layer-group', isHoliday: false, isRamadan: isRamadanRange };
@@ -505,28 +513,30 @@ const UserSchedule: React.FC = () => {
           return { label: isRamadanRange ? 'RAMADAN' : 'GENERAL', theme: isRamadanRange ? 'indigo' : 'indigo', icon: isRamadanRange ? 'fa-moon' : 'fa-calendar-alt', isRamadan: isRamadanRange };
         }
         
+        // 3. Date Specific Logic
         const shiftDate = parseDateString(sch.date) || new Date();
         const today = new Date(); 
         today.setHours(0,0,0,0); 
         shiftDate.setHours(0,0,0,0);
         
-        const occasion = getIslamicOccasion(sch.date);
-        let isRamadan = false;
-        if (isManualRamadan) isRamadan = true;
-        else if (isExplicitNotRamadan) isRamadan = false;
-        else isRamadan = occasion === 'ramadan';
-
-        const isEid = occasion === 'eid';
-        const national = getNationalHoliday(sch.date);
-
+        // ** ABSENCE CHECK **
         if (shiftDate < today) {
             if (!punchedDates.has(sch.date)) {
                 return { label: 'ABSENT', theme: 'red', icon: 'fa-times-circle', isAbsent: true };
             }
+            // If present in past, check occasion to style it nicely, else default completed
+            const occasion = getIslamicOccasion(sch.date);
+            const national = getNationalHoliday(sch.date);
             if (national) return { label: 'COMPLETED', theme: 'emerald', icon: 'fa-check-circle', grayscale: true, isNational: true };
-            if (isRamadan) return { label: 'COMPLETED', theme: 'indigo', icon: 'fa-check-circle', grayscale: true, isRamadan: true };
+            if (occasion === 'ramadan') return { label: 'COMPLETED', theme: 'indigo', icon: 'fa-check-circle', grayscale: true, isRamadan: true };
             return { label: 'COMPLETED', theme: 'slate', icon: 'fa-check-circle', grayscale: true };
         }
+
+        // --- OCCASION CHECK (NATIONAL / RAMADAN / EID) ---
+        const national = getNationalHoliday(sch.date);
+        const occasion = getIslamicOccasion(sch.date);
+        const isRamadan = occasion === 'ramadan';
+        const isEid = occasion === 'eid';
 
         if (isSwap) return { label: 'SWAP', theme: 'violet', icon: 'fa-exchange-alt', pulse: true, isRamadan, isEid };
         
@@ -534,6 +544,7 @@ const UserSchedule: React.FC = () => {
             return { label: 'TODAY', theme: 'amber', icon: 'fa-briefcase', pulse: true, isRamadan, isEid, isNational: !!national };
         }
         
+        // Priority: National > Eid > Ramadan
         if (national) return { label: national.name, theme: 'emerald', icon: national.icon, isNational: true };
         if (isEid) return { label: 'EID MUBARAK', theme: 'teal', icon: 'fa-star', isEid: true };
         if (isRamadan) return { label: 'RAMADAN', theme: 'indigo', icon: 'fa-moon', isRamadan: true };
@@ -555,7 +566,7 @@ const UserSchedule: React.FC = () => {
         if (isRamadan) return 'bg-gradient-to-br from-indigo-900 via-slate-800 to-indigo-900 text-amber-100 border-amber-500/50';
         
         // EID THEME: Vibrant
-        if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-white border-pink-300';
+if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-white border-pink-300';
 
         const themes: Record<string, string> = {
             purple: 'bg-gradient-to-br from-purple-700 via-purple-600 to-indigo-700 text-white border-purple-500',
@@ -750,14 +761,14 @@ const UserSchedule: React.FC = () => {
                                         ) : (
                                             <div className="flex flex-col">
                                                 <i className={`fas ${status.icon} text-4xl opacity-90 mb-2`}></i>
-                                                <span className="text-2xl font-black uppercase tracking-tight font-oswald leading-none">{sch.periodName || status.label}</span>
+                                                <span className="text-2xl font-black uppercase tracking-tight font-oswald leading-none">{status.label}</span>
                                                 <span className="text-[10px] uppercase tracking-[0.3em] opacity-60">Schedule</span>
                                             </div>
                                         )}
                                         
                                         {!isValidityTicket && (
                                             <div className={`bg-white/20 backdrop-blur-md px-3 py-1 rounded-lg border border-white/20 text-[10px] font-black uppercase tracking-widest shadow-sm ${status.isAbsent ? 'text-red-900 bg-red-100 border-red-200' : 'text-white'}`}>
-                                                {status.isRamadan ? <><i className="fas fa-moon text-amber-300 mr-1"></i> RAMADAN</> : (sch.periodName || status.label)}
+                                                {status.isRamadan ? <><i className="fas fa-moon text-amber-300 mr-1"></i> RAMADAN</> : status.label}
                                             </div>
                                         )}
                                     </div>
@@ -847,7 +858,7 @@ const UserSchedule: React.FC = () => {
                                     <i className={`fas ${status.icon} text-3xl md:text-5xl mb-2 text-slate-200 block ${status.isRamadan ? 'text-amber-400' : ''}`}></i>
                                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Boarding</p>
                                     <p className={`text-lg font-black ${status.grayscale ? 'text-slate-500' : 'text-slate-800'}`}>
-                                        {sch.periodName || status.label}
+                                        {status.label}
                                     </p>
                                 </div>
                             </div>

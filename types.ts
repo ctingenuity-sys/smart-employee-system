@@ -205,6 +205,7 @@ export interface Appointment {
   isPanic?: boolean; // Added for panic reporting
 }
 
+
 // Added ExtendedAppointment here to be globally accessible
 export interface ExtendedAppointment extends Appointment {
     roomNumber?: string;
@@ -270,6 +271,7 @@ export interface FridayScheduleRow {
 export interface HolidayScheduleRow {
   id: string;
   occasion: string;
+  date?: string; // NEW: Explicit date field for Calendar Picker
   [key: string]: any; // Allow dynamic column keys
 }
 
@@ -341,6 +343,7 @@ export interface SavedTemplate {
   globalEndDate?: string;
   scheduleNote?: string;
   ramadanScheduleNote?: string; // NEW: Specific title for Ramadan schedule
+  holidayScheduleNote?: string; // NEW: Specific title for Holiday schedule
 }
 
 // --- Attendance Analyzer Types ---

@@ -167,12 +167,12 @@ const handleGenerateManualCode = () => {
 
     // 1. Announcements
 const qAnnounce = query(collection(db, 'announcements'), where('isActive', '==', true));
-const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
+const unsubAnnounce = onSnapshot(qAnnounce, (snap: any) => {
     const now = new Date();
     // تغيير الحسبة إلى 12 ساعة فقط
     const cutoffTime = new Date(now.getTime() - 24 * 60 * 60 * 1000); 
     
-    const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Announcement)).filter(ann => {
+    const list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Announcement)).filter((ann: any) => {
         if (!ann.createdAt) return false;
         const createdDate = ann.createdAt.toDate ? ann.createdAt.toDate() : new Date(ann.createdAt);
         
@@ -184,17 +184,17 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
 
     // 2. Counts
     const qOpenShifts = query(collection(db, 'openShifts'), where('status', '==', 'open'));
-    const unsubOpenShifts = onSnapshot(qOpenShifts, (snap) => setOpenShiftsCount(snap.size));
+    const unsubOpenShifts = onSnapshot(qOpenShifts, (snap: any) => setOpenShiftsCount(snap.size));
 
     const qIncoming = query(collection(db, 'swapRequests'), where('to', '==', currentUserId), where('status', '==', 'pending'));
-    const unsubIncoming = onSnapshot(qIncoming, (snap) => setIncomingCount(snap.size));
+    const unsubIncoming = onSnapshot(qIncoming, (snap: any) => setIncomingCount(snap.size));
 
     // 3. Override
     const qOverride = query(collection(db, 'attendance_overrides'), where('userId', '==', currentUserId));
-    const unsubOverride = onSnapshot(qOverride, (snap) => {
+    const unsubOverride = onSnapshot(qOverride, (snap: any) => {
         let active = false;
         const now = new Date();
-        snap.docs.forEach(d => {
+        snap.docs.forEach((d: any) => {
             if (d.data().validUntil && d.data().validUntil.toDate() > now) active = true;
         });
         setHasAttendanceOverride(active);
@@ -215,36 +215,36 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
 
     // Filter by IN array of 3 months
     const qSchedule = query(collection(db, 'schedules'), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
-    const unsubSchedule = onSnapshot(qSchedule, (snap) => {
-        const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule));
+    const unsubSchedule = onSnapshot(qSchedule, (snap: any) => {
+        const data = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Schedule));
         setCurrentSchedules(data); // Stores *all* schedules for logic
     });
 
     // 5. My Logs (Today)
     const todayStr = getLocalDateStr(now);
     const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', todayStr));
-    const unsubLogs = onSnapshot(qLogs, (snap) => {
-        setTodayLogs(snap.docs.map(d => d.data()));
+    const unsubLogs = onSnapshot(qLogs, (snap: any) => {
+        setTodayLogs(snap.docs.map((d: any) => d.data()));
     });
 
     // 5b. All Logs (Today) - For "Who is on shift" widget accuracy
     const qAllLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayStr));
-    const unsubAllLogs = onSnapshot(qAllLogs, (snap) => {
-        setAllTodayLogs(snap.docs.map(d => d.data() as AttendanceLog));
+    const unsubAllLogs = onSnapshot(qAllLogs, (snap: any) => {
+        setAllTodayLogs(snap.docs.map((d: any) => d.data() as AttendanceLog));
     }, (error) => {
         console.log("Cannot fetch global logs for widget", error);
     });
     
     // 6. Fetch Users for names
     getDocs(collection(db, 'users')).then(snap => {
-        setAllUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
+        setAllUsers(snap.docs.map((d: any) => ({ id: d.id, ...d.data() as any } as User)));
     });
 
     // NEW: Fetch Actions/Leaves for current user
     // We fetch broader range or all to simplify, or last 30 days
     const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
-    const unsubActions = onSnapshot(qActions, (snap) => {
-        setUserActions(snap.docs.map(d => ({ id: d.id, ...d.data() } as ActionLog)));
+    const unsubActions = onSnapshot(qActions, (snap: any) => {
+        setUserActions(snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as ActionLog)));
     });
 
     return () => { unsubAnnounce(); unsubOpenShifts(); unsubIncoming(); unsubOverride(); unsubSchedule(); unsubLogs(); unsubAllLogs(); unsubActions(); };
@@ -294,11 +294,17 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
               appliesToday = true;
           } else if (!sch.date) {
               const isFriday = (sch.locationId || '').toLowerCase().includes('friday') || (sch.note && sch.note.toLowerCase().includes('friday'));
-              if (dayOfWeek === 5) {
+              // FIX: Allow Holiday Shift to apply on any day (overriding normal logic if needed)
+              const isHoliday = (sch.locationId || '').includes('Holiday Shift');
+
+              if (isHoliday) {
+                  appliesToday = true;
+              } else if (dayOfWeek === 5) {
                   if (isFriday) appliesToday = true;
               } else {
                   if (!isFriday && !(sch.locationId || '').includes('Holiday')) appliesToday = true;
               }
+              
               if (appliesToday && sch.validFrom && currentDayStr < sch.validFrom) appliesToday = false;
               if (appliesToday && sch.validTo && currentDayStr > sch.validTo) appliesToday = false;
           }
@@ -432,9 +438,18 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
                 applies = true;
             } else {
                 // Recurring check
-                const isFri = (sch.locationId || '').toLowerCase().includes('friday');
-                if (dDay === 5) { if (isFri) applies = true; }
-                else { if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; }
+                const locId = (sch.locationId || '').toLowerCase();
+                const isFri = locId.includes('friday');
+                // FIX: Allow Holiday shifts to pass through if valid date range matches
+                const isHoliday = (sch.locationId || '').includes('Holiday Shift'); 
+                
+                if (isHoliday) {
+                     applies = true; // Will be filtered by validFrom/To below
+                } else if (dDay === 5) { 
+                     if (isFri) applies = true; 
+                } else { 
+                     if (!isFri) applies = true; 
+                }
                 
                 if (applies && (sch.validFrom && dStr < sch.validFrom || sch.validTo && dStr > sch.validTo)) applies = false;
             }
@@ -449,6 +464,13 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
                 const parsed = sch.shifts || parseMultiShifts(sch.note || "") || [{start: '08:00', end: '16:00'}];
                 const isSwap = (sch.note || '').includes('Swap') || sch.locationId.includes('Swap');
                 let locationName = sch.locationId;
+                
+                // Parse cleaner name for Holiday
+                if (locationName === 'Holiday Shift' && sch.note) {
+                     const parts = sch.note.split(' - ');
+                     if (parts.length > 0) locationName = parts[0];
+                }
+                
                 if (locationName.startsWith('Swap Duty - ')) locationName = locationName.replace('Swap Duty - ', '');
 
                 parsed.forEach(p => {

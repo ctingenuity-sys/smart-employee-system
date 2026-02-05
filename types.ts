@@ -33,12 +33,14 @@ export interface Schedule {
   userType: string;
   shifts: { start: string; end: string }[];
   note?: string;
+  periodName?: string; // NEW: Custom name for the schedule period (e.g. "Ramadan 2026")
   week?: string;
   validFrom?: string; // YYYY-MM-DD
   validTo?: string;   // YYYY-MM-DD
   staffName?: string; // Added for schedule builder publishing
   createdAt?: any;
   swapRequestId?: string;
+  isRamadan?: boolean; // NEW: Explicit flag to force Ramadan theme regardless of dates
 }
 
 export interface SwapRequest {
@@ -328,10 +330,17 @@ export interface SavedTemplate {
   // Exceptions
   exceptions?: DateException[];
 
+  // Ramadan specific data
+  ramadanData?: ModalityColumn[];
+  ramadanCommonDuties?: CommonDuty[];
+  ramadanFridayData?: FridayScheduleRow[]; // NEW: Ramadan Fridays
+  ramadanFridayColumns?: ScheduleColumn[]; // NEW: Ramadan Friday Cols
+
   // Global fields
   globalStartDate?: string;
   globalEndDate?: string;
   scheduleNote?: string;
+  ramadanScheduleNote?: string; // NEW: Specific title for Ramadan schedule
 }
 
 // --- Attendance Analyzer Types ---

@@ -119,7 +119,6 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
   
   const [draggedItem, setDraggedItem] = useState<{ colIndex: number, staffIndex: number } | null>(null);
   const [draggedColIndex, setDraggedColIndex] = useState<number | null>(null);
-  const [customTitle, setCustomTitle] = useState('');
 
   // --- Helpers ---
   const highlightMatch = (text: string) => {
@@ -254,20 +253,6 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
           }
       } catch (err) { console.error("Duty Drop error", err); }
   };
-const availableThemes = [
-  { id: 'slate', color: '#1e293b' },
-  { id: 'blue', color: '#1e3a8a' },
-  { id: 'teal', color: '#0f766e' },
-  { id: 'emerald', color: '#064e3b' },
-  { id: 'indigo', color: '#312e81' },
-  { id: 'purple', color: '#581c87' },
-  { id: 'rose', color: '#881337' },
-  { id: 'amber', color: '#92400e' },
-  { id: 'violet', color: '#4c1d95' },
-  { id: 'cyan', color: '#083344' },
-];
-
-const [selectedTheme, setSelectedTheme] = useState('slate');
 
   const handleDutyStaffChange = (dutyIndex: number, staffIndex: number, field: 'name' | 'time' | 'startDate' | 'endDate' | 'note', val: string) => {
      const newDuties = [...commonDuties];
@@ -501,85 +486,28 @@ const [selectedTheme, setSelectedTheme] = useState('slate');
     </div>
   )};
 
- return (
+  return (
     <div className="space-y-8 animate-fade-in print:space-y-1 print:w-full print:bg-white print:text-left print:pb-8" dir="ltr">
       
-      {/* Global Controls & Header Area */}
-      <div className="print:hidden bg-slate-800 text-white p-4 rounded-xl shadow-md mb-6">
-          <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-              <div>
-                  <h2 className="text-lg font-bold uppercase tracking-wider text-slate-200">Global Settings</h2>
-                  <p className="text-xs text-slate-400">Control print layout & colors</p>
-              </div>
-              <div className="flex gap-2 w-full md:w-auto items-end">
-                  {isEditing && (
-                      <div className="flex flex-col flex-1 min-w-[250px]">
-                          <label className="text-[10px] uppercase font-bold text-slate-400 mb-1">Print Title & Theme</label>
-                          <div className="flex items-center gap-2 bg-slate-700 p-1 rounded border border-slate-600">
-                              <input 
-                                  className="bg-transparent text-white px-2 py-1 text-sm font-bold w-full focus:outline-none"
-                                  placeholder="Custom Print Title"
-                                  value={customTitle}
-                                  onChange={(e) => setCustomTitle(e.target.value)}
-                              />
-                              {/* منتقي الثيمات (Theme Picker) */}
-                              <div className="flex gap-1 border-l border-slate-500 pl-2 pr-1">
-                                  {availableThemes.map((theme) => (
-                                      <button
-                                          key={theme.id}
-                                          onClick={() => setSelectedTheme(theme.id)}
-                                          style={{ backgroundColor: theme.color }}
-                                          className={`w-4 h-4 rounded-full border border-white/20 transition-transform hover:scale-125 ${selectedTheme === theme.id ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-700' : ''}`}
-                                          title={theme.id}
-                                      />
-                                  ))}
-                              </div>
-                          </div>
-                      </div>
-                  )}
-                  <div className="flex flex-col">
-                      <label className="text-[10px] uppercase font-bold text-slate-400">Global Start</label>
-                      <input 
-                          type="date" 
-                          value={globalStartDate}
-                          onChange={e => setGlobalStartDate(e.target.value)}
-                          className="bg-slate-700 text-white px-2 py-1 rounded border border-slate-600 text-xs"
-                      />
-                  </div>
-                  <div className="flex flex-col">
-                      <label className="text-[10px] uppercase font-bold text-slate-400">Global End</label>
-                      <input 
-                          type="date" 
-                          value={globalEndDate}
-                          onChange={e => setGlobalEndDate(e.target.value)}
-                          className="bg-slate-700 text-white px-2 py-1 rounded border border-slate-600 text-xs"
-                      />
-                  </div>
-              </div>
-          </div>
-          <div className="mt-3">
-              <label className="text-[10px] uppercase font-bold text-slate-400">Schedule Note</label>
-              <input 
-                  value={scheduleNote}
-                  onChange={e => setScheduleNote(e.target.value)}
-                  className="bg-slate-700 text-white px-2 py-1 rounded border border-slate-600 text-xs w-full"
-                  placeholder="e.g. Approved By..."
-              />
-          </div>
-      </div>
-
-      {/* Print Header - تم تمرير الـ headerColor هنا */}
-      <div className="print:block">
-          <PrintHeader 
-            month={customTitle || publishMonth} 
-            subtitle="DUTY SCHEDULE" 
-            dateRange={globalStartDate && globalEndDate ? `FROM ${formatDate(globalStartDate)} TO ${formatDate(globalEndDate)}` : undefined}
-            note={scheduleNote}
-            themeColor={selectedTheme as any} // نمرر الثيم المختار هنا
+      {/* Title Input (Local, but updates shared state) */}
+      <div className="print:hidden mb-4">
+          <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Schedule Title</label>
+          <input 
+              value={scheduleNote}
+              onChange={e => setScheduleNote(e.target.value)}
+              className="bg-white text-slate-800 px-4 py-3 rounded-xl border border-slate-200 text-lg font-black w-full outline-none focus:ring-2 focus:ring-blue-100 shadow-sm"
+              placeholder="e.g. FEBRUARY 2026 - GENERAL DUTY"
           />
       </div>
 
-      
+      {/* Print Header with Global Dates & Note Passed */}
+      <div className="print:block">
+          <PrintHeader 
+            month={scheduleNote || publishMonth} 
+            subtitle="DUTY SCHEDULE" 
+            dateRange={globalStartDate && globalEndDate ? `FROM ${formatDate(globalStartDate)} TO ${formatDate(globalEndDate)}` : undefined}
+          />
+      </div>
 
       <div 
         className="columns-1 md:columns-2 lg:columns-3 xl:columns-5 gap-4 w-full print:columns-4 print:gap-1 print:w-full" 
@@ -738,9 +666,9 @@ const [selectedTheme, setSelectedTheme] = useState('slate');
         )}
       </div>
 
-     <PrintFooter themeColor={selectedTheme as any} />
+      <PrintFooter />
     </div>
-);
+  );
 };
 
 export default GeneralScheduleView;

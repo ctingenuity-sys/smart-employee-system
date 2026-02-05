@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
@@ -28,12 +28,135 @@ const EID_RANGES = [
     { start: '2026-05-23', end: '2026-06-02', name: 'EID AL ADHA' }, 
 ];
 
-// Specific Single Day Holidays (Month is 0-indexed in JS Date, but lets use 1-12 strings for simplicity here)
-// Feb = 02, Sept = 09
+// Specific Single Day Holidays
 const NATIONAL_HOLIDAYS = [
-    { month: '02', day: '22', name: 'FOUNDING DAY', icon: 'fa-chess-rook' }, // Youm Al-Ta'sees
-    { month: '09', day: '23', name: 'NATIONAL DAY', icon: 'fa-flag' }      // National Day
+    { month: '02', day: '22', name: 'FOUNDING DAY', icon: 'fa-chess-rook' },
+    { month: '09', day: '23', name: 'NATIONAL DAY', icon: 'fa-flag' }
 ];
+
+// --- VISUAL COMPONENTS (OPTIMIZED) ---
+
+const BalloonsOverlay = () => {
+    // Generate random balloons
+    const balloons = Array.from({ length: 20 }).map((_, i) => {
+        const colors = [
+            { bg: 'rgba(239, 68, 68, 0.9)', shine: 'rgba(255, 200, 200, 0.8)' }, // Red
+            { bg: 'rgba(59, 130, 246, 0.9)', shine: 'rgba(200, 200, 255, 0.8)' }, // Blue
+            { bg: 'rgba(34, 197, 94, 0.9)', shine: 'rgba(200, 255, 200, 0.8)' }, // Green
+            { bg: 'rgba(234, 179, 8, 0.9)', shine: 'rgba(255, 255, 200, 0.8)' }, // Yellow
+            { bg: 'rgba(168, 85, 247, 0.9)', shine: 'rgba(240, 200, 255, 0.8)' }, // Purple
+            { bg: 'rgba(236, 72, 153, 0.9)', shine: 'rgba(255, 200, 240, 0.8)' }, // Pink
+            { bg: 'rgba(249, 115, 22, 0.9)', shine: 'rgba(255, 220, 200, 0.8)' }, // Orange
+        ];
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        
+        return {
+            left: `${Math.random() * 90 + 5}%`,
+            animationDelay: `${Math.random() * 5}s`,
+            animationDuration: `${6 + Math.random() * 6}s`,
+            scale: 0.8 + Math.random() * 0.4,
+            color: color.bg,
+            shine: color.shine,
+            swayDuration: `${3 + Math.random() * 2}s`
+        };
+    });
+
+    return (
+        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+            {balloons.map((b, i) => (
+                <div 
+                    key={i}
+                    className="absolute bottom-[-150px] z-10"
+                    style={{
+                        left: b.left,
+                        animation: `floatUp ${b.animationDuration} linear infinite`,
+                        animationDelay: b.animationDelay,
+                        transform: `scale(${b.scale})`
+                    }}
+                >
+                    {/* Balloon Body */}
+                    <div 
+                        className="w-12 h-14 relative"
+                        style={{
+                            background: `radial-gradient(circle at 30% 30%, ${b.shine} 0%, ${b.color} 30%, ${b.color} 80%, rgba(0,0,0,0.1) 100%)`,
+                            borderRadius: '50% 50% 50% 50% / 40% 40% 60% 60%',
+                            boxShadow: 'inset -5px -5px 10px rgba(0,0,0,0.1), 2px 5px 10px rgba(0,0,0,0.15)',
+                            animation: `sway ${b.swayDuration} ease-in-out infinite alternate`
+                        }}
+                    >
+                        {/* Reflection spot */}
+                        <div className="absolute top-[20%] left-[20%] w-2 h-4 bg-white/40 rounded-full rotate-[-45deg] blur-[1px]"></div>
+                        
+                        {/* Knot */}
+                        <div 
+                            className="absolute bottom-[-3px] left-1/2 -translate-x-1/2 w-1.5 h-1.5"
+                            style={{ backgroundColor: b.color, borderRadius: '50%' }}
+                        ></div>
+                        
+                        {/* String */}
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 w-[1px] h-24 bg-white/40 origin-top animate-string-wave"></div>
+                    </div>
+                </div>
+            ))}
+            <style>{`
+                @keyframes floatUp {
+                    0% { transform: translateY(0) scale(1); opacity: 0; }
+                    10% { opacity: 1; }
+                    100% { transform: translateY(-800px) scale(1); opacity: 0.8; }
+                }
+                @keyframes sway {
+                    0% { transform: rotate(-5deg); }
+                    100% { transform: rotate(5deg); }
+                }
+                @keyframes string-wave {
+                    0% { transform: translateX(-50%) rotate(0deg) scaleY(1); }
+                    50% { transform: translateX(-50%) rotate(2deg) scaleY(0.95); }
+                    100% { transform: translateX(-50%) rotate(-2deg) scaleY(1); }
+                }
+            `}</style>
+        </div>
+    );
+};
+
+const SheepOverlay = () => {
+    // Generate floating sheep/clouds
+    const sheep = Array.from({ length: 8 }).map((_, i) => ({
+        top: `${Math.random() * 80}%`,
+        animationDelay: `${Math.random() * 5}s`,
+        animationDuration: `${10 + Math.random() * 10}s`,
+        size: 20 + Math.random() * 20
+    }));
+
+    return (
+        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+            <div className="absolute inset-0 bg-green-100/10"></div>
+            {sheep.map((s, i) => (
+                <div 
+                    key={i}
+                    className="absolute opacity-60 text-4xl animate-bounce-slow"
+                    style={{
+                        top: s.top,
+                        left: '-50px',
+                        fontSize: `${s.size}px`,
+                        animation: `walkAcross ${s.animationDuration} linear infinite`,
+                        animationDelay: s.animationDelay,
+                    }}
+                >
+                    🐑
+                </div>
+            ))}
+            <style>{`
+                @keyframes walkAcross {
+                    0% { transform: translateX(-50px) rotate(0deg); }
+                    25% { transform: translateX(100px) rotate(-5deg); }
+                    50% { transform: translateX(250px) rotate(5deg); }
+                    75% { transform: translateX(400px) rotate(-5deg); }
+                    100% { transform: translateX(600px) rotate(0deg); }
+                }
+            `}</style>
+        </div>
+    );
+};
 
 // --- Helper Functions ---
 const convertTo24Hour = (timeStr: string): string | null => {
@@ -116,21 +239,16 @@ const isDateInMonth = (dateStr: string, targetMonth: string) => {
     return false;
 }
 
-// Robust Date Parser
 const parseDateString = (dateStr: string): Date | null => {
     if (!dateStr) return null;
     let d = new Date(dateStr);
-    if (!isNaN(d.getTime())) return d; // ISO Standard OK
-
-    // Try parsing DD/MM/YYYY
+    if (!isNaN(d.getTime())) return d; 
     const parts = dateStr.split(/[-/]/);
     if (parts.length === 3) {
-        // Assume YYYY first
         if (parts[0].length === 4) {
              d = new Date(`${parts[0]}-${parts[1]}-${parts[2]}`);
              if (!isNaN(d.getTime())) return d;
         }
-        // Assume Year last
         if (parts[2].length === 4) {
              d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
              if (!isNaN(d.getTime())) return d;
@@ -139,13 +257,9 @@ const parseDateString = (dateStr: string): Date | null => {
     return null;
 }
 
-// --- Check Overlap Function ---
-// Returns true if Range A overlaps with Range B
 const isOverlap = (startA: string, endA: string, startB: string, endB: string) => {
     return (startA <= endB) && (endA >= startB);
 };
-
-// --- Occasion Helpers ---
 
 const getNationalHoliday = (dateStr: string | undefined): { name: string, icon: string } | null => {
     if (!dateStr) return null;
@@ -161,7 +275,7 @@ const getNationalHoliday = (dateStr: string | undefined): { name: string, icon: 
     return null;
 };
 
-const getIslamicOccasion = (dateStr: string | undefined): 'ramadan' | 'eid' | null => {
+const getIslamicOccasion = (dateStr: string | undefined): { type: 'ramadan' | 'eid', name?: string } | null => {
     if (!dateStr) return null;
     const date = parseDateString(dateStr);
     if (!date) return null;
@@ -171,39 +285,28 @@ const getIslamicOccasion = (dateStr: string | undefined): 'ramadan' | 'eid' | nu
     const d = String(date.getDate()).padStart(2, '0');
     const isoDate = `${y}-${m}-${d}`;
 
-    // Check Ramadan
     for (const range of RAMADAN_RANGES) {
-        if (isoDate >= range.start && isoDate <= range.end) return 'ramadan';
+        if (isoDate >= range.start && isoDate <= range.end) return { type: 'ramadan' };
     }
-    // Check Eid
     for (const range of EID_RANGES) {
-        if (isoDate >= range.start && isoDate <= range.end) return 'eid';
+        if (isoDate >= range.start && isoDate <= range.end) return { type: 'eid', name: range.name };
     }
     return null;
 };
 
-// --- NEW HELPER: Check ONLY for Ramadan overlap (ignoring Eid) ---
 const checkRamadanOverlap = (validFrom: string | undefined, validTo: string | undefined, monthStr?: string): boolean => {
     let start = validFrom;
     let end = validTo;
-
-    // Fallback to month boundaries
-    if (!start && monthStr) {
-        start = `${monthStr}-01`;
-        end = `${monthStr}-28`;
-    }
-
+    if (!start && monthStr) { start = `${monthStr}-01`; end = `${monthStr}-28`; }
     const safeStart = start || '0000-00-00';
     const safeEnd = end || '9999-99-99';
-
     for (const range of RAMADAN_RANGES) {
         if (isOverlap(safeStart, safeEnd, range.start, range.end)) return true;
     }
     return false;
 };
 
-// Check for Eid overlap (for styling mainly)
-const checkEidOverlap = (validFrom: string | undefined, validTo: string | undefined, monthStr?: string): boolean => {
+const checkEidOverlap = (validFrom: string | undefined, validTo: string | undefined, monthStr?: string): { isEid: boolean, name?: string } => {
     let start = validFrom;
     let end = validTo;
     if (!start && monthStr) { start = `${monthStr}-01`; end = `${monthStr}-28`; }
@@ -211,45 +314,16 @@ const checkEidOverlap = (validFrom: string | undefined, validTo: string | undefi
     const safeEnd = end || '9999-99-99';
 
     for (const range of EID_RANGES) {
-        if (isOverlap(safeStart, safeEnd, range.start, range.end)) return true;
+        if (isOverlap(safeStart, safeEnd, range.start, range.end)) return { isEid: true, name: range.name };
     }
-    return false;
+    return { isEid: false };
 };
-
-// Helper to get exact Eid Name for a specific date
-const getEidName = (dateStr: string | undefined): string | null => {
-    if (!dateStr) return null;
-    const date = parseDateString(dateStr);
-    if (!date) return null;
-    
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    const isoDate = `${y}-${m}-${d}`;
-
-    for (const range of EID_RANGES) {
-        if (isoDate >= range.start && isoDate <= range.end) return range.name;
-    }
-    return null;
-}
-
-// Helper to get exact Eid Name for a RANGE
-const getEidNameForRange = (validFrom: string | undefined, validTo: string | undefined): string | null => {
-    if (!validFrom) return null;
-    const end = validTo || '2030-12-31';
-    for (const range of EID_RANGES) {
-        if (isOverlap(validFrom, end, range.start, range.end)) return range.name;
-    }
-    return null;
-}
-
 
 const SHIFT_DESCRIPTIONS: Record<string, string> = {
     'Straight Morning': '9am-5pm\nXRAYS + USG',
     'Straight Evening': '5pm-1am\nXRAYS + USG',
 };
 
-// --- Personal Notepad Component ---
 const PersonalNotepad: React.FC = () => {
     const [note, setNote] = useState('');
     useEffect(() => {
@@ -278,7 +352,6 @@ const PersonalNotepad: React.FC = () => {
     );
 };
 
-// --- Visual CSS Barcode Component ---
 const Barcode: React.FC = () => (
     <div className="flex justify-center items-center h-12 w-full overflow-hidden opacity-40 mix-blend-multiply gap-[3px]">
         {[...Array(25)].map((_, i) => (
@@ -296,21 +369,16 @@ const UserSchedule: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
     const [isNoteOpen, setIsNoteOpen] = useState(false);
-    
-    // Store punched dates to detect absence
     const [punchedDates, setPunchedDates] = useState<Set<string>>(new Set());
 
     useEffect(() => {
         setLoading(true);
-        // Locations
         const unsubLocs = onSnapshot(collection(db, 'locations'), (snap) => {
             setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
         });
 
         if (currentUserId) {
-            // 1. Fetch Attendance Logs for the selected month to check for absence
             const [y, m] = selectedMonth.split('-');
-            // Fetch slight range around selected month to be safe
             const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId));
             const unsubLogs = onSnapshot(qLogs, (snap) => {
                 const dates = new Set<string>();
@@ -321,9 +389,7 @@ const UserSchedule: React.FC = () => {
                 setPunchedDates(dates);
             });
 
-            // 2. Schedules - Fetch Wider Range
             const d = new Date(parseInt(y), parseInt(m) - 1, 1);
-            
             const monthsToFetch = [];
             for (let i = -2; i <= 2; i++) {
                 const temp = new Date(d);
@@ -339,7 +405,6 @@ const UserSchedule: React.FC = () => {
             const unsubSch = onSnapshot(qSch, snap => {
                 const fetchedData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule));
                 
-                // Filter
                 const data = fetchedData.filter(sch => {
                     if (sch.month === selectedMonth) return true;
                     if (sch.date) return isDateInMonth(sch.date, selectedMonth);
@@ -353,7 +418,6 @@ const UserSchedule: React.FC = () => {
                     return false;
                 });
 
-                // Fetch Actions
                 const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
                 const unsubActions = onSnapshot(qActions, actionSnap => {
                     const fetchedActions = actionSnap.docs
@@ -420,15 +484,11 @@ const UserSchedule: React.FC = () => {
         }
         
         let display = '';
-
-        // 1. Determine Base Title
         if (sch.locationId === 'Holiday Shift') {
              const parts = (sch.note || '').split(' - ');
              if (parts.length >= 2 && parts[0] === 'Holiday') {
-                 display = parts[1]; // "MORNING"
-                 if (parts.length > 2 && parts[2]) {
-                     display += ` - ${parts[2]}`;
-                 }
+                 display = parts[1];
+                 if (parts.length > 2 && parts[2]) display += ` - ${parts[2]}`;
              } else {
                  display = 'HOLIDAY SHIFT';
              }
@@ -446,48 +506,10 @@ const UserSchedule: React.FC = () => {
             const l = locations.find(loc => loc.id === sch.locationId);
             display = l ? l.name : sch.locationId;
         }
-
-        // 2. APPEND EID OR RAMADAN NAME (CONDITIONAL)
-        const upperDisplay = display.toUpperCase();
-        let occasionSuffix = null;
-
-        if (sch.date) {
-            // Specific Date Check: National > Eid > Ramadan
-            const national = getNationalHoliday(sch.date);
-            if (national) {
-                occasionSuffix = national.name;
-            } else {
-                occasionSuffix = getEidName(sch.date);
-                if (!occasionSuffix && getIslamicOccasion(sch.date) === 'ramadan') {
-                    occasionSuffix = 'RAMADAN';
-                }
-            }
-        } 
-        else if (sch.locationId === 'Holiday Shift') {
-            // Holiday Shift Range: Priority to Eid
-            occasionSuffix = getEidNameForRange(sch.validFrom, sch.validTo);
-        }
-        else {
-            // General Range (Common Duty, etc): Only check Ramadan!
-            // Explicitly verify Ramadan overlap for general shifts
-            const isRamadan = checkRamadanOverlap(sch.validFrom, sch.validTo, sch.month);
-            if (isRamadan) {
-                occasionSuffix = 'RAMADAN';
-            }
-        }
-
-        if (occasionSuffix) {
-             if (!upperDisplay.includes(occasionSuffix) && !(sch.note || '').toUpperCase().includes(occasionSuffix)) {
-                 display += ` - ${occasionSuffix}`;
-             }
-        }
-
         return display;
     }, [locations]);
 
-    // Enhanced Status Logic with Absence Detection
     const getTicketStatus = (sch: Schedule) => {
-        // 1. Explicit Actions (Leaves) - High Priority
         if (sch.locationId === 'LEAVE_ACTION') {
             if ((sch.note || '').includes('absence')) return { label: 'ABSENT', theme: 'red', icon: 'fa-user-slash', isAction: true };
             return { label: 'ON LEAVE', theme: 'purple', icon: 'fa-umbrella-beach', isAction: true };
@@ -495,16 +517,14 @@ const UserSchedule: React.FC = () => {
 
         const isSwap = (sch.locationId || '').toLowerCase().includes('swap') || (sch.note || '').toLowerCase().includes('swap');
         
-        // 2. Recurring Tickets (Validity Ranges)
         if (!sch.date) {
-          // Independent checks for styling
           const isRamadanRange = checkRamadanOverlap(sch.validFrom, sch.validTo, sch.month);
-          const isEidRange = checkEidOverlap(sch.validFrom, sch.validTo, sch.month);
+          const eidRange = checkEidOverlap(sch.validFrom, sch.validTo, sch.month);
 
           if(sch.locationId === 'common_duty') return { label: isRamadanRange ? 'RAMADAN' : 'GENERAL', theme: isRamadanRange ? 'indigo' : 'purple', icon: isRamadanRange ? 'fa-moon' : 'fa-layer-group', isHoliday: false, isRamadan: isRamadanRange };
           
           if(sch.locationId === 'Holiday Shift') {
-              if (isEidRange) return { label: 'EID MUBARAK', theme: 'teal', icon: 'fa-star', isHoliday: true, isEid: true };
+              if (eidRange.isEid) return { label: eidRange.name || 'EID MUBARAK', theme: 'teal', icon: 'fa-star', isHoliday: true, isEid: true, eidName: eidRange.name };
               return { label: 'HOLIDAY', theme: 'rose', icon: 'fa-gift', isHoliday: true };
           }
           
@@ -513,40 +533,36 @@ const UserSchedule: React.FC = () => {
           return { label: isRamadanRange ? 'RAMADAN' : 'GENERAL', theme: isRamadanRange ? 'indigo' : 'indigo', icon: isRamadanRange ? 'fa-moon' : 'fa-calendar-alt', isRamadan: isRamadanRange };
         }
         
-        // 3. Date Specific Logic
         const shiftDate = parseDateString(sch.date) || new Date();
         const today = new Date(); 
         today.setHours(0,0,0,0); 
         shiftDate.setHours(0,0,0,0);
         
-        // ** ABSENCE CHECK **
         if (shiftDate < today) {
             if (!punchedDates.has(sch.date)) {
                 return { label: 'ABSENT', theme: 'red', icon: 'fa-times-circle', isAbsent: true };
             }
-            // If present in past, check occasion to style it nicely, else default completed
-            const occasion = getIslamicOccasion(sch.date);
             const national = getNationalHoliday(sch.date);
+            const occasion = getIslamicOccasion(sch.date);
             if (national) return { label: 'COMPLETED', theme: 'emerald', icon: 'fa-check-circle', grayscale: true, isNational: true };
-            if (occasion === 'ramadan') return { label: 'COMPLETED', theme: 'indigo', icon: 'fa-check-circle', grayscale: true, isRamadan: true };
+            if (occasion?.type === 'ramadan') return { label: 'COMPLETED', theme: 'indigo', icon: 'fa-check-circle', grayscale: true, isRamadan: true };
             return { label: 'COMPLETED', theme: 'slate', icon: 'fa-check-circle', grayscale: true };
         }
 
-        // --- OCCASION CHECK (NATIONAL / RAMADAN / EID) ---
         const national = getNationalHoliday(sch.date);
         const occasion = getIslamicOccasion(sch.date);
-        const isRamadan = occasion === 'ramadan';
-        const isEid = occasion === 'eid';
+        const isRamadan = occasion?.type === 'ramadan';
+        const isEid = occasion?.type === 'eid';
+        const eidName = occasion?.name;
 
-        if (isSwap) return { label: 'SWAP', theme: 'violet', icon: 'fa-exchange-alt', pulse: true, isRamadan, isEid };
+        if (isSwap) return { label: 'SWAP', theme: 'violet', icon: 'fa-exchange-alt', pulse: true, isRamadan, isEid, eidName };
         
         if (shiftDate.getTime() === today.getTime()) {
-            return { label: 'TODAY', theme: 'amber', icon: 'fa-briefcase', pulse: true, isRamadan, isEid, isNational: !!national };
+            return { label: 'TODAY', theme: 'amber', icon: 'fa-briefcase', pulse: true, isRamadan, isEid, eidName, isNational: !!national };
         }
         
-        // Priority: National > Eid > Ramadan
         if (national) return { label: national.name, theme: 'emerald', icon: national.icon, isNational: true };
-        if (isEid) return { label: 'EID MUBARAK', theme: 'teal', icon: 'fa-star', isEid: true };
+        if (isEid) return { label: eidName || 'EID MUBARAK', theme: 'teal', icon: 'fa-star', isEid: true, eidName };
         if (isRamadan) return { label: 'RAMADAN', theme: 'indigo', icon: 'fa-moon', isRamadan: true };
 
         if (sch.locationId.includes('Friday')) return { label: 'FRIDAY', theme: 'emerald', icon: 'fa-mosque' };
@@ -558,15 +574,9 @@ const UserSchedule: React.FC = () => {
     const getGradient = (theme: string, isGrayscale: boolean, isRamadan?: boolean, isEid?: boolean, isNational?: boolean, isAbsent?: boolean) => {
         if (isAbsent) return 'bg-gradient-to-br from-red-50 to-red-100 border-red-300 text-red-800';
         if (isGrayscale) return 'bg-gradient-to-r from-slate-200 to-slate-300 text-slate-500 border-slate-300';
-        
-        // NATIONAL THEME: Green/Gold
         if (isNational) return 'bg-gradient-to-br from-emerald-700 via-green-800 to-teal-900 text-white border-amber-400';
-
-        // RAMADAN THEME: Deep Blue/Gold
         if (isRamadan) return 'bg-gradient-to-br from-indigo-900 via-slate-800 to-indigo-900 text-amber-100 border-amber-500/50';
-        
-        // EID THEME: Vibrant
-if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-white border-pink-300';
+        if (isEid) return 'bg-gradient-to-br from-pink-500 via-purple-500 to-indigo-500 text-white border-pink-300';
 
         const themes: Record<string, string> = {
             purple: 'bg-gradient-to-br from-purple-700 via-purple-600 to-indigo-700 text-white border-purple-500',
@@ -584,12 +594,8 @@ if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-
         return themes[theme] || themes.blue;
     };
 
-    if (loading) return <Loading />;
-
     return (
         <div className="max-w-5xl mx-auto px-4 pb-20 pt-6 animate-fade-in" dir={dir}>
-            
-            {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-center mb-8">
                 <div className="flex items-center gap-4">
                     <button onClick={() => navigate('/user')} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-300 transition-colors">
@@ -636,8 +642,6 @@ if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-
                     let customNote = '';
                     if (sch.note && !SHIFT_DESCRIPTIONS[sch.note] && sch.locationId !== 'LEAVE_ACTION') {
                         const parts = sch.note.split(' - ');
-                        // If it's a holiday, we've extracted the title for the main header, 
-                        // so don't show the redundant part in custom note unless there's a third part
                         if (sch.locationId === 'Holiday Shift') {
                             if (parts.length > 2) customNote = parts.slice(2).join(' - ');
                         } else {
@@ -652,27 +656,24 @@ if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-
                     }
                     if (!displayShifts || displayShifts.length === 0) displayShifts = [{ start: '08:00', end: '16:00' }];
 
-                    // Validity Logic
                     const isValidityTicket = !sch.date && sch.validFrom;
                     const validFromStr = sch.validFrom ? formatDateSimple(sch.validFrom) : '???';
                     const validToStr = sch.validTo ? formatDateSimple(sch.validTo) : 'End of Month';
-
-                    // Parse date for display if available
                     let displayDateObj = sch.date ? parseDateString(sch.date) : null;
+
+                    // --- EID TYPE DETECTION ---
+                    const isFitr = status.isEid && (status.eidName || '').toUpperCase().includes('FITR');
+                    const isAdha = status.isEid && (status.eidName || '').toUpperCase().includes('ADHA');
 
                     return (
                         <div key={sch.id} className="relative group w-full flex flex-col md:flex-row shadow-2xl transition-all duration-500 transform hover:-translate-y-2 hover:shadow-[0_20px_50px_rgba(0,0,0,0.15)] rounded-3xl overflow-hidden">
                             
-                            {/* --- MAIN TICKET SECTION (LEFT) --- */}
                             <div className={`flex-1 relative overflow-hidden ${gradientClass} p-0 flex flex-col`}>
                                 
-                                {/* Decorations */}
                                 {status.isNational && (
                                     <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
                                         <div className="absolute top-[-50%] right-[-10%] w-[80%] h-[150%] bg-white/5 skew-x-12"></div>
-                                        <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/20 to-transparent"></div>
                                         <div className="absolute inset-0 flex items-center justify-center opacity-10">
-                                            {/* Palm Tree Icon or Similar for Saudi Identity */}
                                             <i className="fas fa-chess-rook text-[15rem] text-white transform rotate-12"></i>
                                         </div>
                                     </div>
@@ -680,12 +681,9 @@ if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-
 
                                 {status.isRamadan && (
                                     <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-                                         {/* The Hanging Rope (Zina) */}
                                          <svg className="absolute top-0 left-0 w-full h-16 text-amber-200/50" preserveAspectRatio="none" viewBox="0 0 100 15">
                                            <path d="M0 0 Q 50 15 100 0" stroke="currentColor" fill="none" strokeWidth="0.5" />
                                          </svg>
-                                         
-                                         {/* Hanging Ornaments */}
                                          <div className="absolute top-0 left-[15%] flex flex-col items-center animate-swing origin-top">
                                              <div className="h-8 w-px bg-amber-200/50"></div>
                                              <i className="fas fa-star text-amber-300 text-lg drop-shadow-md"></i>
@@ -694,46 +692,20 @@ if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-
                                              <div className="h-12 w-px bg-amber-200/50"></div>
                                              <i className="fas fa-moon text-amber-200 text-2xl drop-shadow-md"></i>
                                          </div>
-                                         <div className="absolute top-0 left-[85%] flex flex-col items-center animate-swing origin-top delay-300">
-                                             <div className="h-6 w-px bg-amber-200/50"></div>
-                                             <i className="fas fa-star text-amber-300 text-lg drop-shadow-md"></i>
-                                         </div>
-
-                                         {/* The Big Central Mosque */}
                                          <div className="absolute inset-0 flex items-center justify-center opacity-10 pointer-events-none">
                                             <i className="fas fa-mosque text-[12rem] md:text-[18rem] text-white transform scale-125 translate-y-10"></i>
                                          </div>
-                                         
-                                          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/arabesque.png')] opacity-10 mix-blend-overlay"></div>
                                     </div>
                                 )}
 
-                                {status.isEid && (
-                                  <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-                                     {/* Confetti / Lights */}
-                                     <div className="absolute top-[-50px] right-[-50px] w-64 h-64 bg-yellow-300/20 rounded-full blur-3xl"></div>
-                                     <div className="absolute bottom-[-50px] left-[-50px] w-64 h-64 bg-white/10 rounded-full blur-3xl"></div>
-                                     
-                                     {/* Floating Balloons/Gifts */}
-                                     <div className="absolute top-4 right-10 text-white/30 text-4xl animate-bounce duration-[3000ms]">
-                                        <i className="fas fa-gift"></i>
-                                     </div>
-                                     <div className="absolute top-10 left-10 text-white/20 text-3xl animate-pulse delay-500">
-                                        <i className="fas fa-star"></i>
-                                     </div>
-                                     <div className="absolute bottom-10 right-20 text-white/10 text-5xl animate-spin-slow">
-                                         <i className="fas fa-bahai"></i>
-                                     </div>
+                                {/* EID AL FITR (BALLOONS) */}
+                                {isFitr && <BalloonsOverlay />}
 
-                                     {/* Radial Pattern */}
-                                     <div className="absolute inset-0 bg-white/5 mix-blend-overlay" style={{backgroundImage: 'radial-gradient(circle, #fff 10%, transparent 10%)', backgroundSize: '15px 15px'}}></div>
-                                  </div>
-                                )}
+                                {/* EID AL ADHA (SHEEP) */}
+                                {isAdha && <SheepOverlay />}
                                 
-                                {/* Standard Noise Texture */}
                                 <div className="absolute inset-0 opacity-20 mix-blend-overlay pointer-events-none" style={{backgroundImage: 'url("https://grainy-gradients.vercel.app/noise.svg")'}}></div>
                                 
-                                {/* Validity Banner */}
                                 {isValidityTicket && (
                                     <div className="bg-black/40 backdrop-blur-md border-b border-white/10 px-4 py-2 flex justify-between items-center z-20">
                                         <div className="flex items-center gap-2 text-[10px] font-black tracking-[0.2em] text-white/90 uppercase animate-pulse">
@@ -750,7 +722,6 @@ if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-
                                 )}
 
                                 <div className="p-6 md:p-8 flex flex-col h-full relative z-10">
-                                    {/* Top Row: Date & Status */}
                                     <div className="flex justify-between items-start mb-6">
                                         {sch.date && displayDateObj ? (
                                             <div className="flex flex-col">
@@ -773,7 +744,6 @@ if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-
                                         )}
                                     </div>
 
-                                    {/* Middle Row: Location or Action */}
                                     <div className="mb-8">
                                         <p className="text-[9px] font-bold uppercase tracking-[0.3em] opacity-50 mb-1">{sch.locationId === 'LEAVE_ACTION' ? 'Status Update' : 'Assigned Unit'}</p>
                                         <h3 className={`text-2xl md:text-4xl font-black uppercase tracking-tight leading-none drop-shadow-md font-oswald max-w-lg ${status.isAbsent ? 'text-red-900' : ''}`}>
@@ -794,7 +764,6 @@ if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-
                                         </div>
                                     </div>
 
-                                    {/* Bottom Row: Shifts (Hide if Absent) */}
                                     {sch.locationId !== 'LEAVE_ACTION' && !status.isAbsent && (
                                         <div className="mt-auto space-y-3">
                                             {displayShifts.map((s, i) => (
@@ -804,7 +773,6 @@ if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-
                                                         <span className={`text-xl font-mono font-bold tracking-tight group-hover/shift:text-emerald-300 transition-colors ${status.isRamadan ? 'text-amber-200' : status.isNational ? 'text-amber-100' : 'text-white'}`}>{formatTime12(s.start)}</span>
                                                     </div>
                                                     
-                                                    {/* Visual Flight Path */}
                                                     <div className="flex-1 flex flex-col justify-center relative px-2">
                                                         <div className="h-[2px] w-full bg-gradient-to-r from-white/20 via-white/60 to-white/20 rounded-full"></div>
                                                         <i className={`fas fa-plane text-xs absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transform rotate-90 md:rotate-0 ${status.isRamadan ? 'text-amber-300' : 'text-white/80'}`}></i>
@@ -819,7 +787,6 @@ if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-
                                         </div>
                                     )}
                                     
-                                    {/* ABSENT STAMP */}
                                     {status.isAbsent && (
                                         <div className="mt-auto p-4 border-2 border-dashed border-red-300 bg-white/50 rounded-xl text-center">
                                             <p className="text-red-700 font-bold text-sm">NO ATTENDANCE RECORD</p>
@@ -829,31 +796,22 @@ if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-
                                 </div>
                             </div>
 
-                            {/* --- PERFORATION (MOBILE: HORIZONTAL, DESKTOP: VERTICAL) --- */}
                             <div className="relative flex-shrink-0 w-full h-6 md:w-6 md:h-auto bg-[#f1f5f9] flex md:flex-col items-center justify-between overflow-hidden z-20">
-                                {/* The Holes */}
                                 <div className="absolute -left-3 md:left-auto md:-top-3 w-6 h-6 bg-[#f1f5f9] rounded-full z-30 shadow-inner"></div>
                                 <div className="absolute -right-3 md:right-auto md:-bottom-3 w-6 h-6 bg-[#f1f5f9] rounded-full z-30 shadow-inner"></div>
-                                
-                                {/* Dashed Line */}
                                 <div className="w-full h-[2px] md:w-[2px] md:h-full border-b-2 md:border-b-0 md:border-r-2 border-dashed border-slate-300 my-auto md:mx-auto"></div>
                             </div>
 
-                            {/* --- STUB SECTION (RIGHT/BOTTOM) --- */}
                             <div className={`w-full md:w-56 bg-white p-6 flex flex-row md:flex-col items-center justify-between gap-4 border-2 border-dashed border-slate-100 ${status.grayscale ? 'opacity-60' : ''}`}>
-                                
                                 <div className="text-center w-full hidden md:block">
                                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Class</p>
                                     <div className={`inline-block px-4 py-1 rounded-full border-2 font-black text-xs uppercase ${status.theme === 'amber' ? 'border-amber-500 text-amber-600 bg-amber-50' : 'border-slate-800 text-slate-800 bg-slate-50'}`}>
                                         STANDARD
                                     </div>
                                 </div>
-
-                                {/* Barcode Vertical on Desktop, Horizontal on Mobile */}
                                 <div className="w-24 md:w-full md:h-24 opacity-60 mix-blend-multiply rotate-90 md:rotate-0">
                                     <Barcode />
                                 </div>
-
                                 <div className="text-right md:text-center">
                                     <i className={`fas ${status.icon} text-3xl md:text-5xl mb-2 text-slate-200 block ${status.isRamadan ? 'text-amber-400' : ''}`}></i>
                                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Boarding</p>
@@ -862,7 +820,6 @@ if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-
                                     </p>
                                 </div>
                             </div>
-
                         </div>
                     );
                   })}

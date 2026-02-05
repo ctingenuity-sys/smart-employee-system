@@ -311,6 +311,14 @@ export interface HeaderMap {
     [key: string]: string;
 }
 
+export interface DoctorFridayHeaderMap {
+    [key: string]: string;
+}
+
+export interface DoctorWeeklyHeaderMap {
+    [key: string]: string;
+}
+
 export interface SavedTemplate {
   id: string;
   name: string;
@@ -329,6 +337,12 @@ export interface SavedTemplate {
   doctorColumns?: ScheduleColumn[];
   doctorFridayColumns?: ScheduleColumn[];
   
+  // Headers persistence
+  fridayHeaders?: HeaderMap;
+  holidayHeaders?: HeaderMap;
+  doctorFridayHeaders?: DoctorFridayHeaderMap;
+  doctorWeeklyHeaders?: DoctorWeeklyHeaderMap;
+
   // Exceptions
   exceptions?: DateException[];
 

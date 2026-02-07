@@ -6,6 +6,14 @@ export enum UserRole {
   DOCTOR = 'doctor'
 }
 
+export interface UserDocument {
+  name: string;
+  url: string;
+  type: string;
+  category?: 'registration' | 'license' | 'general'; // NEW: Document Category
+  uploadedAt: string;
+}
+
 export interface User {
   id: string;
   uid: string;
@@ -17,6 +25,21 @@ export interface User {
   biometricRegisteredAt?: any;
   createdAt?: any;
   permissions?: string[]; // Array of allowed page IDs
+  
+  // New Fields for Compliance Visuals
+  jobCategory?: 'doctor' | 'technologist' | 'technician' | 'nurse' | 'rso' | 'admin' | 'reception' | 'usg';
+  licenseExpiry?: string; // YYYY-MM-DD
+  registrationExpiry?: string; // YYYY-MM-DD
+  nrrcExpiry?: string; // YYYY-MM-DD
+  nationality?: string;
+  
+  // NEW REQUESTED FIELDS
+  gender?: 'male' | 'female';
+  hireDate?: string; // YYYY-MM-DD
+  isHidden?: boolean; // For secret hiding
+  
+  // Documents
+  documents?: UserDocument[];
 }
 
 export interface Location {

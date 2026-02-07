@@ -2,14 +2,24 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { Schedule, Location, User, ActionLog, AttendanceLog } from '../types';
+import { collection, query, where, onSnapshot, getDocs, getDoc, doc } from 'firebase/firestore';
+import { Schedule, Location, User, ActionLog, AttendanceLog, SavedTemplate } from '../types';
 import Loading from '../components/Loading';
 import { useLanguage } from '../contexts/LanguageContext';
+import { PrintHeader, PrintFooter } from '../components/PrintLayout';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 
-// --- CONSTANTS FOR DATES ---
+// Import View Components for Read-Only Display
+import GeneralScheduleView from '../components/schedule/GeneralScheduleView';
+import FridayScheduleView from '../components/schedule/FridayScheduleView';
+import HolidayScheduleView from '../components/schedule/HolidayScheduleView';
+import DoctorScheduleView from '../components/schedule/DoctorScheduleView';
+import DoctorFridayScheduleView from '../components/schedule/DoctorFridayScheduleView';
+import ExceptionScheduleView from '../components/schedule/ExceptionScheduleView';
+import RamadanScheduleView from '../components/schedule/RamadanScheduleView';
+
+// --- CONSTANTS & HELPERS ---
 const RAMADAN_RANGES = [
     { start: '2024-03-10', end: '2024-04-09' },
     { start: '2025-02-15', end: '2025-03-30' },
@@ -28,33 +38,30 @@ const EID_RANGES = [
     { start: '2026-05-23', end: '2026-06-02', name: 'EID AL ADHA' }, 
 ];
 
-// Specific Single Day Holidays
 const NATIONAL_HOLIDAYS = [
-    { month: '02', day: '22', name: 'FOUNDING DAY', icon: 'fa-chess-rook' },
-    { month: '09', day: '23', name: 'NATIONAL DAY', icon: 'fa-flag' }
+    { month: '02', day: '22', name: 'FOUNDING DAY', icon: 'fa-chess-rook' }, 
+    { month: '09', day: '23', name: 'NATIONAL DAY', icon: 'fa-flag' }      
 ];
 
-// --- VISUAL COMPONENTS (OPTIMIZED) ---
-
+// --- HOLIDAY OVERLAY COMPONENTS ---
 const BalloonsOverlay = () => {
-    // Generate random balloons
-    const balloons = Array.from({ length: 20 }).map((_, i) => {
+    const balloons = Array.from({ length: 50 }).map((_, i) => {
         const colors = [
-            { bg: 'rgba(239, 68, 68, 0.9)', shine: 'rgba(255, 200, 200, 0.8)' }, // Red
-            { bg: 'rgba(59, 130, 246, 0.9)', shine: 'rgba(200, 200, 255, 0.8)' }, // Blue
-            { bg: 'rgba(34, 197, 94, 0.9)', shine: 'rgba(200, 255, 200, 0.8)' }, // Green
-            { bg: 'rgba(234, 179, 8, 0.9)', shine: 'rgba(255, 255, 200, 0.8)' }, // Yellow
-            { bg: 'rgba(168, 85, 247, 0.9)', shine: 'rgba(240, 200, 255, 0.8)' }, // Purple
-            { bg: 'rgba(236, 72, 153, 0.9)', shine: 'rgba(255, 200, 240, 0.8)' }, // Pink
-            { bg: 'rgba(249, 115, 22, 0.9)', shine: 'rgba(255, 220, 200, 0.8)' }, // Orange
+            { bg: 'rgba(239, 68, 68, 0.9)', shine: 'rgba(255, 200, 200, 0.8)' }, 
+            { bg: 'rgba(59, 130, 246, 0.9)', shine: 'rgba(200, 200, 255, 0.8)' }, 
+            { bg: 'rgba(34, 197, 94, 0.9)', shine: 'rgba(200, 255, 200, 0.8)' }, 
+            { bg: 'rgba(234, 179, 8, 0.9)', shine: 'rgba(255, 255, 200, 0.8)' }, 
+            { bg: 'rgba(168, 85, 247, 0.9)', shine: 'rgba(240, 200, 255, 0.8)' }, 
+            { bg: 'rgba(236, 72, 153, 0.9)', shine: 'rgba(255, 200, 240, 0.8)' }, 
+            { bg: 'rgba(249, 115, 22, 0.9)', shine: 'rgba(255, 220, 200, 0.8)' }, 
+            { bg: 'rgba(255, 255, 255, 0.9)', shine: 'rgba(255, 255, 255, 0.8)' }, 
         ];
         const color = colors[Math.floor(Math.random() * colors.length)];
-        
         return {
-            left: `${Math.random() * 90 + 5}%`,
+            left: `${Math.random() * 95}%`,
             animationDelay: `${Math.random() * 5}s`,
-            animationDuration: `${6 + Math.random() * 6}s`,
-            scale: 0.8 + Math.random() * 0.4,
+            animationDuration: `${5 + Math.random() * 7}s`,
+            scale: 0.6 + Math.random() * 0.6,
             color: color.bg,
             shine: color.shine,
             swayDuration: `${3 + Math.random() * 2}s`
@@ -64,101 +71,39 @@ const BalloonsOverlay = () => {
     return (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
             {balloons.map((b, i) => (
-                <div 
-                    key={i}
-                    className="absolute bottom-[-150px] z-10"
-                    style={{
-                        left: b.left,
-                        animation: `floatUp ${b.animationDuration} linear infinite`,
-                        animationDelay: b.animationDelay,
-                        transform: `scale(${b.scale})`
-                    }}
-                >
-                    {/* Balloon Body */}
-                    <div 
-                        className="w-12 h-14 relative"
-                        style={{
-                            background: `radial-gradient(circle at 30% 30%, ${b.shine} 0%, ${b.color} 30%, ${b.color} 80%, rgba(0,0,0,0.1) 100%)`,
-                            borderRadius: '50% 50% 50% 50% / 40% 40% 60% 60%',
-                            boxShadow: 'inset -5px -5px 10px rgba(0,0,0,0.1), 2px 5px 10px rgba(0,0,0,0.15)',
-                            animation: `sway ${b.swayDuration} ease-in-out infinite alternate`
-                        }}
-                    >
-                        {/* Reflection spot */}
+                <div key={i} className="absolute bottom-[-150px] z-10" style={{ left: b.left, animation: `floatUp ${b.animationDuration} linear infinite`, animationDelay: b.animationDelay, transform: `scale(${b.scale})` }}>
+                    <div className="w-12 h-14 relative" style={{ background: `radial-gradient(circle at 30% 30%, ${b.shine} 0%, ${b.color} 30%, ${b.color} 80%, rgba(0,0,0,0.1) 100%)`, borderRadius: '50% 50% 50% 50% / 40% 40% 60% 60%', boxShadow: 'inset -5px -5px 10px rgba(0,0,0,0.1), 2px 5px 10px rgba(0,0,0,0.15)', animation: `sway ${b.swayDuration} ease-in-out infinite alternate` }}>
                         <div className="absolute top-[20%] left-[20%] w-2 h-4 bg-white/40 rounded-full rotate-[-45deg] blur-[1px]"></div>
-                        
-                        {/* Knot */}
-                        <div 
-                            className="absolute bottom-[-3px] left-1/2 -translate-x-1/2 w-1.5 h-1.5"
-                            style={{ backgroundColor: b.color, borderRadius: '50%' }}
-                        ></div>
-                        
-                        {/* String */}
+                        <div className="absolute bottom-[-3px] left-1/2 -translate-x-1/2 w-1.5 h-1.5" style={{ backgroundColor: b.color, borderRadius: '50%' }}></div>
                         <div className="absolute top-full left-1/2 -translate-x-1/2 w-[1px] h-24 bg-white/40 origin-top animate-string-wave"></div>
                     </div>
                 </div>
             ))}
-            <style>{`
-                @keyframes floatUp {
-                    0% { transform: translateY(0) scale(1); opacity: 0; }
-                    10% { opacity: 1; }
-                    100% { transform: translateY(-800px) scale(1); opacity: 0.8; }
-                }
-                @keyframes sway {
-                    0% { transform: rotate(-5deg); }
-                    100% { transform: rotate(5deg); }
-                }
-                @keyframes string-wave {
-                    0% { transform: translateX(-50%) rotate(0deg) scaleY(1); }
-                    50% { transform: translateX(-50%) rotate(2deg) scaleY(0.95); }
-                    100% { transform: translateX(-50%) rotate(-2deg) scaleY(1); }
-                }
-            `}</style>
+            <style>{`@keyframes floatUp { 0% { transform: translateY(0) scale(1); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateY(-800px) scale(1); opacity: 0; } } @keyframes sway { 0% { transform: rotate(-5deg); } 100% { transform: rotate(5deg); } } @keyframes string-wave { 0% { transform: translateX(-50%) rotate(0deg) scaleY(1); } 50% { transform: translateX(-50%) rotate(2deg) scaleY(0.95); } 100% { transform: translateX(-50%) rotate(-2deg) scaleY(1); } }`}</style>
         </div>
     );
 };
 
 const SheepOverlay = () => {
-    // Generate floating sheep/clouds
     const sheep = Array.from({ length: 8 }).map((_, i) => ({
-        top: `${Math.random() * 80}%`,
+        top: `${10 + Math.random() * 60}%`,
         animationDelay: `${Math.random() * 5}s`,
         animationDuration: `${10 + Math.random() * 10}s`,
         size: 20 + Math.random() * 20
     }));
-
     return (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-            <div className="absolute inset-0 bg-green-100/10"></div>
+            <div className="absolute bottom-0 left-0 w-full h-1/3 bg-gradient-to-t from-green-100/20 to-transparent"></div>
             {sheep.map((s, i) => (
-                <div 
-                    key={i}
-                    className="absolute opacity-60 text-4xl animate-bounce-slow"
-                    style={{
-                        top: s.top,
-                        left: '-50px',
-                        fontSize: `${s.size}px`,
-                        animation: `walkAcross ${s.animationDuration} linear infinite`,
-                        animationDelay: s.animationDelay,
-                    }}
-                >
-                    🐑
-                </div>
+                <div key={i} className="absolute opacity-80 animate-bounce-slow" style={{ top: s.top, left: '-50px', fontSize: `${s.size}px`, animation: `walkAcross ${s.animationDuration} linear infinite`, animationDelay: s.animationDelay, textShadow: '0 2px 5px rgba(0,0,0,0.2)' }}>🐑</div>
             ))}
-            <style>{`
-                @keyframes walkAcross {
-                    0% { transform: translateX(-50px) rotate(0deg); }
-                    25% { transform: translateX(100px) rotate(-5deg); }
-                    50% { transform: translateX(250px) rotate(5deg); }
-                    75% { transform: translateX(400px) rotate(-5deg); }
-                    100% { transform: translateX(600px) rotate(0deg); }
-                }
-            `}</style>
+            <style>{`@keyframes walkAcross { 0% { transform: translateX(-50px) rotate(0deg); opacity: 0; } 10% { opacity: 0.8; } 25% { transform: translateX(100px) rotate(-5deg); } 50% { transform: translateX(250px) rotate(5deg); } 75% { transform: translateX(400px) rotate(-5deg); opacity: 0.8; } 100% { transform: translateX(600px) rotate(0deg); opacity: 0; } }`}</style>
         </div>
     );
 };
 
-// --- Helper Functions ---
+// ... (Keep existing helper functions: convertTo24Hour, parseMultiShifts, formatTime12, formatDateSimple, isDateInMonth, parseDateString, isOverlap, getNationalHoliday, getIslamicOccasion, checkRamadanOverlap, checkEidOverlap, getEidName, getEidNameForRange, SHIFT_DESCRIPTIONS, PersonalNotepad, Barcode)
+// Copied existing helper functions to ensure they are available
 const convertTo24Hour = (timeStr: string): string | null => {
     if (!timeStr) return null;
     let s = timeStr.toLowerCase().trim();
@@ -225,12 +170,12 @@ const isDateInMonth = (dateStr: string, targetMonth: string) => {
     if (dateStr.startsWith(targetMonth)) return true;
     const parts = dateStr.split(/[-/]/);
     if (parts.length === 3) {
-        if (parts[2].length === 4) {
+        if (parts[2].length === 4) { 
             const y = parts[2];
             const m = parts[1].padStart(2, '0');
             return `${y}-${m}` === targetMonth;
         }
-        if (parts[0].length === 4) {
+        if (parts[0].length === 4) { 
             const y = parts[0];
             const m = parts[1].padStart(2, '0');
             return `${y}-${m}` === targetMonth;
@@ -242,7 +187,7 @@ const isDateInMonth = (dateStr: string, targetMonth: string) => {
 const parseDateString = (dateStr: string): Date | null => {
     if (!dateStr) return null;
     let d = new Date(dateStr);
-    if (!isNaN(d.getTime())) return d; 
+    if (!isNaN(d.getTime())) return d;
     const parts = dateStr.split(/[-/]/);
     if (parts.length === 3) {
         if (parts[0].length === 4) {
@@ -265,31 +210,27 @@ const getNationalHoliday = (dateStr: string | undefined): { name: string, icon: 
     if (!dateStr) return null;
     const date = parseDateString(dateStr);
     if (!date) return null;
-    
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
-    
     for (const h of NATIONAL_HOLIDAYS) {
         if (h.month === m && h.day === d) return { name: h.name, icon: h.icon };
     }
     return null;
 };
 
-const getIslamicOccasion = (dateStr: string | undefined): { type: 'ramadan' | 'eid', name?: string } | null => {
+const getIslamicOccasion = (dateStr: string | undefined): 'ramadan' | 'eid' | null => {
     if (!dateStr) return null;
     const date = parseDateString(dateStr);
     if (!date) return null;
-    
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
     const isoDate = `${y}-${m}-${d}`;
-
     for (const range of RAMADAN_RANGES) {
-        if (isoDate >= range.start && isoDate <= range.end) return { type: 'ramadan' };
+        if (isoDate >= range.start && isoDate <= range.end) return 'ramadan';
     }
     for (const range of EID_RANGES) {
-        if (isoDate >= range.start && isoDate <= range.end) return { type: 'eid', name: range.name };
+        if (isoDate >= range.start && isoDate <= range.end) return 'eid';
     }
     return null;
 };
@@ -297,7 +238,10 @@ const getIslamicOccasion = (dateStr: string | undefined): { type: 'ramadan' | 'e
 const checkRamadanOverlap = (validFrom: string | undefined, validTo: string | undefined, monthStr?: string): boolean => {
     let start = validFrom;
     let end = validTo;
-    if (!start && monthStr) { start = `${monthStr}-01`; end = `${monthStr}-28`; }
+    if (!start && monthStr) {
+        start = `${monthStr}-01`;
+        end = `${monthStr}-28`;
+    }
     const safeStart = start || '0000-00-00';
     const safeEnd = end || '9999-99-99';
     for (const range of RAMADAN_RANGES) {
@@ -306,18 +250,40 @@ const checkRamadanOverlap = (validFrom: string | undefined, validTo: string | un
     return false;
 };
 
-const checkEidOverlap = (validFrom: string | undefined, validTo: string | undefined, monthStr?: string): { isEid: boolean, name?: string } => {
+const checkEidOverlap = (validFrom: string | undefined, validTo: string | undefined, monthStr?: string): boolean => {
     let start = validFrom;
     let end = validTo;
     if (!start && monthStr) { start = `${monthStr}-01`; end = `${monthStr}-28`; }
     const safeStart = start || '0000-00-00';
     const safeEnd = end || '9999-99-99';
-
     for (const range of EID_RANGES) {
-        if (isOverlap(safeStart, safeEnd, range.start, range.end)) return { isEid: true, name: range.name };
+        if (isOverlap(safeStart, safeEnd, range.start, range.end)) return true;
     }
-    return { isEid: false };
+    return false;
 };
+
+const getEidName = (dateStr: string | undefined): string | null => {
+    if (!dateStr) return null;
+    const date = parseDateString(dateStr);
+    if (!date) return null;
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    const isoDate = `${y}-${m}-${d}`;
+    for (const range of EID_RANGES) {
+        if (isoDate >= range.start && isoDate <= range.end) return range.name;
+    }
+    return null;
+}
+
+const getEidNameForRange = (validFrom: string | undefined, validTo: string | undefined): string | null => {
+    if (!validFrom) return null;
+    const end = validTo || '2030-12-31';
+    for (const range of EID_RANGES) {
+        if (isOverlap(validFrom, end, range.start, range.end)) return range.name;
+    }
+    return null;
+}
 
 const SHIFT_DESCRIPTIONS: Record<string, string> = {
     'Straight Morning': '9am-5pm\nXRAYS + USG',
@@ -336,7 +302,7 @@ const PersonalNotepad: React.FC = () => {
         localStorage.setItem('usr_personal_note', val);
     };
     return (
-        <div className="bg-yellow-50 rounded-2xl p-4 shadow-inner border border-yellow-200 relative group h-full transition-all animate-fade-in-down mb-6">
+        <div className="bg-yellow-50 rounded-2xl p-4 shadow-inner border border-yellow-200 relative group h-full transition-all animate-fade-in-down mb-6 print:hidden">
             <div className="flex justify-between items-center mb-2">
                 <h4 className="font-bold text-yellow-800 text-sm flex items-center gap-2">
                     <i className="fas fa-sticky-note"></i> Personal Notes
@@ -370,6 +336,12 @@ const UserSchedule: React.FC = () => {
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
     const [isNoteOpen, setIsNoteOpen] = useState(false);
     const [punchedDates, setPunchedDates] = useState<Set<string>>(new Set());
+    
+    // --- View Mode State (Cards vs Full Table) ---
+    const [viewMode, setViewMode] = useState<'cards' | 'full'>('cards');
+    
+    // --- Saved Template for Full View ---
+    const [publishedData, setPublishedData] = useState<SavedTemplate | null>(null);
 
     useEffect(() => {
         setLoading(true);
@@ -378,6 +350,7 @@ const UserSchedule: React.FC = () => {
         });
 
         if (currentUserId) {
+            // My Schedule (Cards) Data Fetch
             const [y, m] = selectedMonth.split('-');
             const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId));
             const unsubLogs = onSnapshot(qLogs, (snap) => {
@@ -389,9 +362,10 @@ const UserSchedule: React.FC = () => {
                 setPunchedDates(dates);
             });
 
+            // Start date of selected month
             const d = new Date(parseInt(y), parseInt(m) - 1, 1);
             const monthsToFetch = [];
-            for (let i = -2; i <= 2; i++) {
+            for (let i = -3; i <= 2; i++) {
                 const temp = new Date(d);
                 temp.setMonth(d.getMonth() + i);
                 monthsToFetch.push(temp.toISOString().slice(0, 7));
@@ -405,12 +379,15 @@ const UserSchedule: React.FC = () => {
             const unsubSch = onSnapshot(qSch, snap => {
                 const fetchedData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule));
                 
+                const [selY, selM] = selectedMonth.split('-').map(Number);
+                const lastDay = new Date(selY, selM, 0).getDate(); 
+                const monthStart = `${selectedMonth}-01`;
+                const monthEnd = `${selectedMonth}-${lastDay}`;
+                
                 const data = fetchedData.filter(sch => {
                     if (sch.month === selectedMonth) return true;
                     if (sch.date) return isDateInMonth(sch.date, selectedMonth);
                     if (sch.validFrom) {
-                        const monthStart = `${selectedMonth}-01`;
-                        const monthEnd = `${selectedMonth}-31`; 
                         const vFrom = sch.validFrom;
                         const vTo = sch.validTo || '9999-99-99';
                         return vFrom <= monthEnd && vTo >= monthStart;
@@ -418,14 +395,15 @@ const UserSchedule: React.FC = () => {
                     return false;
                 });
 
+                // Actions (Leaves)
                 const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
-                const unsubActions = onSnapshot(qActions, actionSnap => {
+                getDocs(qActions).then(actionSnap => {
                     const fetchedActions = actionSnap.docs
                         .map(d => ({ id: d.id, ...d.data() } as ActionLog))
                         .filter(a => {
                             const start = a.fromDate;
                             const end = a.toDate;
-                            return (start && start <= `${selectedMonth}-31` && end >= `${selectedMonth}-01`);
+                            return (start <= monthEnd && end >= monthStart);
                         });
                     
                     const actionSchedules: Schedule[] = [];
@@ -453,12 +431,16 @@ const UserSchedule: React.FC = () => {
 
                     const actionDates = new Set(actionSchedules.map(s => s.date));
                     const filteredRegularSchedules = data.filter(s => !s.date || !actionDates.has(s.date));
-                    
                     const combined = [...filteredRegularSchedules, ...actionSchedules];
+                    
                     combined.sort((a, b) => {
                         const dateA = a.date || a.validFrom || '9999-99-99';
                         const dateB = b.date || b.validFrom || '9999-99-99';
-                        return dateA.localeCompare(dateB);
+                        const dateDiff = dateA.localeCompare(dateB);
+                        if (dateDiff !== 0) return dateDiff;
+                        const tA = a.createdAt?.seconds || 0;
+                        const tB = b.createdAt?.seconds || 0;
+                        return tA - tB;
                     });
 
                     setSchedules(combined);
@@ -470,6 +452,29 @@ const UserSchedule: React.FC = () => {
         setLoading(false);
         return () => { unsubLocs(); }
     }, [selectedMonth, currentUserId]);
+
+    // --- FULL SCHEDULE VIEW FETCH (FROM SAVED TEMPLATES) ---
+    useEffect(() => {
+        if (viewMode === 'full') {
+            setLoading(true);
+            const fetchPublished = async () => {
+                try {
+                    const docRef = doc(db, 'monthly_publishes', selectedMonth);
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) {
+                        setPublishedData(docSnap.data() as SavedTemplate);
+                    } else {
+                        setPublishedData(null);
+                    }
+                } catch(e) {
+                    console.error("Error fetching published schedule", e);
+                } finally {
+                    setLoading(false);
+                }
+            };
+            fetchPublished();
+        }
+    }, [viewMode, selectedMonth]);
 
     const getLocationName = useCallback((sch: Schedule) => {
         if (sch.locationId === 'LEAVE_ACTION') {
@@ -487,8 +492,10 @@ const UserSchedule: React.FC = () => {
         if (sch.locationId === 'Holiday Shift') {
              const parts = (sch.note || '').split(' - ');
              if (parts.length >= 2 && parts[0] === 'Holiday') {
-                 display = parts[1];
-                 if (parts.length > 2 && parts[2]) display += ` - ${parts[2]}`;
+                 display = parts[1]; 
+                 if (parts.length > 2 && parts[2]) {
+                     display += ` - ${parts[2]}`;
+                 }
              } else {
                  display = 'HOLIDAY SHIFT';
              }
@@ -509,6 +516,7 @@ const UserSchedule: React.FC = () => {
         return display;
     }, [locations]);
 
+    // Enhanced Status Logic with Absence Detection AND Manual Flag
     const getTicketStatus = (sch: Schedule) => {
         if (sch.locationId === 'LEAVE_ACTION') {
             if ((sch.note || '').includes('absence')) return { label: 'ABSENT', theme: 'red', icon: 'fa-user-slash', isAction: true };
@@ -517,14 +525,21 @@ const UserSchedule: React.FC = () => {
 
         const isSwap = (sch.locationId || '').toLowerCase().includes('swap') || (sch.note || '').toLowerCase().includes('swap');
         
+        const isManualRamadan = sch.isRamadan === true;
+        const isExplicitNotRamadan = sch.isRamadan === false;
+
         if (!sch.date) {
-          const isRamadanRange = checkRamadanOverlap(sch.validFrom, sch.validTo, sch.month);
-          const eidRange = checkEidOverlap(sch.validFrom, sch.validTo, sch.month);
+          let isRamadanRange = false;
+          if (isManualRamadan) isRamadanRange = true;
+          else if (isExplicitNotRamadan) isRamadanRange = false;
+          else isRamadanRange = checkRamadanOverlap(sch.validFrom, sch.validTo, sch.month);
+          
+          const isEidRange = checkEidOverlap(sch.validFrom, sch.validTo, sch.month);
 
           if(sch.locationId === 'common_duty') return { label: isRamadanRange ? 'RAMADAN' : 'GENERAL', theme: isRamadanRange ? 'indigo' : 'purple', icon: isRamadanRange ? 'fa-moon' : 'fa-layer-group', isHoliday: false, isRamadan: isRamadanRange };
           
           if(sch.locationId === 'Holiday Shift') {
-              if (eidRange.isEid) return { label: eidRange.name || 'EID MUBARAK', theme: 'teal', icon: 'fa-star', isHoliday: true, isEid: true, eidName: eidRange.name };
+              if (isEidRange) return { label: 'EID MUBARAK', theme: 'teal', icon: 'fa-star', isHoliday: true, isEid: true };
               return { label: 'HOLIDAY', theme: 'rose', icon: 'fa-gift', isHoliday: true };
           }
           
@@ -538,31 +553,32 @@ const UserSchedule: React.FC = () => {
         today.setHours(0,0,0,0); 
         shiftDate.setHours(0,0,0,0);
         
+        const occasion = getIslamicOccasion(sch.date);
+        let isRamadan = false;
+        if (isManualRamadan) isRamadan = true;
+        else if (isExplicitNotRamadan) isRamadan = false;
+        else isRamadan = occasion === 'ramadan';
+
+        const isEid = occasion === 'eid';
+        const national = getNationalHoliday(sch.date);
+
         if (shiftDate < today) {
             if (!punchedDates.has(sch.date)) {
                 return { label: 'ABSENT', theme: 'red', icon: 'fa-times-circle', isAbsent: true };
             }
-            const national = getNationalHoliday(sch.date);
-            const occasion = getIslamicOccasion(sch.date);
             if (national) return { label: 'COMPLETED', theme: 'emerald', icon: 'fa-check-circle', grayscale: true, isNational: true };
-            if (occasion?.type === 'ramadan') return { label: 'COMPLETED', theme: 'indigo', icon: 'fa-check-circle', grayscale: true, isRamadan: true };
+            if (isRamadan) return { label: 'COMPLETED', theme: 'indigo', icon: 'fa-check-circle', grayscale: true, isRamadan: true };
             return { label: 'COMPLETED', theme: 'slate', icon: 'fa-check-circle', grayscale: true };
         }
 
-        const national = getNationalHoliday(sch.date);
-        const occasion = getIslamicOccasion(sch.date);
-        const isRamadan = occasion?.type === 'ramadan';
-        const isEid = occasion?.type === 'eid';
-        const eidName = occasion?.name;
-
-        if (isSwap) return { label: 'SWAP', theme: 'violet', icon: 'fa-exchange-alt', pulse: true, isRamadan, isEid, eidName };
+        if (isSwap) return { label: 'SWAP', theme: 'violet', icon: 'fa-exchange-alt', pulse: true, isRamadan, isEid };
         
         if (shiftDate.getTime() === today.getTime()) {
-            return { label: 'TODAY', theme: 'amber', icon: 'fa-briefcase', pulse: true, isRamadan, isEid, eidName, isNational: !!national };
+            return { label: 'TODAY', theme: 'amber', icon: 'fa-briefcase', pulse: true, isRamadan, isEid, isNational: !!national };
         }
         
         if (national) return { label: national.name, theme: 'emerald', icon: national.icon, isNational: true };
-        if (isEid) return { label: eidName || 'EID MUBARAK', theme: 'teal', icon: 'fa-star', isEid: true, eidName };
+        if (isEid) return { label: 'EID MUBARAK', theme: 'teal', icon: 'fa-star', isEid: true };
         if (isRamadan) return { label: 'RAMADAN', theme: 'indigo', icon: 'fa-moon', isRamadan: true };
 
         if (sch.locationId.includes('Friday')) return { label: 'FRIDAY', theme: 'emerald', icon: 'fa-mosque' };
@@ -576,8 +592,7 @@ const UserSchedule: React.FC = () => {
         if (isGrayscale) return 'bg-gradient-to-r from-slate-200 to-slate-300 text-slate-500 border-slate-300';
         if (isNational) return 'bg-gradient-to-br from-emerald-700 via-green-800 to-teal-900 text-white border-amber-400';
         if (isRamadan) return 'bg-gradient-to-br from-indigo-900 via-slate-800 to-indigo-900 text-amber-100 border-amber-500/50';
-        if (isEid) return 'bg-gradient-to-br from-pink-500 via-purple-500 to-indigo-500 text-white border-pink-300';
-
+        if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-white border-pink-300';
         const themes: Record<string, string> = {
             purple: 'bg-gradient-to-br from-purple-700 via-purple-600 to-indigo-700 text-white border-purple-500',
             rose: 'bg-gradient-to-br from-rose-600 via-pink-600 to-red-600 text-white border-rose-500',
@@ -594,9 +609,126 @@ const UserSchedule: React.FC = () => {
         return themes[theme] || themes.blue;
     };
 
+    // --- RENDER FULL VISUAL VIEW (READ ONLY) ---
+    const RenderFullVisualSchedule = () => {
+        if (!publishedData) {
+            return (
+                <div className="text-center py-20 text-slate-400">
+                    <i className="fas fa-file-excel text-4xl mb-4 opacity-50"></i>
+                    <p className="font-bold">No Published Schedule found for {selectedMonth}</p>
+                    <p className="text-xs mt-2">The supervisor hasn't published the official schedule yet.</p>
+                </div>
+            );
+        }
+
+        // Check if Ramadan data exists
+        const hasRamadan = publishedData.ramadanData && publishedData.ramadanData.some((c: any) => c.staff.length > 0);
+
+        return (
+            <div className="space-y-12">
+                
+                {/* 1. GENERAL DUTY */}
+                <div className="break-after-page">
+                    <GeneralScheduleView 
+                        data={publishedData.generalData} 
+                        commonDuties={publishedData.commonDuties} 
+                        isEditing={false} // Read Only
+                        publishMonth={publishedData.targetMonth || selectedMonth} 
+                        globalStartDate={publishedData.globalStartDate || ''} 
+                        globalEndDate={publishedData.globalEndDate || ''}
+                        setGlobalStartDate={()=>{}} setGlobalEndDate={()=>{}}
+                        scheduleNote={publishedData.scheduleNote || ''} setScheduleNote={()=>{}}
+                        onUpdateColumn={()=>{}} onUpdateDuty={()=>{}} onAddColumn={()=>{}} onRemoveColumn={()=>{}} onReorderColumns={()=>{}} onAddDuty={()=>{}} onRemoveDuty={()=>{}}
+                        locations={[]} allUsers={[]} searchTerm=""
+                    />
+                </div>
+
+                {/* 2. RAMADAN (If exists) */}
+                {hasRamadan && (
+                     <div className="break-after-page">
+                         <RamadanScheduleView
+                            ramadanData={publishedData.ramadanData || []}
+                            setRamadanData={()=>{}}
+                            ramadanCommonDuties={publishedData.ramadanCommonDuties || []}
+                            setRamadanCommonDuties={()=>{}}
+                            ramadanFridayData={publishedData.ramadanFridayData || []}
+                            setRamadanFridayData={()=>{}}
+                            ramadanFridayColumns={publishedData.ramadanFridayColumns || []}
+                            setRamadanFridayColumns={()=>{}}
+                            ramadanStartDate="" setRamadanStartDate={()=>{}}
+                            ramadanEndDate="" setRamadanEndDate={()=>{}}
+                            scheduleNote={publishedData.ramadanScheduleNote || ''} setScheduleNote={()=>{}}
+                            isEditing={false}
+                            allUsers={[]} locations={[]} savedTemplates={[]}
+                         />
+                     </div>
+                )}
+
+                {/* 3. FRIDAY SHIFTS */}
+                <div className="break-after-page">
+                     <FridayScheduleView 
+                        data={publishedData.fridayData} 
+                        isEditing={false} 
+                        allUsers={[]} 
+                        publishMonth={publishedData.targetMonth || selectedMonth}
+                        onUpdateRow={()=>{}} onAddRow={()=>{}} onRemoveRow={()=>{}}
+                        columns={publishedData.fridayColumns || []}
+                        onUpdateColumn={()=>{}} onRemoveColumn={()=>{}}
+                        searchTerm=""
+                    />
+                </div>
+
+                {/* 4. HOLIDAYS */}
+                <div className="break-after-page">
+                     <HolidayScheduleView 
+                        data={publishedData.holidayData} 
+                        isEditing={false} 
+                        allUsers={[]} 
+                        publishMonth={publishedData.targetMonth || selectedMonth}
+                        onUpdateRow={()=>{}} onAddRow={()=>{}} onRemoveRow={()=>{}}
+                        columns={publishedData.holidayColumns || []}
+                        onUpdateColumn={()=>{}} onRemoveColumn={()=>{}}
+                        searchTerm=""
+                        scheduleNote={publishedData.holidayScheduleNote || ''} 
+                        setScheduleNote={()=>{}} 
+                    />
+                </div>
+
+                {/* 5. EXCEPTIONS */}
+                {(publishedData.exceptions || []).length > 0 && (
+                     <div className="break-after-page">
+                        <ExceptionScheduleView 
+                            exceptions={publishedData.exceptions || []}
+                            setExceptions={()=>{}}
+                            isEditing={false}
+                            allUsers={[]} locations={[]} savedTemplates={[]}
+                        />
+                     </div>
+                )}
+                
+                {/* 6. DOCTORS */}
+                <div className="break-after-page">
+                    <DoctorScheduleView 
+                        data={publishedData.doctorData || []} 
+                        isEditing={false} 
+                        allUsers={[]} publishMonth={publishedData.targetMonth || selectedMonth}
+                        onUpdateRow={()=>{}} onAddRow={()=>{}} onRemoveRow={()=>{}}
+                        columns={publishedData.doctorColumns || []}
+                        onUpdateColumn={()=>{}} onRemoveColumn={()=>{}}
+                        searchTerm=""
+                    />
+                </div>
+            </div>
+        );
+    }
+
+    if (loading) return <Loading />;
+
     return (
-        <div className="max-w-5xl mx-auto px-4 pb-20 pt-6 animate-fade-in" dir={dir}>
-            <div className="flex flex-col md:flex-row justify-between items-center mb-8">
+        <div className="max-w-5xl mx-auto px-4 pb-20 pt-6 animate-fade-in print:max-w-none print:p-0 print:m-0" dir={dir}>
+            
+            {/* Header - Hidden on Print */}
+            <div className="flex flex-col md:flex-row justify-between items-center mb-8 print:hidden">
                 <div className="flex items-center gap-4">
                     <button onClick={() => navigate('/user')} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-300 transition-colors">
                         <i className="fas fa-arrow-left rtl:rotate-180"></i>
@@ -605,10 +737,25 @@ const UserSchedule: React.FC = () => {
                 </div>
                 
                 <div className="flex items-center gap-3 mt-4 md:mt-0 bg-white p-2 rounded-xl shadow-sm border border-slate-200">
-                    <button onClick={() => setIsNoteOpen(!isNoteOpen)} className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all flex items-center gap-2 ${isNoteOpen ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-yellow-50'}`}>
-                        <i className="fas fa-sticky-note"></i> {isNoteOpen ? 'Hide' : 'Notes'}
-                    </button>
+                    {/* View Switcher */}
+                    <div className="flex bg-slate-100 p-1 rounded-lg">
+                        <button 
+                            onClick={() => setViewMode('cards')}
+                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${viewMode === 'cards' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}
+                        >
+                            <i className="fas fa-th-large mr-1"></i> My Tickets
+                        </button>
+                        <button 
+                            onClick={() => setViewMode('full')}
+                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${viewMode === 'full' ? 'bg-white shadow text-purple-600' : 'text-slate-500'}`}
+                        >
+                            <i className="fas fa-table mr-1"></i> Full Schedule
+                        </button>
+                    </div>
+
                     <div className="h-6 w-px bg-slate-200 mx-1"></div>
+
+                    {/* Month Controls */}
                     <button onClick={() => {
                         const d = new Date(selectedMonth); d.setMonth(d.getMonth() - 1); setSelectedMonth(d.toISOString().slice(0, 7));
                     }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500">
@@ -620,210 +767,245 @@ const UserSchedule: React.FC = () => {
                     }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500">
                         <i className="fas fa-chevron-left rtl:rotate-180"></i>
                     </button>
+
+                    {/* Print Button (Only in Full View) */}
+                    {viewMode === 'full' && (
+                        <button onClick={() => window.print()} className="ml-2 bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-slate-700">
+                            <i className="fas fa-print"></i> Print
+                        </button>
+                    )}
                 </div>
             </div>
-
-            {isNoteOpen && <PersonalNotepad />}
-
-            {schedules.length === 0 ? (
-                <div className="text-center py-20 bg-white rounded-3xl shadow-sm border border-dashed border-slate-200">
-                  <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
-                    <i className="fas fa-calendar-times text-3xl"></i>
-                  </div>
-                  <p className="text-slate-500 font-bold">{t('user.hero.noShift')}</p>
+            
+            {viewMode === 'cards' && isNoteOpen && <PersonalNotepad />}
+            {viewMode === 'cards' && (
+                <div className="flex justify-end mb-4 print:hidden">
+                     <button onClick={() => setIsNoteOpen(!isNoteOpen)} className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all flex items-center gap-2 ${isNoteOpen ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-yellow-50'}`}>
+                        <i className="fas fa-sticky-note"></i> {isNoteOpen ? 'Hide Notes' : 'Personal Notes'}
+                    </button>
                 </div>
+            )}
+
+            {/* --- VIEW MODE: FULL SCHEDULE (PRINTABLE) --- */}
+            {viewMode === 'full' ? (
+                <RenderFullVisualSchedule />
             ) : (
-                <div className="grid grid-cols-1 gap-8">
-                  {schedules.map((sch) => {
-                    const status = getTicketStatus(sch);
-                    const gradientClass = getGradient(status.theme || 'blue', status.grayscale || false, status.isRamadan, status.isEid, status.isNational, status.isAbsent);
-                    
-                    let detailedDesc = sch.note && SHIFT_DESCRIPTIONS[sch.note] ? SHIFT_DESCRIPTIONS[sch.note] : '';
-                    let customNote = '';
-                    if (sch.note && !SHIFT_DESCRIPTIONS[sch.note] && sch.locationId !== 'LEAVE_ACTION') {
-                        const parts = sch.note.split(' - ');
-                        if (sch.locationId === 'Holiday Shift') {
-                            if (parts.length > 2) customNote = parts.slice(2).join(' - ');
-                        } else {
-                            if (parts.length > 1) { customNote = parts.slice(1).join(' - '); } else if (sch.note !== sch.locationId) { customNote = sch.note; }
+                /* --- VIEW MODE: CARDS (MY TICKETS) --- */
+                schedules.length === 0 ? (
+                    <div className="text-center py-20 bg-white rounded-3xl shadow-sm border border-dashed border-slate-200">
+                        <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
+                            <i className="fas fa-calendar-times text-3xl"></i>
+                        </div>
+                        <p className="text-slate-500 font-bold">{t('user.hero.noShift')}</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 gap-8">
+                    {schedules.map((sch) => {
+                        const status = getTicketStatus(sch);
+                        const gradientClass = getGradient(status.theme || 'blue', status.grayscale || false, status.isRamadan, status.isEid, status.isNational, status.isAbsent);
+                        
+                        let detailedDesc = sch.note && SHIFT_DESCRIPTIONS[sch.note] ? SHIFT_DESCRIPTIONS[sch.note] : '';
+                        let customNote = '';
+                        if (sch.note && !SHIFT_DESCRIPTIONS[sch.note] && sch.locationId !== 'LEAVE_ACTION') {
+                            const parts = sch.note.split(' - ');
+                            if (sch.locationId === 'Holiday Shift') {
+                                if (parts.length > 2) customNote = parts.slice(2).join(' - ');
+                            } else {
+                                if (parts.length > 1) { customNote = parts.slice(1).join(' - '); } else if (sch.note !== sch.locationId) { customNote = sch.note; }
+                            }
                         }
-                    }
-                    
-                    let displayShifts = sch.shifts;
-                    if (!displayShifts || displayShifts.length === 0 || (displayShifts.length === 1 && displayShifts[0].start === '08:00' && displayShifts[0].end === '16:00' && sch.note && sch.note.match(/\d/))) {
-                         const extracted = parseMultiShifts(sch.note || "");
-                         if (extracted.length > 0) displayShifts = extracted;
-                    }
-                    if (!displayShifts || displayShifts.length === 0) displayShifts = [{ start: '08:00', end: '16:00' }];
+                        
+                        let displayShifts = sch.shifts;
+                        if (!displayShifts || displayShifts.length === 0 || (displayShifts.length === 1 && displayShifts[0].start === '08:00' && displayShifts[0].end === '16:00' && sch.note && sch.note.match(/\d/))) {
+                            const extracted = parseMultiShifts(sch.note || "");
+                            if (extracted.length > 0) displayShifts = extracted;
+                        }
+                        if (!displayShifts || displayShifts.length === 0) displayShifts = [{ start: '08:00', end: '16:00' }];
 
-                    const isValidityTicket = !sch.date && sch.validFrom;
-                    const validFromStr = sch.validFrom ? formatDateSimple(sch.validFrom) : '???';
-                    const validToStr = sch.validTo ? formatDateSimple(sch.validTo) : 'End of Month';
-                    let displayDateObj = sch.date ? parseDateString(sch.date) : null;
+                        const isValidityTicket = !sch.date && sch.validFrom;
+                        const validFromStr = sch.validFrom ? formatDateSimple(sch.validFrom) : '???';
+                        const validToStr = sch.validTo ? formatDateSimple(sch.validTo) : 'End of Month';
+                        let displayDateObj = sch.date ? parseDateString(sch.date) : null;
+                        const eidName = getEidName(sch.date) || getEidNameForRange(sch.validFrom, sch.validTo) || "";
+                        const isEidAdha = eidName.toUpperCase().includes("ADHA");
 
-                    // --- EID TYPE DETECTION ---
-                    const isFitr = status.isEid && (status.eidName || '').toUpperCase().includes('FITR');
-                    const isAdha = status.isEid && (status.eidName || '').toUpperCase().includes('ADHA');
-
-                    return (
-                        <div key={sch.id} className="relative group w-full flex flex-col md:flex-row shadow-2xl transition-all duration-500 transform hover:-translate-y-2 hover:shadow-[0_20px_50px_rgba(0,0,0,0.15)] rounded-3xl overflow-hidden">
-                            
-                            <div className={`flex-1 relative overflow-hidden ${gradientClass} p-0 flex flex-col`}>
+                        return (
+                            <div key={sch.id} className="relative group w-full flex flex-col md:flex-row shadow-2xl transition-all duration-500 transform hover:-translate-y-2 hover:shadow-[0_20px_50px_rgba(0,0,0,0.15)] rounded-3xl overflow-hidden">
                                 
-                                {status.isNational && (
+                                <div className={`flex-1 relative overflow-hidden ${gradientClass} p-0 flex flex-col`}>
+                                    
+                                    {status.isNational && (
+                                        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+                                            <div className="absolute top-[-50%] right-[-10%] w-[80%] h-[150%] bg-white/5 skew-x-12"></div>
+                                            <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/20 to-transparent"></div>
+                                            <div className="absolute inset-0 flex items-center justify-center opacity-10">
+                                                <i className="fas fa-chess-rook text-[15rem] text-white transform rotate-12"></i>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {status.isRamadan && (
+                                        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+                                            <svg className="absolute top-0 left-0 w-full h-16 text-amber-200/50" preserveAspectRatio="none" viewBox="0 0 100 15">
+                                            <path d="M0 0 Q 50 15 100 0" stroke="currentColor" fill="none" strokeWidth="0.5" />
+                                            </svg>
+                                            <div className="absolute top-0 left-[15%] flex flex-col items-center animate-swing origin-top">
+                                                <div className="h-8 w-px bg-amber-200/50"></div>
+                                                <i className="fas fa-star text-amber-300 text-lg drop-shadow-md"></i>
+                                            </div>
+                                            <div className="absolute top-0 left-[50%] flex flex-col items-center animate-swing origin-top delay-700">
+                                                <div className="h-12 w-px bg-amber-200/50"></div>
+                                                <i className="fas fa-moon text-amber-200 text-2xl drop-shadow-md"></i>
+                                            </div>
+                                            <div className="absolute top-0 left-[85%] flex flex-col items-center animate-swing origin-top delay-300">
+                                                <div className="h-6 w-px bg-amber-200/50"></div>
+                                                <i className="fas fa-star text-amber-300 text-lg drop-shadow-md"></i>
+                                            </div>
+                                            <div className="absolute inset-0 flex items-center justify-center opacity-10 pointer-events-none">
+                                                <i className="fas fa-mosque text-[12rem] md:text-[18rem] text-white transform scale-125 translate-y-10"></i>
+                                            </div>
+                                            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/arabesque.png')] opacity-10 mix-blend-overlay"></div>
+                                        </div>
+                                    )}
+
+                                    {status.isEid && (
                                     <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-                                        <div className="absolute top-[-50%] right-[-10%] w-[80%] h-[150%] bg-white/5 skew-x-12"></div>
-                                        <div className="absolute inset-0 flex items-center justify-center opacity-10">
-                                            <i className="fas fa-chess-rook text-[15rem] text-white transform rotate-12"></i>
+                                        <BalloonsOverlay />
+                                        {isEidAdha && <SheepOverlay />}
+                                        <div className="absolute top-[-50px] right-[-50px] w-64 h-64 bg-yellow-300/20 rounded-full blur-3xl"></div>
+                                        <div className="absolute bottom-[-50px] left-[-50px] w-64 h-64 bg-white/10 rounded-full blur-3xl"></div>
+                                        <div className="absolute top-4 right-10 text-white/30 text-4xl animate-bounce duration-[3000ms]">
+                                            <i className="fas fa-gift"></i>
                                         </div>
-                                    </div>
-                                )}
-
-                                {status.isRamadan && (
-                                    <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-                                         <svg className="absolute top-0 left-0 w-full h-16 text-amber-200/50" preserveAspectRatio="none" viewBox="0 0 100 15">
-                                           <path d="M0 0 Q 50 15 100 0" stroke="currentColor" fill="none" strokeWidth="0.5" />
-                                         </svg>
-                                         <div className="absolute top-0 left-[15%] flex flex-col items-center animate-swing origin-top">
-                                             <div className="h-8 w-px bg-amber-200/50"></div>
-                                             <i className="fas fa-star text-amber-300 text-lg drop-shadow-md"></i>
-                                         </div>
-                                         <div className="absolute top-0 left-[50%] flex flex-col items-center animate-swing origin-top delay-700">
-                                             <div className="h-12 w-px bg-amber-200/50"></div>
-                                             <i className="fas fa-moon text-amber-200 text-2xl drop-shadow-md"></i>
-                                         </div>
-                                         <div className="absolute inset-0 flex items-center justify-center opacity-10 pointer-events-none">
-                                            <i className="fas fa-mosque text-[12rem] md:text-[18rem] text-white transform scale-125 translate-y-10"></i>
-                                         </div>
-                                    </div>
-                                )}
-
-                                {/* EID AL FITR (BALLOONS) */}
-                                {isFitr && <BalloonsOverlay />}
-
-                                {/* EID AL ADHA (SHEEP) */}
-                                {isAdha && <SheepOverlay />}
-                                
-                                <div className="absolute inset-0 opacity-20 mix-blend-overlay pointer-events-none" style={{backgroundImage: 'url("https://grainy-gradients.vercel.app/noise.svg")'}}></div>
-                                
-                                {isValidityTicket && (
-                                    <div className="bg-black/40 backdrop-blur-md border-b border-white/10 px-4 py-2 flex justify-between items-center z-20">
-                                        <div className="flex items-center gap-2 text-[10px] font-black tracking-[0.2em] text-white/90 uppercase animate-pulse">
-                                            <i className="fas fa-circle text-[6px] text-emerald-400"></i> Valid
+                                        <div className="absolute top-10 left-10 text-white/20 text-3xl animate-pulse delay-500">
+                                            <i className="fas fa-star"></i>
                                         </div>
-                                        <div className="font-mono text-xs font-bold text-white flex items-center gap-2">
-                                            <span className="opacity-70">FROM</span>
-                                            <span className="bg-white/10 px-2 rounded text-emerald-300">{validFromStr}</span>
-                                            <span className="opacity-50">➜</span>
-                                            <span className="opacity-70">TO</span>
-                                            <span className="bg-white/10 px-2 rounded text-emerald-300">{validToStr}</span>
+                                        <div className="absolute bottom-10 right-20 text-white/10 text-5xl animate-spin-slow">
+                                            <i className="fas fa-bahai"></i>
                                         </div>
+                                        <div className="absolute inset-0 bg-white/5 mix-blend-overlay" style={{backgroundImage: 'radial-gradient(circle, #fff 10%, transparent 10%)', backgroundSize: '15px 15px'}}></div>
                                     </div>
-                                )}
-
-                                <div className="p-6 md:p-8 flex flex-col h-full relative z-10">
-                                    <div className="flex justify-between items-start mb-6">
-                                        {sch.date && displayDateObj ? (
-                                            <div className="flex flex-col">
-                                                <span className={`text-sm font-bold uppercase tracking-widest opacity-70 mb-[-5px] ${status.isAbsent ? 'text-red-800' : ''}`}>{displayDateObj.toLocaleString('en-US', { month: 'long' })}</span>
-                                                <span className={`text-6xl font-black leading-none tracking-tighter drop-shadow-lg font-oswald ${status.isAbsent ? 'text-red-900' : ''}`}>{displayDateObj.getDate()}</span>
-                                                <span className={`text-xs font-medium opacity-80 uppercase tracking-wide mt-1 ${status.isAbsent ? 'text-red-800' : ''}`}>{displayDateObj.toLocaleString('en-US', { weekday: 'long' })}</span>
-                                            </div>
-                                        ) : (
-                                            <div className="flex flex-col">
-                                                <i className={`fas ${status.icon} text-4xl opacity-90 mb-2`}></i>
-                                                <span className="text-2xl font-black uppercase tracking-tight font-oswald leading-none">{status.label}</span>
-                                                <span className="text-[10px] uppercase tracking-[0.3em] opacity-60">Schedule</span>
-                                            </div>
-                                        )}
-                                        
-                                        {!isValidityTicket && (
-                                            <div className={`bg-white/20 backdrop-blur-md px-3 py-1 rounded-lg border border-white/20 text-[10px] font-black uppercase tracking-widest shadow-sm ${status.isAbsent ? 'text-red-900 bg-red-100 border-red-200' : 'text-white'}`}>
-                                                {status.isRamadan ? <><i className="fas fa-moon text-amber-300 mr-1"></i> RAMADAN</> : status.label}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="mb-8">
-                                        <p className="text-[9px] font-bold uppercase tracking-[0.3em] opacity-50 mb-1">{sch.locationId === 'LEAVE_ACTION' ? 'Status Update' : 'Assigned Unit'}</p>
-                                        <h3 className={`text-2xl md:text-4xl font-black uppercase tracking-tight leading-none drop-shadow-md font-oswald max-w-lg ${status.isAbsent ? 'text-red-900' : ''}`}>
-                                            {getLocationName(sch)}
-                                        </h3>
-                                        
-                                        <div className="flex flex-wrap gap-2 mt-3">
-                                            {customNote && ( 
-                                                <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] font-bold border border-white/10 hover:bg-white/20 transition-colors">
-                                                    <i className="fas fa-info-circle text-sky-300"></i> {customNote}
-                                                </div> 
-                                            )}
-                                            {detailedDesc && ( 
-                                                <div className="inline-flex items-center gap-2 bg-black/20 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] font-bold border border-white/5">
-                                                    {detailedDesc}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {sch.locationId !== 'LEAVE_ACTION' && !status.isAbsent && (
-                                        <div className="mt-auto space-y-3">
-                                            {displayShifts.map((s, i) => (
-                                                <div key={i} className={`flex items-center gap-4 bg-black/20 backdrop-blur-sm rounded-xl p-3 border border-white/10 hover:bg-black/30 transition-colors group/shift ${status.isRamadan ? 'border-amber-500/30' : ''}`}>
-                                                    <div className="flex flex-col min-w-[60px]">
-                                                        <span className="text-[9px] uppercase font-bold opacity-50 tracking-wider">Start</span>
-                                                        <span className={`text-xl font-mono font-bold tracking-tight group-hover/shift:text-emerald-300 transition-colors ${status.isRamadan ? 'text-amber-200' : status.isNational ? 'text-amber-100' : 'text-white'}`}>{formatTime12(s.start)}</span>
-                                                    </div>
-                                                    
-                                                    <div className="flex-1 flex flex-col justify-center relative px-2">
-                                                        <div className="h-[2px] w-full bg-gradient-to-r from-white/20 via-white/60 to-white/20 rounded-full"></div>
-                                                        <i className={`fas fa-plane text-xs absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transform rotate-90 md:rotate-0 ${status.isRamadan ? 'text-amber-300' : 'text-white/80'}`}></i>
-                                                    </div>
-
-                                                    <div className="flex flex-col text-right min-w-[60px]">
-                                                        <span className="text-[9px] uppercase font-bold opacity-50 tracking-wider">End</span>
-                                                        <span className={`text-xl font-mono font-bold tracking-tight group-hover/shift:text-emerald-300 transition-colors ${status.isRamadan ? 'text-amber-200' : status.isNational ? 'text-amber-100' : 'text-white'}`}>{formatTime12(s.end)}</span>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
                                     )}
                                     
-                                    {status.isAbsent && (
-                                        <div className="mt-auto p-4 border-2 border-dashed border-red-300 bg-white/50 rounded-xl text-center">
-                                            <p className="text-red-700 font-bold text-sm">NO ATTENDANCE RECORD</p>
-                                            <p className="text-red-500 text-[10px] mt-1">Please contact supervisor if this is an error.</p>
+                                    {isValidityTicket && (
+                                        <div className="bg-black/50 backdrop-blur-md border-b border-white/10 px-2 py-3 flex justify-between items-center z-20">
+                                            <div className="flex items-center gap-2 text-[14px] font-black tracking-[0.1em] text-white/90 uppercase animate-pulse">
+                                                <i className="fas fa-circle text-[6px] text-emerald-400"></i> Valid
+                                            </div>
+                                            <div className="font-mono text-xs font-bold text-white flex items-center gap-2">
+                                                <span className="opacity-100">FROM</span>
+                                                <span className="bg-white/10 px-2 rounded text-emerald-300">{validFromStr}</span>
+                                                <span className="opacity-100">➜</span>
+                                                <span className="opacity-100">TO</span>
+                                                <span className="bg-white/10 px-2 rounded text-emerald-300">{validToStr}</span>
+                                            </div>
                                         </div>
                                     )}
-                                </div>
-                            </div>
 
-                            <div className="relative flex-shrink-0 w-full h-6 md:w-6 md:h-auto bg-[#f1f5f9] flex md:flex-col items-center justify-between overflow-hidden z-20">
-                                <div className="absolute -left-3 md:left-auto md:-top-3 w-6 h-6 bg-[#f1f5f9] rounded-full z-30 shadow-inner"></div>
-                                <div className="absolute -right-3 md:right-auto md:-bottom-3 w-6 h-6 bg-[#f1f5f9] rounded-full z-30 shadow-inner"></div>
-                                <div className="w-full h-[2px] md:w-[2px] md:h-full border-b-2 md:border-b-0 md:border-r-2 border-dashed border-slate-300 my-auto md:mx-auto"></div>
-                            </div>
+                                    <div className="p-6 md:p-8 flex flex-col h-full relative z-10">
+                                        <div className="flex justify-between items-start mb-6">
+                                            {sch.date && displayDateObj ? (
+                                                <div className="flex flex-col">
+                                                    <span className={`text-sm font-bold uppercase tracking-widest opacity-70 mb-[-5px] ${status.isAbsent ? 'text-red-800' : ''}`}>{displayDateObj.toLocaleString('en-US', { month: 'long' })}</span>
+                                                    <span className={`text-6xl font-black leading-none tracking-tighter drop-shadow-lg font-oswald ${status.isAbsent ? 'text-red-900' : ''}`}>{displayDateObj.getDate()}</span>
+                                                    <span className={`text-xs font-medium opacity-80 uppercase tracking-wide mt-1 ${status.isAbsent ? 'text-red-800' : ''}`}>{displayDateObj.toLocaleString('en-US', { weekday: 'long' })}</span>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-col">
+                                                    <i className={`fas ${status.icon} text-4xl opacity-90 mb-2`}></i>
+                                                    <span className="text-2xl font-black uppercase tracking-tight font-oswald leading-none">{sch.periodName || status.label}</span>
+                                                    <span className="text-[10px] uppercase tracking-[0.3em] opacity-60">Schedule</span>
+                                                </div>
+                                            )}
+                                            
+                                            {!isValidityTicket && (
+                                                <div className={`bg-white/20 backdrop-blur-md px-3 py-1 rounded-lg border border-white/20 text-[10px] font-black uppercase tracking-widest shadow-sm ${status.isAbsent ? 'text-red-900 bg-red-100 border-red-200' : 'text-white'}`}>
+                                                    {status.isRamadan ? <><i className="fas fa-moon text-amber-300 mr-1"></i> RAMADAN</> : (sch.periodName || status.label)}
+                                                </div>
+                                            )}
+                                        </div>
 
-                            <div className={`w-full md:w-56 bg-white p-6 flex flex-row md:flex-col items-center justify-between gap-4 border-2 border-dashed border-slate-100 ${status.grayscale ? 'opacity-60' : ''}`}>
-                                <div className="text-center w-full hidden md:block">
-                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Class</p>
-                                    <div className={`inline-block px-4 py-1 rounded-full border-2 font-black text-xs uppercase ${status.theme === 'amber' ? 'border-amber-500 text-amber-600 bg-amber-50' : 'border-slate-800 text-slate-800 bg-slate-50'}`}>
-                                        STANDARD
+                                        <div className="mb-8">
+                                            <p className="text-[9px] font-bold uppercase tracking-[0.3em] opacity-50 mb-1">{sch.locationId === 'LEAVE_ACTION' ? 'Status Update' : 'Assigned Unit'}</p>
+                                            <h3 className={`text-2xl md:text-4xl font-black uppercase tracking-tight leading-none drop-shadow-md font-oswald max-w-lg ${status.isAbsent ? 'text-red-900' : ''}`}>
+                                                {getLocationName(sch)}
+                                            </h3>
+                                            
+                                            <div className="flex flex-wrap gap-2 mt-3">
+                                                {customNote && ( 
+                                                    <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] font-bold border border-white/10 hover:bg-white/20 transition-colors">
+                                                        <i className="fas fa-info-circle text-sky-300"></i> {customNote}
+                                                    </div> 
+                                                )}
+                                                {detailedDesc && ( 
+                                                    <div className="inline-flex items-center gap-2 bg-black/20 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] font-bold border border-white/5">
+                                                        {detailedDesc}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {sch.locationId !== 'LEAVE_ACTION' && !status.isAbsent && (
+                                            <div className="mt-auto space-y-3">
+                                                {displayShifts.map((s, i) => (
+                                                    <div key={i} className={`flex items-center gap-4 bg-black/20 backdrop-blur-sm rounded-xl p-3 border border-white/10 hover:bg-black/30 transition-colors group/shift ${status.isRamadan ? 'border-amber-500/30' : ''}`}>
+                                                        <div className="flex flex-col min-w-[60px]">
+                                                            <span className="text-[9px] uppercase font-bold opacity-50 tracking-wider">Start</span>
+                                                            <span className={`text-xl font-mono font-bold tracking-tight group-hover/shift:text-emerald-300 transition-colors ${status.isRamadan ? 'text-amber-200' : status.isNational ? 'text-amber-100' : 'text-white'}`}>{formatTime12(s.start)}</span>
+                                                        </div>
+                                                        
+                                                        <div className="flex-1 flex flex-col justify-center relative px-2">
+                                                            <div className="h-[2px] w-full bg-gradient-to-r from-white/20 via-white/60 to-white/20 rounded-full"></div>
+                                                            <i className={`fas fa-plane text-xs absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transform rotate-90 md:rotate-0 ${status.isRamadan ? 'text-amber-300' : 'text-white/80'}`}></i>
+                                                        </div>
+
+                                                        <div className="flex flex-col text-right min-w-[60px]">
+                                                            <span className="text-[9px] uppercase font-bold opacity-50 tracking-wider">End</span>
+                                                            <span className={`text-xl font-mono font-bold tracking-tight group-hover/shift:text-emerald-300 transition-colors ${status.isRamadan ? 'text-amber-200' : status.isNational ? 'text-amber-100' : 'text-white'}`}>{formatTime12(s.end)}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        
+                                        {status.isAbsent && (
+                                            <div className="mt-auto p-4 border-2 border-dashed border-red-300 bg-white/50 rounded-xl text-center">
+                                                <p className="text-red-700 font-bold text-sm">NO ATTENDANCE RECORD</p>
+                                                <p className="text-red-500 text-[10px] mt-1">Please contact supervisor if this is an error.</p>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
-                                <div className="w-24 md:w-full md:h-24 opacity-60 mix-blend-multiply rotate-90 md:rotate-0">
-                                    <Barcode />
+
+                                <div className="relative flex-shrink-0 w-full h-6 md:w-6 md:h-auto bg-[#f1f5f9] flex md:flex-col items-center justify-between overflow-hidden z-20">
+                                    <div className="absolute -left-3 md:left-auto md:-top-3 w-6 h-6 bg-[#f1f5f9] rounded-full z-30 shadow-inner"></div>
+                                    <div className="absolute -right-3 md:right-auto md:-bottom-3 w-6 h-6 bg-[#f1f5f9] rounded-full z-30 shadow-inner"></div>
+                                    <div className="w-full h-[2px] md:w-[2px] md:h-full border-b-2 md:border-b-0 md:border-r-2 border-dashed border-slate-300 my-auto md:mx-auto"></div>
                                 </div>
-                                <div className="text-right md:text-center">
-                                    <i className={`fas ${status.icon} text-3xl md:text-5xl mb-2 text-slate-200 block ${status.isRamadan ? 'text-amber-400' : ''}`}></i>
-                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Boarding</p>
-                                    <p className={`text-lg font-black ${status.grayscale ? 'text-slate-500' : 'text-slate-800'}`}>
-                                        {status.label}
-                                    </p>
+
+                                <div className={`w-full md:w-56 bg-white p-6 flex flex-row md:flex-col items-center justify-between gap-4 border-2 border-dashed border-slate-100 ${status.grayscale ? 'opacity-60' : ''}`}>
+                                    <div className="text-center w-full hidden md:block">
+                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Class</p>
+                                        <div className={`inline-block px-4 py-1 rounded-full border-2 font-black text-xs uppercase ${status.theme === 'amber' ? 'border-amber-500 text-amber-600 bg-amber-50' : 'border-slate-800 text-slate-800 bg-slate-50'}`}>
+                                            STANDARD
+                                        </div>
+                                    </div>
+                                    <div className="w-24 md:w-full md:h-24 opacity-60 mix-blend-multiply rotate-90 md:rotate-0">
+                                        <Barcode />
+                                    </div>
+                                    <div className="text-right md:text-center">
+                                        <i className={`fas ${status.icon} text-3xl md:text-5xl mb-2 text-slate-200 block ${status.isRamadan ? 'text-amber-400' : ''}`}></i>
+                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Boarding</p>
+                                        <p className={`text-lg font-black ${status.grayscale ? 'text-slate-500' : 'text-slate-800'}`}>
+                                            {sch.periodName || status.label}
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    );
-                  })}
-                </div>
+                        );
+                    })}
+                    </div>
+                )
             )}
         </div>
     );

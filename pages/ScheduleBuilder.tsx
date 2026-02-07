@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 // @ts-ignore
-import { collection, addDoc, getDocs, Timestamp, query, where, writeBatch, doc, deleteDoc, updateDoc, orderBy } from 'firebase/firestore';
+import { collection, addDoc, getDocs, Timestamp, query, where, writeBatch, doc, deleteDoc, updateDoc, orderBy, setDoc } from 'firebase/firestore';
 import { ModalityColumn, CommonDuty, FridayScheduleRow, HolidayScheduleRow, SavedTemplate, User, Location, VisualStaff, DoctorScheduleRow, DoctorFridayRow, ScheduleColumn, DateException } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import GeneralScheduleView from '../components/schedule/GeneralScheduleView';
@@ -11,7 +11,7 @@ import HolidayScheduleView from '../components/schedule/HolidayScheduleView';
 import DoctorScheduleView from '../components/schedule/DoctorScheduleView';
 import DoctorFridayScheduleView from '../components/schedule/DoctorFridayScheduleView';
 import ExceptionScheduleView from '../components/schedule/ExceptionScheduleView';
-import RamadanScheduleView from '../components/schedule/RamadanScheduleView'; // NEW IMPORT
+import RamadanScheduleView from '../components/schedule/RamadanScheduleView';
 import StaffSidebar from '../components/schedule/StaffSidebar';
 import Loading from '../components/Loading';
 import Toast from '../components/Toast';
@@ -19,8 +19,7 @@ import Modal from '../components/Modal';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 
-// --- Helper Functions ---
-// (Same as before)
+// ... (Keep existing Helper Functions: convertTo24Hour, parseMultiShifts, normalizeDigits, extractDateFromText)
 const convertTo24Hour = (timeStr: string): string | null => {
     if (!timeStr) return null;
     let s = timeStr.toLowerCase().trim();
@@ -78,7 +77,6 @@ const parseMultiShifts = (text: string) => {
     return shifts;
 };
 
-// --- UPDATED: Bulletproof Date Extractor ---
 const normalizeDigits = (str: string) => {
     return str.replace(/[٠-٩]/g, d => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
 };
@@ -88,24 +86,18 @@ const extractDateFromText = (input: string, defaultYear?: number): string | null
     let text = normalizeDigits(input).trim();
     const year = defaultYear || new Date().getFullYear();
 
-    // 1. Try to find DD-MM-YYYY or DD/MM/YYYY with flexible spaces
-    // Matches: 20-3-2026, 20 / 03 / 2026, 20 - 3 - 2026
     const dmyFull = text.match(/(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{4})/);
     if (dmyFull) {
         return `${dmyFull[3]}-${dmyFull[2].padStart(2, '0')}-${dmyFull[1].padStart(2, '0')}`;
     }
 
-    // 2. Try to find YYYY-MM-DD
     const ymdFull = text.match(/(\d{4})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})/);
     if (ymdFull) {
          return `${ymdFull[1]}-${ymdFull[2].padStart(2, '0')}-${ymdFull[3].padStart(2, '0')}`;
     }
     
-    // 3. Try to find DD-MM (Implicit Year)
-    // Matches: 20-3, 20/3
     const dmShort = text.match(/(\d{1,2})\s*[-/.]\s*(\d{1,2})/);
     if (dmShort) {
-        // Validation: Month must be <= 12, Day <= 31
         const d = parseInt(dmShort[1]);
         const m = parseInt(dmShort[2]);
         if (m <= 12 && d <= 31) {
@@ -116,7 +108,7 @@ const extractDateFromText = (input: string, defaultYear?: number): string | null
     return null;
 };
 
-// --- DEFAULT COLUMNS ---
+// ... (Keep Default Columns definitions)
 const defaultFridayCols: ScheduleColumn[] = [
     { id: 'morning', title: 'MORNING', time: '08:00 - 17:00' },
     { id: 'evening', title: 'EVENING', time: '15:00 - 24:00' },
@@ -151,16 +143,14 @@ const defaultDoctorFridayCols: ScheduleColumn[] = [
 ];
 
 const ScheduleBuilder: React.FC = () => {
+    // ... (Keep existing State Hooks)
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
     const [visualSubTab, setVisualSubTab] = useState<'general' | 'friday' | 'holiday' | 'ramadan' | 'doctor' | 'doctor_friday' | 'exceptions'>('general');
     const [isEditingVisual, setIsEditingVisual] = useState(true);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-    
     const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
     const [activeTemplateName, setActiveTemplateName] = useState<string>('');
-
-    // Data States
     const [generalData, setGeneralData] = useState<ModalityColumn[]>([
         { id: '1', title: 'MRI', defaultTime: '8 AM - 8 PM', colorClass: 'bg-blue-100 text-blue-900', staff: [] },
         { id: '2', title: 'CT Scan', defaultTime: '24 Hours', colorClass: 'bg-green-100 text-green-900', staff: [] }
@@ -168,8 +158,6 @@ const ScheduleBuilder: React.FC = () => {
     const [commonDuties, setCommonDuties] = useState<CommonDuty[]>([
         { section: 'Night Shift', time: '11 PM - 8 AM', staff: [] }
     ]);
-    
-    // RAMADAN STATE
     const [ramadanData, setRamadanData] = useState<ModalityColumn[]>([
         { id: '1', title: 'MRI', defaultTime: '10:00 - 16:00, 21:00 - 02:00', colorClass: 'bg-blue-100', staff: [] }
     ]);
@@ -178,40 +166,28 @@ const ScheduleBuilder: React.FC = () => {
     ]);
     const [ramadanFridayData, setRamadanFridayData] = useState<FridayScheduleRow[]>([]);
     const [ramadanFridayColumns, setRamadanFridayColumns] = useState<ScheduleColumn[]>(defaultFridayCols);
-
     const [ramadanStartDate, setRamadanStartDate] = useState('');
     const [ramadanEndDate, setRamadanEndDate] = useState('');
-
-    // Rows
     const [fridayData, setFridayData] = useState<FridayScheduleRow[]>([]);
     const [holidayData, setHolidayData] = useState<HolidayScheduleRow[]>([]);
     const [doctorData, setDoctorData] = useState<DoctorScheduleRow[]>([]);
     const [doctorFridayData, setDoctorFridayData] = useState<DoctorFridayRow[]>([]);
     const [exceptions, setExceptions] = useState<DateException[]>([]); 
-    
-    // Dynamic Columns State
     const [fridayColumns, setFridayColumns] = useState<ScheduleColumn[]>(defaultFridayCols);
     const [holidayColumns, setHolidayColumns] = useState<ScheduleColumn[]>(defaultHolidayCols);
     const [doctorColumns, setDoctorColumns] = useState<ScheduleColumn[]>(defaultDoctorCols);
     const [doctorFridayColumns, setDoctorFridayColumns] = useState<ScheduleColumn[]>(defaultDoctorFridayCols);
-
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [allLocations, setAllLocations] = useState<Location[]>([]);
     const [savedTemplates, setSavedTemplates] = useState<SavedTemplate[]>([]);
     const [loading, setLoading] = useState(true);
-    
-    // Main "Group ID" for the schedule
     const [publishMonth, setPublishMonth] = useState(new Date().toISOString().slice(0, 7));
-    
-    // Critical: Dates for the publishing logic
     const [globalStartDate, setGlobalStartDate] = useState(new Date().toISOString().slice(0, 10));
     const [globalEndDate, setGlobalEndDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().slice(0, 10));
     const [mergeMode, setMergeMode] = useState(false); 
-    
     const [scheduleNote, setScheduleNote] = useState(''); 
-    const [ramadanScheduleNote, setRamadanScheduleNote] = useState(''); // NEW STATE FOR RAMADAN
-    const [holidayScheduleNote, setHolidayScheduleNote] = useState(''); // NEW STATE FOR HOLIDAY
-
+    const [ramadanScheduleNote, setRamadanScheduleNote] = useState('');
+    const [holidayScheduleNote, setHolidayScheduleNote] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'|'info'} | null>(null);
     const [confirmation, setConfirmation] = useState<{isOpen: boolean, title: string, message: string, onConfirm: () => void}>({
@@ -219,15 +195,13 @@ const ScheduleBuilder: React.FC = () => {
     });
     const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
     const [newTemplateName, setNewTemplateName] = useState('');
-    
     const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
     const [templateSearch, setTemplateSearch] = useState('');
-
-    // Delete Modal State
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [availableMonthsToDelete, setAvailableMonthsToDelete] = useState<string[]>([]);
     const [isFetchingMonths, setIsFetchingMonths] = useState(false);
 
+    // ... (Keep useEffect for initData)
     useEffect(() => {
         const initData = async () => {
             setLoading(true);
@@ -247,8 +221,7 @@ const ScheduleBuilder: React.FC = () => {
         initData();
     }, []);
 
-    // --- Dynamic Column Handlers ---
-    // ... (Same as before)
+    // ... (Keep existing Column Handlers: handleAddColumn, handleRemoveColumn, handleUpdateColumn)
     const handleAddColumn = (type: 'friday' | 'holiday' | 'doctor' | 'doctor_friday') => {
         const newCol: ScheduleColumn = { id: `col_${Date.now()}`, title: 'NEW SECTION', time: '' };
         if (type === 'friday') setFridayColumns([...fridayColumns, newCol]);
@@ -271,8 +244,8 @@ const ScheduleBuilder: React.FC = () => {
         if (type === 'doctor') { const n = [...doctorColumns]; n[colIndex] = newCol; setDoctorColumns(n); }
         if (type === 'doctor_friday') { const n = [...doctorFridayColumns]; n[colIndex] = newCol; setDoctorFridayColumns(n); }
     };
-    
-    // ... (Template Handlers - Same as before)
+
+    // ... (Keep Template Handlers: handleSaveTemplate, confirmSaveTemplate, handleDeleteTemplate, handleLoadTemplate)
     const handleSaveTemplate = () => {
         if (activeTemplateId) {
             setNewTemplateName(activeTemplateName);
@@ -289,7 +262,7 @@ const ScheduleBuilder: React.FC = () => {
         try {
             const templateData: any = {
                 name: newTemplateName,
-                targetMonth: publishMonth, // Keeps track of what month it was built for
+                targetMonth: publishMonth,
                 generalData,
                 commonDuties,
                 fridayData,
@@ -297,12 +270,10 @@ const ScheduleBuilder: React.FC = () => {
                 doctorData,
                 doctorFridayData,
                 exceptions,
-                // Save Ramadan Data
                 ramadanData,
                 ramadanCommonDuties,
                 ramadanFridayData,
                 ramadanFridayColumns,
-                
                 fridayColumns,
                 holidayColumns,
                 doctorColumns,
@@ -310,8 +281,8 @@ const ScheduleBuilder: React.FC = () => {
                 globalStartDate,
                 globalEndDate,
                 scheduleNote,
-                ramadanScheduleNote, // Save new Ramadan Title
-                holidayScheduleNote // Save new Holiday Title
+                ramadanScheduleNote,
+                holidayScheduleNote
             };
 
             if (activeTemplateId && !isNew) {
@@ -366,7 +337,6 @@ const ScheduleBuilder: React.FC = () => {
                 setDoctorFridayData(JSON.parse(JSON.stringify(tpl.doctorFridayData || [])));
                 setExceptions(JSON.parse(JSON.stringify(tpl.exceptions || []))); 
                 
-                // Load Ramadan Data if exists
                 if (tpl.ramadanData) setRamadanData(JSON.parse(JSON.stringify(tpl.ramadanData)));
                 if (tpl.ramadanCommonDuties) setRamadanCommonDuties(JSON.parse(JSON.stringify(tpl.ramadanCommonDuties)));
                 if (tpl.ramadanFridayData) setRamadanFridayData(JSON.parse(JSON.stringify(tpl.ramadanFridayData)));
@@ -381,13 +351,55 @@ const ScheduleBuilder: React.FC = () => {
                 setGlobalStartDate(tpl.globalStartDate || '');
                 setGlobalEndDate(tpl.globalEndDate || '');
                 setScheduleNote(tpl.scheduleNote || '');
-                setRamadanScheduleNote(tpl.ramadanScheduleNote || ''); // Restore Ramadan Title
-                setHolidayScheduleNote(tpl.holidayScheduleNote || ''); // Restore Holiday Title
+                setRamadanScheduleNote(tpl.ramadanScheduleNote || ''); 
+                setHolidayScheduleNote(tpl.holidayScheduleNote || ''); 
 
                 setConfirmation(prev => ({ ...prev, isOpen: false }));
                 setIsTemplatesOpen(false); 
                 setToast({ msg: 'Loaded', type: 'success' });
             }
+        });
+    };
+
+    // ... (Keep Delete Modal Handlers)
+    const handleOpenDeleteModal = async () => {
+        setIsFetchingMonths(true);
+        setIsDeleteModalOpen(true);
+        try {
+            const q = query(collection(db, 'schedules'));
+            const snapshot = await getDocs(q);
+            const months = new Set<string>();
+            snapshot.docs.forEach(d => {
+                const m = d.data().month;
+                if (m) months.add(m);
+            });
+            setAvailableMonthsToDelete(Array.from(months).sort().reverse());
+        } catch (e) {
+            console.error(e);
+            setToast({msg: 'Error fetching history', type: 'error'});
+        } finally {
+            setIsFetchingMonths(false);
+        }
+    };
+
+    const handleDeleteMonth = (monthToDelete: string) => {
+        if (!confirm(`Are you sure you want to DELETE ALL schedules for ${monthToDelete}? This is irreversible.`)) return;
+        
+        setLoading(true);
+        const q = query(collection(db, 'schedules'), where('month', '==', monthToDelete));
+        getDocs(q).then(async (snap) => {
+            const batch = writeBatch(db);
+            snap.docs.forEach(d => batch.delete(d.ref));
+            // Also remove from published views
+            batch.delete(doc(db, 'monthly_publishes', monthToDelete));
+
+            await batch.commit();
+            setToast({ msg: `Deleted schedule for ${monthToDelete}`, type: 'success' });
+            setAvailableMonthsToDelete(prev => prev.filter(m => m !== monthToDelete));
+            setLoading(false);
+        }).catch(err => {
+            setToast({ msg: 'Error deleting', type: 'error' });
+            setLoading(false);
         });
     };
 
@@ -413,54 +425,39 @@ const ScheduleBuilder: React.FC = () => {
         });
     };
 
-    // ... (Delete Modal Handlers - Same as before)
-    const handleOpenDeleteModal = async () => {
-        setIsFetchingMonths(true);
-        setIsDeleteModalOpen(true);
-        try {
-            // Fetch ALL schedules to find unique months. Firestore doesn't support distinct queries natively.
-            // Optimized: We fetch only the 'month' field.
-            const q = query(collection(db, 'schedules'));
-            const snapshot = await getDocs(q);
-            const months = new Set<string>();
-            
-            snapshot.docs.forEach(d => {
-                const m = d.data().month;
-                if (m) months.add(m);
-            });
-            
-            setAvailableMonthsToDelete(Array.from(months).sort().reverse());
-        } catch (e) {
-            console.error(e);
-            setToast({msg: 'Error fetching history', type: 'error'});
-        } finally {
-            setIsFetchingMonths(false);
-        }
-    };
-
-    const handleDeleteMonth = (monthToDelete: string) => {
-        if (!confirm(`Are you sure you want to DELETE ALL schedules for ${monthToDelete}? This is irreversible.`)) return;
-        
-        setLoading(true);
-        // Delete all docs with this month
-        const q = query(collection(db, 'schedules'), where('month', '==', monthToDelete));
-        getDocs(q).then(async (snap) => {
-            const batch = writeBatch(db);
-            snap.docs.forEach(d => batch.delete(d.ref));
-            await batch.commit();
-            setToast({ msg: `Deleted schedule for ${monthToDelete}`, type: 'success' });
-            setAvailableMonthsToDelete(prev => prev.filter(m => m !== monthToDelete));
-            setLoading(false);
-        }).catch(err => {
-            setToast({ msg: 'Error deleting', type: 'error' });
-            setLoading(false);
-        });
-    };
-
     const executePublish = async () => {
         setLoading(true);
         try {
-            // 1. Clear Existing for this specific month ID ONLY IF NOT IN MERGE MODE
+            // *** 1. Save Visual Snapshot for Employee View (Exact Replica) ***
+            const visualSnapshot: any = {
+                name: `Published ${publishMonth}`,
+                targetMonth: publishMonth,
+                generalData,
+                commonDuties,
+                fridayData,
+                holidayData,
+                doctorData,
+                doctorFridayData,
+                exceptions,
+                ramadanData,
+                ramadanCommonDuties,
+                ramadanFridayData,
+                ramadanFridayColumns,
+                fridayColumns,
+                holidayColumns,
+                doctorColumns,
+                doctorFridayColumns,
+                globalStartDate,
+                globalEndDate,
+                scheduleNote,
+                ramadanScheduleNote, 
+                holidayScheduleNote,
+                publishedAt: Timestamp.now()
+            };
+
+            await setDoc(doc(db, 'monthly_publishes', publishMonth), visualSnapshot);
+            
+            // *** 2. Standard Individual Ticket Generation (For My Schedule & Logic) ***
             if (!mergeMode) {
                 const q = query(collection(db, 'schedules'), where('month', '==', publishMonth));
                 const snapshot = await getDocs(q);
@@ -476,9 +473,18 @@ const ScheduleBuilder: React.FC = () => {
                 }
             }
 
-            // CHANGE: Use `let` for batch to allow re-instantiation
             let batch = writeBatch(db);
             const scheduleRef = collection(db, 'schedules');
+            let opCount = 0;
+            
+            const checkBatch = async () => {
+                opCount++;
+                if (opCount >= 450) {
+                    await batch.commit();
+                    batch = writeBatch(db);
+                    opCount = 0;
+                }
+            };
 
             const resolveStaff = (staff: VisualStaff): { id: string, name: string } | null => {
                 if (!staff.name || staff.name.trim() === '') return null;
@@ -492,19 +498,7 @@ const ScheduleBuilder: React.FC = () => {
                 return { id, name: staff.name };
             };
 
-            let opCount = 0;
-            // FIX: Re-initialize batch after commit
-            const checkBatch = async () => {
-                opCount++;
-                if (opCount >= 450) {
-                    await batch.commit();
-                    batch = writeBatch(db); // Create NEW batch
-                    opCount = 0;
-                }
-            };
-
             // Generic Save Function
-            // CRITICAL: Force validFrom/validTo to match Global Start/End if not specific date
             const saveStaff = async (staffList: VisualStaff[], locId: string, notePrefix: string, time: string, isExceptionDate?: string, userType: string = 'user', forcedStart?: string, forcedEnd?: string, overrideMonth?: string, isRamadanFlag: boolean = false, activeTitle?: string) => {
                 const parsed = parseMultiShifts(time);
                 const shifts = (parsed && parsed.length > 0) ? parsed : [{ start: '08:00', end: '16:00' }];
@@ -516,19 +510,18 @@ const ScheduleBuilder: React.FC = () => {
                             userId: resolved.id,
                             staffName: resolved.name, 
                             locationId: locId,
-                            month: overrideMonth || publishMonth, // Group ID (override for Ramadan specific month)
+                            month: overrideMonth || publishMonth,
                             userType: userType,
                             shifts: staff.time ? parseMultiShifts(staff.time) : shifts,
                             note: staff.note ? `${notePrefix} - ${staff.note}` : notePrefix,
                             createdAt: Timestamp.now(),
-                            periodName: activeTitle || scheduleNote, // USE ACTIVE TITLE HERE
-                            isRamadan: isRamadanFlag // Apply the flag from arguments
+                            periodName: activeTitle || scheduleNote, 
+                            isRamadan: isRamadanFlag
                         };
                         
                         if (isExceptionDate) {
                             payload.date = isExceptionDate;
                         } else {
-                            // RECURRING LOGIC: Use Global Date Range OR Forced Range (for Ramadan)
                             payload.validFrom = staff.startDate || forcedStart || globalStartDate;
                             payload.validTo = staff.endDate || forcedEnd || globalEndDate;
                             payload.week = 'all';
@@ -540,7 +533,7 @@ const ScheduleBuilder: React.FC = () => {
                 }
             };
 
-            // 1. General & Common (Recurring) - NORMAL - Use scheduleNote
+            // 1. General & Common (Recurring)
             for (const col of generalData) {
                 await saveStaff(col.staff, col.title, col.title, col.defaultTime, undefined, 'user', undefined, undefined, undefined, false, scheduleNote);
             }
@@ -548,18 +541,12 @@ const ScheduleBuilder: React.FC = () => {
                 await saveStaff(duty.staff, 'common_duty', duty.section, duty.time, undefined, 'user', undefined, undefined, undefined, false, scheduleNote);
             }
 
-            // 2. RAMADAN (Recurring with specific dates) - RAMADAN FLAG = TRUE - Use ramadanScheduleNote
-            // Check if there is actual staff data to save
+            // 2. RAMADAN
             const hasRamadanContent = ramadanData.some(c => c.staff.length > 0) || ramadanCommonDuties.some(d => d.staff.length > 0) || ramadanFridayData.length > 0;
-
             if (hasRamadanContent) {
-                // Fallback to global dates if specific Ramadan dates are missing
                 const rStart = ramadanStartDate || globalStartDate;
                 const rEnd = ramadanEndDate || globalEndDate;
-                // If rStart exists, calculate group from it, otherwise use main publish month
                 const ramadanMonthGroup = rStart ? rStart.slice(0, 7) : publishMonth;
-                
-                // Use the specific Ramadan Title, or fallback to the main title if empty (optional, but user asked for separation, so keep separate)
                 const rTitle = ramadanScheduleNote || "RAMADAN SCHEDULE";
 
                 for (const col of ramadanData) {
@@ -568,15 +555,11 @@ const ScheduleBuilder: React.FC = () => {
                 for (const duty of ramadanCommonDuties) {
                     await saveStaff(duty.staff, 'common_duty', `RAMADAN - ${duty.section}`, duty.time, undefined, 'user', rStart, rEnd, ramadanMonthGroup, true, rTitle);
                 }
-                // 2.1 Ramadan Fridays (Specific Dates)
                 for (const row of ramadanFridayData) {
                     if (!row.date) continue;
-                    // UPDATED: Support partial dates too if typed there
                     const fallbackYear = parseInt(ramadanStartDate.split('-')[0]) || new Date().getFullYear();
                     const date = extractDateFromText(row.date, fallbackYear) || row.date; 
-                    
                     const rowMonth = date.match(/^\d{4}-\d{2}/) ? date.slice(0, 7) : ramadanMonthGroup; 
-                    
                     for (const col of ramadanFridayColumns) {
                         const staffList = row[col.id] as VisualStaff[];
                         if (staffList && Array.isArray(staffList)) {
@@ -586,13 +569,11 @@ const ScheduleBuilder: React.FC = () => {
                 }
             }
 
-            // 3. Friday Schedule (Specific Dates) - NORMAL - Use scheduleNote
+            // 3. Friday Schedule
             for (const row of fridayData) {
                 if(!row.date) continue;
-                // UPDATED: Support partial date
                 const fallbackYear = parseInt(globalStartDate.split('-')[0]) || new Date().getFullYear();
                 const date = extractDateFromText(row.date, fallbackYear) || row.date;
-
                 const rowMonth = date.match(/^\d{4}-\d{2}/) ? date.slice(0, 7) : publishMonth;
 
                 for (const col of fridayColumns) {
@@ -603,51 +584,41 @@ const ScheduleBuilder: React.FC = () => {
                 }
             }
 
-            // 4. Holiday Schedule (Specific Dates) - NORMAL - Use scheduleNote
+            // 4. Holiday Schedule
              for (const row of holidayData) {
                 for (const col of holidayColumns) {
                      const staffList = row[col.id] as VisualStaff[];
                      if (staffList && Array.isArray(staffList)) {
                          let shifts = parseMultiShifts(col.time || '08:00 - 20:00');
                          if (shifts.length === 0) shifts = [{start:'08:00', end:'20:00'}];
-                         
-                         // *** CHANGED: Use the explicit DATE field if available, else extract from Occasion text ***
                          let possibleDate = row.date;
                          if (!possibleDate) {
                              const fallbackYear = parseInt(globalStartDate.split('-')[0]) || new Date().getFullYear();
                              possibleDate = extractDateFromText(row.occasion, fallbackYear);
                          }
-
                          const occ = row.occasion;
-                         
                          for (const staff of staffList) {
                              const resolved = resolveStaff(staff);
                              if (resolved) {
-                                 // Force specific month if date exists
                                  const specificMonth = possibleDate ? possibleDate.slice(0, 7) : publishMonth;
-                                 
                                  const payload: any = {
                                      userId: resolved.id,
                                      staffName: resolved.name,
                                      locationId: 'Holiday Shift',
-                                     month: specificMonth, // USE SPECIFIC MONTH if found
+                                     month: specificMonth, 
                                      userType: 'user',
                                      shifts: staff.time ? parseMultiShifts(staff.time) : shifts,
                                      note: staff.note ? `${occ} - ${col.title} - ${staff.note}` : `${occ} - ${col.title}`,
                                      createdAt: Timestamp.now(),
-                                     periodName: holidayScheduleNote || scheduleNote, // Use Custom Holiday Title
-                                     isRamadan: false // Force FALSE
+                                     periodName: holidayScheduleNote || scheduleNote, 
+                                     isRamadan: false 
                                  };
-                                 
-                                 // If a valid date exists, use it
                                  if (possibleDate) {
                                      payload.date = possibleDate;
                                  } else {
-                                     // Recurring holiday logic (fallback)
                                      payload.validFrom = globalStartDate;
                                      payload.validTo = globalEndDate;
                                  }
-
                                  batch.set(doc(scheduleRef), payload);
                                  await checkBatch();
                              }
@@ -656,12 +627,10 @@ const ScheduleBuilder: React.FC = () => {
                 }
             }
 
-            // 5. EXCEPTIONS (Specific Dates) - NORMAL - Use scheduleNote
+            // 5. EXCEPTIONS
             for (const ex of exceptions) {
                 if (!ex.date) continue;
-                // Force Specific Month
                 const exMonth = ex.date.match(/^\d{4}-\d{2}/) ? ex.date.slice(0, 7) : publishMonth;
-
                 if (ex.columns) {
                     for (const col of ex.columns) {
                         await saveStaff(col.staff, col.title, col.title, col.defaultTime, ex.date, 'user', undefined, undefined, exMonth, false, scheduleNote);
@@ -684,9 +653,6 @@ const ScheduleBuilder: React.FC = () => {
                 }
             }
 
-            // 6. Doctors - NORMAL
-            // ... (Logic for Doctors omitted for brevity, assuming standard pattern follows above using global dates for recurring)
-
             await batch.commit();
             setToast({ msg: mergeMode ? 'Merged Successfully!' : 'Published Successfully!', type: 'success' });
         } catch (e: any) {
@@ -696,6 +662,7 @@ const ScheduleBuilder: React.FC = () => {
         }
     };
 
+    // ... (Return JSX is almost same, ensure save to monthly_publishes is handled in executePublish)
     return (
         <div className="flex h-screen overflow-hidden bg-slate-50 print:bg-white print:h-auto print:overflow-visible" dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
@@ -703,8 +670,7 @@ const ScheduleBuilder: React.FC = () => {
             {isSidebarOpen && <StaffSidebar users={allUsers} />}
 
             <div className="flex-1 flex flex-col h-full overflow-hidden print:h-auto print:overflow-visible relative">
-                
-                {/* --- TOP BAR: Cleaner Header --- */}
+                {/* ... (Keep header and controls) */}
                 <div className="bg-white border-b border-gray-200 p-3 flex flex-col xl:flex-row justify-between items-center gap-4 print:hidden">
                     <div className="flex items-center gap-3 w-full xl:w-auto">
                         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`p-2 rounded-lg transition-colors ${isSidebarOpen ? 'bg-slate-100 text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}>
@@ -722,7 +688,6 @@ const ScheduleBuilder: React.FC = () => {
                             <i className="fas fa-print"></i> Print
                         </button>
                         
-                        {/* MERGE MODE TOGGLE */}
                         <div className="flex items-center gap-2 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200">
                             <input 
                                 type="checkbox" 
@@ -748,7 +713,6 @@ const ScheduleBuilder: React.FC = () => {
 
                 <div className="flex-1 overflow-y-auto p-6 bg-slate-50 print:p-0 print:bg-white print:overflow-visible">
                     
-                    {/* --- CONFIGURATION BAR (MOVED HERE) --- */}
                     <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-6 flex flex-wrap gap-6 items-end print:hidden">
                         <div>
                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Month ID (Database Key)</label>
@@ -789,7 +753,7 @@ const ScheduleBuilder: React.FC = () => {
                             { id: 'general', label: 'General Duty' },
                             { id: 'friday', label: 'Friday Shifts' },
                             { id: 'holiday', label: 'Holiday Shifts' },
-                            { id: 'ramadan', label: 'Ramadan Schedule' }, // New Tab
+                            { id: 'ramadan', label: 'Ramadan Schedule' }, 
                             { id: 'exceptions', label: 'Exceptions' },
                             { id: 'doctor', label: 'Doctors Weekly' },
                             { id: 'doctor_friday', label: 'Doctors Friday' }
@@ -806,7 +770,6 @@ const ScheduleBuilder: React.FC = () => {
                     </div>
 
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-h-[500px] print:shadow-none print:border-none print:p-0">
-                        {/* Dynamic Column Control Bar (Visible in Edit Mode) */}
                         {isEditingVisual && visualSubTab !== 'general' && visualSubTab !== 'exceptions' && visualSubTab !== 'ramadan' && (
                             <div className="mb-4 p-3 bg-slate-50 rounded-xl border border-dashed border-slate-300 flex items-center justify-between print:hidden">
                                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Column Manager</span>
@@ -836,7 +799,6 @@ const ScheduleBuilder: React.FC = () => {
                             />
                         )}
                         
-                        {/* New Ramadan View */}
                         {visualSubTab === 'ramadan' && (
                             <RamadanScheduleView
                                 ramadanData={ramadanData}
@@ -854,7 +816,6 @@ const ScheduleBuilder: React.FC = () => {
                                 ramadanEndDate={ramadanEndDate}
                                 setRamadanEndDate={setRamadanEndDate}
                                 
-                                // Pass independent Ramadan Schedule Note
                                 scheduleNote={ramadanScheduleNote}
                                 setScheduleNote={setRamadanScheduleNote}
 
@@ -887,8 +848,8 @@ const ScheduleBuilder: React.FC = () => {
                                 onUpdateColumn={(idx, col) => handleUpdateColumn('holiday', idx, col)}
                                 onRemoveColumn={(id) => handleRemoveColumn('holiday', id)}
                                 searchTerm={searchTerm}
-                                scheduleNote={holidayScheduleNote} // Pass separate holidayScheduleNote
-                                setScheduleNote={setHolidayScheduleNote} // Pass separate setter
+                                scheduleNote={holidayScheduleNote} 
+                                setScheduleNote={setHolidayScheduleNote} 
                             />
                         )}
                         {visualSubTab === 'exceptions' && (

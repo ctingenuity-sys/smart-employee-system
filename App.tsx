@@ -21,8 +21,13 @@ const SupervisorMarket = React.lazy(() => import('./pages/supervisor/SupervisorM
 const SupervisorLocations = React.lazy(() => import('./pages/supervisor/SupervisorLocations'));
 const SupervisorHistory = React.lazy(() => import('./pages/supervisor/SupervisorHistory'));
 const SupervisorPerformance = React.lazy(() => import('./pages/supervisor/SupervisorPerformance'));
-const PanicReportsPage = React.lazy(() => import('./pages/supervisor/PanicReportsPage'));
 const SupervisorRotation = React.lazy(() => import('./pages/supervisor/SupervisorRotation')); // NEW
+const PanicReportsPage = React.lazy(() => import('./pages/supervisor/PanicReportsPage'));
+
+// NEW PAGES
+const DeviceInventory = React.lazy(() => import('./pages/supervisor/DeviceInventory'));
+const FMSReports = React.lazy(() => import('./pages/supervisor/FMSReports'));
+const RoomReports = React.lazy(() => import('./pages/supervisor/RoomReports'));
 
 const UserDashboard = React.lazy(() => import('./pages/UserDashboard'));
 const UserSchedule = React.lazy(() => import('./pages/UserSchedule'));
@@ -205,9 +210,12 @@ const AppRoutes: React.FC = () => {
         <Route path="/supervisor/history" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorHistory /></ProtectedRoute>} />
         <Route path="/supervisor/performance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorPerformance /></ProtectedRoute>} />
         <Route path="/supervisor/panic-reports" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><PanicReportsPage /></ProtectedRoute>} />
-        
-        {/* NEW: Rotation Page */}
         <Route path="/supervisor/rotation" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorRotation /></ProtectedRoute>} />
+        
+        {/* NEW ROUTES FOR DEVICES, FMS, ROOMS */}
+        <Route path="/supervisor/devices" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><DeviceInventory /></ProtectedRoute>} />
+        <Route path="/supervisor/fms" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><FMSReports /></ProtectedRoute>} />
+        <Route path="/supervisor/rooms" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><RoomReports /></ProtectedRoute>} />
 
         {/* NEW: Data Archiver Route */}
         <Route path="/supervisor/archive" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><DataArchiver /></ProtectedRoute>} />

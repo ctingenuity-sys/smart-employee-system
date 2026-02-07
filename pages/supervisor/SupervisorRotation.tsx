@@ -22,6 +22,59 @@ const getPreviousMonths = (count: number) => {
     return months.reverse(); 
 };
 
+// --- CONFIGURATION: Job Category Visuals & Order ---
+const CATEGORY_CONFIG: Record<string, { label: string, order: number, color: string, headerBg: string, icon: string }> = {
+    'doctor': { 
+        label: 'Doctors / Consultants', 
+        order: 1, 
+        color: 'bg-rose-50 text-rose-700 border-rose-200',
+        headerBg: 'bg-rose-100 text-rose-800',
+        icon: 'fa-user-md'
+    },
+    'technologist': { 
+        label: 'Specialists / Technologists', 
+        order: 2, 
+        color: 'bg-blue-50 text-blue-700 border-blue-200',
+        headerBg: 'bg-blue-100 text-blue-800',
+        icon: 'fa-user-graduate'
+    },
+    'usg': {
+        label: 'Ultrasound Team',
+        order: 2.5,
+        color: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+        headerBg: 'bg-indigo-100 text-indigo-800',
+        icon: 'fa-wave-square'
+    },
+    'technician': { 
+        label: 'Technicians', 
+        order: 3, 
+        color: 'bg-amber-50 text-amber-700 border-amber-200',
+        headerBg: 'bg-amber-100 text-amber-800',
+        icon: 'fa-cogs'
+    },
+    'nurse': { 
+        label: 'Nursing Staff', 
+        order: 4, 
+        color: 'bg-purple-50 text-purple-700 border-purple-200',
+        headerBg: 'bg-purple-100 text-purple-800',
+        icon: 'fa-user-nurse'
+    },
+    'rso': { 
+        label: 'R.S.O', 
+        order: 5, 
+        color: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+        headerBg: 'bg-indigo-100 text-indigo-800',
+        icon: 'fa-radiation'
+    },
+    'other': { 
+        label: 'Support Staff', 
+        order: 99, 
+        color: 'bg-slate-50 text-slate-600 border-slate-200',
+        headerBg: 'bg-slate-200 text-slate-700',
+        icon: 'fa-id-badge'
+    }
+};
+
 // Department Colors Map - Enhanced for contrast
 const DEPT_COLORS: Record<string, { bg: string, text: string }> = {
     'mri': { bg: 'bg-blue-600', text: 'text-white' },
@@ -113,14 +166,21 @@ const SupervisorRotation: React.FC = () => {
     const filteredAndSortedUsers = useMemo(() => {
         return users
             .filter(u => {
+                // Filter out Admins and Reception from Rotation view
                 if (u.role === 'admin') return false; 
+                if (u.jobCategory === 'admin' || u.jobCategory === 'reception') return false;
+
                 return u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                        u.email.toLowerCase().includes(searchQuery.toLowerCase());
             })
             .sort((a, b) => {
-                // Sorting: Staff (user) first, then doctor
-                if (a.role === 'user' && b.role === 'doctor') return -1;
-                if (a.role === 'doctor' && b.role === 'user') return 1;
+                // Primary Sort: Job Category Order
+                const catA = CATEGORY_CONFIG[a.jobCategory || 'technician']?.order || 99;
+                const catB = CATEGORY_CONFIG[b.jobCategory || 'technician']?.order || 99;
+                
+                if (catA !== catB) return catA - catB;
+                
+                // Secondary Sort: Name
                 return a.name.localeCompare(b.name);
             });
     }, [users, searchQuery]);
@@ -295,61 +355,87 @@ const SupervisorRotation: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
-                                {filteredAndSortedUsers.map(user => (
-                                    <tr key={user.id} className="hover:bg-slate-50/50 transition-all group print:break-inside-avoid">
-                                        {/* Employee Column */}
-                                        <td className="p-4 border-r border-slate-50 sticky left-0 bg-white group-hover:bg-slate-50 z-10 shadow-[4px_0_10px_rgba(0,0,0,0.02)] print:border-black print:text-black print:shadow-none">
-                                            <div className="flex items-center gap-4">
-                                                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm shadow-sm transition-transform group-hover:scale-105 ${user.role === 'doctor' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                    {user.name.charAt(0)}
-                                                </div>
-                                                <div>
-                                                    <h4 className="font-black text-slate-900 text-sm leading-tight mb-1">{user.name}</h4>
-                                                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${user.role === 'doctor' ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
-                                                        {user.role === 'doctor' ? t('rot.type.doc') : t('rot.type.tech')}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        
-                                        {/* History Month Cells */}
-                                        {months.map(m => {
-                                            const content = viewType === 'general' ? formatGeneralCell(user.id, m) : formatFridayCell(user.id, m);
-                                            const colorClass = getCellColor(content);
-                                            
-                                            return (
-                                                <td key={m} className="p-3 text-center align-middle">
-                                                    {viewType === 'friday' ? (
-                                                        <div className={`inline-flex items-center justify-center w-10 h-10 rounded-full font-black text-xs border transition-all duration-300 transform group-hover:scale-110 ${colorClass} print:text-black print:border-black print:bg-transparent`}>
-                                                            {content}
-                                                        </div>
-                                                    ) : (
-                                                        <div className={`px-2 py-3 rounded-2xl font-black text-[10px] leading-tight tracking-tight transition-all duration-300 transform group-hover:scale-[1.03] border border-transparent ${content !== '-' ? 'shadow-lg shadow-slate-200' : ''} ${colorClass} print:border-black print:bg-transparent print:text-black print:shadow-none`}>
-                                                            {content}
-                                                        </div>
-                                                    )}
-                                                </td>
-                                            );
-                                        })}
+                                {filteredAndSortedUsers.map((user, index) => {
+                                    // Check if this user starts a new category group
+                                    const prevUser = filteredAndSortedUsers[index - 1];
+                                    const currCatId = user.jobCategory || 'technician';
+                                    const prevCatId = prevUser ? (prevUser.jobCategory || 'technician') : null;
+                                    
+                                    const showHeader = currCatId !== prevCatId;
+                                    const config = CATEGORY_CONFIG[currCatId] || CATEGORY_CONFIG['other'];
 
-                                        {/* Smart Suggestion Column (General Only) */}
-                                        {viewType === 'general' && (
-                                            <td className="p-3 text-center align-middle bg-slate-50/30 print:hidden">
-                                                {(() => {
-                                                    const suggestion = getNextMonthSuggestion(user.id);
-                                                    if (!suggestion) return <span className="text-slate-300">...</span>;
-                                                    const isStay = suggestion === t('rot.suggest.stay');
-                                                    return (
-                                                        <div className={`inline-flex flex-col px-3 py-1.5 rounded-xl font-black text-[10px] border shadow-sm ${isStay ? 'bg-white text-slate-400 border-slate-100' : 'bg-purple-50 text-purple-700 border-purple-100 animate-pulse-slow'}`}>
-                                                            <span className="uppercase opacity-60 text-[8px] mb-0.5">{isStay ? 'Insight' : t('rot.suggest.move')}</span>
-                                                            {suggestion}
+                                    return (
+                                    <React.Fragment key={user.id}>
+                                        {/* SECTION HEADER ROW */}
+                                        {showHeader && (
+                                            <tr className={`${config.headerBg} print:bg-slate-100 print:text-black`}>
+                                                <td colSpan={months.length + 2} className="px-6 py-2 border-y border-white/20 print:border-slate-300">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className={`w-6 h-6 rounded-full bg-white/30 flex items-center justify-center text-xs shadow-sm`}>
+                                                            <i className={`fas ${config.icon}`}></i>
                                                         </div>
-                                                    );
-                                                })()}
-                                            </td>
+                                                        <span className="text-xs font-black uppercase tracking-widest">{config.label} GROUP</span>
+                                                    </div>
+                                                </td>
+                                            </tr>
                                         )}
-                                    </tr>
-                                ))}
+
+                                        <tr className="hover:bg-slate-50/50 transition-all group print:break-inside-avoid">
+                                            {/* Employee Column */}
+                                            <td className="p-4 border-r border-slate-50 sticky left-0 bg-white group-hover:bg-slate-50 z-10 shadow-[4px_0_10px_rgba(0,0,0,0.02)] print:border-black print:text-black print:shadow-none">
+                                                <div className="flex items-center gap-4">
+                                                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm shadow-sm transition-transform group-hover:scale-105 ${config.color.split(' ')[0]}`}>
+                                                        <i className={`fas ${config.icon} ${config.color.split(' ')[1]}`}></i>
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="font-black text-slate-900 text-sm leading-tight mb-1">{user.name}</h4>
+                                                        <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border ${config.color}`}>
+                                                            {config.label.split('/')[0]}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            
+                                            {/* History Month Cells */}
+                                            {months.map(m => {
+                                                const content = viewType === 'general' ? formatGeneralCell(user.id, m) : formatFridayCell(user.id, m);
+                                                const colorClass = getCellColor(content);
+                                                
+                                                return (
+                                                    <td key={m} className="p-3 text-center align-middle">
+                                                        {viewType === 'friday' ? (
+                                                            <div className={`inline-flex items-center justify-center w-10 h-10 rounded-full font-black text-xs border transition-all duration-300 transform group-hover:scale-110 ${colorClass} print:text-black print:border-black print:bg-transparent`}>
+                                                                {content}
+                                                            </div>
+                                                        ) : (
+                                                            <div className={`px-2 py-3 rounded-2xl font-black text-[10px] leading-tight tracking-tight transition-all duration-300 transform group-hover:scale-[1.03] border border-transparent ${content !== '-' ? 'shadow-lg shadow-slate-200' : ''} ${colorClass} print:border-black print:bg-transparent print:text-black print:shadow-none`}>
+                                                                {content}
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                );
+                                            })}
+
+                                            {/* Smart Suggestion Column (General Only) */}
+                                            {viewType === 'general' && (
+                                                <td className="p-3 text-center align-middle bg-slate-50/30 print:hidden">
+                                                    {(() => {
+                                                        const suggestion = getNextMonthSuggestion(user.id);
+                                                        if (!suggestion) return <span className="text-slate-300">...</span>;
+                                                        const isStay = suggestion === t('rot.suggest.stay');
+                                                        return (
+                                                            <div className={`inline-flex flex-col px-3 py-1.5 rounded-xl font-black text-[10px] border shadow-sm ${isStay ? 'bg-white text-slate-400 border-slate-100' : 'bg-purple-50 text-purple-700 border-purple-100 animate-pulse-slow'}`}>
+                                                                <span className="uppercase opacity-60 text-[8px] mb-0.5">{isStay ? 'Insight' : t('rot.suggest.move')}</span>
+                                                                {suggestion}
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                </td>
+                                            )}
+                                        </tr>
+                                    </React.Fragment>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

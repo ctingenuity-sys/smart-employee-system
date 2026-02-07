@@ -230,8 +230,7 @@ const SupervisorDashboard: React.FC = () => {
                       if (shouldShow && !activePeople.some(p => p.name === name)) {
                           activePeople.push({ 
                               name, 
-                              // Safe string split for note
-                              location: sch.locationId === 'common_duty' && sch.note ? String(sch.note).split('-')[0] : sch.locationId, 
+                              location: sch.locationId === 'common_duty' && sch.note ? sch.note.split('-')[0] : sch.locationId, 
                               time: `${shift.start} - ${shift.end}`,
                               role: role,
                               phone: uData?.phone,
@@ -245,7 +244,7 @@ const SupervisorDashboard: React.FC = () => {
       });
       setOnShiftNow(activePeople);
   }, [schedules, users, allTodayLogs, shiftFilterMode]);
-// ... rest of the file
+
   const activeNowCount = onShiftNow.length;
 
   const handleSubmitFeedback = async () => {
@@ -290,13 +289,21 @@ const SupervisorDashboard: React.FC = () => {
       { id: 'attendance', title: 'Smart Analyzer', icon: 'fa-chart-pie', path: '/supervisor/attendance', color: 'bg-indigo-600' },
       { id: 'appointments', title: t('nav.appointments'), icon: 'fa-calendar-check', path: '/appointments', badge: todayApptCount, color: 'bg-cyan-600' },
       { id: 'employees', title: t('sup.tab.users'), icon: 'fa-users', path: '/supervisor/employees', color: 'bg-blue-600' },
-      { id: 'performance', title: 'Performance', icon: 'fa-chart-bar', path: '/supervisor/performance', color: 'bg-violet-600' }, 
+      { id: 'rotations', title: 'Rotations', icon: 'fa-sync-alt', path: '/supervisor/rotation', color: 'bg-teal-600' }, // NEW: Rotation Button
       { id: 'swaps', title: t('sup.tab.swaps'), icon: 'fa-exchange-alt', path: '/supervisor/swaps', badge: swapRequestsCount, color: 'bg-purple-600' },
       { id: 'leaves', title: t('sup.tab.leaves'), icon: 'fa-umbrella-beach', path: '/supervisor/leaves', badge: leaveRequestsCount, color: 'bg-rose-600' },
       { id: 'market', title: t('sup.tab.market'), icon: 'fa-store', path: '/supervisor/market', badge: openShiftsCount, color: 'bg-amber-500' },
       { id: 'panic', title: 'Panic Reports', icon: 'fa-exclamation-triangle', path: '/supervisor/panic-reports', color: 'bg-red-600' },
       { id: 'locations', title: t('sup.tab.locations'), icon: 'fa-map-marker-alt', path: '/supervisor/locations', color: 'bg-emerald-600' },
       { id: 'history', title: 'History', icon: 'fa-history', path: '/supervisor/history', color: 'bg-slate-600' },
+      { id: 'performance', title: 'Performance', icon: 'fa-chart-bar', path: '/supervisor/performance', color: 'bg-violet-600' },
+  ];
+
+  // New Buttons for Safety & Facility Management
+  const safetyItems = [
+      { id: 'devices', title: 'Device Inventory', icon: 'fa-microscope', path: '/supervisor/devices', color: 'bg-sky-600' },
+      { id: 'fms', title: 'FMS Reports', icon: 'fa-fire-extinguisher', path: '/supervisor/fms', color: 'bg-orange-600' },
+      { id: 'rooms', title: 'Room Reports', icon: 'fa-door-open', path: '/supervisor/rooms', color: 'bg-indigo-600' },
   ];
 
   const logbookItems = [
@@ -378,7 +385,31 @@ const SupervisorDashboard: React.FC = () => {
                 </div>
             </div>
             
-            {/* Logbooks Shortcut Section (New) */}
+            {/* Safety & Facility Management Section (NEW) */}
+            <div className="mb-8">
+                 <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
+                    <i className="fas fa-hard-hat text-orange-500"></i> Facility & Safety Management
+                 </h3>
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                     {safetyItems.map(item => (
+                         <button 
+                             key={item.id}
+                             onClick={() => navigate(item.path)}
+                             className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-row items-center gap-4 transition-all hover:shadow-md hover:-translate-y-1 group relative overflow-hidden text-left"
+                         >
+                            <div className={`w-12 h-12 ${item.color} rounded-xl flex items-center justify-center text-white text-xl shadow-lg`}>
+                                <i className={`fas ${item.icon}`}></i>
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-slate-700 text-lg">{item.title}</h3>
+                                <p className="text-xs text-slate-400 font-bold uppercase">View Reports</p>
+                            </div>
+                         </button>
+                     ))}
+                 </div>
+            </div>
+            
+            {/* Logbooks Shortcut Section */}
             <div className="mb-8">
                  <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
                     <i className="fas fa-book-medical text-indigo-500"></i> Department Logbooks

@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 // @ts-ignore
-import { collection, addDoc, getDocs, Timestamp, query, where, writeBatch, doc, deleteDoc, updateDoc, orderBy, setDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, Timestamp, query, where, writeBatch, doc, deleteDoc, updateDoc, orderBy, setDoc, getDoc } from 'firebase/firestore';
 import { ModalityColumn, CommonDuty, FridayScheduleRow, HolidayScheduleRow, SavedTemplate, User, Location, VisualStaff, DoctorScheduleRow, DoctorFridayRow, ScheduleColumn, DateException } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import GeneralScheduleView from '../components/schedule/GeneralScheduleView';
@@ -320,6 +320,33 @@ const ScheduleBuilder: React.FC = () => {
         }
     };
 
+    const loadStateFromTemplate = (tpl: SavedTemplate) => {
+        setGeneralData(JSON.parse(JSON.stringify(tpl.generalData || [])));
+        setCommonDuties(JSON.parse(JSON.stringify(tpl.commonDuties || [])));
+        setFridayData(JSON.parse(JSON.stringify(tpl.fridayData || [])));
+        setHolidayData(JSON.parse(JSON.stringify(tpl.holidayData || [])));
+        setDoctorData(JSON.parse(JSON.stringify(tpl.doctorData || [])));
+        setDoctorFridayData(JSON.parse(JSON.stringify(tpl.doctorFridayData || [])));
+        setExceptions(JSON.parse(JSON.stringify(tpl.exceptions || []))); 
+        
+        if (tpl.ramadanData) setRamadanData(JSON.parse(JSON.stringify(tpl.ramadanData)));
+        if (tpl.ramadanCommonDuties) setRamadanCommonDuties(JSON.parse(JSON.stringify(tpl.ramadanCommonDuties)));
+        if (tpl.ramadanFridayData) setRamadanFridayData(JSON.parse(JSON.stringify(tpl.ramadanFridayData)));
+        if (tpl.ramadanFridayColumns) setRamadanFridayColumns(JSON.parse(JSON.stringify(tpl.ramadanFridayColumns)));
+
+        setFridayColumns(tpl.fridayColumns ? JSON.parse(JSON.stringify(tpl.fridayColumns)) : defaultFridayCols);
+        setHolidayColumns(tpl.holidayColumns ? JSON.parse(JSON.stringify(tpl.holidayColumns)) : defaultHolidayCols);
+        setDoctorColumns(tpl.doctorColumns ? JSON.parse(JSON.stringify(tpl.doctorColumns)) : defaultDoctorCols);
+        setDoctorFridayColumns(tpl.doctorFridayColumns ? JSON.parse(JSON.stringify(tpl.doctorFridayColumns)) : defaultDoctorFridayCols);
+
+        if(tpl.targetMonth) setPublishMonth(tpl.targetMonth);
+        setGlobalStartDate(tpl.globalStartDate || '');
+        setGlobalEndDate(tpl.globalEndDate || '');
+        setScheduleNote(tpl.scheduleNote || '');
+        setRamadanScheduleNote(tpl.ramadanScheduleNote || ''); 
+        setHolidayScheduleNote(tpl.holidayScheduleNote || '');
+    };
+
     const handleLoadTemplate = (tpl: SavedTemplate) => {
         setConfirmation({
             isOpen: true,
@@ -328,35 +355,43 @@ const ScheduleBuilder: React.FC = () => {
             onConfirm: () => {
                 setActiveTemplateId(tpl.id);
                 setActiveTemplateName(tpl.name);
-
-                setGeneralData(JSON.parse(JSON.stringify(tpl.generalData || [])));
-                setCommonDuties(JSON.parse(JSON.stringify(tpl.commonDuties || [])));
-                setFridayData(JSON.parse(JSON.stringify(tpl.fridayData || [])));
-                setHolidayData(JSON.parse(JSON.stringify(tpl.holidayData || [])));
-                setDoctorData(JSON.parse(JSON.stringify(tpl.doctorData || [])));
-                setDoctorFridayData(JSON.parse(JSON.stringify(tpl.doctorFridayData || [])));
-                setExceptions(JSON.parse(JSON.stringify(tpl.exceptions || []))); 
-                
-                if (tpl.ramadanData) setRamadanData(JSON.parse(JSON.stringify(tpl.ramadanData)));
-                if (tpl.ramadanCommonDuties) setRamadanCommonDuties(JSON.parse(JSON.stringify(tpl.ramadanCommonDuties)));
-                if (tpl.ramadanFridayData) setRamadanFridayData(JSON.parse(JSON.stringify(tpl.ramadanFridayData)));
-                if (tpl.ramadanFridayColumns) setRamadanFridayColumns(JSON.parse(JSON.stringify(tpl.ramadanFridayColumns)));
-
-                setFridayColumns(tpl.fridayColumns ? JSON.parse(JSON.stringify(tpl.fridayColumns)) : defaultFridayCols);
-                setHolidayColumns(tpl.holidayColumns ? JSON.parse(JSON.stringify(tpl.holidayColumns)) : defaultHolidayCols);
-                setDoctorColumns(tpl.doctorColumns ? JSON.parse(JSON.stringify(tpl.doctorColumns)) : defaultDoctorCols);
-                setDoctorFridayColumns(tpl.doctorFridayColumns ? JSON.parse(JSON.stringify(tpl.doctorFridayColumns)) : defaultDoctorFridayCols);
-
-                if(tpl.targetMonth) setPublishMonth(tpl.targetMonth);
-                setGlobalStartDate(tpl.globalStartDate || '');
-                setGlobalEndDate(tpl.globalEndDate || '');
-                setScheduleNote(tpl.scheduleNote || '');
-                setRamadanScheduleNote(tpl.ramadanScheduleNote || ''); 
-                setHolidayScheduleNote(tpl.holidayScheduleNote || ''); 
-
+                loadStateFromTemplate(tpl);
                 setConfirmation(prev => ({ ...prev, isOpen: false }));
                 setIsTemplatesOpen(false); 
                 setToast({ msg: 'Loaded', type: 'success' });
+            }
+        });
+    };
+
+    // --- NEW: Load from Published Schedule ---
+    const handleLoadPublished = async () => {
+        if (!publishMonth) {
+            setToast({ msg: 'Please select a Month ID to load.', type: 'error' });
+            return;
+        }
+        
+        setConfirmation({
+            isOpen: true,
+            title: 'Load Published Schedule?',
+            message: `This will overwrite your current workspace with the live schedule data for ${publishMonth}. Unsaved changes will be lost.`,
+            onConfirm: async () => {
+                setConfirmation(prev => ({ ...prev, isOpen: false }));
+                setLoading(true);
+                try {
+                    const docRef = doc(db, 'monthly_publishes', publishMonth);
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) {
+                        const data = docSnap.data() as SavedTemplate;
+                        loadStateFromTemplate(data);
+                        setToast({ msg: `Successfully loaded published schedule for ${publishMonth}`, type: 'success' });
+                    } else {
+                        setToast({ msg: `No published schedule found for ID: ${publishMonth}`, type: 'error' });
+                    }
+                } catch (error: any) {
+                    setToast({ msg: 'Error loading published schedule: ' + error.message, type: 'error' });
+                } finally {
+                    setLoading(false);
+                }
             }
         });
     };
@@ -411,7 +446,7 @@ const ScheduleBuilder: React.FC = () => {
         if (mergeMode) {
             confirmMsg += `\n⚠️ MERGE MODE ACTIVE: Existing schedules for this period will NOT be deleted. New data will be added on top.`;
         } else {
-            confirmMsg += `\n⚠️ STANDARD MODE: All existing data for ID ${publishMonth} will be DELETED first.`;
+            confirmMsg += `\n⚠️ STANDARD MODE: All existing data for ID ${publishMonth} will be DELETED first (Swaps will be preserved).`;
         }
 
         setConfirmation({
@@ -429,6 +464,7 @@ const ScheduleBuilder: React.FC = () => {
         setLoading(true);
         try {
             // *** 1. Save Visual Snapshot for Employee View (Exact Replica) ***
+            // This acts as "Updating the old file" if publishMonth is the same.
             const visualSnapshot: any = {
                 name: `Published ${publishMonth}`,
                 targetMonth: publishMonth,
@@ -461,13 +497,29 @@ const ScheduleBuilder: React.FC = () => {
             if (!mergeMode) {
                 const q = query(collection(db, 'schedules'), where('month', '==', publishMonth));
                 const snapshot = await getDocs(q);
+                
                 if (!snapshot.empty) {
-                    const batchSize = 500;
-                    const docs = snapshot.docs;
-                    for (let i = 0; i < docs.length; i += batchSize) {
-                        const chunk = docs.slice(i, i + batchSize);
-                        const deleteBatch = writeBatch(db);
-                        chunk.forEach(doc => deleteBatch.delete(doc.ref));
+                    const deleteBatch = writeBatch(db);
+                    let deleteOps = 0;
+                    
+                    snapshot.docs.forEach(docSnap => {
+                        const sData = docSnap.data();
+                        
+                        // PROTECT SWAPS: If it's a swap, SKIP deletion
+                        const isSwap = (sData.locationId && sData.locationId.toString().includes('Swap')) || 
+                                       (sData.note && sData.note.toString().includes('Swap'));
+                        
+                        // PROTECT LEAVES (Synced from Actions): If it's a leave ticket, SKIP
+                        // Actually, leaves usually come from Actions dynamically, but if synced as tickets:
+                        const isLeave = sData.locationId === 'LEAVE_ACTION';
+
+                        if (!isSwap && !isLeave) {
+                            deleteBatch.delete(docSnap.ref);
+                            deleteOps++;
+                        }
+                    });
+
+                    if (deleteOps > 0) {
                         await deleteBatch.commit();
                     }
                 }
@@ -499,7 +551,8 @@ const ScheduleBuilder: React.FC = () => {
             };
 
             // Generic Save Function
-            const saveStaff = async (staffList: VisualStaff[], locId: string, notePrefix: string, time: string, isExceptionDate?: string, userType: string = 'user', forcedStart?: string, forcedEnd?: string, overrideMonth?: string, isRamadanFlag: boolean = false, activeTitle?: string) => {
+            // Added uniqueSuffix to generate deterministic IDs for specific dates
+            const saveStaff = async (staffList: VisualStaff[], locId: string, notePrefix: string, time: string, isExceptionDate?: string, userType: string = 'user', forcedStart?: string, forcedEnd?: string, overrideMonth?: string, isRamadanFlag: boolean = false, activeTitle?: string, uniqueSuffix?: string) => {
                 const parsed = parseMultiShifts(time);
                 const shifts = (parsed && parsed.length > 0) ? parsed : [{ start: '08:00', end: '16:00' }];
                 
@@ -519,15 +572,28 @@ const ScheduleBuilder: React.FC = () => {
                             isRamadan: isRamadanFlag
                         };
                         
+                        let docId = null;
                         if (isExceptionDate) {
                             payload.date = isExceptionDate;
+                            // PREVENT DUPLICATES: Generate ID from User + Date + Suffix
+                            if (uniqueSuffix) {
+                                // Clean locId for safety in ID
+                                const safeLoc = locId.replace(/[^a-zA-Z0-9]/g, '');
+                                // Format: USERID_DATE_SUFFIX
+                                docId = `${resolved.id}_${isExceptionDate}_${uniqueSuffix}`;
+                            }
                         } else {
                             payload.validFrom = staff.startDate || forcedStart || globalStartDate;
                             payload.validTo = staff.endDate || forcedEnd || globalEndDate;
                             payload.week = 'all';
                         }
                         
-                        batch.set(doc(scheduleRef), payload);
+                        // Use set with specific ID if available, else standard add/set with auto-id
+                        if (docId) {
+                            batch.set(doc(db, 'schedules', docId), payload);
+                        } else {
+                            batch.set(doc(scheduleRef), payload);
+                        }
                         await checkBatch();
                     }
                 }
@@ -563,7 +629,8 @@ const ScheduleBuilder: React.FC = () => {
                     for (const col of ramadanFridayColumns) {
                         const staffList = row[col.id] as VisualStaff[];
                         if (staffList && Array.isArray(staffList)) {
-                            await saveStaff(staffList, 'Friday Shift', `RAMADAN FRIDAY - ${col.title}`, col.time || '08:00 - 16:00', date, 'user', undefined, undefined, rowMonth, true, rTitle);
+                            // DETERMINISTIC ID for Ramadan Friday: User + Date + ColID
+                            await saveStaff(staffList, 'Friday Shift', `RAMADAN FRIDAY - ${col.title}`, col.time || '08:00 - 16:00', date, 'user', undefined, undefined, rowMonth, true, rTitle, `RamadanFriday_${col.id}`);
                         }
                     }
                 }
@@ -579,7 +646,8 @@ const ScheduleBuilder: React.FC = () => {
                 for (const col of fridayColumns) {
                     const staffList = row[col.id] as VisualStaff[];
                     if (staffList && Array.isArray(staffList)) {
-                        await saveStaff(staffList, 'Friday Shift', `Friday - ${col.title}`, col.time || '08:00 - 16:00', date, 'user', undefined, undefined, rowMonth, false, scheduleNote);
+                        // DETERMINISTIC ID for Friday: User + Date + ColID
+                        await saveStaff(staffList, 'Friday Shift', `Friday - ${col.title}`, col.time || '08:00 - 16:00', date, 'user', undefined, undefined, rowMonth, false, scheduleNote, `Friday_${col.id}`);
                     }
                 }
             }
@@ -613,13 +681,22 @@ const ScheduleBuilder: React.FC = () => {
                                      periodName: holidayScheduleNote || scheduleNote, 
                                      isRamadan: false 
                                  };
+                                 
+                                 let docId = null;
                                  if (possibleDate) {
                                      payload.date = possibleDate;
+                                     // DETERMINISTIC ID for Holiday
+                                     docId = `${resolved.id}_${possibleDate}_Holiday_${col.id}`;
                                  } else {
                                      payload.validFrom = globalStartDate;
                                      payload.validTo = globalEndDate;
                                  }
-                                 batch.set(doc(scheduleRef), payload);
+                                 
+                                 if (docId) {
+                                     batch.set(doc(db, 'schedules', docId), payload);
+                                 } else {
+                                     batch.set(doc(scheduleRef), payload);
+                                 }
                                  await checkBatch();
                              }
                          }
@@ -633,12 +710,14 @@ const ScheduleBuilder: React.FC = () => {
                 const exMonth = ex.date.match(/^\d{4}-\d{2}/) ? ex.date.slice(0, 7) : publishMonth;
                 if (ex.columns) {
                     for (const col of ex.columns) {
-                        await saveStaff(col.staff, col.title, col.title, col.defaultTime, ex.date, 'user', undefined, undefined, exMonth, false, scheduleNote);
+                        // Deterministic for Exception Columns
+                        await saveStaff(col.staff, col.title, col.title, col.defaultTime, ex.date, 'user', undefined, undefined, exMonth, false, scheduleNote, `Exception_${col.id}`);
                     }
                 }
                 if (ex.commonDuties) {
                     for (const duty of ex.commonDuties) {
-                        await saveStaff(duty.staff, 'common_duty', duty.section, duty.time, ex.date, 'user', undefined, undefined, exMonth, false, scheduleNote);
+                         // Deterministic for Exception Duties
+                        await saveStaff(duty.staff, 'common_duty', duty.section, duty.time, ex.date, 'user', undefined, undefined, exMonth, false, scheduleNote, `Exception_Duty_${duty.section.replace(/\s+/g, '')}`);
                     }
                 }
                 if (ex.doctorData && ex.doctorData.length > 0) {
@@ -647,7 +726,8 @@ const ScheduleBuilder: React.FC = () => {
                      for (const col of cols) {
                          const staffList = row[col.id] as VisualStaff[];
                          if (staffList && Array.isArray(staffList)) {
-                             await saveStaff(staffList, 'Doctor Schedule', `Exception - ${col.title}`, col.time || '', ex.date, 'doctor', undefined, undefined, exMonth, false, scheduleNote);
+                             // Deterministic for Doctor Exception
+                             await saveStaff(staffList, 'Doctor Schedule', `Exception - ${col.title}`, col.time || '', ex.date, 'doctor', undefined, undefined, exMonth, false, scheduleNote, `Exception_Dr_${col.id}`);
                          }
                      }
                 }
@@ -714,15 +794,24 @@ const ScheduleBuilder: React.FC = () => {
                 <div className="flex-1 overflow-y-auto p-6 bg-slate-50 print:p-0 print:bg-white print:overflow-visible">
                     
                     <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-6 flex flex-wrap gap-6 items-end print:hidden">
-                        <div>
-                             <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Month ID (Database Key)</label>
-                             <input 
-                                type="month" 
-                                value={publishMonth} 
-                                onChange={e => setPublishMonth(e.target.value)} 
-                                className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm font-bold w-40"
-                                title="Group ID"
-                            />
+                        <div className="flex flex-col gap-1">
+                             <label className="text-[10px] font-bold text-slate-400 uppercase block">Month ID (Database Key)</label>
+                             <div className="flex gap-2">
+                                 <input 
+                                    type="month" 
+                                    value={publishMonth} 
+                                    onChange={e => setPublishMonth(e.target.value)} 
+                                    className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm font-bold w-40"
+                                    title="Group ID"
+                                />
+                                <button 
+                                    onClick={handleLoadPublished}
+                                    className="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1 rounded-lg text-xs font-bold hover:bg-blue-100 flex items-center gap-2"
+                                    title="Load existing data for this month from database to edit"
+                                >
+                                    <i className="fas fa-cloud-download-alt"></i> استيراد المنشور
+                                </button>
+                             </div>
                         </div>
                         
                         <div className="flex gap-2 items-end">

@@ -409,35 +409,60 @@ const AttendancePage: React.FC = () => {
         const getShiftsForDate = (targetDate: Date) => {
             const dateStr = getLocalDateKey(targetDate);
             const dayOfWeek = targetDate.getDay();
-            let resultShifts: { start: string, end: string }[] = [];
             
+            // --- PRIORITY LOGIC: Exact Date > Specific Range > Recurring ---
+            
+            // 1. Exact Date (Highest Priority)
             const specific = schedules.find(s => s.date === dateStr);
             if (specific) {
-                // CRITICAL FIX: Robustly check for shifts array or parse from note
-                if (specific.shifts && specific.shifts.length > 0) {
-                    resultShifts = specific.shifts;
-                } else {
-                    resultShifts = parseMultiShifts(specific.note || "");
-                }
-            } else {
-                schedules.forEach(sch => {
-                    if (sch.date) return;
-                    let applies = false;
-                    const isFri = (sch.locationId || '').toLowerCase().includes('friday') || (sch.note || '').toLowerCase().includes('friday');
-                    if (dayOfWeek === 5) { if (isFri) applies = true; } else { if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; }
-                    
-                    if (applies) {
-                        if (sch.validFrom && dateStr < sch.validFrom) applies = false;
-                        if (sch.validTo && dateStr > sch.validTo) applies = false;
-                    }
-                    
-                    if (applies) {
-                        const parsed = sch.shifts || parseMultiShifts(sch.note || "");
-                        if (parsed.length > 0) resultShifts = parsed;
-                    }
-                });
+                return specific.shifts || parseMultiShifts(specific.note || "");
             }
-            return resultShifts;
+
+            // 2. Filter all applicable recurring schedules
+            const applicable = schedules.filter(sch => {
+                if (sch.date) return false; // Already checked
+
+                // Date Range Check
+                if (sch.validFrom && dateStr < sch.validFrom) return false;
+                if (sch.validTo && dateStr > sch.validTo) return false;
+
+                // Day Type Check
+                const isFri = (sch.locationId || '').toLowerCase().includes('friday') || (sch.note || '').toLowerCase().includes('friday');
+                
+                if (dayOfWeek === 5) {
+                    // It is Friday
+                    return isFri;
+                } else {
+                    // It is NOT Friday
+                    if (isFri) return false;
+                    if ((sch.locationId || '').includes('Holiday')) return false;
+                    return true;
+                }
+            });
+
+            // 3. Sort by Priority
+            // Priority 1: Has explicit date range (validFrom/validTo) vs Open ended
+            // Priority 2: Newest created
+            applicable.sort((a, b) => {
+                // Check if one has range and other doesn't
+                const aHasRange = !!a.validFrom;
+                const bHasRange = !!b.validFrom;
+                
+                if (aHasRange && !bHasRange) return -1; // a comes first
+                if (!aHasRange && bHasRange) return 1;  // b comes first
+                
+                // If both have range or both don't, use creation time (Newest wins)
+                const tA = a.createdAt?.seconds || 0;
+                const tB = b.createdAt?.seconds || 0;
+                return tB - tA;
+            });
+
+            if (applicable.length > 0) {
+                const winner = applicable[0];
+                return winner.shifts || parseMultiShifts(winner.note || "");
+            }
+
+            return [];
         };
 
         // Today

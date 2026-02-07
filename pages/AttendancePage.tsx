@@ -115,12 +115,12 @@ const DigitalClock = memo(({ date }: { date: Date }) => {
     const dateStr = date.toLocaleDateString('en-US', {day: 'numeric', month: 'long', year: 'numeric'});
 
     return (
-        <div className="mb-10 relative flex flex-col items-center z-10 select-none pointer-events-none">
+        <div className="mb-8 relative flex flex-col items-center z-10 select-none pointer-events-none">
             <div className="flex items-baseline gap-2">
-                <span className="text-[6rem] md:text-[8.5rem] font-black leading-none tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-white/50 drop-shadow-2xl tabular-nums font-sans">
+                <span className="text-[5rem] md:text-[7.5rem] font-black leading-none tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-white/50 drop-shadow-2xl tabular-nums font-sans">
                     {hours}:{minutes}
                 </span>
-                <span className="text-2xl md:text-3xl font-bold text-white/30 tabular-nums">
+                <span className="text-xl md:text-2xl font-bold text-white/30 tabular-nums">
                     {seconds}
                 </span>
             </div>
@@ -307,7 +307,7 @@ const AttendancePage: React.FC = () => {
 
 
     // 3. Data Subscriptions (DEPEND ON currentTime to refresh when day changes)
-    const todayDateKey = useMemo(() => currentTime ? getLocalDateKey(currentTime) : '', [currentTime]);
+    const todayDateKey = useMemo(() => currentTime ? getLocalDateKey(currentTime) : '', [currentTime ? currentTime.getDate() : 0]);
 
     useEffect(() => {
         if (!currentUserId || !currentTime) return;
@@ -402,7 +402,7 @@ const AttendancePage: React.FC = () => {
     }, [currentUserId, isTimeSynced, timeOffset, todayDateKey]); // Depends on todayDateKey to refresh daily
 
 
-    // 4. Calculate Shifts (Data layer)
+    // 4. Calculate Shifts (OPTIMIZED: only runs when schedules change or day changes)
     useEffect(() => {
         if (!currentTime) return;
         
@@ -478,7 +478,7 @@ const AttendancePage: React.FC = () => {
         tomDate.setDate(tomDate.getDate() + 1);
         setTomorrowShifts(getShiftsForDate(tomDate));
 
-    }, [schedules, currentTime]);
+    }, [schedules, todayDateKey]); // Key Optimization: Only update shifts if schedules or date changes
 
     // Use the logic from separate file
     const shiftLogic = useMemo(() => {
@@ -953,6 +953,18 @@ const AttendancePage: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* VISUAL SHIFT INDICATOR */}
+            {todayShifts.length > 0 && (
+                <div className="relative z-30 flex justify-center -mt-4 mb-2">
+                    <div className="bg-black/40 backdrop-blur-md px-4 py-1 rounded-full border border-white/10 flex items-center gap-2 shadow-lg">
+                        <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                        <span className="text-[10px] text-emerald-300 font-bold uppercase tracking-widest">
+                            Today's Shift: {todayShifts.map(s => `${s.start}-${s.end}`).join(', ')}
+                        </span>
+                    </div>
+                </div>
+            )}
 
           {hasOverride && timeLeft !== null && (
             <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 w-full max-w-[280px] transition-all duration-500 ${timeLeft <= 10 ? 'scale-110' : 'scale-100'}`}>

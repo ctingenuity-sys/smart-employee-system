@@ -1162,10 +1162,8 @@ const AppointmentsPage: React.FC = () => {
                     "world": "MAIN",
                     "run_at": "document_start"
                 }
-            ],
-            "icons": {
-                "128": "icon.png"
-            }
+            ]
+
         };
         downloadFile('manifest.json', JSON.stringify(manifest, null, 2));
     };

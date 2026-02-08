@@ -165,7 +165,7 @@ const DetailRow: React.FC<{ record: ProcessedRecord }> = ({ record }) => {
             <td className="px-4 py-3 font-bold text-center text-slate-800 print:text-black">{record.totalHours.toFixed(2)}</td>
             <td className="px-4 py-3 font-bold text-center text-emerald-600 print:text-black">{record.overtimeHours > 0 ? record.overtimeHours.toFixed(2) : '-'}</td>
             <td className="px-4 py-3 font-bold text-center text-red-600 print:text-black">{record.shortfallHours > 0 ? record.shortfallHours.toFixed(2) : '-'}</td>
-            <td className="px-4 py-3 font-bold text-center text-amber-600 print:text-black">{record.latenessMinutes > 0 ? record.latenessMinutes : '-'}</td>
+            <td className="px-4 py-3 font-bold text-center text-amber-600 print:text-black">{record.latenessHours > 0 ? record.latenessHours.toFixed(2) : '-'}</td>
         </tr>
     );
 };
@@ -195,7 +195,9 @@ const EmployeeRow: React.FC<{ employee: EmployeeSummary }> = ({ employee }) => {
                         {employee.totalOvertimeHours.toFixed(2)}
                     </span>
                 </td>
-                <td className="px-6 py-4 text-center font-mono text-amber-600 font-bold print:text-black">{employee.totalLatenessMinutes}</td>
+                <td className="px-6 py-4 text-center font-mono text-amber-600 font-bold print:text-black">
+                    {employee.totalLatenessHours > 0 ? employee.totalLatenessHours.toFixed(2) : '-'}
+                </td>
                 <td className="px-6 py-4 text-center text-slate-400 print:hidden">
                     <i className={`fas fa-chevron-${isOpen ? 'up' : 'down'} transition-transform duration-300`}></i>
                 </td>
@@ -219,7 +221,7 @@ const EmployeeRow: React.FC<{ employee: EmployeeSummary }> = ({ employee }) => {
                                             <th className="px-4 py-2 text-center">Total Hrs</th>
                                             <th className="px-4 py-2 text-center">OT (&#62;9h)</th>
                                             <th className="px-4 py-2 text-center">Short</th>
-                                            <th className="px-4 py-2 text-center">Late</th>
+                                            <th className="px-4 py-2 text-center">Late (Hrs)</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -249,7 +251,7 @@ const DataTable: React.FC<{ data: EmployeeSummary[] }> = ({ data }) => {
             <th scope="col" className="px-6 py-4 font-extrabold text-center">{t('att.table.fridays')}</th>
             <th scope="col" className="px-6 py-4 font-extrabold text-center text-red-600 print:text-black">{t('att.table.absent')}</th>
             <th scope="col" className="px-6 py-4 font-extrabold text-center text-emerald-600 print:text-black">{t('att.table.overtime')}</th>
-            <th scope="col" className="px-6 py-4 font-extrabold text-center text-amber-600 print:text-black">{t('att.table.late')}</th>
+            <th scope="col" className="px-6 py-4 font-extrabold text-center text-amber-600 print:text-black">Late (Hrs)</th>
             <th scope="col" className="px-6 py-4 font-extrabold text-center print:hidden">{t('details')}</th>
           </tr>
         </thead>
@@ -554,8 +556,8 @@ const AttendanceAnalyzer: React.FC = () => {
                 absentDays: 0,
                 totalOvertimeHours: 0,
                 totalShortfallHours: 0,
-                totalLatenessMinutes: 0,
-                totalEarlyDepartureMinutes: 0,
+                totalLatenessHours: 0,
+                totalEarlyDepartureHours: 0,
                 records: []
             });
             empWorkedDates.set(name, new Set());
@@ -638,14 +640,14 @@ const AttendanceAnalyzer: React.FC = () => {
 
         // Lateness Logic (Assuming standard start 8 AM, ignores shifts starting after 12PM)
         if (firstPunch > 8.25 && firstPunch < 12) {
-             lateness = (firstPunch - 8) * 60;
+             lateness = (firstPunch - 8); // in HOURS now
         }
 
         if (dailyHours > 0) {
             empSummary.totalWorkDays++;
             empSummary.totalOvertimeHours += overtime;
             empSummary.totalShortfallHours += shortfall;
-            empSummary.totalLatenessMinutes += Math.round(lateness);
+            empSummary.totalLatenessHours += lateness;
             empWorkedDates.get(name)!.add(record.date);
         }
 
@@ -668,8 +670,8 @@ const AttendanceAnalyzer: React.FC = () => {
             totalHours: dailyHours,
             overtimeHours: overtime,
             shortfallHours: shortfall,
-            latenessMinutes: Math.round(lateness),
-            earlyDepartureMinutes: 0
+            latenessHours: lateness,
+            earlyDepartureHours: 0
         };
         
         empSummary.records.push(processed);
@@ -697,8 +699,8 @@ const AttendanceAnalyzer: React.FC = () => {
                     totalHours: 0,
                     overtimeHours: 0,
                     shortfallHours: 8, 
-                    latenessMinutes: 0,
-                    earlyDepartureMinutes: 0
+                    latenessHours: 0,
+                    earlyDepartureHours: 0
                 });
             }
             loopDate.setDate(loopDate.getDate() + 1);
@@ -727,7 +729,7 @@ const AttendanceAnalyzer: React.FC = () => {
           "Fridays Worked": emp.fridaysWorked,
           "Absent Days": emp.absentDays,
           "Total Overtime (Hrs)": emp.totalOvertimeHours.toFixed(2),
-          "Total Late (Mins)": emp.totalLatenessMinutes
+          "Total Late (Hrs)": emp.totalLatenessHours.toFixed(2)
       }));
       const wsSummary = window.XLSX.utils.json_to_sheet(summaryData);
       window.XLSX.utils.book_append_sheet(wb, wsSummary, "Summary");
@@ -743,14 +745,14 @@ const AttendanceAnalyzer: React.FC = () => {
                   "Time In/Out": rec.timestamps.join(' '),
                   "Total Hours": rec.totalHours.toFixed(2),
                   "Overtime": rec.overtimeHours.toFixed(2),
-                  "Lateness": rec.latenessMinutes,
+                  "Lateness (Hrs)": rec.latenessHours.toFixed(2),
                   "Status": rec.status
               });
           });
       });
 
       if (detailData.length === 0) {
-          detailData.push({ "Employee": "No records", "Date": "-", "Day": "-", "Time In/Out": "-", "Total Hours": 0, "Overtime": 0, "Lateness": 0, "Status": "-" });
+          detailData.push({ "Employee": "No records", "Date": "-", "Day": "-", "Time In/Out": "-", "Total Hours": 0, "Overtime": 0, "Lateness (Hrs)": 0, "Status": "-" });
       }
 
       const wsDetail = window.XLSX.utils.json_to_sheet(detailData);
@@ -832,7 +834,7 @@ const AttendanceAnalyzer: React.FC = () => {
                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 print:grid-cols-3 print:gap-4">
                     <SummaryCard icon={<i className="fas fa-users text-2xl"></i>} label={t('sup.totalEmp')} value={analysisResult.length} color="bg-gradient-to-br from-cyan-500 to-blue-500 print:text-black print:bg-white print:border print:border-slate-300" />
                     <SummaryCard icon={<i className="fas fa-stopwatch text-2xl"></i>} label="Total Overtime (>9h)" value={`${analysisResult.reduce((a,b)=>a+b.totalOvertimeHours,0).toFixed(1)} hrs`} color="bg-gradient-to-br from-emerald-500 to-teal-500 print:text-black print:bg-white print:border print:border-slate-300" />
-                    <SummaryCard icon={<i className="fas fa-clock text-2xl"></i>} label="Late Minutes" value={analysisResult.reduce((a,b)=>a+b.totalLatenessMinutes,0)} color="bg-gradient-to-br from-orange-500 to-red-500 print:text-black print:bg-white print:border print:border-slate-300" />
+                    <SummaryCard icon={<i className="fas fa-clock text-2xl"></i>} label="Late Hours" value={analysisResult.reduce((a,b)=>a+b.totalLatenessHours,0).toFixed(2)} color="bg-gradient-to-br from-orange-500 to-red-500 print:text-black print:bg-white print:border print:border-slate-300" />
                   </div>
                 <DataTable data={analysisResult} />
             </div>

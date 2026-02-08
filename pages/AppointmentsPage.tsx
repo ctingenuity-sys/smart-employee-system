@@ -146,6 +146,7 @@ const AppointmentsPage: React.FC = () => {
     const [processingId, setProcessingId] = useState<string | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isBridgeModalOpen, setIsBridgeModalOpen] = useState(false);
+    const [bridgeTab, setBridgeTab] = useState<'extension' | 'manual'>('extension'); // NEW TAB STATE
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [isLogBookOpen, setIsLogBookOpen] = useState(false);
     const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
@@ -322,7 +323,6 @@ const AppointmentsPage: React.FC = () => {
 
             payload.forEach((p: any) => {
                 // FIX: IGNORE RECORDS WITH RESULTS BUT NO NEW ORDERS (Report Writing)
-                // If xrayPatientDetails is empty but xrayResultDetails has data, it's an old case being reported.
                 if ((!p.xrayPatientDetails || p.xrayPatientDetails.length === 0) && (p.xrayResultDetails && p.xrayResultDetails.length > 0)) {
                     return; // Skip this record completely
                 }
@@ -357,7 +357,6 @@ const AppointmentsPage: React.FC = () => {
                         const group = modalityGroups[modId];
                         const id = generateId(group.date, String(fNum), modId);
                         
-                        // Deduplicate: If ID exists, we overwrite (latest data wins)
                         uniqueRecordsMap.set(id, {
                             id,
                             patientName: cleanName,
@@ -398,17 +397,13 @@ const AppointmentsPage: React.FC = () => {
                 }
             });
 
-            // Convert Map to Array for processing
             const incomingIds = Array.from(uniqueRecordsMap.keys());
-
             if (incomingIds.length === 0) {
                 setIsListening(false);
                 isSyncProcessing.current = false;
                 return;
             }
 
-            // --- FETCH EXISTING STATUSES ---
-            // Only fetch status fields to preserve them
             const existingRecordsMap = new Map<string, any>();
             const chunkSize = 50; 
             for (let i = 0; i < incomingIds.length; i += chunkSize) {
@@ -425,12 +420,9 @@ const AppointmentsPage: React.FC = () => {
                 }
             }
 
-            // --- MERGE & PREPARE FOR UPSERT ---
             const rowsToInsert = Array.from(uniqueRecordsMap.values()).map(newRecord => {
                 const existing = existingRecordsMap.get(newRecord.id);
                 if (existing) {
-                    // *** CRITICAL FIX: PRESERVE STATUS ***
-                    // If it exists, KEEP the existing status (scheduled/done/processing)
                     return {
                         ...newRecord,
                         status: existing.status, 
@@ -450,20 +442,15 @@ const AppointmentsPage: React.FC = () => {
                 }
             });
 
-            // --- UPSERT TO SUPABASE ---
             if (rowsToInsert.length > 0) {
                 const { error } = await supabase.from('appointments').upsert(rowsToInsert, { onConflict: 'id' });
-                
                 if (error) {
                     console.error("Supabase Upsert Error:", error);
-                    // Silent fail to user, log to console
                 } else {
                     setLastSyncTime(new Date());
                     try {
                         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-                    } catch (e) {
-                        // Ignore vibration error
-                    }
+                    } catch (e) {}
                     setToast({ msg: `تم تحديث ${rowsToInsert.length} سجلات! 📥`, type: 'success' });
                 }
             }
@@ -480,10 +467,8 @@ const AppointmentsPage: React.FC = () => {
     useEffect(() => {
         const handleMessage = async (event: MessageEvent) => {
             if (!event.data || event.data.type !== 'SMART_SYNC_DATA') return;
-            // console.log("📨 Received Data from Bridge:", event.data.payload?.length);
             await processIncomingData(event.data.payload);
         };
-
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
     }, [selectedDate]); 
@@ -506,11 +491,9 @@ const AppointmentsPage: React.FC = () => {
             if (activeView === 'scheduled') {
                 query = query.eq('status', 'scheduled');
                 if (enableDateFilter) {
-                     // FIX: Handle empty selectedDate to prevent 400 Bad Request
                      if (selectedDate) {
                         query = query.eq('scheduledDate', selectedDate);
                      } else {
-                        // Safe fallback: either don't filter by date (dangerous for perf) or default to today
                         query = query.eq('scheduledDate', getLocalToday());
                      }
                 } else {
@@ -571,7 +554,6 @@ const AppointmentsPage: React.FC = () => {
                             if (activeView === 'scheduled') {
                                 matchesView = newRow.status === 'scheduled';
                                 if (matchesView && enableDateFilter) {
-                                    // Safe comparison even if selectedDate is empty
                                     matchesView = newRow.scheduledDate === selectedDate;
                                 }
                             }
@@ -1149,139 +1131,315 @@ const AppointmentsPage: React.FC = () => {
         }
     };
 
-   const handleCopyScript = () => {
-    // Dynamic URL Generation: Uses the current page URL without hash, then appends the correct route
-    const currentOrigin = window.location.href.split('#')[0];
-    const targetUrl = `${currentOrigin}#/appointments`;
-
-    const script = `
-/* 🚀 AJ-SMART-BRIDGE V15.1 - Fixed Loading Bug */
-(function() {
-    console.clear();
-    console.log("%c 🟢 Bridge V15.1 Active: Optimized for Stability. ", "background: #111; color: #00ff00; padding: 5px;");
-
-    const APP_URL = "${targetUrl}";
-    let syncWin = null;
-
-    function keepSessionAlive() {
-        const events = ['mousemove', 'mousedown', 'mouseup'];
-        events.forEach(eventType => {
-            const event = new MouseEvent(eventType, {
-                view: window,
-                bubbles: true,
-                cancelable: true,
-                clientX: 1, 
-                clientY: 1
-            });
-            document.dispatchEvent(event);
-        });
-    }
-
-    const createUI = () => {
-        const container = document.createElement('div');
-        container.id = 'bridge-ui-container';
-        Object.assign(container.style, {
-            position: 'fixed',
-            bottom: '20px',
-            right: '20px',
-            zIndex: '100000',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '10px'
-        });
-
-        const btn = document.createElement('button');
-        btn.innerHTML = '🔄 Refresh & Sync';
-        Object.assign(btn.style, {
-            padding: '12px 20px',
-            backgroundColor: '#2196f3',
-            color: 'white',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontWeight: 'bold',
-            boxShadow: '0 4px 10px rgba(0,0,0,0.3)'
-        });
-
-        const status = document.createElement('div');
-        status.innerHTML = '<span style="color:#4caf50">●</span> Session Active';
-        Object.assign(status.style, {
-            fontSize: '10px',
-            color: '#fff',
-            backgroundColor: 'rgba(0,0,0,0.7)',
-            padding: '4px 8px',
-            borderRadius: '4px',
-            textAlign: 'center'
-        });
-
-        btn.onclick = () => {
-            triggerRefresh();
-            keepSessionAlive(); 
-        };
-
-        container.appendChild(status);
-        container.appendChild(btn);
-        document.body.appendChild(container);
+    // --- NEW EXTENSION LOGIC ---
+    const downloadFile = (filename: string, content: string) => {
+        const element = document.createElement('a');
+        const file = new Blob([content], {type: 'text/plain'});
+        element.href = URL.createObjectURL(file);
+        element.download = filename;
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
     };
 
-    function triggerRefresh() {
-        const refreshBtn = document.querySelector('img[mattooltip="RefreshData"]') || 
-                           document.querySelector('[mattooltip="RefreshData"]');
-        
-        if (refreshBtn) {
-            refreshBtn.click();
-            console.log("%c ✅ Auto-Click Success", "color: #4caf50;");
-        } else {
-            console.warn("⚠️ Refresh Button Not Found. Simulating activity anyway...");
-        }
-        keepSessionAlive();
+    const handleDownloadManifest = () => {
+        const manifest = {
+            "manifest_version": 3,
+            "name": "Smart Employee Bridge",
+            "version": "2.0",
+            "description": "Auto-sync patient data from Hospital System (IHMS) to Smart Employee App.",
+            "host_permissions": [
+                "http://*/*",
+                "https://*/*"
+            ],
+            "content_scripts": [
+                {
+                    "matches": [
+                        "http://*/*",
+                        "https://*/*"
+                    ],
+                    "js": ["smart-bridge.js"],
+                    "world": "MAIN",
+                    "run_at": "document_start"
+                }
+            ],
+            "icons": {
+                "128": "icon.png"
+            }
+        };
+        downloadFile('manifest.json', JSON.stringify(manifest, null, 2));
+    };
+
+    // Helper for generating the script content
+    const generateBridgeScript = () => {
+        const currentOrigin = window.location.href.split('#')[0];
+        const targetUrl = `${currentOrigin}#/appointments`;
+
+        return `
+/* 🚀 AJ-SMART-BRIDGE AUTO-INJECTOR V2.7 Hidden UI + Silent Console */
+(function () {
+    if (window.AJ_BRIDGE_ACTIVE) return;
+    window.AJ_BRIDGE_ACTIVE = true;
+
+    // =====================================================
+    // ✅ Console Control
+    // =====================================================
+    let consoleEnabled = false; // false = رسائل مخفية، true = رسائل تظهر
+    function log(...args) {
+        if (consoleEnabled) console.log(...args);
     }
 
-    setInterval(triggerRefresh, 60000);
+    log("🟢 Smart Bridge Extension Active (V2.7 Hidden UI)");
 
-    if (document.readyState === 'complete') createUI();
-    else window.addEventListener('load', createUI);
+    const APP_URL = "${targetUrl}";
 
+    // Default times
+    let AUTO_CLICK_DELAY = 60 * 1000; // 1 دقيقة
+    let HEARTBEAT_DELAY = 4 * 60 * 1000; // 4 دقائق
+
+    let syncWin = null;
+    let autoClickTimer = null;
+    let heartbeatTimer = null;
+    let autoClickEnabled = true;
+
+    // =====================================================
+    // 🔘 Safe Refresh Button Click
+    // =====================================================
+    function clickRefreshButton() {
+        if (!autoClickEnabled) return;
+        if (document.visibilityState !== "visible") return;
+
+        const btn =
+            document.querySelector('img[mattooltip="RefreshData"]') ||
+            document.querySelector('[mattooltip="RefreshData"]');
+
+        if (btn && !btn.disabled) {
+            btn.click();
+            log("🔁 Smart Bridge: Auto Refresh Clicked");
+        }
+    }
+
+    // =====================================================
+    // 💓 Heartbeat
+    // =====================================================
+    function sendHeartbeat() {
+        if (document.visibilityState !== "visible") return;
+        fetch(APP_URL, { method: "GET", credentials: "include" })
+            .then(() => log("💓 Heartbeat sent"))
+            .catch(() => {});
+    }
+
+    // =====================================================
+    // 🧠 Floating Status UI (مخفي افتراضيًا)
+    // =====================================================
+    function createUI() {
+        if (document.getElementById("aj-smart-bridge-ui")) return;
+
+        const container = document.createElement("div");
+        container.id = "aj-smart-bridge-ui";
+        container.style.display = "none"; // مخفي افتراضيًا
+        container.style.position = "fixed";
+        container.style.bottom = "20px";
+        container.style.left = "20px";
+        container.style.zIndex = "999999";
+        container.style.backgroundColor = "#0f172a";
+        container.style.color = "#e5e7eb";
+        container.style.padding = "10px 14px";
+        container.style.borderRadius = "12px";
+        container.style.boxShadow = "0 10px 25px rgba(0,0,0,.35)";
+        container.style.display = "flex";
+        container.style.flexDirection = "column";
+        container.style.gap = "6px";
+        container.style.border = "1px solid #334155";
+        container.style.fontFamily = "sans-serif";
+        container.style.fontSize = "12px";
+        container.style.userSelect = "none";
+
+        // ✅ Status row
+        const statusRow = document.createElement("div");
+        statusRow.style.display = "flex";
+        statusRow.style.alignItems = "center";
+        statusRow.style.gap = "8px";
+        statusRow.innerHTML = \`
+            <div style="width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e"></div>
+            <span><b>Smart Sync</b> Active</span>
+        \`;
+        container.appendChild(statusRow);
+
+        // ✅ Auto Click Toggle
+        const toggleBtn = document.createElement("button");
+        toggleBtn.textContent = autoClickEnabled ? "Auto-Click: ON" : "Auto-Click: OFF";
+        Object.assign(toggleBtn.style, {
+            padding: "2px 6px",
+            fontSize: "12px",
+            cursor: "pointer",
+            backgroundColor: autoClickEnabled ? "#22c55e" : "#555",
+            color: "#fff",
+            border: "none",
+            borderRadius: "6px"
+        });
+        toggleBtn.onclick = () => {
+            autoClickEnabled = !autoClickEnabled;
+            toggleBtn.textContent = autoClickEnabled ? "Auto-Click: ON" : "Auto-Click: OFF";
+            toggleBtn.style.backgroundColor = autoClickEnabled ? "#22c55e" : "#555";
+        };
+        container.appendChild(toggleBtn);
+
+        // ✅ Inputs لتعديل الوقت
+        const inputsRow = document.createElement("div");
+        inputsRow.style.display = "flex";
+        inputsRow.style.gap = "6px";
+
+        const autoClickInput = document.createElement("input");
+        autoClickInput.type = "number";
+        autoClickInput.value = AUTO_CLICK_DELAY / 1000;
+        autoClickInput.style.width = "50px";
+        autoClickInput.title = "Auto-Click Delay (sec)";
+        autoClickInput.onchange = () => {
+            AUTO_CLICK_DELAY = parseInt(autoClickInput.value) * 1000;
+            if (autoClickTimer) clearInterval(autoClickTimer);
+            autoClickTimer = setInterval(clickRefreshButton, AUTO_CLICK_DELAY);
+        };
+        inputsRow.appendChild(document.createTextNode("Auto-Click(sec):"));
+        inputsRow.appendChild(autoClickInput);
+
+        const heartbeatInput = document.createElement("input");
+        heartbeatInput.type = "number";
+        heartbeatInput.value = HEARTBEAT_DELAY / 1000;
+        heartbeatInput.style.width = "50px";
+        heartbeatInput.title = "Heartbeat Delay (sec)";
+        heartbeatInput.onchange = () => {
+            HEARTBEAT_DELAY = parseInt(heartbeatInput.value) * 1000;
+            if (heartbeatTimer) clearInterval(heartbeatTimer);
+            heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_DELAY);
+        };
+        inputsRow.appendChild(document.createTextNode("Heartbeat(sec):"));
+        inputsRow.appendChild(heartbeatInput);
+
+        container.appendChild(inputsRow);
+
+        // ✅ Console Toggle
+        const consoleBtn = document.createElement("button");
+        consoleBtn.textContent = consoleEnabled ? "Console: ON" : "Console: OFF";
+        Object.assign(consoleBtn.style, {
+            padding: "2px 6px",
+            fontSize: "12px",
+            cursor: "pointer",
+            backgroundColor: consoleEnabled ? "#22c55e" : "#555",
+            color: "#fff",
+            border: "none",
+            borderRadius: "6px"
+        });
+        consoleBtn.onclick = () => {
+            consoleEnabled = !consoleEnabled;
+            consoleBtn.textContent = consoleEnabled ? "Console: ON" : "Console: OFF";
+            consoleBtn.style.backgroundColor = consoleEnabled ? "#22c55e" : "#555";
+        };
+        container.appendChild(consoleBtn);
+
+        document.body.appendChild(container);
+
+        // Start timers
+        autoClickTimer = setInterval(clickRefreshButton, AUTO_CLICK_DELAY);
+        heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_DELAY);
+    }
+
+    if (document.readyState === "complete") {
+        createUI();
+    } else {
+        window.addEventListener("load", createUI);
+    }
+
+    // =====================================================
+    // 🔑 Shortcut لإظهار/إخفاء UI (Ctrl+Shift+B)
+    // =====================================================
+    document.addEventListener("keydown", (e) => {
+        if (e.ctrlKey && e.shiftKey && e.code === "KeyB") {
+            const ui = document.getElementById("aj-smart-bridge-ui");
+            if (ui) ui.style.display = ui.style.display === "none" ? "flex" : "none";
+        }
+    });
+
+    // =====================================================
+    // 🪟 Open / Reuse Sync Window
+    // =====================================================
     function openSyncWindow() {
         if (!syncWin || syncWin.closed) {
-            console.log("Opening new window: " + APP_URL);
             syncWin = window.open(APP_URL, "SmartAppSyncWindow");
         }
         return syncWin;
     }
 
-    const originalSend = XMLHttpRequest.prototype.send;
-    XMLHttpRequest.prototype.send = function() {
-        this.addEventListener('load', function() {
-            try {
-                if (this.getResponseHeader("content-type")?.includes("application/json")) {
+    // =====================================================
+    // 🌐 XHR Interception (SAFE – SINGLE HOOK)
+    // =====================================================
+    if (!XMLHttpRequest.prototype.__AJ_SMART_BRIDGE__) {
+        XMLHttpRequest.prototype.__AJ_SMART_BRIDGE__ = true;
+
+        const originalSend = XMLHttpRequest.prototype.send;
+
+        XMLHttpRequest.prototype.send = function () {
+            this.addEventListener("load", () => {
+                try {
+                    const type = this.getResponseHeader("content-type");
+                    if (!type || !type.includes("application/json")) return;
+
                     const json = JSON.parse(this.responseText);
-                    let payload = json.d || json.result || json;
+                    let payload = json?.d || json?.result || json;
                     if (!Array.isArray(payload)) payload = [payload];
-                    
+
                     if (payload[0]?.patientName || payload[0]?.fileNumber) {
                         syncWin = openSyncWindow();
-                        // Increased delay to 3000ms to allow React App to fully load on client
-                        setTimeout(() => {
-                            if (syncWin) {
-                                syncWin.postMessage({ type: 'SMART_SYNC_DATA', payload }, '*');
-                                console.log("Sent payload to app.");
-                            }
-                        }, 3000);
-                    }
-                }
-            } catch (e) {}
-        });
-        return originalSend.apply(this, arguments);
-    };
+                        let attempts = 0;
 
-    window.onbeforeunload = () => "Bridge Active";
+                        const interval = setInterval(() => {
+                            if (syncWin && !syncWin.closed) {
+                                syncWin.postMessage(
+                                    { type: "SMART_SYNC_DATA", payload },
+                                    "*"
+                                );
+                                clearInterval(interval);
+                            }
+                            if (++attempts > 8) clearInterval(interval);
+                        }, 500);
+                    }
+                } catch (_) {}
+            });
+
+            return originalSend.apply(this, arguments);
+        };
+    }
+
+    // =====================================================
+    // 👁 Tab Visibility Awareness
+    // =====================================================
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") {
+            log("⏸ Smart Bridge paused (tab hidden)");
+        } else {
+            log("▶ Smart Bridge resumed (tab active)");
+        }
+    });
+
 })();
 `;
 
-    navigator.clipboard.writeText(script);
-    setToast({ msg: 'تم نسخ كود الربط المحدث (V15.1) - تم إصلاح مشكلة التحميل!', type: 'success' });
-};
+    };
+
+    const handleDownloadExtensionScript = () => {
+        const scriptContent = generateBridgeScript();
+        downloadFile('smart-bridge.js', scriptContent);
+    };
+
+    const handleCopyScript = () => {
+        const scriptContent = generateBridgeScript();
+        navigator.clipboard.writeText(scriptContent).then(() => {
+            setToast({ msg: 'Script copied to clipboard! 📋', type: 'success' });
+        }).catch(() => {
+            setToast({ msg: 'Failed to copy script.', type: 'error' });
+        });
+    };
+
    
     const fetchLogbookData = async () => {
         setIsLogLoading(true);
@@ -1913,32 +2071,82 @@ const AppointmentsPage: React.FC = () => {
                 </div>
             </Modal>
 
-            {/* Bridge Modal */}
-            <Modal isOpen={isBridgeModalOpen} onClose={() => setIsBridgeModalOpen(false)} title="الربط الذكي">
-                <div className="space-y-4 text-center">
-                    <p className="text-sm text-slate-600 mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
-                       {t('appt.bridgeInfo')}
-                    </p>
-                    <button onClick={handleCopyScript} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 cursor-pointer">
-                        <i className="fas fa-copy"></i> {t('appt.copyScript')}
-                    </button>
-                    
-                    <div className="border-t border-slate-200 pt-4 mt-4">
-                        <p className="text-xs font-bold text-slate-500 mb-2">{t('appt.manualJson')}</p>
-                        <textarea 
-                            className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs font-mono min-h-[80px]"
-                            placeholder={t('appt.geminiPaste')}
-                            value={manualJsonInput}
-                            onChange={e => setManualJsonInput(e.target.value)}
-                        />
+            {/* Bridge Modal (UPDATED with Extension Tab) */}
+            <Modal isOpen={isBridgeModalOpen} onClose={() => setIsBridgeModalOpen(false)} title={t('appt.bridge')}>
+                <div className="space-y-4">
+                    {/* Tabs */}
+                    <div className="flex bg-slate-100 p-1 rounded-xl mb-4">
                         <button 
-                            onClick={handleManualJsonProcess}
-                            disabled={!manualJsonInput}
-                            className="w-full mt-2 bg-blue-600 text-white py-2 rounded-lg font-bold text-xs hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                            onClick={() => setBridgeTab('extension')} 
+                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${bridgeTab === 'extension' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}
                         >
-                           {t('appt.processManual')}
+                            <i className="fab fa-chrome mr-2"></i> Chrome Extension
+                        </button>
+                        <button 
+                            onClick={() => setBridgeTab('manual')} 
+                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${bridgeTab === 'manual' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}
+                        >
+                            <i className="fas fa-code mr-2"></i> Console Script
                         </button>
                     </div>
+
+                    {bridgeTab === 'extension' && (
+                        <div className="space-y-4 text-center animate-fade-in">
+                             <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 text-xs text-emerald-800">
+                                <p className="font-bold mb-2">✨ الطريقة الأسهل والأسرع!</p>
+                                <p>قم بتحميل هذه الملفات مرة واحدة، وثبتها في المتصفح ليعمل الربط تلقائياً دائماً.</p>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-3">
+                                <button onClick={handleDownloadManifest} className="bg-slate-800 text-white py-3 rounded-xl font-bold text-xs hover:bg-slate-700 flex flex-col items-center gap-1 shadow-md">
+                                    <i className="fas fa-file-code text-yellow-400 text-lg"></i>
+                                    1. manifest.json
+                                </button>
+                                <button onClick={handleDownloadExtensionScript} className="bg-slate-800 text-white py-3 rounded-xl font-bold text-xs hover:bg-slate-700 flex flex-col items-center gap-1 shadow-md">
+                                    <i className="fab fa-js text-blue-400 text-lg"></i>
+                                    2. smart-bridge.js
+                                </button>
+                            </div>
+                            
+                            <div className="text-left bg-slate-50 p-3 rounded-lg border border-slate-200 text-[10px] text-slate-500">
+                                <strong>طريقة التثبيت:</strong>
+                                <ol className="list-decimal list-inside mt-1 space-y-1">
+                                    <li>ضع الملفين في مجلد جديد.</li>
+                                    <li>افتح <code>chrome://extensions</code> في المتصفح.</li>
+                                    <li>فعل "Developer mode".</li>
+                                    <li>اضغط "Load unpacked" واختار المجلد.</li>
+                                </ol>
+                            </div>
+                        </div>
+                    )}
+
+                    {bridgeTab === 'manual' && (
+                        <div className="space-y-4 text-center animate-fade-in">
+                            <p className="text-sm text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                            {t('appt.bridgeInfo')}
+                            </p>
+                            <button onClick={handleCopyScript} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-2 cursor-pointer">
+                                <i className="fas fa-copy"></i> {t('appt.copyScript')}
+                            </button>
+                            
+                            <div className="border-t border-slate-200 pt-4 mt-4">
+                                <p className="text-xs font-bold text-slate-500 mb-2">{t('appt.manualJson')}</p>
+                                <textarea 
+                                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs font-mono min-h-[80px]"
+                                    placeholder={t('appt.geminiPaste')}
+                                    value={manualJsonInput}
+                                    onChange={e => setManualJsonInput(e.target.value)}
+                                />
+                                <button 
+                                    onClick={handleManualJsonProcess}
+                                    disabled={!manualJsonInput}
+                                    className="w-full mt-2 bg-slate-800 text-white py-2 rounded-lg font-bold text-xs hover:bg-slate-700 disabled:opacity-50 cursor-pointer"
+                                >
+                                {t('appt.processManual')}
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </Modal>
 
@@ -2032,72 +2240,6 @@ const AppointmentsPage: React.FC = () => {
                             Close
                         </button>
                     </div>
-                </div>
-            </Modal>
-
-            {/* Other Modals (Booking, Ticket, Add, Settings, Bridge) */}
-            <Modal isOpen={isBookingModalOpen} onClose={() => setIsBookingModalOpen(false)} title="جدولة موعد">
-                <div className="space-y-4">
-                    {/* UPDATED: Detailed Card Header for Booking */}
-                    {bookingAppt && (
-                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4 shadow-sm">
-                           <div className="flex justify-between items-start">
-                              <div>
-                                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Patient Name</span>
-                                 <h3 className="font-bold text-lg text-slate-800">{bookingAppt.patientName}</h3>
-                                 <span className="text-xs text-slate-500 font-bold">#{bookingAppt.fileNumber}</span>
-                              </div>
-                              <div className="text-right">
-                                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Exam</span>
-                                 <h3 className="font-bold text-blue-600 text-sm max-w-[150px] truncate">{bookingAppt.examList?.[0] || bookingAppt.examType}</h3>
-                                 <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold border border-blue-200">{bookingAppt.examType}</span>
-                              </div>
-                           </div>
-                        </div>
-                    )}
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-xs font-bold text-slate-500 mb-1 block">{t('appt.appdate')}</label>
-                            <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" value={bookingDate} onChange={e => setBookingDate(e.target.value)} />
-                        </div>
-                        <div>
-                            <label className="text-xs font-bold text-slate-500 mb-1 block">{t('appt.apptime')}</label>
-                            
-                            {/* NEW: Limit Check Logic */}
-                            {isDayLimitReached && !isSupervisor ? (
-                                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-center">
-                                    <p className="text-red-700 font-bold text-xs mb-1">{t('appt.dayFull')}</p>
-                                    <p className="text-[10px] text-red-500">{bookingWarning}</p>
-                                </div>
-                            ) : (
-                                availableSlots.length > 0 ? (
-                                    <select className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700" value={bookingTime} onChange={e => setBookingTime(e.target.value)}>
-                                        <option value="">{t("app.select")}</option>
-                                        {availableSlots.map(slot => <option key={slot} value={slot}>{slot}</option>)}
-                                    </select>
-                                ) : (
-                                    <input 
-                                        type="time" 
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" 
-                                        value={bookingTime} 
-                                        onChange={e => setBookingTime(e.target.value)} 
-                                    />
-                                )
-                            )}
-                        </div>
-                    </div>
-                    <div><label className="text-xs font-bold text-slate-500 mb-1 block">{t('appt.room')}</label><input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold" placeholder="مثال: غرفة 3" value={bookingRoom} onChange={e => setBookingRoom(e.target.value)} /></div>
-                    <div><label className="text-xs font-bold text-slate-500 mb-1 block">{t('appt.prep')}</label><textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold min-h-[80px]" value={bookingPrep} onChange={e => setBookingPrep(e.target.value)} /></div>
-                    {bookingWarning && <div className={`text-xs font-bold p-3 rounded-lg border ${bookingWarning.includes('✅') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{bookingWarning}</div>}
-                    
-                    <button 
-                        onClick={confirmBooking} 
-                        disabled={isDayLimitReached && !isSupervisor}
-                        className={`w-full py-3 rounded-xl font-bold shadow-lg transition-all cursor-pointer ${isDayLimitReached && !isSupervisor ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-                    >
-                       {t( 'appt.confirm')}
-                    </button>
                 </div>
             </Modal>
         </div>

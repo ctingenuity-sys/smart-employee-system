@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db, firebaseConfig, auth } from '../../firebase'; // Removed storage import
 // @ts-ignore
 import { collection, updateDoc, deleteDoc, setDoc, onSnapshot, doc, Timestamp, query, where, getDocs, writeBatch, limit, orderBy, addDoc,serverTimestamp, arrayUnion, arrayRemove } from 'firebase/firestore';
@@ -15,6 +15,9 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { useNavigate } from 'react-router-dom';
 // Import the new storage service
 import { uploadFile } from '../../services/storageClient';
+
+// Declare Html5QrcodeScanner from global scope (CDN)
+declare const Html5QrcodeScanner: any;
 
 const ALL_PERMISSIONS = [
     { key: 'schedule', label: 'الجدول (User Schedule)' },
@@ -34,43 +37,46 @@ const ALL_PERMISSIONS = [
 
 // Mapped to match the specific CSS classes requested
 const JOB_CATEGORIES = [
-    { id: 'doctor', title: 'Doctors', cssClass: 'doctors', icon: 'fa-user-md' },
-    { id: 'technologist', title: 'Specialists', cssClass: 'technologists', icon: 'fa-user-graduate' },
-    { id: 'usg', title: 'Ultrasound', cssClass: 'technologists', icon: 'fa-wave-square', isHidden: true }, // Added USG but hidden from circles
-    { id: 'technician', title: 'Technicians', cssClass: 'technicians', icon: 'fa-cogs' },
-    { id: 'nurse', title: 'Nurses', cssClass: 'assistants', icon: 'fa-user-nurse' },
-    { id: 'rso', title: 'R S O', cssClass: 'rso', icon: 'fa-radiation' },
+    { id: 'doctor', title: 'Doctors', cssClass: 'doctors', icon: 'fa-user-md', cardTheme: 'from-rose-50 to-pink-100 border-rose-200' },
+    { id: 'technologist', title: 'Specialists', cssClass: 'technologists', icon: 'fa-user-graduate', cardTheme: 'from-cyan-200 to-blue-300 border-cyan-400' },
+    { id: 'usg', title: 'Ultrasound', cssClass: 'technologists', icon: 'fa-wave-square', isHidden: true, cardTheme: 'from-indigo-50 to-violet-100 border-indigo-200' }, 
+    { id: 'technician', title: 'Technicians', cssClass: 'technicians', icon: 'fa-cogs', cardTheme: 'bg-gradient-to-r from-yellow-950 via-yellow-400 to-yellow-500 border-yellow-900 text-black' },
+    { id: 'nurse', title: 'Nurses', cssClass: 'assistants', icon: 'fa-user-nurse', cardTheme: 'from-purple-50 to-fuchsia-100 border-purple-200' },
+    { id: 'rso', title: 'R S O', cssClass: 'rso', icon: 'fa-radiation', cardTheme: 'from-yellow-50 to-amber-100 border-yellow-200' },
 ];
 
 const styles = `
 /* --------------------------------------------------------------------------------
-   General Styles & Animations from Request
+   Updated Styles for "Dazzling" UI
 -------------------------------------------------------------------------------- */
 .section-circle {
-    width: 200px;
-    height: 200px;
+    width: 260px; /* Increased Size */
+    height: 260px; /* Increased Size */
     border-radius: 50%;
     color: white;
-    font-size: 20px;
-    font-weight: 700;
+    font-size: 24px;
+    font-weight: 800;
     display: flex;
     justify-content: center;
     align-items: center;
     cursor: pointer;
-    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
-    transition: transform 0.3s ease, filter 0.3s ease;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25), inset 0 0 20px rgba(255,255,255,0.2);
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     text-align: center;
-    padding: 10px;
+    padding: 20px;
     line-height: 1.2;
     flex-direction: column;
     user-select: none;
     position: relative;
-    margin-bottom: 40px; /* Adjusted space */
-    border: 4px solid transparent; /* Prepare for border change */
+    margin: 20px; 
+    border: 6px solid rgba(255,255,255,0.3);
+    backdrop-filter: blur(5px);
 }
 .section-circle:hover {
-    transform: translateY(-10px) scale(1.02);
+    transform: translateY(-15px) scale(1.05);
     filter: brightness(1.1);
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.3), inset 0 0 30px rgba(255,255,255,0.4);
+    z-index: 10;
 }
 
 /* Circle Colors */
@@ -81,169 +87,95 @@ const styles = `
 .rso { background: linear-gradient(135deg, #f7971e, #ffd200); text-shadow: 1px 1px 2px rgba(0,0,0,0.2); }
 
 .section-title {
-    font-size: 22px;
+    font-size: 26px;
     margin-bottom: 5px;
-    text-shadow: 1px 1px 3px rgba(0,0,0,0.3);
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
     pointer-events: none;
+    letter-spacing: -0.5px;
 }
 .employee-count {
-    font-size: 32px;
+    font-size: 42px;
     font-weight: 900;
-    text-shadow: 1px 1px 5px rgba(0,0,0,0.5);
+    text-shadow: 2px 2px 10px rgba(0,0,0,0.3);
     pointer-events: none;
 }
 
 /* --- New Circular Warning Styles --- */
-
-/* Danger Ring (Expired) */
 .ring-danger {
-    border-color: #ef4444; /* Red Border */
+    border-color: #ef4444; 
     animation: ripple-danger 2s linear infinite;
 }
-
-/* Warning Ring (Near Expiry) */
 .ring-warning {
-    border-color: #eab308; /* Yellow Border */
+    border-color: #eab308; 
     animation: ripple-warning 2s linear infinite;
 }
-
 @keyframes ripple-danger {
   0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4), 0 0 0 0 rgba(239, 68, 68, 0.4); }
-  50% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0), 0 0 0 0 rgba(239, 68, 68, 0.4); }
-  100% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0), 0 0 0 20px rgba(239, 68, 68, 0); }
+  50% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0), 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  100% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0), 0 0 0 30px rgba(239, 68, 68, 0); }
 }
-
 @keyframes ripple-warning {
   0% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.4), 0 0 0 0 rgba(234, 179, 8, 0.4); }
-  50% { box-shadow: 0 0 0 10px rgba(234, 179, 8, 0), 0 0 0 0 rgba(234, 179, 8, 0.4); }
-  100% { box-shadow: 0 0 0 10px rgba(234, 179, 8, 0), 0 0 0 20px rgba(234, 179, 8, 0); }
+  50% { box-shadow: 0 0 0 15px rgba(234, 179, 8, 0), 0 0 0 0 rgba(234, 179, 8, 0.4); }
+  100% { box-shadow: 0 0 0 15px rgba(234, 179, 8, 0), 0 0 0 30px rgba(234, 179, 8, 0); }
 }
 
-/* Badges Floating on the Edge */
+/* Badges */
 .floating-badge {
     position: absolute;
-    width: 40px;
-    height: 40px;
+    width: 50px;
+    height: 50px;
     border-radius: 50%;
     display: flex;
     justify-content: center;
     align-items: center;
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 900;
-    border: 3px solid white;
-    z-index: 10;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+    border: 4px solid white;
+    z-index: 20;
+    box-shadow: 0 6px 12px rgba(0,0,0,0.3);
 }
-
-.badge-danger {
-    background-color: #ef4444;
-    color: white;
-    top: -10px;
-    right: -10px;
-    animation: bounce-badge 2s infinite;
-}
-
-.badge-warning {
-    background-color: #eab308;
-    color: #333;
-    top: -10px;
-    left: -10px;
-}
+.badge-danger { background-color: #ef4444; color: white; top: -10px; right: -10px; animation: bounce-badge 2s infinite; }
+.badge-warning { background-color: #eab308; color: #333; top: -10px; left: -10px; }
 
 @keyframes bounce-badge {
     0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-5px); }
+    50% { transform: translateY(-8px); }
 }
 
-
-/* Secret Button */
-#secretTrigger {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    width: 30px;
-    height: 30px;
-    z-index: 9999;
-    cursor: default; /* No pointer cursor to avoid detection */
-    background: transparent;
-}
-
-/* Employee Card Styles (Inside Modal) */
-.person {
-    display: flex;
-    align-items: flex-start;
-    padding: 15px;
-    border: 1px solid #eee;
-    margin-bottom: 12px;
-    border-radius: 12px;
+/* Document Buttons - Dazzling Style */
+.dazzle-btn {
     position: relative;
-    gap: 15px;
-    background-color: #ffffff;
-    transition: all 0.2s ease;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    border: none;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
 }
-.person:hover {
-    background-color: #f8fbff;
-    border-color: #bbdefb;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+.dazzle-btn:hover {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.2);
 }
-.person img {
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
-    object-fit: cover;
-    background-color: #eee;
-    border: 2px solid #fff;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+.dazzle-btn::after {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+    transition: 0.5s;
 }
-.person-info {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+.dazzle-btn:hover::after {
+    left: 100%;
 }
-.person-info strong {
-    font-size: 16px;
-    color: #1565c0;
-}
-.metadata-container {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-top: 4px;
-}
-.metadata-item {
-    font-size: 12px;
-    color: #546e7a;
-    background: #f5f7f9;
-    padding: 2px 8px;
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-.status-section {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
-    min-width: 180px;
-}
-.person-link {
-    font-size: 11px;
-    text-decoration: none;
-    color: #1976d2;
-    background: #e3f2fd;
-    padding: 2px 8px;
-    border-radius: 12px;
-    transition: 0.2s;
-    display: inline-block;
-    margin-bottom: 2px;
-}
-.person-link:hover { background: #bbdefb; }
 
-.valid-license { color: #2e7d32; font-weight: bold; font-size: 11px; background: #e8f5e9; padding: 2px 6px; rounded: 4px; }
-.expired-license { color: #c62828; font-weight: bold; font-size: 11px; background: #ffebee; padding: 2px 6px; rounded: 4px; animation: pulse 2s infinite; }
-.near-expiry-license { color: #f9a825; font-weight: bold; font-size: 11px; background: #fffde7; padding: 2px 6px; rounded: 4px; }
+/* Card Effects */
+.glass-card-effect {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+}
 `;
 
 const SupervisorEmployees: React.FC = () => {
@@ -255,11 +187,12 @@ const SupervisorEmployees: React.FC = () => {
     const [loading, setLoading] = useState(false);
     
     // View Mode Toggle
-    const [viewMode, setViewMode] = useState<'table' | 'visual'>('visual'); // Default to visual as per request preference
+    const [viewMode, setViewMode] = useState<'table' | 'visual'>('visual'); 
 
     // Visual Mode State
     const [selectedCategoryUsers, setSelectedCategoryUsers] = useState<User[]>([]);
     const [selectedCategoryTitle, setSelectedCategoryTitle] = useState('');
+    const [selectedCategoryTheme, setSelectedCategoryTheme] = useState(''); // New for modal theme
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
     const [hiddenEmployeesVisible, setHiddenEmployeesVisible] = useState(false);
 
@@ -268,6 +201,12 @@ const SupervisorEmployees: React.FC = () => {
 
     // Document Upload State
     const [isUploading, setIsUploading] = useState(false);
+    
+    // Link/Scan Modal State
+    const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
+    const [linkData, setLinkData] = useState({ name: '', url: '', category: 'registration' as 'registration' | 'license' | 'general', expiryDate: '' });
+    const [isScanning, setIsScanning] = useState(false);
+    const scannerRef = useRef<any>(null);
     
     // Missing State Definitions
     const [showCorsHelp, setShowCorsHelp] = useState(false);
@@ -372,6 +311,53 @@ const SupervisorEmployees: React.FC = () => {
         return () => { unsub(); };
     }, [currentAdminId]);
 
+    // Handle Scanner
+    useEffect(() => {
+        let scanner: any = null;
+
+        if (isScanning && isLinkModalOpen) {
+            // Wait for modal to render div
+            const timer = setTimeout(() => {
+                try {
+                    // Ensure element exists and isn't already populated
+                    const readerElem = document.getElementById("reader");
+                    if (readerElem && !readerElem.innerHTML) {
+                        scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 }, false);
+                        scannerRef.current = scanner;
+                        
+                        scanner.render(
+                            (decodedText: string) => {
+                                setLinkData(prev => ({ ...prev, url: decodedText }));
+                                setToast({ msg: "تم مسح الكود بنجاح!", type: 'success' });
+                                
+                                // Proper cleanup sequence
+                                scanner.clear().then(() => {
+                                    setIsScanning(false);
+                                }).catch((err: any) => {
+                                    console.error("Failed to clear", err);
+                                    setIsScanning(false);
+                                });
+                            },
+                            (error: any) => {
+                                // Scanning...
+                            }
+                        );
+                    }
+                } catch (e) {
+                    console.error("Scanner Error", e);
+                    setToast({ msg: "خطأ في تشغيل الكاميرا", type: 'error' });
+                }
+            }, 300);
+            return () => clearTimeout(timer);
+        } else {
+            // Cleanup if modal closes or scanning stops
+            if (scannerRef.current) {
+                scannerRef.current.clear().catch((e: any) => console.error(e));
+                scannerRef.current = null;
+            }
+        }
+    }, [isScanning, isLinkModalOpen]);
+
     const handleAddUser = async () => {
         const email = newUserEmail.trim();
         const password = newUserPassword.trim();
@@ -438,6 +424,8 @@ const SupervisorEmployees: React.FC = () => {
                 licenseExpiry: editForm.licenseExpiry || null,
                 registrationExpiry: editForm.registrationExpiry || null,
                 nrrcExpiry: editForm.nrrcExpiry || null,
+                
+                // New Fields
                 nationality: editForm.nationality || '',
                 gender: editForm.gender || 'male',
                 hireDate: editForm.hireDate || '',
@@ -503,6 +491,43 @@ const SupervisorEmployees: React.FC = () => {
             setToast({ msg: 'فشل رفع الملف: ' + error.message, type: 'error' });
         } finally {
             setIsUploading(false);
+        }
+    };
+
+    // --- New Handler: Add Link / QR ---
+    const handleAddLink = async () => {
+        if (!editForm.id || !linkData.name || !linkData.url) {
+            setToast({ msg: "Please fill all fields", type: 'error' });
+            return;
+        }
+
+        try {
+            const newDoc: UserDocument = {
+                name: linkData.name,
+                url: linkData.url,
+                type: 'link', // Mark as link
+                category: linkData.category,
+                expiryDate: linkData.expiryDate || undefined, // Save expiry date if exists
+                uploadedAt: new Date().toISOString()
+            };
+
+            await updateDoc(doc(db, 'users', editForm.id), {
+                documents: arrayUnion(newDoc)
+            });
+
+            setEditForm(prev => ({
+                ...prev,
+                documents: [...(prev.documents || []), newDoc]
+            }));
+
+            setToast({ msg: 'تم إضافة الرابط بنجاح', type: 'success' });
+            setIsLinkModalOpen(false);
+            setLinkData({ name: '', url: '', category: 'registration', expiryDate: '' });
+            if (scannerRef.current) scannerRef.current.clear();
+            setIsScanning(false);
+
+        } catch (e: any) {
+            setToast({ msg: 'Error saving link', type: 'error' });
         }
     };
 
@@ -690,7 +715,7 @@ const SupervisorEmployees: React.FC = () => {
             ? user.permissions 
             : ALL_PERMISSIONS.map(p => p.key);
             
-        setEditForm({ ...user, permissions: perms, jobCategory: user.jobCategory || 'technician', gender: user.gender || 'male', hireDate: user.hireDate || '', isHidden: user.isHidden || false });
+        setEditForm({ ...user, permissions: perms, jobCategory: user.jobCategory || 'technician', gender: user.gender || 'male', hireDate: user.hireDate || '', nationality: user.nationality || '', isHidden: user.isHidden || false });
         setIsEditModalOpen(true);
     };
 
@@ -714,6 +739,18 @@ const SupervisorEmployees: React.FC = () => {
                     else if (diff <= THRESHOLD) counts.nearExpiry++;
                 }
             });
+            
+            // Check Documents Expiry
+            if (u.documents) {
+                u.documents.forEach(doc => {
+                    if (doc.expiryDate) {
+                        const expDate = new Date(doc.expiryDate);
+                        const diff = (expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+                        if (diff < 0) counts.expired++;
+                        else if (diff <= THRESHOLD) counts.nearExpiry++;
+                    }
+                });
+            }
         });
         return counts;
     };
@@ -728,6 +765,7 @@ const SupervisorEmployees: React.FC = () => {
         
         setSelectedCategoryUsers(filtered);
         setSelectedCategoryTitle(categoryData?.title || '');
+        setSelectedCategoryTheme(categoryData?.cardTheme || 'from-gray-50 to-gray-100 border-gray-200'); // Set theme
         // We use the CSS class name instead of gradient
         setIsCategoryModalOpen(true);
     };
@@ -762,6 +800,34 @@ const SupervisorEmployees: React.FC = () => {
             </span>
         );
     };
+
+    // Helper to calculate duration since hire date
+    const calculateDuration = (dateString?: string) => {
+        if (!dateString) return 'New';
+        const start = new Date(dateString);
+        const now = new Date();
+        const diffTime = Math.abs(now.getTime() - start.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+        
+        if (diffDays < 30) return 'New Joiner';
+        if (diffDays < 365) return `${Math.floor(diffDays / 30)} Months`;
+        return `${Math.floor(diffDays / 365)} Years`;
+    };
+
+    // Helper to style document buttons based on expiry (Dazzling Version)
+    const getDocumentButtonStyle = (doc: UserDocument) => {
+        if (!doc.expiryDate) {
+             return "bg-gradient-to-r from-slate-400 to-slate-600 text-white border-none dazzle-btn"; 
+        }
+        
+        const today = new Date(); today.setHours(0,0,0,0);
+        const expDate = new Date(doc.expiryDate);
+        const diff = (expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+        
+        if (diff < 0) return "bg-gradient-to-r from-red-500 to-rose-600 text-white animate-pulse dazzle-btn border-none shadow-[0_0_10px_rgba(239,68,68,0.5)]"; // Expired
+        if (diff <= 30) return "bg-gradient-to-r from-amber-400 to-orange-500 text-white dazzle-btn border-none shadow-[0_0_10px_rgba(245,158,11,0.5)]"; // Soon
+        return "bg-gradient-to-r from-emerald-500 to-teal-600 text-white dazzle-btn border-none"; // Valid
+    };
     
     // Toggle hidden employees visibility
     const toggleHiddenEmployees = () => {
@@ -774,6 +840,7 @@ const SupervisorEmployees: React.FC = () => {
         return 'https://cdn-icons-png.flaticon.com/512/4140/4140048.png';
     }
     
+    // Get document link button
     const getDocumentLink = (user: User, cat: string, label: string) => {
         const docItem = user.documents?.find(d => d.category === cat);
         if (docItem && docItem.url) {
@@ -782,16 +849,16 @@ const SupervisorEmployees: React.FC = () => {
                     href={docItem.url} 
                     target="_blank" 
                     rel="noreferrer" 
-                    className="flex items-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 px-2 py-1 rounded transition-colors text-[10px] font-bold"
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-[10px] ${getDocumentButtonStyle(docItem)}`}
                     title={`View ${label}`}
                 >
-                    <i className="fas fa-file-pdf"></i> {label}
+                    <i className={`fas ${docItem.type === 'link' ? 'fa-link' : 'fa-file-pdf'}`}></i> {label}
                 </a>
             );
         }
         return (
-            <span className="flex items-center gap-1 bg-slate-50 text-slate-300 border border-slate-100 px-2 py-1 rounded text-[10px] cursor-not-allowed opacity-60">
-                 <i className="fas fa-file-excel"></i> {label}
+            <span className="flex items-center gap-1 bg-slate-100 text-slate-400 border border-slate-200 px-3 py-1.5 rounded-full text-[10px] cursor-not-allowed opacity-60">
+                 <i className="fas fa-ban"></i> {label}
             </span>
         );
     }
@@ -1026,54 +1093,57 @@ const SupervisorEmployees: React.FC = () => {
 
             {/* --- VISUAL VIEW (SECRET CIRCLES) --- */}
             {viewMode === 'visual' && (
-                <div className="flex flex-wrap gap-8 justify-center pb-20 pt-10">
-                    {/* Hide categories marked as isHidden: true from visual circles */}
-                    {JOB_CATEGORIES.filter(c => !(c as any).isHidden).map(cat => {
-                        const catUsers = users.filter(u => {
-                             // Check for hidden state
-                             const isHidden = (u as any).isHidden;
-                             if (isHidden && !hiddenEmployeesVisible) return false;
-                             return (u.jobCategory || 'technician') === cat.id;
-                        });
-                        const warningCounts = getWarningCounts(catUsers, cat.id);
-                        const hasDanger = warningCounts.expired > 0;
-                        const hasWarning = warningCounts.nearExpiry > 0;
-                        
-                        let ringClass = '';
-                        if (hasDanger) ringClass = 'ring-danger';
-                        else if (hasWarning) ringClass = 'ring-warning';
+                // Use a centered container
+                <div className="min-h-[70vh] flex flex-col items-center justify-center animate-fade-in-up">
+                    <div className="flex flex-wrap gap-8 justify-center pb-20 pt-10">
+                        {/* Hide categories marked as isHidden: true from visual circles */}
+                        {JOB_CATEGORIES.filter(c => !(c as any).isHidden).map(cat => {
+                            const catUsers = users.filter(u => {
+                                 // Check for hidden state
+                                 const isHidden = (u as any).isHidden;
+                                 if (isHidden && !hiddenEmployeesVisible) return false;
+                                 return (u.jobCategory || 'technician') === cat.id;
+                            });
+                            const warningCounts = getWarningCounts(catUsers, cat.id);
+                            const hasDanger = warningCounts.expired > 0;
+                            const hasWarning = warningCounts.nearExpiry > 0;
+                            
+                            let ringClass = '';
+                            if (hasDanger) ringClass = 'ring-danger';
+                            else if (hasWarning) ringClass = 'ring-warning';
 
-                        return (
-                            <div 
-                                key={cat.id} 
-                                onClick={() => openCategoryList(cat.id)}
-                                className={`section-circle ${cat.cssClass} ${ringClass}`}
-                            >
-                                <div className="section-title">{cat.title}</div>
-                                <div className="employee-count">{catUsers.length}</div>
-                                
-                                {/* Floating Badges instead of Ropes */}
-                                {hasDanger && (
-                                    <div className="floating-badge badge-danger">
-                                        {warningCounts.expired}
-                                    </div>
-                                )}
-                                
-                                {(hasWarning && !hasDanger) && (
-                                    <div className="floating-badge badge-warning">
-                                        {warningCounts.nearExpiry}
-                                    </div>
-                                )}
-                                
-                                {/* If both exist, show warning count on left (danger on right via hasDanger above) */}
-                                {hasDanger && hasWarning && (
-                                    <div className="floating-badge badge-warning">
-                                        {warningCounts.nearExpiry}
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
+                            return (
+                                <div 
+                                    key={cat.id} 
+                                    onClick={() => openCategoryList(cat.id)}
+                                    className={`section-circle ${cat.cssClass} ${ringClass}`}
+                                >
+                                    <div className="section-title">{cat.title}</div>
+                                    <div className="employee-count">{catUsers.length}</div>
+                                    
+                                    {/* Floating Badges */}
+                                    {hasDanger && (
+                                        <div className="floating-badge badge-danger">
+                                            {warningCounts.expired}
+                                        </div>
+                                    )}
+                                    
+                                    {(hasWarning && !hasDanger) && (
+                                        <div className="floating-badge badge-warning">
+                                            {warningCounts.nearExpiry}
+                                        </div>
+                                    )}
+                                    
+                                    {/* If both exist, show warning count on left */}
+                                    {hasDanger && hasWarning && (
+                                        <div className="floating-badge badge-warning">
+                                            {warningCounts.nearExpiry}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             )}
 
@@ -1098,15 +1168,13 @@ const SupervisorEmployees: React.FC = () => {
                     
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="text-xs font-bold text-slate-500 block mb-1">Gender</label>
-                            <select 
+                            <label className="text-xs font-bold text-slate-500 block mb-1">Nationality</label>
+                            <input 
                                 className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
-                                value={editForm.gender || 'male'} 
-                                onChange={e => setEditForm({...editForm, gender: e.target.value as 'male'|'female'})}
-                            >
-                                <option value="male">Male</option>
-                                <option value="female">Female</option>
-                            </select>
+                                placeholder="e.g. Saudi, Egyptian"
+                                value={editForm.nationality || ''} 
+                                onChange={e => setEditForm({...editForm, nationality: e.target.value})} 
+                            />
                         </div>
                         <div>
                             <label className="text-xs font-bold text-slate-500 block mb-1">Hire Date</label>
@@ -1118,7 +1186,7 @@ const SupervisorEmployees: React.FC = () => {
                             />
                         </div>
                     </div>
-
+                    
                     <div>
                         <label className="text-xs font-bold text-slate-500 block mb-1">Job Category (For Visuals)</label>
                         <select 
@@ -1135,6 +1203,14 @@ const SupervisorEmployees: React.FC = () => {
                         <div className="flex justify-between items-center">
                             <h4 className="font-bold text-blue-800 text-sm flex items-center gap-2"><i className="fas fa-file-pdf"></i> Documents (PDF)</h4>
                             <div className="flex gap-2">
+                                {/* NEW BUTTON for Link/QR */}
+                                <button 
+                                    onClick={() => { setIsLinkModalOpen(true); setIsEditModalOpen(false); }} // Close edit, open link modal (or nested)
+                                    className="cursor-pointer bg-white text-purple-600 px-3 py-1 rounded-lg text-[10px] font-bold border border-purple-200 hover:bg-purple-50 transition-colors flex items-center gap-1"
+                                >
+                                    <i className="fas fa-link"></i> Link / QR
+                                </button>
+
                                 <label className="cursor-pointer bg-white text-blue-600 px-3 py-1 rounded-lg text-[10px] font-bold border border-blue-200 hover:bg-blue-100 transition-colors flex items-center gap-1">
                                     <i className="fas fa-certificate"></i> + Reg. Certificate
                                     <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleFileUpload(e, 'registration')} disabled={isUploading} />
@@ -1153,8 +1229,9 @@ const SupervisorEmployees: React.FC = () => {
                                         <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${doc.category === 'registration' ? 'bg-blue-100 text-blue-700' : doc.category === 'license' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
                                             {doc.category || 'General'}
                                         </span>
+                                        {/* Handle Link vs File */}
                                         <a href={doc.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline flex items-center gap-1 font-bold truncate max-w-[150px]">
-                                            <i className="fas fa-file-alt"></i> {doc.name}
+                                            <i className={`fas ${doc.type === 'link' ? 'fa-link' : 'fa-file-alt'}`}></i> {doc.name}
                                         </a>
                                     </div>
                                     <button onClick={() => handleDeleteDocument(doc)} className="text-red-400 hover:text-red-600 px-2">
@@ -1220,9 +1297,79 @@ const SupervisorEmployees: React.FC = () => {
                 </div>
             </Modal>
 
-            {/* Category List Modal (New Card Layout) */}
-            <Modal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} title={`${selectedCategoryTitle} List`}>
-                <div className="grid grid-cols-1 gap-3 max-h-[60vh] overflow-y-auto pr-1 pb-2 custom-scrollbar">
+            {/* Link/QR Modal */}
+            <Modal isOpen={isLinkModalOpen} onClose={() => { setIsLinkModalOpen(false); setIsEditModalOpen(true); setIsScanning(false); }} title="Add Document Link">
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 block mb-1">Document Category</label>
+                        <select 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
+                            value={linkData.category}
+                            onChange={(e) => setLinkData({...linkData, category: e.target.value as any})}
+                        >
+                            <option value="registration">Registration</option>
+                            <option value="license">License</option>
+                            <option value="general">General / Other</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 block mb-1">Document Name</label>
+                        <input 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm" 
+                            placeholder="e.g. SCFHS Card"
+                            value={linkData.name}
+                            onChange={(e) => setLinkData({...linkData, name: e.target.value})}
+                        />
+                    </div>
+                    
+                    {/* NEW: Expiry Date Field */}
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 block mb-1">Expiry Date (Optional)</label>
+                        <input 
+                            type="date"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm" 
+                            value={linkData.expiryDate}
+                            onChange={(e) => setLinkData({...linkData, expiryDate: e.target.value})}
+                        />
+                    </div>
+                    
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 block mb-1">URL (Link)</label>
+                        <div className="flex gap-2">
+                            <input 
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm" 
+                                placeholder="https://..."
+                                value={linkData.url}
+                                onChange={(e) => setLinkData({...linkData, url: e.target.value})}
+                            />
+                            <button 
+                                onClick={() => setIsScanning(!isScanning)} 
+                                className={`px-3 rounded-xl border ${isScanning ? 'bg-red-50 text-red-600 border-red-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}
+                            >
+                                <i className={`fas ${isScanning ? 'fa-stop' : 'fa-qrcode'}`}></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    {isScanning && (
+                        <div className="bg-slate-100 rounded-xl overflow-hidden relative h-64 w-full border border-slate-300">
+                            <div className="absolute inset-0 flex items-center justify-center text-slate-400">
+                                <span className="animate-pulse">جار تشغيل الكاميرا...</span>
+                            </div>
+                            <div id="reader" className="w-full h-full relative z-10"></div>
+                        </div>
+                    )}
+
+                    <div className="flex gap-2 justify-end pt-4">
+                        <button onClick={() => { setIsLinkModalOpen(false); setIsEditModalOpen(true); }} className="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-bold">Cancel</button>
+                        <button onClick={handleAddLink} className="px-6 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold shadow-md hover:bg-blue-700">Add Link</button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Category List Modal (New Colorful Card Layout) */}
+            <Modal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} title={`${selectedCategoryTitle} List`} maxWidth="max-w-4xl">
+                <div className="grid grid-cols-1 gap-4 max-h-[60vh] overflow-y-auto pr-1 pb-4 custom-scrollbar">
                     {selectedCategoryUsers.length === 0 ? (
                         <div className="col-span-1 text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400">
                             <i className="fas fa-user-slash text-4xl mb-3 opacity-50"></i>
@@ -1230,36 +1377,57 @@ const SupervisorEmployees: React.FC = () => {
                         </div>
                     ) : (
                         selectedCategoryUsers.map(user => (
-                            <div key={user.id} className="group relative bg-white rounded-2xl p-5 shadow-sm hover:shadow-xl transition-all duration-300 border border-slate-100 overflow-hidden">
+                            <div key={user.id} className={`group relative bg-gradient-to-br ${selectedCategoryTheme} rounded-[20px] p-5 shadow-sm hover:shadow-xl transition-all duration-300 border-2 overflow-hidden glass-card-effect`}>
                                 
-                                <div className={`absolute top-0 left-0 w-1 h-full ${
-                                    user.jobCategory === 'doctor' ? 'bg-rose-500' : 
-                                    user.jobCategory === 'rso' ? 'bg-amber-500' : 'bg-blue-500'
-                                }`}></div>
+                                {/* Background Decorative Icon */}
+                                <div className="absolute -right-4 -bottom-4 text-[80px] opacity-10 pointer-events-none rotate-12">
+                                    <i className={`fas ${JOB_CATEGORIES.find(c => c.id === user.jobCategory)?.icon || 'fa-user'}`}></i>
+                                </div>
 
                                 {/* Header */}
-                                <div className="flex gap-4 items-start mb-4">
+                                <div className="flex gap-4 items-center mb-4 relative z-10">
                                     <div className="relative">
                                         <img 
                                             src={getAvatar(user)} 
                                             alt={user.name} 
-                                            className="w-14 h-14 rounded-full border-2 border-white shadow-md bg-slate-50 object-cover" 
+                                            className="w-16 h-16 rounded-full border-4 border-white shadow-md object-cover bg-white" 
                                         />
-                                        <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-white shadow-sm border-2 border-white ${
-                                            user.jobCategory === 'doctor' ? 'bg-rose-500' : 'bg-blue-500'
-                                        }`}>
+                                        <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-[10px] text-white shadow-sm border-2 border-white bg-slate-800">
                                             <i className={`fas ${JOB_CATEGORIES.find(c => c.id === user.jobCategory)?.icon || 'fa-user'}`}></i>
                                         </div>
                                     </div>
                                     <div className="flex-1">
-                                        <h3 className="font-bold text-slate-800 text-base">{user.name}</h3>
-                                        <p className="text-xs text-slate-400 font-mono mb-1">{user.email}</p>
+                                        <h3 className="font-black text-slate-800 text-lg leading-tight">{user.name}</h3>
+                                        <p className="text-xs text-slate-500 font-bold mb-2 opacity-80">{user.email}</p>
+                                        
+                                        {/* New Info Pills Row */}
+                                        <div className="flex flex-wrap gap-2 mb-2">
+                                             {/* Specialty Pill */}
+                                             <span className="flex items-center gap-1 text-[10px] font-black px-2 py-0.5 bg-pink-100 text-pink-700 rounded-full border border-pink-200 shadow-sm">
+                                                <i className="fas fa-briefcase"></i> {JOB_CATEGORIES.find(c => c.id === user.jobCategory)?.title || 'Staff'}
+                                            </span>
+
+                                            {/* Nationality Pill */}
+                                            {user.nationality && (
+                                                <span className="flex items-center gap-1 text-[10px] font-black px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full border border-indigo-200 shadow-sm">
+                                                    <i className="fas fa-globe"></i> {user.nationality}
+                                                </span>
+                                            )}
+
+                                            {/* Hire Date Pill */}
+                                            {user.hireDate && (
+                                                <span className="flex items-center gap-1 text-[10px] font-black px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full border border-violet-200 shadow-sm">
+                                                    <i className="fas fa-calendar-alt"></i> {calculateDuration(user.hireDate)}
+                                                </span>
+                                            )}
+                                        </div>
+
                                         <div className="flex flex-wrap gap-2">
-                                            <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-100 text-slate-600 rounded uppercase border border-slate-200">
+                                            <span className="text-[9px] font-black px-2 py-0.5 bg-white/60 text-slate-700 rounded-full uppercase tracking-wide border border-white/40 shadow-sm">
                                                 {user.role}
                                             </span>
                                             {user.phone && (
-                                                <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-50 text-slate-500 rounded border border-slate-100 flex items-center gap-1">
+                                                <span className="text-[9px] font-black px-2 py-0.5 bg-white/60 text-slate-700 rounded-full border border-white/40 shadow-sm flex items-center gap-1">
                                                     <i className="fas fa-phone"></i> {user.phone}
                                                 </span>
                                             )}
@@ -1267,41 +1435,87 @@ const SupervisorEmployees: React.FC = () => {
                                     </div>
                                     <button 
                                         onClick={() => { setIsCategoryModalOpen(false); openEditModal(user); }}
-                                        className="text-slate-300 hover:text-blue-500 p-2 transition-colors"
+                                        className="w-10 h-10 rounded-full bg-white/50 hover:bg-white text-slate-500 hover:text-blue-600 transition-all shadow-sm flex items-center justify-center"
                                     >
                                         <i className="fas fa-pen"></i>
                                     </button>
                                 </div>
 
-                                {/* Hire Date */}
-                                {user.hireDate && (
-                                    <div className="flex items-center gap-2 mb-3 text-xs text-slate-500 bg-slate-50/50 p-2 rounded-lg border border-slate-50">
-                                        <i className="fas fa-calendar-alt text-blue-400"></i>
-                                        <span className="font-bold">Joined:</span> {user.hireDate}
-                                    </div>
-                                )}
+                                {/* Certificates Section (Clean Grid) */}
+                                <div className="pt-4 border-t border-black/5 relative z-10">
+                                    <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-3">Compliance & Certificates</p>
+                                    
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                                        {/* License */}
+                                        <div className="bg-white/60 rounded-xl p-3 shadow-sm border border-white/40">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-xs font-black text-slate-700"><i className="fas fa-id-card mr-1 text-blue-600"></i> License</span>
+                                                {getDocumentLink(user, 'license', 'Open')}
+                                            </div>
+                                            <div className="mt-1">
+                                                {getExpiryStatusBadge(user, 'licenseExpiry', '')}
+                                            </div>
+                                        </div>
 
-                                {/* Dates & Status (Badges) */}
-                                <div className="grid grid-cols-2 gap-2 mb-4">
-                                    {getExpiryStatusBadge(user, 'licenseExpiry', 'License')}
-                                    {getExpiryStatusBadge(user, 'registrationExpiry', 'Reg.')}
-                                    {user.jobCategory === 'rso' && getExpiryStatusBadge(user, 'nrrcExpiry', 'NRRC')}
+                                        {/* Registration */}
+                                        <div className="bg-white/60 rounded-xl p-3 shadow-sm border border-white/40">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-xs font-black text-slate-700"><i className="fas fa-file-contract mr-1 text-emerald-600"></i> Registration</span>
+                                                {getDocumentLink(user, 'registration', 'Open')}
+                                            </div>
+                                            <div className="mt-1">
+                                                {getExpiryStatusBadge(user, 'registrationExpiry', '')}
+                                            </div>
+                                        </div>
+
+                                        {/* NRRC – RSO Only */}
+                                        {user.jobCategory === 'rso' && (
+                                            <div className="bg-white/60 rounded-xl p-3 shadow-sm border border-white/40">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-xs font-black text-slate-700"><i className="fas fa-radiation mr-1 text-purple-600"></i> NRRC</span>
+                                                    {getDocumentLink(user, 'nrrc', 'Open')}
+                                                </div>
+                                                <div className="mt-1">
+                                                    {getExpiryStatusBadge(user, 'nrrcExpiry', '')}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                    
+                                    {/* GENERAL / OTHER DOCUMENTS SECTION */}
+                                    {(() => {
+                                        // Filter documents that are NOT license, registration, or nrrc
+                                        const generalDocs = user.documents?.filter(d => 
+                                            d.category === 'general' || 
+                                            (d.category !== 'license' && d.category !== 'registration' && d.category !== 'nrrc_certificate')
+                                        ) || [];
+
+                                        if (generalDocs.length === 0) return null;
+
+                                        return (
+                                            <div className="mt-3">
+                                                <p className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wide">Other Documents</p>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {generalDocs.map((doc, idx) => (
+                                                        <a 
+                                                            key={idx}
+                                                            href={doc.url} 
+                                                            target="_blank" 
+                                                            rel="noreferrer"
+                                                            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all border shadow-sm ${getDocumentButtonStyle(doc)}`}
+                                                            title={doc.name}
+                                                        >
+                                                            <i className={`fas ${doc.type === 'link' ? 'fa-link' : 'fa-file-alt'}`}></i> 
+                                                            <span className="truncate max-w-[120px]">{doc.name}</span>
+                                                            {doc.expiryDate && <span className="opacity-70 text-[9px] border-l pl-2 ml-1 border-current">{doc.expiryDate}</span>}
+                                                        </a>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
 
-                                {/* Document Links (The requested feature) */}
-                                <div className="pt-3 border-t border-slate-50">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Certificates</p>
-                                        <span className="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 font-bold">
-                                            {user.documents?.length || 0} Files
-                                        </span>
-                                    </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        {getDocumentLink(user, 'license', 'License')}
-                                        {getDocumentLink(user, 'registration', 'Registration')}
-                                        {user.jobCategory === 'rso' && getDocumentLink(user, 'nrrc', 'NRRC')}
-                                    </div>
-                                </div>
                             </div>
                         ))
                     )}

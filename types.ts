@@ -6,12 +6,23 @@ export enum UserRole {
   DOCTOR = 'doctor'
 }
 
+export interface Department {
+  id: string;
+  name: string; // e.g. "Nursing", "Maintenance"
+  managerId?: string; // ID of the supervisor
+  color?: string; // For UI visualization
+  icon?: string; // FontAwesome icon class
+  createdAt?: any;
+}
+
 export interface UserDocument {
   name: string;
-  url: string;
+  url?: string; // Made optional if using link only
   type: string;
   category?: 'registration' | 'license' | 'general'; // NEW: Document Category
   uploadedAt: string;
+  verificationLink?: string; // NEW: Direct Link to Certificate
+  expiryDate?: string; // NEW: Document Expiry Date
 }
 
 export interface User {
@@ -26,8 +37,11 @@ export interface User {
   createdAt?: any;
   permissions?: string[]; // Array of allowed page IDs
   
+  // NEW: Department Link
+  departmentId?: string; 
+  
   // New Fields for Compliance Visuals
-  jobCategory?: 'doctor' | 'technologist' | 'technician' | 'nurse' | 'rso' | 'admin' | 'reception' | 'usg';
+  jobCategory?: 'doctor' | 'technologist' | 'technician' | 'nurse' | 'rso' | 'admin' | 'reception' | 'usg' | 'maintenance' | 'other';
   licenseExpiry?: string; // YYYY-MM-DD
   registrationExpiry?: string; // YYYY-MM-DD
   nrrcExpiry?: string; // YYYY-MM-DD
@@ -45,12 +59,14 @@ export interface User {
 export interface Location {
   id: string;
   name: string;
+  departmentId?: string; // Optional: Link location to department
 }
 
 export interface Schedule {
   id: string;
   userId: string;
   locationId: string;
+  departmentId?: string; // NEW: Link schedule to department
   date?: string; // YYYY-MM-DD
   month?: string; // YYYY-MM
   userType: string;
@@ -76,6 +92,7 @@ export interface SwapRequest {
   startDate?: string;
   endDate?: string;
   createdAt?: any;
+  departmentId?: string; // NEW
 }
 
 export interface SwapHistory {
@@ -97,6 +114,7 @@ export interface LeaveRequest {
   status: 'pending' | 'approved' | 'rejected';
   supervisorComment?: string;
   createdAt?: any;
+  departmentId?: string; // NEW
 }
 
 export interface LeaveHistory {
@@ -132,6 +150,7 @@ export interface Announcement {
   createdAt: any;
   isActive: boolean;
   seenBy?: string[]; // Array of User IDs who saw this
+  departmentId?: string; // NEW: Target specific department
 }
 
 export interface ShiftLog {
@@ -147,6 +166,7 @@ export interface ShiftLog {
   receivedBy?: string; // Name of person who received/acknowledged
   receivedAt?: any;    // Timestamp
   receiverLocation?: string; // مكان عمل المستلم
+  departmentId?: string; // NEW
 }
 
 // --- NEW: Peer Recognition ---
@@ -180,6 +200,7 @@ export interface AttendanceLog {
   shiftIndex?: number; // Added to track shift number (1 or 2)
   isSuspicious?: boolean; // NEW: Fraud detection flag
   violationType?: string; // NEW: Description of the violation (Time/Location)
+  departmentId?: string; // NEW
 }
 
 // --- NEW: Location Check Request (Spot Check) ---
@@ -381,6 +402,9 @@ export interface SavedTemplate {
   scheduleNote?: string;
   ramadanScheduleNote?: string; // NEW: Specific title for Ramadan schedule
   holidayScheduleNote?: string; // NEW: Specific title for Holiday schedule
+  
+  // Department Support
+  departmentId?: string; // NEW
 }
 
 // --- Attendance Analyzer Types ---
@@ -481,6 +505,7 @@ export interface DepartmentTask {
   createdAt: any;
   status: 'pending' | 'in_progress' | 'done';
   priority: 'low' | 'medium' | 'high';
+  departmentId?: string; // NEW
 }
 
 // --- NEW: Open Shifts Marketplace Types ---
@@ -496,6 +521,7 @@ export interface OpenShift {
   claimedAt?: any;
   createdBy: string;
   createdAt: any;
+  departmentId?: string; // NEW
 }
 
 // --- Calculated Attendance Row for Supervisor ---

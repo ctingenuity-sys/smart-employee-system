@@ -115,12 +115,12 @@ const DigitalClock = memo(({ date }: { date: Date }) => {
     const dateStr = date.toLocaleDateString('en-US', {day: 'numeric', month: 'long', year: 'numeric'});
 
     return (
-        <div className="mb-8 relative flex flex-col items-center z-10 select-none pointer-events-none">
+        <div className="mb-10 relative flex flex-col items-center z-10 select-none pointer-events-none">
             <div className="flex items-baseline gap-2">
-                <span className="text-[5rem] md:text-[7.5rem] font-black leading-none tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-white/50 drop-shadow-2xl tabular-nums font-sans">
+                <span className="text-[6rem] md:text-[8.5rem] font-black leading-none tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-white/50 drop-shadow-2xl tabular-nums font-sans">
                     {hours}:{minutes}
                 </span>
-                <span className="text-xl md:text-2xl font-bold text-white/30 tabular-nums">
+                <span className="text-2xl md:text-3xl font-bold text-white/30 tabular-nums">
                     {seconds}
                 </span>
             </div>
@@ -158,7 +158,6 @@ const AttendancePage: React.FC = () => {
     
     // NEW: Action/Leave State
     const [todayAction, setTodayAction] = useState<string | null>(null);
-    const [isSwapShift, setIsSwapShift] = useState(false); // Track if today is a swap
     
     const [activeOverrideId, setActiveOverrideId] = useState<string | null>(null);
     const [overrideExpiry, setOverrideExpiry] = useState<Date | null>(null);
@@ -308,7 +307,7 @@ const AttendancePage: React.FC = () => {
 
 
     // 3. Data Subscriptions (DEPEND ON currentTime to refresh when day changes)
-    const todayDateKey = useMemo(() => currentTime ? getLocalDateKey(currentTime) : '', [currentTime ? currentTime.getDate() : 0]);
+    const todayDateKey = useMemo(() => currentTime ? getLocalDateKey(currentTime) : '', [currentTime]);
 
     useEffect(() => {
         if (!currentUserId || !currentTime) return;
@@ -403,37 +402,21 @@ const AttendancePage: React.FC = () => {
     }, [currentUserId, isTimeSynced, timeOffset, todayDateKey]); // Depends on todayDateKey to refresh daily
 
 
-    // 4. Calculate Shifts (OPTIMIZED: only runs when schedules change or day changes)
+    // 4. Calculate Shifts (Data layer)
     useEffect(() => {
         if (!currentTime) return;
         
-        // Helper to check if it's a swap shift for UI purposes
-        const checkIsSwap = (sch: Schedule | undefined) => {
-            if (!sch) return false;
-            return (sch.locationId || '').includes('Swap') || (sch.note || '').includes('Swap');
-        };
-
-        const getShiftsForDate = (targetDate: Date, setSwapState = false) => {
+        const getShiftsForDate = (targetDate: Date) => {
             const dateStr = getLocalDateKey(targetDate);
             const dayOfWeek = targetDate.getDay();
             
             // --- PRIORITY LOGIC: Exact Date > Specific Range > Recurring ---
             
-            // 1. Exact Date (Highest Priority) - Includes Swaps
+            // 1. Exact Date (Highest Priority)
             const specific = schedules.find(s => s.date === dateStr);
             if (specific) {
-                if (setSwapState) setIsSwapShift(checkIsSwap(specific));
-                
-                // CRITICAL: Handle "Swap Duty - Off" case
-                // If I swapped my shift OUT, I should have an entry for this date with "Off" or similar
-                if ((specific.locationId || '').includes('Off') || (specific.note || '').includes('Off')) {
-                    return []; // Return empty shifts -> OFF DUTY
-                }
-
                 return specific.shifts || parseMultiShifts(specific.note || "");
             }
-
-            if (setSwapState) setIsSwapShift(false);
 
             // 2. Filter all applicable recurring schedules
             const applicable = schedules.filter(sch => {
@@ -482,8 +465,8 @@ const AttendancePage: React.FC = () => {
             return [];
         };
 
-        // Today (Enable Swap Check)
-        setTodayShifts(getShiftsForDate(currentTime, true));
+        // Today
+        setTodayShifts(getShiftsForDate(currentTime));
 
         // Yesterday
         const yestDate = new Date(currentTime);
@@ -495,7 +478,7 @@ const AttendancePage: React.FC = () => {
         tomDate.setDate(tomDate.getDate() + 1);
         setTomorrowShifts(getShiftsForDate(tomDate));
 
-    }, [schedules, todayDateKey]); // Key Optimization: Only update shifts if schedules or date changes
+    }, [schedules, currentTime]);
 
     // Use the logic from separate file
     const shiftLogic = useMemo(() => {
@@ -971,18 +954,6 @@ const AttendancePage: React.FC = () => {
                 </div>
             </div>
 
-            {/* VISUAL SHIFT INDICATOR */}
-            {todayShifts.length > 0 && (
-                <div className="relative z-30 flex justify-center -mt-4 mb-2">
-                    <div className={`backdrop-blur-md px-4 py-1 rounded-full border border-white/10 flex items-center gap-2 shadow-lg ${isSwapShift ? 'bg-purple-900/60 border-purple-500' : 'bg-black/40'}`}>
-                        <span className={`w-2 h-2 rounded-full animate-pulse ${isSwapShift ? 'bg-purple-400' : 'bg-emerald-500'}`}></span>
-                        <span className={`text-[10px] font-bold uppercase tracking-widest ${isSwapShift ? 'text-purple-300' : 'text-emerald-300'}`}>
-                            {isSwapShift ? 'SWAP SHIFT: ' : "Today's Shift: "} {todayShifts.map(s => `${s.start}-${s.end}`).join(', ')}
-                        </span>
-                    </div>
-                </div>
-            )}
-
           {hasOverride && timeLeft !== null && (
             <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 w-full max-w-[280px] transition-all duration-500 ${timeLeft <= 10 ? 'scale-110' : 'scale-100'}`}>
                 <div className={`
@@ -1098,9 +1069,9 @@ const AttendancePage: React.FC = () => {
             let textColor = 'text-white/90';
 
             if (isCurrent) {
-                borderColor = isSwapShift ? 'border-purple-500/40' : 'border-cyan-500/40';
-                bgColor = isSwapShift ? 'bg-purple-500/10' : 'bg-cyan-500/10';
-                textColor = isSwapShift ? 'text-purple-300 neon-text-glow' : 'text-cyan-300 neon-text-glow';
+                borderColor = 'border-cyan-500/40';
+                bgColor = 'bg-cyan-500/10';
+                textColor = 'text-cyan-300 neon-text-glow';
             } else if (isMissed) {
                 textColor = 'text-red-400/50 line-through';
             }
@@ -1115,9 +1086,9 @@ const AttendancePage: React.FC = () => {
                             Shift {i + 1} {isOvernight ? '(OVERNIGHT)' : ''}
                         </span>
                         {isCurrent && (
-                            <span className={`flex items-center gap-2 text-[10px] px-3 py-1 rounded-full font-bold ${isSwapShift ? 'bg-purple-500 text-white' : 'bg-cyan-500 text-black'}`}>
-                                <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
-                                {isSwapShift ? 'SWAP ACTIVE' : 'ACTIVE NOW'}
+                            <span className="flex items-center gap-2 text-[10px] bg-cyan-500 text-black px-3 py-1 rounded-full font-bold">
+                                <span className="w-1.5 h-1.5 bg-black rounded-full animate-ping" />
+                                ACTIVE NOW
                             </span>
                         )}
                     </div>

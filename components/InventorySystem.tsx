@@ -5,8 +5,8 @@ import { collection, addDoc, doc, updateDoc, onSnapshot, Timestamp, deleteDoc } 
 // @ts-ignore
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Material, Invoice, MaterialUsage, ForecastResult } from '../types';
-import Loading from './Loading';
-import Toast from './Toast';
+import Loading from '../components/Loading';
+import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
 import { PrintHeader, PrintFooter } from './PrintLayout';
 import { GoogleGenAI } from "@google/genai";
@@ -46,27 +46,32 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     const [editingMat, setEditingMat] = useState<Material | null>(null);
     const [materialSearch, setMaterialSearch] = useState('');
 
-    const [reportFilter, setReportFilter] = useState<'all' | 'month'>('all');
-    const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0, 7));
+    // Report Filters (Updated for Range)
+    const [reportFilter, setReportFilter] = useState<'all' | 'range'>('range');
+    const [reportStart, setReportStart] = useState(new Date().toISOString().slice(0, 7));
+    const [reportEnd, setReportEnd] = useState(new Date().toISOString().slice(0, 7));
+
+    // Incoming Tab Filter
+    const [incomingViewMonth, setIncomingViewMonth] = useState(new Date().toISOString().slice(0, 7));
 
     const isAdmin = userRole === 'admin' || userRole === 'supervisor';
 
     useEffect(() => {
         setLoading(true);
-        const unsubMat = onSnapshot(collection(inventoryDb, 'materials'), (snap) => {
-            setMaterials(snap.docs.map(d => ({ id: d.id, ...d.data() } as Material)));
+        const unsubMat = onSnapshot(collection(inventoryDb, 'materials'), (snap: any) => {
+            setMaterials(snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Material)));
         });
-        const unsubInv = onSnapshot(collection(inventoryDb, 'invoices'), (snap) => {
-            const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Invoice));
-            setInvoices(list.sort((a, b) => {
+        const unsubInv = onSnapshot(collection(inventoryDb, 'invoices'), (snap: any) => {
+            const list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Invoice));
+            setInvoices(list.sort((a: any, b: any) => {
                 const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
                 const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
                 return db.getTime() - da.getTime();
             }));
         });
-        const unsubUse = onSnapshot(collection(inventoryDb, 'usages'), (snap) => {
-            const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as MaterialUsage));
-            setUsages(list.sort((a, b) => {
+        const unsubUse = onSnapshot(collection(inventoryDb, 'usages'), (snap: any) => {
+            const list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as MaterialUsage));
+            setUsages(list.sort((a: any, b: any) => {
                 const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
                 const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
                 return db.getTime() - da.getTime();
@@ -77,6 +82,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         return () => { unsubMat(); unsubInv(); unsubUse(); };
     }, []);
 
+    // ... (rest of the component implementation)
     const frequentMaterials = useMemo(() => {
         const counts: Record<string, number> = {};
         usages.forEach(u => {
@@ -244,7 +250,8 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 quantityAdded: qty,
                 date: Timestamp.now(),
                 expiryDate: incExpiry || null,
-                imageUrl: imageUrl
+                imageUrl: imageUrl,
+                createdBy: userName // Save user who added stock for reporting
             });
 
             setToast({ msg: t('save'), type: 'success' });
@@ -295,13 +302,70 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         }
     };
 
-    const filteredUsages = usages.filter(u => {
-        if (reportFilter === 'all') return true;
-        if (!u.date) return false;
-        const d = u.date.toDate ? u.date.toDate() : new Date(u.date.seconds * 1000);
-        const iso = d.toISOString().slice(0, 7);
-        return iso === reportMonth;
-    });
+    // --- AGGREGATION LOGIC FOR REPORTS (UPDATED FOR RANGE) ---
+
+    // 1. Filter Raw Data based on Report Settings
+    const filteredUsages = useMemo(() => {
+        return usages.filter(u => {
+            if (reportFilter === 'all') return true;
+            if (!u.date) return false;
+            const d = u.date.toDate ? u.date.toDate() : new Date(u.date.seconds * 1000);
+            const iso = d.toISOString().slice(0, 7);
+            return iso >= reportStart && iso <= reportEnd;
+        });
+    }, [usages, reportFilter, reportStart, reportEnd]);
+
+    const filteredInvoices = useMemo(() => {
+        return invoices.filter(inv => {
+            if (reportFilter === 'all') return true;
+            if (!inv.date) return false;
+            const d = inv.date.toDate ? inv.date.toDate() : new Date(inv.date.seconds * 1000);
+            const iso = d.toISOString().slice(0, 7);
+            return iso >= reportStart && iso <= reportEnd;
+        });
+    }, [invoices, reportFilter, reportStart, reportEnd]);
+
+    // 2. Incoming Tab Display Data (Separate filter for the Incoming Tab view)
+    const displayedInvoices = useMemo(() => {
+        return invoices.filter(inv => {
+            if (!inv.date) return false;
+            const d = inv.date.toDate ? inv.date.toDate() : new Date(inv.date.seconds * 1000);
+            const iso = d.toISOString().slice(0, 7);
+            return iso === incomingViewMonth;
+        });
+    }, [invoices, incomingViewMonth]);
+
+    // 3. Detailed Material Breakdown
+    const materialStats = useMemo(() => {
+        interface MatStat {
+            totalIn: number;
+            totalOut: number;
+            staffUsage: Record<string, number>;
+        }
+        const stats: Record<string, MatStat> = {};
+
+        // Process Invoices
+        filteredInvoices.forEach(inv => {
+            if (!stats[inv.material]) stats[inv.material] = { totalIn: 0, totalOut: 0, staffUsage: {} };
+            stats[inv.material].totalIn += inv.quantityAdded;
+        });
+
+        // Process Usages
+        filteredUsages.forEach(use => {
+            if (!stats[use.material]) stats[use.material] = { totalIn: 0, totalOut: 0, staffUsage: {} };
+            stats[use.material].totalOut += use.amount;
+            
+            const staff = use.staffName || 'Unknown';
+            if (!stats[use.material].staffUsage[staff]) stats[use.material].staffUsage[staff] = 0;
+            stats[use.material].staffUsage[staff] += use.amount;
+        });
+
+        return Object.entries(stats).sort((a,b) => a[0].localeCompare(b[0])); // Sort by material name
+    }, [filteredInvoices, filteredUsages]);
+
+    const totalIncoming = filteredInvoices.reduce((acc, curr) => acc + curr.quantityAdded, 0);
+    const totalOutgoing = filteredUsages.reduce((acc, curr) => acc + curr.amount, 0);
+
 
     const filteredMaterials = materials.filter(m => 
         m.name.toLowerCase().includes(materialSearch.toLowerCase())
@@ -623,13 +687,22 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
                                 {/* Bottom: Invoice History Grid */}
                                 <div>
-                                    <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2 px-2">
-                                        <i className="fas fa-history text-slate-400"></i> {t('inv.recent')}
-                                        <span className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded-full">{invoices.length}</span>
-                                    </h3>
+                                    <div className="flex justify-between items-center mb-6 px-2">
+                                        <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                                            <i className="fas fa-history text-slate-400"></i> {t('inv.recent')}
+                                            <span className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded-full">{displayedInvoices.length}</span>
+                                        </h3>
+                                        {/* INCOMING FILTER */}
+                                        <input 
+                                            type="month" 
+                                            className="bg-white border border-slate-200 rounded-lg p-2 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-emerald-200"
+                                            value={incomingViewMonth}
+                                            onChange={e => setIncomingViewMonth(e.target.value)}
+                                        />
+                                    </div>
                                     
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                                        {invoices.map(inv => (
+                                        {displayedInvoices.map(inv => (
                                             <div key={inv.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all group flex flex-col relative">
                                                 {isAdmin && (
                                                     <button 
@@ -688,12 +761,12 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                         ))}
                                     </div>
                                     
-                                    {invoices.length === 0 && (
+                                    {displayedInvoices.length === 0 && (
                                         <div className="text-center py-16 text-slate-400 bg-white rounded-[2rem] border border-dashed border-slate-200">
                                             <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
                                                 <i className="fas fa-box-open text-2xl opacity-50"></i>
                                             </div>
-                                            <p className="font-medium">No invoices recorded yet</p>
+                                            <p className="font-medium">No invoices for {incomingViewMonth}</p>
                                         </div>
                                     )}
                                 </div>
@@ -754,16 +827,77 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
                         <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100 print:hidden">
                             <h2 className="text-xl font-black text-slate-800">{t('inv.rep.title')}</h2>
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 items-center">
                                 <select className="bg-slate-50 border-none rounded-lg p-2 text-sm font-bold text-slate-600" value={reportFilter} onChange={e => setReportFilter(e.target.value as any)}>
-                                    <option value="all">All</option>
-                                    <option value="month">Month</option>
+                                    <option value="all">All Time</option>
+                                    <option value="range">Date Range</option>
                                 </select>
-                                {reportFilter === 'month' && <input type="month" className="bg-slate-50 border-none rounded-lg p-2 text-sm" value={reportMonth} onChange={e => setReportMonth(e.target.value)} />}
+                                {reportFilter === 'range' && (
+                                    <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-1">
+                                        <input type="month" className="bg-transparent border-none text-sm p-1" value={reportStart} onChange={e => setReportStart(e.target.value)} />
+                                        <span className="text-slate-400 font-bold">➜</span>
+                                        <input type="month" className="bg-transparent border-none text-sm p-1" value={reportEnd} onChange={e => setReportEnd(e.target.value)} />
+                                    </div>
+                                )}
                                 <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-700"><i className="fas fa-print rtl:ml-2 ltr:mr-2"></i> {t('print')}</button>
                             </div>
                         </div>
 
+                        {/* Detailed Material Breakdown (NEW) */}
+                        <div className="print:break-inside-avoid">
+                            <h3 className="text-lg font-black text-slate-700 mb-4 uppercase tracking-wider flex items-center gap-2">
+                                <i className="fas fa-cubes text-indigo-500"></i> Material Breakdown
+                                <span className="text-xs font-normal text-slate-400 ml-2">
+                                    ({reportFilter === 'range' ? `${reportStart} ➜ ${reportEnd}` : 'All Time'})
+                                </span>
+                            </h3>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                                {materialStats.map(([matName, stat]) => (
+                                    <div key={matName} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                                        <div className="bg-slate-50 p-3 border-b border-slate-100 flex justify-between items-center">
+                                            <h4 className="font-bold text-slate-800 truncate pr-2" title={matName}>{matName}</h4>
+                                            <span className="text-xs font-mono bg-white px-2 py-0.5 rounded border border-slate-200">
+                                                Net: {stat.totalIn - stat.totalOut > 0 ? '+' : ''}{stat.totalIn - stat.totalOut}
+                                            </span>
+                                        </div>
+                                        
+                                        <div className="p-4 space-y-4">
+                                            <div className="flex gap-2">
+                                                <div className="flex-1 bg-emerald-50 rounded-lg p-2 text-center border border-emerald-100">
+                                                    <span className="block text-[10px] text-emerald-600 font-bold uppercase">In</span>
+                                                    <span className="block text-lg font-black text-emerald-700">{stat.totalIn}</span>
+                                                </div>
+                                                <div className="flex-1 bg-red-50 rounded-lg p-2 text-center border border-red-100">
+                                                    <span className="block text-[10px] text-red-600 font-bold uppercase">Out</span>
+                                                    <span className="block text-lg font-black text-red-700">{stat.totalOut}</span>
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 border-b border-slate-100 pb-1">Consumed By</p>
+                                                <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar pr-1">
+                                                    {Object.entries(stat.staffUsage).length === 0 ? (
+                                                        <p className="text-xs text-slate-400 italic text-center py-2">No usage recorded</p>
+                                                    ) : (
+                                                                    Object.entries(stat.staffUsage)
+                                                                            .sort((a, b) => (b[1] as number) - (a[1] as number)) // هنا حددنا النوع
+                                                                            .map(([staff, amount]) =>(                                                          
+                                                                       <div key={staff} className="flex justify-between items-center text-xs">
+                                                                <span className="text-slate-600 font-medium truncate w-2/3" title={staff}>{staff}</span>
+                                                                <span className="font-bold text-slate-800 bg-slate-100 px-1.5 rounded">{amount}</span>
+                                                            </div>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Original Detailed Log Table */}
                         <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none print:rounded-none">
                             <table className={`w-full text-sm ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
                                 <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 print:bg-white print:border-b-2 print:border-slate-800 print:text-black">

@@ -411,14 +411,16 @@ const SupervisorEmployees: React.FC = () => {
         }
     };
 
+    
     const handleUpdateUser = async () => {
         if (!editForm.id) return;
         try {
             // sanitize fields to avoid undefined error
             await updateDoc(doc(db, 'users', editForm.id), {
                 name: editForm.name || '',
+                email: editForm.email || '', // ADDED: Allow updating email in Firestore record
                 role: editForm.role || 'user',
-                phone: editForm.phone || '', // FIXED: Ensure not undefined
+                phone: editForm.phone || '', 
                 permissions: editForm.permissions || [],
                 jobCategory: editForm.jobCategory || 'technician',
                 licenseExpiry: editForm.licenseExpiry || null,
@@ -431,13 +433,14 @@ const SupervisorEmployees: React.FC = () => {
                 hireDate: editForm.hireDate || '',
                 isHidden: editForm.isHidden || false
             });
-            setToast({ msg: 'User Updated', type: 'success' });
+            setToast({ msg: 'User Updated Successfully', type: 'success' });
             setIsEditModalOpen(false);
         } catch (e: any) {
             console.error(e);
             setToast({ msg: 'Error updating: ' + e.message, type: 'error' });
         }
     };
+    
 
     // --- Updated File Upload Logic using Supabase (Bypass Firebase CORS) ---
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, category: 'registration' | 'license' | 'general' = 'general') => {
@@ -1148,27 +1151,61 @@ const SupervisorEmployees: React.FC = () => {
             )}
 
             {/* Edit Modal (Enhanced) */}
-            <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="Edit User & Compliance">
+             {/* Edit Modal (Enhanced) */}
+            <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="تعديل بيانات الموظف">
                 <div className="space-y-4 max-h-[80vh] overflow-y-auto p-1">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-xs font-bold text-slate-500 block mb-1">Name</label>
-                            <input className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" value={editForm.name || ''} onChange={e => setEditForm({...editForm, name: e.target.value})} />
+                    
+                    {/* Basic Info Section */}
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 block mb-1">الاسم الكامل</label>
+                                <input 
+                                    className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-200 outline-none" 
+                                    value={editForm.name || ''} 
+                                    onChange={e => setEditForm({...editForm, name: e.target.value})} 
+                                />
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 block mb-1">الصلاحية (Role)</label>
+                                <select 
+                                    className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-200 outline-none" 
+                                    value={editForm.role || 'user'} 
+                                    onChange={e => setEditForm({...editForm, role: e.target.value})}
+                                >
+                                    <option value="user">User</option>
+                                    <option value="doctor">Doctor</option>
+                                    <option value="supervisor">Supervisor</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                            </div>
                         </div>
-                        <div>
-                            <label className="text-xs font-bold text-slate-500 block mb-1">Role (Permission)</label>
-                            <select className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm" value={editForm.role || 'user'} onChange={e => setEditForm({...editForm, role: e.target.value})}>
-                                <option value="user">User</option>
-                                <option value="doctor">Doctor</option>
-                                <option value="supervisor">Supervisor</option>
-                                <option value="admin">Admin</option>
-                            </select>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 block mb-1">البريد الإلكتروني</label>
+                                <input 
+                                    type="email"
+                                    className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-200 outline-none" 
+                                    value={editForm.email || ''} 
+                                    onChange={e => setEditForm({...editForm, email: e.target.value})} 
+                                />
+                                <p className="text-[9px] text-amber-600 mt-1">* تحديث البريد هنا لتصحيح السجلات فقط.</p>
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 block mb-1">رقم الهاتف</label>
+                                <input 
+                                    className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-200 outline-none" 
+                                    value={editForm.phone || ''} 
+                                    onChange={e => setEditForm({...editForm, phone: e.target.value})} 
+                                />
+                            </div>
                         </div>
                     </div>
                     
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="text-xs font-bold text-slate-500 block mb-1">Nationality</label>
+                            <label className="text-xs font-bold text-slate-500 block mb-1">Jinsia (Nationality)</label>
                             <input 
                                 className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
                                 placeholder="e.g. Saudi, Egyptian"
@@ -1177,7 +1214,7 @@ const SupervisorEmployees: React.FC = () => {
                             />
                         </div>
                         <div>
-                            <label className="text-xs font-bold text-slate-500 block mb-1">Hire Date</label>
+                            <label className="text-xs font-bold text-slate-500 block mb-1">تاريخ التعيين</label>
                             <input 
                                 type="date" 
                                 className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
@@ -1188,7 +1225,7 @@ const SupervisorEmployees: React.FC = () => {
                     </div>
                     
                     <div>
-                        <label className="text-xs font-bold text-slate-500 block mb-1">Job Category (For Visuals)</label>
+                        <label className="text-xs font-bold text-slate-500 block mb-1">المسمى الوظيفي (Job Category)</label>
                         <select 
                             className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
                             value={editForm.jobCategory || 'technician'} 
@@ -1293,7 +1330,7 @@ const SupervisorEmployees: React.FC = () => {
                         </div>
                     </div>
 
-                    <button onClick={handleUpdateUser} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg">Save Changes</button>
+                    <button onClick={handleUpdateUser} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg">حفظ التغييرات</button>
                 </div>
             </Modal>
 

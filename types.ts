@@ -1,4 +1,5 @@
 
+
 export enum UserRole {
   ADMIN = 'admin',
   SUPERVISOR = 'supervisor',
@@ -471,6 +472,8 @@ export interface Invoice {
   date: any; // Firestore Timestamp
   expiryDate?: string; // YYYY-MM-DD
   imageUrl?: string;
+  createdBy?: string;
+  isCorrection?: boolean;
 }
 
 export interface MaterialUsage {
@@ -482,6 +485,7 @@ export interface MaterialUsage {
   staffEmail: string;
   staffRole: string;
   date: any; // Firestore Timestamp
+  isCorrection?: boolean;
 }
 
 export interface ForecastResult {

@@ -226,6 +226,10 @@ const AppointmentsPage: React.FC = () => {
     const [logbookData, setLogbookData] = useState<ExtendedAppointment[]>([]);
     const [isLogLoading, setIsLogLoading] = useState(false);
 
+    // --- NEW: Archive Import State ---
+    const [isArchiveView, setIsArchiveView] = useState(false);
+    const [archiveFileName, setArchiveFileName] = useState('');
+
     const [toast, setToast] = useState<{msg: string, type: 'success'|'info'|'error'} | null>(null);
     const [isListening, setIsListening] = useState(false);
     const isSyncProcessing = useRef(false);
@@ -252,8 +256,11 @@ const AppointmentsPage: React.FC = () => {
 
     useEffect(() => {
         appointmentsRef.current = appointments;
-        localStorage.setItem('cached_appointments', JSON.stringify(appointments));
-    }, [appointments]);
+        // Don't cache if viewing archive
+        if (!isArchiveView) {
+            localStorage.setItem('cached_appointments', JSON.stringify(appointments));
+        }
+    }, [appointments, isArchiveView]);
     
     useEffect(() => {
         if (activeView === 'scheduled') {
@@ -517,6 +524,9 @@ const AppointmentsPage: React.FC = () => {
 
     // --- FIREBASE REALTIME LISTENER WITH OPTIMIZED QUERY ---
     useEffect(() => {
+        // If in Archive Mode, DO NOT LISTEN TO LIVE DATA
+        if (isArchiveView) return;
+
         setLoading(true);
 
         const fetchAndSubscribe = () => {
@@ -588,7 +598,7 @@ const AppointmentsPage: React.FC = () => {
         const unsub = fetchAndSubscribe();
         return () => unsub();
 
-    }, [selectedDate, activeView, enableDateFilter, activeModality]);
+    }, [selectedDate, activeView, enableDateFilter, activeModality, isArchiveView]);
 
     // --- Client Side Filtering (Fallback/Refinement) ---
     const filteredAppointments = useMemo(() => {
@@ -606,6 +616,9 @@ const AppointmentsPage: React.FC = () => {
 
     // --- FETCH ACTUAL SCHEDULED COUNT FOR QUOTA (OPTIMIZED) ---
     useEffect(() => {
+        // Skip in Archive Mode
+        if (isArchiveView) return;
+
         const fetchBookedCount = async () => {
             if (!selectedDate) {
                 setCurrentBookedCount(0);
@@ -641,11 +654,12 @@ const AppointmentsPage: React.FC = () => {
         };
 
         fetchBookedCount();
-    }, [selectedDate, activeModality]);
+    }, [selectedDate, activeModality, isArchiveView]);
 
 
     // --- ACTIONS ---
     const handleAcceptPatient = async (appt: ExtendedAppointment) => {
+        if (isArchiveView) return setToast({ msg: 'Cannot edit archived data', type: 'error' });
         try {
             setAppointments(prev => prev.filter(a => a.id !== appt.id));
             await updateDoc(doc(db, 'appointments', appt.id), {
@@ -662,6 +676,10 @@ const AppointmentsPage: React.FC = () => {
     };
 
     const handleDelete = async (id: string) => {
+        if (isArchiveView) {
+             setAppointments(prev => prev.filter(a => a.id !== id));
+             return;
+        }
         if(!confirm(t('confirm') + '?')) return;
         try {
             setAppointments(prev => prev.filter(a => a.id !== id));
@@ -671,6 +689,7 @@ const AppointmentsPage: React.FC = () => {
     };
     
     const handleCancelAppointment = async (appt: ExtendedAppointment) => {
+    if (isArchiveView) return;
     if (!confirm(t('appt.confirmCancel'))) return;
         try {
             setAppointments(prev => prev.filter(a => a.id !== appt.id));
@@ -685,6 +704,53 @@ const AppointmentsPage: React.FC = () => {
             console.error(e);
         setToast({ msg: t('error.general'), type: 'error' });
         }
+    };
+
+    // --- NEW: HANDLE IMPORT ARCHIVE ---
+    const handleImportLocalArchive = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const json = JSON.parse(event.target?.result as string);
+                
+                // Try to handle both raw array or { records: [] } format from DataArchiver
+                let records: ExtendedAppointment[] = [];
+                
+                if (Array.isArray(json)) {
+                    records = json;
+                } else if (json.records && Array.isArray(json.records)) {
+                    records = json.records;
+                } else {
+                    throw new Error("Invalid format");
+                }
+                
+                // Map _id to id if necessary
+                const mapped = records.map((r: any) => ({
+                    ...r,
+                    id: r._id || r.id
+                }));
+
+                setAppointments(mapped);
+                setIsArchiveView(true);
+                setArchiveFileName(file.name);
+                setToast({ msg: `تم تحميل ${mapped.length} سجل محلياً (وضع الأرشيف)`, type: 'success' });
+
+            } catch (err) {
+                console.error(err);
+                setToast({ msg: 'فشل قراءة الملف', type: 'error' });
+            }
+        };
+        reader.readAsText(file);
+    };
+
+    const handleExitArchiveMode = () => {
+        setIsArchiveView(false);
+        setArchiveFileName('');
+        setAppointments([]); // Will trigger refresh from live DB
+        setToast({ msg: 'العودة للوضع المباشر (Live)', type: 'info' });
     };
 
     const checkAvailability = async (date: string, time: string, type: string) => {
@@ -702,6 +768,7 @@ const AppointmentsPage: React.FC = () => {
     };
 
     const handleStartExam = async (appt: ExtendedAppointment) => {
+        if (isArchiveView) return;
         if (processingId) return;
         setProcessingId(appt.id);
 
@@ -742,6 +809,7 @@ const AppointmentsPage: React.FC = () => {
     };
 
     const handleFinishClick = (appt: ExtendedAppointment) => {
+        if (isArchiveView) return;
         if (appt.performedBy && appt.performedBy !== currentUserId && !isSupervisor) {
             setToast({ msg: t('appt.toast.anotherUser'), type: 'error' });         
             return;
@@ -796,7 +864,7 @@ const AppointmentsPage: React.FC = () => {
 
     useEffect(() => {
         const checkQuotaAndSlots = async () => {
-            if (!bookingAppt || !bookingDate || !isBookingModalOpen) return;
+            if (!bookingAppt || !bookingDate || !isBookingModalOpen || isArchiveView) return;
             setBookingWarning('');
             setAvailableSlots([]);
             setIsDayLimitReached(false);
@@ -891,6 +959,7 @@ const AppointmentsPage: React.FC = () => {
     };
 
     const handleUndo = async (appt: ExtendedAppointment) => {
+        if (isArchiveView) return;
         if (!isSupervisor && appt.performedBy !== currentUserId) {
             setToast({ msg: t('appt.error.notYourColleague'), type: 'error' });
             return;
@@ -942,6 +1011,7 @@ const AppointmentsPage: React.FC = () => {
 
     const handleManualSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (isArchiveView) return;
         if (!patientName || !examType) return;
 
         if (await checkAvailability(manualDate, manualTime, examType) === false) {
@@ -1191,6 +1261,16 @@ const AppointmentsPage: React.FC = () => {
         <div className="min-h-screen bg-slate-50 pb-20 font-sans" dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
             
+            {/* ARCHIVE MODE BANNER */}
+            {isArchiveView && (
+                <div className="bg-amber-500 text-white text-center py-2 font-bold text-sm sticky top-0 z-50 shadow-md flex justify-center items-center gap-4">
+                    <span>⚠️ وضع الأرشيف المحلي: يتم عرض بيانات من الملف "{archiveFileName}"</span>
+                    <button onClick={handleExitArchiveMode} className="bg-white text-amber-600 px-3 py-1 rounded text-xs hover:bg-slate-100 font-bold shadow-sm">
+                        عودة للمباشر (Back to Live)
+                    </button>
+                </div>
+            )}
+
             <div className="bg-slate-900 text-white p-4 sticky top-0 z-30 shadow-2xl print:hidden">
                 <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
                     <div className="flex items-center gap-4 w-full md:w-auto">
@@ -1243,6 +1323,14 @@ const AppointmentsPage: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2">
+                        {/* IMPORT LOCAL ARCHIVE BUTTON */}
+                        {!isArchiveView && (
+                            <label className="bg-slate-700 hover:bg-slate-600 text-white w-9 h-9 rounded-lg flex items-center justify-center shadow-lg transition-all cursor-pointer" title="استيراد أرشيف (محلي)">
+                                <i className="fas fa-file-import"></i>
+                                <input type="file" accept=".json" onChange={handleImportLocalArchive} className="hidden" />
+                            </label>
+                        )}
+
                         <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700">
                             <button 
                             onClick={() => setActiveView('pending')} 

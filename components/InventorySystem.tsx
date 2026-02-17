@@ -44,6 +44,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     const [newMatName, setNewMatName] = useState('');
     const [newMatQty, setNewMatQty] = useState('');
     const [editingMat, setEditingMat] = useState<Material | null>(null);
+    const [correctionDate, setCorrectionDate] = useState(new Date().toISOString().split('T')[0]); 
     const [materialSearch, setMaterialSearch] = useState('');
 
     // Report Filters (Updated for Range)
@@ -213,7 +214,8 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 staffName: userName,
                 staffEmail: userEmail,
                 staffRole: userRole,
-                date: Timestamp.now()
+                date: Timestamp.now(),
+                isCorrection: false // Explicitly mark as NOT a correction
             });
 
             setToast({ msg: t('save'), type: 'success' });
@@ -251,7 +253,8 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 date: Timestamp.now(),
                 expiryDate: incExpiry || null,
                 imageUrl: imageUrl,
-                createdBy: userName // Save user who added stock for reporting
+                createdBy: userName,
+                isCorrection: false // Explicitly mark as NOT a correction
             });
 
             setToast({ msg: t('save'), type: 'success' });
@@ -269,24 +272,76 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         if (!newMatName || !newMatQty) return;
         try {
             const qty = parseFloat(newMatQty);
+            const correctionTs = correctionDate ? Timestamp.fromDate(new Date(correctionDate)) : Timestamp.now();
+
             if (editingMat) {
-                await updateDoc(doc(inventoryDb, 'materials', editingMat.id), { name: newMatName, quantity: qty });
-                setToast({ msg: t('save'), type: 'success' });
+                // CORRECTION MODE
+                const oldQty = editingMat.quantity;
+                const diff = qty - oldQty;
+
+                if (diff !== 0) {
+                    // Update Material Snapshot
+                    await updateDoc(doc(inventoryDb, 'materials', editingMat.id), { 
+                        name: newMatName, 
+                        quantity: qty 
+                    });
+
+                    // CREATE HISTORY RECORD WITH 'isCorrection' FLAG
+                    // Note: We create this for database consistency, but we will FILTER it out in the UI
+                    if (diff > 0) {
+                        await addDoc(collection(inventoryDb, 'invoices'), {
+                            material: newMatName,
+                            quantityAdded: diff,
+                            date: correctionTs, 
+                            expiryDate: null,
+                            imageUrl: null,
+                            createdBy: userName + " (Correction)",
+                            isCorrection: true // FLAG: Hidden from "Added" column
+                        });
+                    } else {
+                        await addDoc(collection(inventoryDb, 'usages'), {
+                            material: newMatName,
+                            amount: Math.abs(diff),
+                            patientFileNumber: "STOCK CORRECTION",
+                            staffName: userName,
+                            staffEmail: userEmail,
+                            staffRole: userRole,
+                            date: correctionTs,
+                            isCorrection: true // FLAG: Hidden from "Used" column
+                        });
+                    }
+                    setToast({ msg: `Stock Corrected (Hidden Record Created)`, type: 'success' });
+                } else {
+                     // Just Name Change
+                     await updateDoc(doc(inventoryDb, 'materials', editingMat.id), { name: newMatName });
+                     setToast({ msg: 'Name Updated', type: 'success' });
+                }
             } else {
+                // NEW MATERIAL
                 await addDoc(collection(inventoryDb, 'materials'), { name: newMatName, quantity: qty });
                 setToast({ msg: t('save'), type: 'success' });
             }
-            setNewMatName(''); setNewMatQty(''); setEditingMat(null);
+            setNewMatName(''); setNewMatQty(''); setEditingMat(null); setCorrectionDate(new Date().toISOString().split('T')[0]);
         } catch (err) {
+            console.error(err);
             setToast({ msg: 'Error', type: 'error' });
         }
     };
 
-    const handleDeleteUsage = async (id: string) => {
-        if(!confirm(t('confirm') + '?')) return;
+    const handleDeleteUsage = async (usage: MaterialUsage) => {
+        if(!confirm(t('confirm') + ' (سيتم استرجاع الكمية للمخزن)؟')) return;
         try {
-            await deleteDoc(doc(inventoryDb, 'usages', id));
-            setToast({ msg: t('delete'), type: 'success' });
+            // 1. Restore Stock
+            const mat = materials.find(m => m.name === usage.material);
+            if (mat) {
+                await updateDoc(doc(inventoryDb, 'materials', mat.id), {
+                    quantity: mat.quantity + usage.amount
+                });
+            }
+            
+            // 2. Delete Record
+            await deleteDoc(doc(inventoryDb, 'usages', usage.id));
+            setToast({ msg: 'Deleted & Stock Restored', type: 'success' });
         } catch (e) {
             setToast({ msg: 'Error', type: 'error' });
         }
@@ -302,9 +357,11 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         }
     };
 
-    // --- AGGREGATION LOGIC FOR REPORTS (UPDATED FOR RANGE) ---
+    // --- AGGREGATION LOGIC FOR REPORTS (REVERSE CALCULATION) ---
+    // Instead of summing up from zero (which drifts), we start from the CURRENT STOCK (Truth)
+    // and work backwards. This ensures "Net Balance" always matches the Materials Tab.
 
-    // 1. Filter Raw Data based on Report Settings
+    // 1. Filter Raw Data based on Report Settings (For Details View)
     const filteredUsages = useMemo(() => {
         return usages.filter(u => {
             if (reportFilter === 'all') return true;
@@ -335,36 +392,137 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         });
     }, [invoices, incomingViewMonth]);
 
-    // 3. Detailed Material Breakdown
+    // 3. Detailed Material Breakdown (REVERSE CALCULATION)
     const materialStats = useMemo(() => {
         interface MatStat {
-            totalIn: number;
-            totalOut: number;
+            startBalance: number;
+            periodIn: number;
+            periodOut: number;
+            endBalance: number;
             staffUsage: Record<string, number>;
         }
         const stats: Record<string, MatStat> = {};
 
-        // Process Invoices
-        filteredInvoices.forEach(inv => {
-            if (!stats[inv.material]) stats[inv.material] = { totalIn: 0, totalOut: 0, staffUsage: {} };
-            stats[inv.material].totalIn += inv.quantityAdded;
-        });
-
-        // Process Usages
-        filteredUsages.forEach(use => {
-            if (!stats[use.material]) stats[use.material] = { totalIn: 0, totalOut: 0, staffUsage: {} };
-            stats[use.material].totalOut += use.amount;
+        // Loop through all physical materials (The Source of Truth)
+        materials.forEach(mat => {
+            stats[mat.name] = { startBalance: 0, periodIn: 0, periodOut: 0, endBalance: mat.quantity, staffUsage: {} };
             
-            const staff = use.staffName || 'Unknown';
-            if (!stats[use.material].staffUsage[staff]) stats[use.material].staffUsage[staff] = 0;
-            stats[use.material].staffUsage[staff] += use.amount;
+            // 1. Calculate Future Transactions (After Report End Date)
+            // If we are looking at past months, we need to add/subtract future transactions to get the historic balance.
+            let futureNetChange = 0;
+            const rangeLimit = reportFilter === 'range' ? reportEnd : '9999-99';
+
+            // 2. Calculate Period Transactions (Within Report Range)
+            // Here we EXCLUDE corrections because the user doesn't want to see them as "Added/Used"
+            
+            // Process Invoices
+            invoices.forEach(inv => {
+                if (inv.material !== mat.name || !inv.date) return;
+                const d = inv.date.toDate ? inv.date.toDate() : new Date(inv.date.seconds * 1000);
+                const isoMonth = d.toISOString().slice(0, 7);
+                const isCorrection = (inv as any).isCorrection === true || (inv.createdBy && inv.createdBy.includes('(Correction)'));
+
+                if (isoMonth > rangeLimit) {
+                    // Future transaction: Backtrack from current stock
+                    // Invoice added stock, so to go back, we subtract it
+                    futureNetChange += inv.quantityAdded;
+                } else if (reportFilter === 'all' || isoMonth >= reportStart) {
+                    // In Period
+                    if (!isCorrection) {
+                        stats[mat.name].periodIn += inv.quantityAdded;
+                    } else {
+                        // It's a correction in the period. We count it mathematically for the start balance derivation
+                        // but we DO NOT add it to 'periodIn' visual stat.
+                        // Instead, we treat it as a ghost movement.
+                        // To make the math work: Opening + In - Out = Closing.
+                        // If we hide the correction from 'In', the 'Opening' must adjust automatically.
+                        // This logic handles itself in the final step.
+                    }
+                    
+                    // We need to track the NET change of corrections to adjust Opening Balance correctly
+                    if (isCorrection) {
+                        // Correction adds to stock, so effective "In" for math
+                        // We will add this to a temporary tracker if we want exact math, 
+                        // but the Reverse Calc handles it naturally.
+                    }
+                }
+            });
+
+            // Process Usages
+            usages.forEach(u => {
+                if (u.material !== mat.name || !u.date) return;
+                const d = u.date.toDate ? u.date.toDate() : new Date(u.date.seconds * 1000);
+                const isoMonth = d.toISOString().slice(0, 7);
+                const isCorrection = (u as any).isCorrection === true || u.patientFileNumber === 'STOCK CORRECTION';
+
+                if (isoMonth > rangeLimit) {
+                    // Future usage: Removed stock, so to go back, we add it
+                    futureNetChange -= u.amount;
+                } else if (reportFilter === 'all' || isoMonth >= reportStart) {
+                    // In Period
+                    if (!isCorrection) {
+                        stats[mat.name].periodOut += u.amount;
+                        const staff = u.staffName || 'Unknown';
+                        if (!stats[mat.name].staffUsage[staff]) stats[mat.name].staffUsage[staff] = 0;
+                        stats[mat.name].staffUsage[staff] += u.amount;
+                    }
+                }
+            });
+
+            // 3. Calculate Closing Balance at End of Selected Period
+            // Current Stock (Now) - Future In + Future Out
+            // Actually: Current Stock is the result of ALL transactions.
+            // Balance @ End of Period = Current Stock - (Sum of ALL transactions AFTER period)
+            // If future invoice (+10), we subtract 10. If future usage (-5), we add 5.
+            // Wait, logic check:
+            // Stock Now = Stock End Period + Future In - Future Out
+            // Stock End Period = Stock Now - Future In + Future Out
+            // futureNetChange above calculated (FutureIn - FutureOut).
+            // So: Stock End Period = Stock Now - futureNetChange.
+            
+            // Correction handling in Future: If there was a correction in future, it affected Current Stock.
+            // We must reverse it too. My loops above included corrections in `futureNetChange` calculation (I didn't filter them there).
+            // Let's ensure the future loop counts corrections.
+            // Ah, I filtered invoice loop above logic. I should perform a separate pass for accurate Reverse Calc.
+
+            // RE-RUN for strict mathematical accuracy (Reverse Calculation)
+            let balanceAtEndOfPeriod = mat.quantity;
+            
+            // Revert Future Transactions
+            invoices.forEach(inv => {
+                 if (inv.material !== mat.name || !inv.date) return;
+                 const d = inv.date.toDate ? inv.date.toDate() : new Date(inv.date.seconds * 1000);
+                 const isoMonth = d.toISOString().slice(0, 7);
+                 if (isoMonth > rangeLimit) {
+                     balanceAtEndOfPeriod -= inv.quantityAdded;
+                 }
+            });
+            usages.forEach(u => {
+                 if (u.material !== mat.name || !u.date) return;
+                 const d = u.date.toDate ? u.date.toDate() : new Date(u.date.seconds * 1000);
+                 const isoMonth = d.toISOString().slice(0, 7);
+                 if (isoMonth > rangeLimit) {
+                     balanceAtEndOfPeriod += u.amount;
+                 }
+            });
+
+            stats[mat.name].endBalance = balanceAtEndOfPeriod;
+
+            // 4. Calculate Opening Balance
+            // Opening = Closing - In + Out
+            // But 'In' and 'Out' here must include ALL transactions (even corrections) to get the math right,
+            // OR we derive Opening from the displayed In/Out and force it.
+            // User wants "Net Balance to equal Manager". That is `endBalance`.
+            // User doesn't want "Corrections" shown in In/Out columns.
+            // So displayed In = Real In - Corrections. Displayed Out = Real Out - Corrections.
+            // Equation: Opening (Displayed) + Displayed In - Displayed Out = End Balance.
+            // Therefore: Opening (Displayed) = End Balance - Displayed In + Displayed Out.
+            
+            stats[mat.name].startBalance = stats[mat.name].endBalance - stats[mat.name].periodIn + stats[mat.name].periodOut;
         });
 
-        return Object.entries(stats).sort((a,b) => a[0].localeCompare(b[0])); // Sort by material name
-    }, [filteredInvoices, filteredUsages]);
-
-    const totalIncoming = filteredInvoices.reduce((acc, curr) => acc + curr.quantityAdded, 0);
-    const totalOutgoing = filteredUsages.reduce((acc, curr) => acc + curr.amount, 0);
+        return Object.entries(stats).sort((a,b) => a[0].localeCompare(b[0]));
+    }, [filteredInvoices, filteredUsages, invoices, usages, reportFilter, reportStart, reportEnd, materials]);
 
 
     const filteredMaterials = materials.filter(m => 
@@ -791,12 +949,53 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                     </div>
                                 </div>
                                 
-                                {/* Add/Edit Area */}
+                                {/* Add/Edit Area (Improved for Correction) */}
                                 {(newMatName || editingMat || newMatQty) && (
-                                    <div className="bg-slate-800 p-6 rounded-2xl text-white flex flex-col md:flex-row gap-4 items-center animate-fade-in">
-                                        <input className="bg-slate-700 border-none rounded-xl p-3 w-full text-white placeholder-slate-400" placeholder={t('inv.mat.name')} value={newMatName} onChange={e => setNewMatName(e.target.value)} />
-                                        <input className="bg-slate-700 border-none rounded-xl p-3 w-full md:w-32 text-white placeholder-slate-400" type="number" placeholder={t('inv.inc.qty')} value={newMatQty} onChange={e => setNewMatQty(e.target.value)} />
-                                        <button onClick={handleMaterialSave} className="bg-blue-500 px-6 py-3 rounded-xl font-bold hover:bg-blue-400 w-full md:w-auto">{t('save')}</button>
+                                    <div className="bg-white border-2 border-slate-200 p-6 rounded-2xl shadow-lg flex flex-col gap-4 animate-fade-in relative overflow-hidden">
+                                        <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+                                        <div className="flex justify-between items-center">
+                                            <h3 className="font-bold text-slate-800 text-lg">
+                                                {editingMat ? 'Correct Stock Level' : 'Add New Material'}
+                                            </h3>
+                                            <button onClick={() => { setEditingMat(null); setNewMatName(''); setNewMatQty(''); }} className="text-slate-400 hover:text-slate-600"><i className="fas fa-times"></i></button>
+                                        </div>
+                                        
+                                        {editingMat && (
+                                            <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl text-xs text-amber-800 font-bold mb-2">
+                                                <i className="fas fa-info-circle mr-1"></i> Use this form to manually correct stock discrepancies.
+                                            </div>
+                                        )}
+
+                                        <div className="grid md:grid-cols-3 gap-4">
+                                            <div className="md:col-span-2">
+                                                <label className="text-xs font-bold text-slate-500 mb-1 block">Material Name</label>
+                                                <input className="bg-slate-50 border border-slate-200 rounded-xl p-3 w-full text-slate-800 font-bold outline-none focus:ring-2 focus:ring-blue-100" placeholder={t('inv.mat.name')} value={newMatName} onChange={e => setNewMatName(e.target.value)} />
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-slate-500 mb-1 block">Actual Quantity</label>
+                                                <input className="bg-slate-50 border border-slate-200 rounded-xl p-3 w-full text-slate-800 font-bold outline-none focus:ring-2 focus:ring-blue-100" type="number" placeholder="Qty" value={newMatQty} onChange={e => setNewMatQty(e.target.value)} />
+                                            </div>
+                                        </div>
+                                        
+                                        {/* Correction Date Input */}
+                                        {editingMat && (
+                                            <div>
+                                                <label className="text-xs font-bold text-slate-500 mb-1 block">Correction Effective Date</label>
+                                                <input 
+                                                    type="date" 
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 font-bold outline-none focus:ring-2 focus:ring-blue-100" 
+                                                    value={correctionDate} 
+                                                    onChange={e => setCorrectionDate(e.target.value)} 
+                                                />
+                                                <p className="text-[10px] text-slate-400 mt-1">
+                                                    * This date will be used for the adjustment transaction record.
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        <button onClick={handleMaterialSave} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-md w-full">
+                                            {editingMat ? 'Update & Correct Stock' : t('save')}
+                                        </button>
                                     </div>
                                 )}
 
@@ -807,7 +1006,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                 <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-500 transition-colors">
                                                     <i className="fas fa-box"></i>
                                                 </div>
-                                                <button onClick={() => { setEditingMat(m); setNewMatName(m.name); setNewMatQty(m.quantity.toString()); }} className="text-slate-300 hover:text-blue-500"><i className="fas fa-pen"></i></button>
+                                                <button onClick={() => { setEditingMat(m); setNewMatName(m.name); setNewMatQty(m.quantity.toString()); setCorrectionDate(new Date().toISOString().split('T')[0]); }} className="text-slate-300 hover:text-blue-500 bg-slate-50 hover:bg-blue-50 p-2 rounded-full transition-colors"><i className="fas fa-pen"></i></button>
                                             </div>
                                             <h4 className="font-bold text-slate-800 mb-1 truncate" title={m.name}>{m.name}</h4>
                                             <p className={`text-sm font-bold ${m.quantity <= 10 ? 'text-red-500' : 'text-emerald-500'}`}>{m.quantity} {t('inv.mat.unit')}</p>
@@ -843,7 +1042,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                             </div>
                         </div>
 
-                        {/* Detailed Material Breakdown (NEW) */}
+                        {/* Detailed Material Breakdown (NEW REVERSE CALCULATION LOGIC) */}
                         <div className="print:break-inside-avoid">
                             <h3 className="text-lg font-black text-slate-700 mb-4 uppercase tracking-wider flex items-center gap-2">
                                 <i className="fas fa-cubes text-indigo-500"></i> Material Breakdown
@@ -853,37 +1052,55 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                             </h3>
                             
                             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                                {materialStats.map(([matName, stat]) => (
+                                {materialStats.map(([matName, stat]) => {
+                                    // With Reverse Calculation, `endBalance` is derived directly from Current Stock + Future transactions.
+                                    // `startBalance` is derived from `endBalance` - In + Out.
+                                    // This guarantees the final number matches the inventory exactly.
+                                    
+                                    return (
                                     <div key={matName} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                                        <div className="bg-slate-50 p-3 border-b border-slate-100 flex justify-between items-center">
-                                            <h4 className="font-bold text-slate-800 truncate pr-2" title={matName}>{matName}</h4>
-                                            <span className="text-xs font-mono bg-white px-2 py-0.5 rounded border border-slate-200">
-                                                Net: {stat.totalIn - stat.totalOut > 0 ? '+' : ''}{stat.totalIn - stat.totalOut}
-                                            </span>
+                                        <div className="bg-slate-50 p-4 border-b border-slate-100">
+                                            <h4 className="font-bold text-slate-800 text-lg truncate" title={matName}>{matName}</h4>
                                         </div>
                                         
-                                        <div className="p-4 space-y-4">
-                                            <div className="flex gap-2">
-                                                <div className="flex-1 bg-emerald-50 rounded-lg p-2 text-center border border-emerald-100">
-                                                    <span className="block text-[10px] text-emerald-600 font-bold uppercase">In</span>
-                                                    <span className="block text-lg font-black text-emerald-700">{stat.totalIn}</span>
+                                        <div className="p-4">
+                                            {/* Stock Flow Visualization */}
+                                            <div className="flex items-center justify-between mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                                <div className="text-center">
+                                                    <span className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Open</span>
+                                                    <span className="block text-sm font-black text-slate-600">{stat.startBalance}</span>
                                                 </div>
-                                                <div className="flex-1 bg-red-50 rounded-lg p-2 text-center border border-red-100">
-                                                    <span className="block text-[10px] text-red-600 font-bold uppercase">Out</span>
-                                                    <span className="block text-lg font-black text-red-700">{stat.totalOut}</span>
+                                                <div className="text-slate-300"><i className="fas fa-plus"></i></div>
+                                                <div className="text-center">
+                                                    <span className="block text-[10px] text-emerald-500 font-bold uppercase mb-1">Added</span>
+                                                    <span className="block text-sm font-black text-emerald-600">{stat.periodIn}</span>
+                                                </div>
+                                                <div className="text-slate-300"><i className="fas fa-minus"></i></div>
+                                                <div className="text-center">
+                                                    <span className="block text-[10px] text-red-500 font-bold uppercase mb-1">Used</span>
+                                                    <span className="block text-sm font-black text-red-600">{stat.periodOut}</span>
                                                 </div>
                                             </div>
+                                            
+                                            {/* Net Result (Matching Actual Stock) */}
+                                            <div className="flex justify-between items-center mb-4">
+                                                 <span className="text-xs font-bold text-slate-500 uppercase">Net Balance</span>
+                                                 <span className="text-xl font-black text-slate-800 bg-slate-100 px-3 py-1 rounded-lg">
+                                                     {stat.endBalance}
+                                                 </span>
+                                            </div>
 
+                                            {/* Usage Breakdown */}
                                             <div>
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 border-b border-slate-100 pb-1">Consumed By</p>
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 border-b border-slate-100 pb-1">Usage By Staff</p>
                                                 <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar pr-1">
                                                     {Object.entries(stat.staffUsage).length === 0 ? (
                                                         <p className="text-xs text-slate-400 italic text-center py-2">No usage recorded</p>
                                                     ) : (
-                                                                    Object.entries(stat.staffUsage)
-                                                                            .sort((a, b) => (b[1] as number) - (a[1] as number)) // هنا حددنا النوع
-                                                                            .map(([staff, amount]) =>(                                                          
-                                                                       <div key={staff} className="flex justify-between items-center text-xs">
+                                                        Object.entries(stat.staffUsage)
+  .sort(([, amountA], [, amountB]) => (amountB as number) - (amountA as number))
+  .map(([staff, amount]) => (
+                                                            <div key={staff} className="flex justify-between items-center text-xs">
                                                                 <span className="text-slate-600 font-medium truncate w-2/3" title={staff}>{staff}</span>
                                                                 <span className="font-bold text-slate-800 bg-slate-100 px-1.5 rounded">{amount}</span>
                                                             </div>
@@ -893,7 +1110,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                             </div>
                                         </div>
                                     </div>
-                                ))}
+                                )})}
                             </div>
                         </div>
 
@@ -920,7 +1137,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                             <td className="p-4 font-mono text-slate-500 print:text-black">{u.patientFileNumber}</td>
                                             {isAdmin && (
                                                 <td className="p-4 print:hidden text-center">
-                                                    <button onClick={() => handleDeleteUsage(u.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all">
+                                                    <button onClick={() => handleDeleteUsage(u)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all" title="Delete & Restore Stock">
                                                         <i className="fas fa-trash"></i>
                                                     </button>
                                                 </td>

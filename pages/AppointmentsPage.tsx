@@ -136,6 +136,16 @@ const getLocalToday = () => {
     return `${year}-${month}-${day}`;
 };
 
+// --- Helper: Get Yesterday String ---
+const getYesterdayDate = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 // --- Helper: Normalize Time ---
 const normalizeTime = (time: any): string => {
     if (!time || typeof time !== 'string') return '';
@@ -286,64 +296,57 @@ const AppointmentsPage: React.FC = () => {
         return () => unsubscribe();
     }, [isSupervisor]);
 
-    // --- AUTO ARCHIVE & PURGE LOGIC ---
+    // --- DAILY ARCHIVE LOGIC (Yesterday's Data) ---
     useEffect(() => {
         const checkAndPurgeOldData = async () => {
-            const LAST_PURGE_KEY = 'last_appointments_purge';
-            const PURGE_INTERVAL = 2 * 24 * 60 * 60 * 1000; // Check every 2 days
-            const lastPurge = localStorage.getItem(LAST_PURGE_KEY);
-            const now = Date.now();
+            const LAST_DAILY_ARCHIVE = 'last_daily_archive_run';
+            const lastRun = localStorage.getItem(LAST_DAILY_ARCHIVE);
+            const today = getLocalToday();
 
-            // Run if it's time OR if never run before
-            if (!lastPurge || (now - parseInt(lastPurge)) > PURGE_INTERVAL) {
-                if (!isSupervisor) return;
+            // Run if last run date is NOT today (meaning it's a new day)
+            if (lastRun !== today) {
+                if (!isSupervisor) return; // Only supervisor triggers cleanup
 
-                setToast({ msg: 'جاري أرشفة البيانات القديمة (سحابياً) وتنظيف قاعدة البيانات...', type: 'info' });
+                setToast({ msg: 'بدء الأرشفة اليومية (الشاملة) لبيانات الأمس...', type: 'info' });
                 
                 try {
-                    // Define cutoff: Older than 3 days
-                    const cutoffDate = new Date();
-                    cutoffDate.setDate(cutoffDate.getDate() - 3);
-                    const cutoffStr = cutoffDate.toISOString().split('T')[0];
-
-                    const q = query(collection(db, 'appointments'), where('date', '<', cutoffStr), where('status', '==', 'done'));
+                    const yesterday = getYesterdayDate();
+                    // Query ALL appointments for yesterday, regardless of status
+                    const q = query(
+                        collection(db, 'appointments'), 
+                        where('date', '==', yesterday)
+                        // REMOVED: where('status', '==', 'done') -> Now archives EVERYTHING
+                    );
+                    
                     const snapshot = await getDocs(q);
 
                     if (!snapshot.empty) {
                         const dataToExport = snapshot.docs.map(doc => ({_id: doc.id, ...doc.data()}));
                         
-                        // 1. Save to Cloud Archive (Firestore Collection)
-                        await addDoc(collection(db, 'appointments_archives'), {
+                        // 1. Save to Cloud Archive (Firestore Collection: daily_archives)
+                        // Create a specific document for that day to avoid massive collections
+                        await setDoc(doc(db, 'daily_archives', yesterday), {
                             archivedAt: Timestamp.now(),
-                            rangeEnd: cutoffStr,
+                            archiveDate: yesterday,
                             recordCount: snapshot.size,
-                            records: dataToExport, // Store the array of records
-                            type: 'automatic_purge'
+                            records: dataToExport,
+                            type: 'daily_midnight_run_full'
                         });
 
-                        // 2. Download JSON Backup (Optional but good for safety)
-                        const fileName = `Appointments_Archive_${cutoffStr}_${Date.now()}.json`;
-                        const jsonString = JSON.stringify(dataToExport, null, 2);
-                        const blob = new Blob([jsonString], { type: "application/json" });
-                        
-                        const link = document.createElement("a");
-                        link.href = URL.createObjectURL(blob);
-                        link.download = fileName;
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-
-                        // 3. Delete from Active Collection
+                        // 2. Delete from Active Collection (Batch)
                         const batch = writeBatch(db);
                         snapshot.docs.forEach(doc => batch.delete(doc.ref));
                         await batch.commit();
 
-                        setToast({ msg: `تمت الأرشفة السحابية وحذف ${snapshot.size} سجل قديم بنجاح.`, type: 'success' });
+                        setToast({ msg: `تمت أرشفة ${snapshot.size} حالة (كل الحالات) من يوم أمس (${yesterday}) بنجاح.`, type: 'success' });
+                    } else {
+                         // No data to archive, still mark as run
                     }
-                    localStorage.setItem(LAST_PURGE_KEY, now.toString());
+                    
+                    localStorage.setItem(LAST_DAILY_ARCHIVE, today);
                 } catch (e) {
                     console.error("Auto Archive Error", e);
-                    setToast({ msg: 'فشل في عملية الأرشفة التلقائية', type: 'error' });
+                    setToast({ msg: 'فشل في عملية الأرشفة اليومية', type: 'error' });
                 }
             }
         };
@@ -484,25 +487,41 @@ const AppointmentsPage: React.FC = () => {
                 }
             });
 
-            const batch = writeBatch(db);
-            const records = Array.from(uniqueRecordsMap.values());
+            // OPTIMIZATION: Deduplicate against current state to prevent wasted writes
+            // The bridge might send the same 50 patients every 30 seconds.
+            // We filter out records that already exist in state with SAME status and SAME exam list.
             
-            if (records.length === 0) {
-                 setIsListening(false);
-                 isSyncProcessing.current = false;
-                 return;
-            }
+            const currentDataMap = new Map(appointmentsRef.current.map(a => [a.id, a]));
+            const batch = writeBatch(db);
+            let writeCount = 0;
+            
+            Array.from(uniqueRecordsMap.values()).forEach(record => {
+                const existing = currentDataMap.get(record.id);
+                
+                // If existing and status is same (pending), skip write
+                // Note: If user moved it to 'processing'/'done', existing.status will be diff, so we MIGHT overwrite? 
+                // NO, because we usually want to KEEP user changes.
+                // Logic: Only update if it's NEW or if crucial info changed, but typically bridge data is static until processed.
+                // Strongest Check: If it exists in ANY state locally, assume it's tracked. Only update if absolutely needed.
+                // For safety: We assume bridge sends "pending". If we have it as "processing", DO NOT overwrite with "pending".
+                
+                if (existing) {
+                    // It exists. Do nothing. This prevents 99% of redundant writes.
+                    return; 
+                }
 
-            records.forEach(record => {
+                // New record
                 const ref = doc(db, 'appointments', record.id);
                 batch.set(ref, record, { merge: true });
+                writeCount++;
             });
 
-            await batch.commit();
-
-            setLastSyncTime(new Date());
-            safeVibrate([100, 50, 100]);
-            setToast({ msg: `تم تحديث ${records.length} سجلات (Firebase) 📥`, type: 'success' });
+            if (writeCount > 0) {
+                await batch.commit();
+                setLastSyncTime(new Date());
+                safeVibrate([100, 50, 100]);
+                setToast({ msg: `تم تحديث ${writeCount} سجلات جديدة 📥`, type: 'success' });
+            } 
 
         } catch (e) {
             console.error("Sync Error:", e);
@@ -600,6 +619,8 @@ const AppointmentsPage: React.FC = () => {
 
     }, [selectedDate, activeView, enableDateFilter, activeModality, isArchiveView]);
 
+    // ... (rest of the component remains the same)
+    
     // --- Client Side Filtering (Fallback/Refinement) ---
     const filteredAppointments = useMemo(() => {
         let list = appointments;
@@ -884,11 +905,6 @@ const AppointmentsPage: React.FC = () => {
 
                 const snap = await getCountFromServer(q);
                 const currentCount = snap.data().count;
-                
-                // Note: To get bookedTimes for slot filtering we still need the docs, 
-                // but we can optimize by only fetching the 'time' field if using specific indexes,
-                // or just skip slot filtering if quota is full.
-                // For simplicity here, we do a lightweight fetch only if we need slots.
                 
                 const settings = modalitySettings[typeKey] || DEFAULT_SETTINGS['OTHER'];
                 const limit = settings.limit;

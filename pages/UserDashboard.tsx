@@ -4,10 +4,11 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
 import { Schedule, Announcement, SwapRequest, OpenShift, User, AttendanceLog, ActionLog } from '../types';
 import Toast from '../components/Toast';
+import { useAttendanceStatus } from '../hooks/useAttendanceStatus';
 
 // --- Helpers ---
 const getLocalDateStr = (d: Date) => {
@@ -93,8 +94,10 @@ const UserDashboard: React.FC = () => {
   const { t, dir } = useLanguage();
   const navigate = useNavigate();
   const currentUserId = auth.currentUser?.uid;
+  const shiftStatus = useAttendanceStatus(currentUserId);
   const currentUserName = localStorage.getItem('username') || t('role.user');
   const currentUserRole = localStorage.getItem('role') || 'user';
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [openShiftsCount, setOpenShiftsCount] = useState(0);
@@ -166,32 +169,29 @@ const handleGenerateManualCode = () => {
     if (!currentUserId) return;
 
     // 1. Announcements
-const qAnnounce = query(collection(db, 'announcements'), where('isActive', '==', true));
-const unsubAnnounce = onSnapshot(qAnnounce, (snap: any) => {
-    const now = new Date();
-    // تغيير الحسبة إلى 12 ساعة فقط
-    const cutoffTime = new Date(now.getTime() - 24 * 60 * 60 * 1000); 
-    
-    const list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Announcement)).filter((ann: any) => {
-        if (!ann.createdAt) return false;
-        const createdDate = ann.createdAt.toDate ? ann.createdAt.toDate() : new Date(ann.createdAt);
+    const qAnnounce = query(collection(db, 'announcements'), where('isActive', '==', true));
+    getDocs(qAnnounce).then((snap: any) => {
+        const now = new Date();
+        const cutoffTime = new Date(now.getTime() - 24 * 60 * 60 * 1000); 
         
-        // سيظهر التعميم فقط إذا كان عمره أقل من 12 ساعة
-        return createdDate >= cutoffTime; 
+        const list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Announcement)).filter((ann: any) => {
+            if (!ann.createdAt) return false;
+            const createdDate = ann.createdAt.toDate ? ann.createdAt.toDate() : new Date(ann.createdAt);
+            return createdDate >= cutoffTime; 
+        });
+        setAnnouncements(list);
     });
-    setAnnouncements(list);
-});
 
     // 2. Counts
     const qOpenShifts = query(collection(db, 'openShifts'), where('status', '==', 'open'));
-    const unsubOpenShifts = onSnapshot(qOpenShifts, (snap: any) => setOpenShiftsCount(snap.size));
+    getDocs(qOpenShifts).then((snap: any) => setOpenShiftsCount(snap.size));
 
     const qIncoming = query(collection(db, 'swapRequests'), where('to', '==', currentUserId), where('status', '==', 'pending'));
-    const unsubIncoming = onSnapshot(qIncoming, (snap: any) => setIncomingCount(snap.size));
+    getDocs(qIncoming).then((snap: any) => setIncomingCount(snap.size));
 
     // 3. Override
     const qOverride = query(collection(db, 'attendance_overrides'), where('userId', '==', currentUserId));
-    const unsubOverride = onSnapshot(qOverride, (snap: any) => {
+    getDocs(qOverride).then((snap: any) => {
         let active = false;
         const now = new Date();
         snap.docs.forEach((d: any) => {
@@ -215,7 +215,7 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap: any) => {
 
     // Filter by IN array of 3 months
     const qSchedule = query(collection(db, 'schedules'), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
-    const unsubSchedule = onSnapshot(qSchedule, (snap: any) => {
+    getDocs(qSchedule).then((snap: any) => {
         const data = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Schedule));
         setCurrentSchedules(data); // Stores *all* schedules for logic
     });
@@ -223,15 +223,15 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap: any) => {
     // 5. My Logs (Today)
     const todayStr = getLocalDateStr(now);
     const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', todayStr));
-    const unsubLogs = onSnapshot(qLogs, (snap: any) => {
+    getDocs(qLogs).then((snap: any) => {
         setTodayLogs(snap.docs.map((d: any) => d.data()));
     });
 
     // 5b. All Logs (Today) - For "Who is on shift" widget accuracy
     const qAllLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayStr));
-    const unsubAllLogs = onSnapshot(qAllLogs, (snap: any) => {
+    getDocs(qAllLogs).then((snap: any) => {
         setAllTodayLogs(snap.docs.map((d: any) => d.data() as AttendanceLog));
-    }, (error) => {
+    }).catch((error) => {
         console.log("Cannot fetch global logs for widget", error);
     });
     
@@ -243,12 +243,11 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap: any) => {
     // NEW: Fetch Actions/Leaves for current user
     // We fetch broader range or all to simplify, or last 30 days
     const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
-    const unsubActions = onSnapshot(qActions, (snap: any) => {
+    getDocs(qActions).then((snap: any) => {
         setUserActions(snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as ActionLog)));
     });
 
-    return () => { unsubAnnounce(); unsubOpenShifts(); unsubIncoming(); unsubOverride(); unsubSchedule(); unsubLogs(); unsubAllLogs(); unsubActions(); };
-  }, [currentUserId]);
+  }, [currentUserId, refreshTrigger]);
 
   // --- On Shift Logic (Corrected) ---
   useEffect(() => {
@@ -364,166 +363,51 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap: any) => {
 
   // --- ENHANCED HERO LOGIC ---
   const getHeroInfo = () => {
-    const now = new Date();
-    const todayStr = getLocalDateStr(now);
-
-    // 1. Check for Actions (Leaves/Absence) FIRST
-    const activeAction = userActions.find(a => a.fromDate <= todayStr && a.toDate >= todayStr);
+    const s = shiftStatus;
     
-    if (activeAction) {
-        // Map types to user friendly text
-        const actionMap: Record<string, {title: string, sub: string, mode: string}> = {
-            'annual_leave': { title: 'ON LEAVE', sub: 'Annual Leave', mode: 'leave' },
-            'sick_leave': { title: 'SICK LEAVE', sub: 'Get Well Soon', mode: 'leave' },
-            'unjustified_absence': { title: 'ABSENT', sub: 'Contact Supervisor', mode: 'absent' },
-            'justified_absence': { title: 'EXCUSED', sub: 'Authorized Absence', mode: 'leave' },
-            'mission': { title: 'ON MISSION', sub: 'External Duty', mode: 'active' }
-        };
+    let mode = 'off';
+    let title = s.message;
+    let subtitle = s.sub;
+    let location = 'Hospital';
 
-        const config = actionMap[activeAction.type] || { title: activeAction.type.toUpperCase(), sub: 'Status Update', mode: 'off' };
-        
-        // If it's a mission, they might still be 'active' but special
-        return { 
-            mode: config.mode, 
-            title: config.title, 
-            subtitle: config.sub, 
-            location: 'System Update' 
-        };
+    if (s.state === 'LOADING') {
+        mode = 'off';
+        title = 'Loading...';
+        subtitle = 'Syncing Status';
+    } else if (s.state === 'ON_LEAVE') {
+        mode = 'leave';
+        location = 'System Update';
+    } else if (s.state === 'READY_IN') {
+        mode = s.message.includes('LATE') ? 'late' : 'upcoming';
+        location = 'Pending Check-in';
+    } else if (s.state === 'READY_OUT') {
+        mode = 'active';
+        location = 'On Duty';
+    } else if (s.state === 'LOCKED') {
+        mode = 'upcoming';
+        location = 'Waiting';
+    } else if (s.state === 'COMPLETED') {
+        mode = 'complete';
+        location = 'Done';
+    } else if (s.state === 'MISSED_OUT') {
+        mode = 'late'; 
+        location = 'Action Required';
+    } else if (s.state === 'ABSENT') {
+        mode = 'absent';
+        location = 'Action Required';
+    } else if (s.state === 'WAITING') {
+        mode = 'upcoming'; 
+        location = 'On Break';
+        if (s.timeRemaining) subtitle = `Next shift in ${s.timeRemaining}`;
+    } else if (s.state === 'UPCOMING') {
+        mode = 'upcoming';
+        location = 'Scheduled';
+    } else if (s.state === 'OFF') {
+        mode = 'off';
+        location = 'Off Duty';
     }
 
-    // 2. Normal Shift Logic
-    const userSchedules = currentSchedules.filter(s => s.userId === currentUserId);
-    
-    const sortedLogs = [...todayLogs].sort((a,b) => {
-        const timeA = a.timestamp?.seconds || 0;
-        const timeB = b.timestamp?.seconds || 0;
-        return timeB - timeA;
-    });
-    const lastLog = sortedLogs[0];
-
-    if (lastLog && lastLog.type === 'OUT') {
-        const logTime = lastLog.timestamp.toDate();
-        const diffMins = (now.getTime() - logTime.getTime()) / 60000;
-        if (diffMins < 60) {
-            return { mode: 'complete', title: 'Shift Complete', subtitle: 'Great Work!', location: 'Done' };
-        }
-    }
-
-    const todayDate = new Date(now);
-    const tomorrowDate = new Date(now);
-    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-
-    const checkDates = [todayDate, tomorrowDate];
-    const flatShifts: { startObj: Date, endObj: Date, startStr: string, endStr: string, location: string, dateLabel: string, isSwap: boolean }[] = [];
-
-    checkDates.forEach(d => {
-        const dStr = getLocalDateStr(d);
-        const dDay = d.getDay();
-        const dateLabel = d.getDate() === now.getDate() ? t('date') : 'Tomorrow';
-
-        // *** FIX: PRIORITY LOGIC FOR SWAPS ***
-        // 1. Find if there is a specific schedule for this day (Swap/Specific Date)
-        const specificSchedules = userSchedules.filter(s => s.date === dStr);
-        
-        // 2. Determine which schedules to process
-        // If specific schedules exist, ignore recurring ones for this day entirely
-        const schedulesToProcess = specificSchedules.length > 0 
-            ? specificSchedules 
-            : userSchedules.filter(s => !s.date); // Only process recurring if no specific
-
-        schedulesToProcess.forEach(sch => {
-            let applies = false;
-            
-            if (sch.date === dStr) {
-                applies = true;
-            } else {
-                // Recurring check
-                const locId = (sch.locationId || '').toLowerCase();
-                const isFri = locId.includes('friday');
-                // FIX: Allow Holiday shifts to pass through if valid date range matches
-                const isHoliday = (sch.locationId || '').includes('Holiday Shift'); 
-                
-                if (isHoliday) {
-                     applies = true; // Will be filtered by validFrom/To below
-                } else if (dDay === 5) { 
-                     if (isFri) applies = true; 
-                } else { 
-                     if (!isFri) applies = true; 
-                }
-                
-                if (applies && (sch.validFrom && dStr < sch.validFrom || sch.validTo && dStr > sch.validTo)) applies = false;
-            }
-
-            if (applies) {
-                // Check if explicitly "Swap Duty - Off" or similar
-                if (sch.locationId && (sch.locationId.includes('Off') || sch.locationId.includes('OFF'))) {
-                    // Do not add to flatShifts, effectively making it "No Shift"
-                    return;
-                }
-
-                const parsed = sch.shifts || parseMultiShifts(sch.note || "") || [{start: '08:00', end: '16:00'}];
-                const isSwap = (sch.note || '').includes('Swap') || sch.locationId.includes('Swap');
-                let locationName = sch.locationId;
-                
-                // Parse cleaner name for Holiday
-                if (locationName === 'Holiday Shift' && sch.note) {
-                     const parts = sch.note.split(' - ');
-                     if (parts.length > 0) locationName = parts[0];
-                }
-                
-                if (locationName.startsWith('Swap Duty - ')) locationName = locationName.replace('Swap Duty - ', '');
-
-                parsed.forEach(p => {
-                    const sD = constructDateTime(dStr, p.start, '08:00');
-                    let eD = constructDateTime(dStr, p.end, '16:00');
-                    
-                    if (eD <= sD && !(p.start === '00:00' && p.end === '00:00')) eD.setDate(eD.getDate() + 1);
-                    if (p.start === '00:00' && p.end === '00:00') eD.setDate(eD.getDate() + 1);
-                    
-                    flatShifts.push({
-                        startObj: sD,
-                        endObj: eD,
-                        startStr: p.start,
-                        endStr: p.end,
-                        location: locationName,
-                        dateLabel: dateLabel,
-                        isSwap: isSwap
-                    });
-                });
-            }
-        });
-    });
-
-    flatShifts.sort((a, b) => a.startObj.getTime() - b.startObj.getTime());
-
-    const activeShift = flatShifts.find(s => now >= s.startObj && now < s.endObj);
-    
-    if (activeShift) {
-        if (lastLog && lastLog.type === 'OUT') {
-             const logTime = lastLog.timestamp.toDate();
-             if (logTime >= activeShift.startObj) {
-                 return { mode: 'complete', title: 'Shift Done', subtitle: 'Relax', location: 'Home' };
-             }
-        }
-
-        const title = activeShift.isSwap ? 'Covering Shift' : 'On Duty';
-
-        if (lastLog && lastLog.type === 'IN') {
-             return { mode: 'active', title: title, subtitle: `${formatTime12(activeShift.startStr)} - ${formatTime12(activeShift.endStr)}`, location: activeShift.location };
-        } else {
-             return { mode: 'late', title: t('action.late') + '!', subtitle: 'Clock In Now!', location: activeShift.location };
-        }
-    }
-
-    const upcomingShift = flatShifts.find(s => s.startObj > now);
-    if (upcomingShift) {
-        const isTomorrow = upcomingShift.dateLabel === 'Tomorrow';
-        const label = isTomorrow ? `Tomorrow ${formatTime12(upcomingShift.startStr)}` : formatTime12(upcomingShift.startStr);
-        const title = upcomingShift.isSwap ? 'Swap Shift' : t('user.hero.nextShift');
-        return { mode: 'upcoming', title: title, subtitle: label, location: upcomingShift.location };
-    }
-
-    return { mode: 'off', title: t('user.hero.noShift'), subtitle: 'Enjoy your time', location: 'Off Duty' };
+    return { mode, title, subtitle, location };
   };
 
   const heroInfo = getHeroInfo();
@@ -607,14 +491,109 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap: any) => {
       }
   ];
 
-  // Dynamic Theme Colors
-  let themeColor = 'blue';
-  if (heroInfo.mode === 'active') themeColor = 'emerald';
-  if (heroInfo.mode === 'complete') themeColor = 'cyan';
-  if (heroInfo.mode === 'late') themeColor = 'red';
-  if (heroInfo.mode === 'off') themeColor = 'slate';
-  if (heroInfo.mode === 'leave') themeColor = 'purple';
-  if (heroInfo.mode === 'absent') themeColor = 'red';
+  // --- ENHANCED HERO STYLING CONFIG ---
+  const heroStyles: Record<string, any> = {
+    active: {
+      gradient: 'bg-gradient-to-br from-emerald-900 via-teal-900 to-slate-900',
+      blob1: 'bg-emerald-500',
+      blob2: 'bg-teal-400',
+      accentText: 'text-emerald-400',
+      glassBorder: 'border-emerald-500/30',
+      iconBg: 'bg-gradient-to-br from-emerald-400 to-teal-500',
+      badge: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30',
+      glow: 'from-emerald-500 to-cyan-500',
+      subText: 'text-emerald-200',
+      button: 'bg-emerald-500 hover:bg-emerald-400 text-white shadow-emerald-500/50',
+      dot: 'bg-emerald-400',
+      dotShadow: 'shadow-[0_0_10px_#34d399]'
+    },
+    late: {
+      gradient: 'bg-gradient-to-br from-red-900 via-rose-900 to-slate-900',
+      blob1: 'bg-red-600',
+      blob2: 'bg-orange-500',
+      accentText: 'text-red-400',
+      glassBorder: 'border-red-500/30',
+      iconBg: 'bg-gradient-to-br from-red-500 to-orange-600',
+      badge: 'bg-red-500/20 text-red-200 border-red-500/30',
+      glow: 'from-red-500 to-orange-500',
+      subText: 'text-red-200',
+      button: 'bg-red-500 hover:bg-red-400 text-white shadow-red-500/50',
+      dot: 'bg-red-500',
+      dotShadow: 'shadow-[0_0_10px_#ef4444]'
+    },
+    leave: {
+      gradient: 'bg-gradient-to-br from-purple-900 via-fuchsia-900 to-slate-900',
+      blob1: 'bg-purple-500',
+      blob2: 'bg-pink-500',
+      accentText: 'text-purple-400',
+      glassBorder: 'border-purple-500/30',
+      iconBg: 'bg-gradient-to-br from-purple-500 to-pink-500',
+      badge: 'bg-purple-500/20 text-purple-200 border-purple-500/30',
+      glow: 'from-purple-500 to-pink-500',
+      subText: 'text-purple-200',
+      button: 'bg-purple-500 hover:bg-purple-400 text-white shadow-purple-500/50',
+      dot: 'bg-purple-400',
+      dotShadow: 'shadow-[0_0_10px_#c084fc]'
+    },
+    absent: {
+      gradient: 'bg-gradient-to-br from-rose-950 via-red-950 to-slate-950',
+      blob1: 'bg-rose-700',
+      blob2: 'bg-red-800',
+      accentText: 'text-rose-500',
+      glassBorder: 'border-rose-500/30',
+      iconBg: 'bg-gradient-to-br from-rose-600 to-red-700',
+      badge: 'bg-rose-500/20 text-rose-200 border-rose-500/30',
+      glow: 'from-rose-600 to-red-900',
+      subText: 'text-rose-200',
+      button: 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-500/50',
+      dot: 'bg-rose-500',
+      dotShadow: 'shadow-[0_0_10px_#f43f5e]'
+    },
+    upcoming: {
+      gradient: 'bg-gradient-to-br from-blue-900 via-indigo-900 to-slate-900',
+      blob1: 'bg-blue-500',
+      blob2: 'bg-indigo-500',
+      accentText: 'text-blue-400',
+      glassBorder: 'border-blue-500/30',
+      iconBg: 'bg-gradient-to-br from-blue-500 to-indigo-600',
+      badge: 'bg-blue-500/20 text-blue-200 border-blue-500/30',
+      glow: 'from-blue-500 to-indigo-500',
+      subText: 'text-blue-200',
+      button: 'bg-blue-500 hover:bg-blue-400 text-white shadow-blue-500/50',
+      dot: 'bg-blue-400',
+      dotShadow: 'shadow-[0_0_10px_#60a5fa]'
+    },
+    complete: {
+      gradient: 'bg-gradient-to-br from-cyan-900 via-sky-900 to-slate-900',
+      blob1: 'bg-cyan-500',
+      blob2: 'bg-sky-500',
+      accentText: 'text-cyan-400',
+      glassBorder: 'border-cyan-500/30',
+      iconBg: 'bg-gradient-to-br from-cyan-500 to-sky-600',
+      badge: 'bg-cyan-500/20 text-cyan-200 border-cyan-500/30',
+      glow: 'from-cyan-500 to-sky-500',
+      subText: 'text-cyan-200',
+      button: 'bg-cyan-500 hover:bg-cyan-400 text-white shadow-cyan-500/50',
+      dot: 'bg-cyan-400',
+      dotShadow: 'shadow-[0_0_10px_#22d3ee]'
+    },
+    off: {
+      gradient: 'bg-gradient-to-br from-slate-800 via-gray-900 to-black',
+      blob1: 'bg-slate-600',
+      blob2: 'bg-gray-600',
+      accentText: 'text-slate-400',
+      glassBorder: 'border-slate-500/30',
+      iconBg: 'bg-slate-700 text-white/60',
+      badge: 'bg-white/10 border-white/20 text-white/60',
+      glow: 'from-slate-500 to-gray-500',
+      subText: 'text-slate-400',
+      button: 'bg-slate-600 hover:bg-slate-500 text-white shadow-slate-500/50',
+      dot: 'bg-slate-500',
+      dotShadow: 'shadow-[0_0_10px_#94a3b8]'
+    }
+  };
+
+  const currentStyle = heroStyles[heroInfo.mode] || heroStyles.off;
 
   const styles = `
     @keyframes aurora {
@@ -717,109 +696,102 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap: any) => {
             </div>
         )}
         {/* --- MAGICAL HERO SECTION --- */}
-        <div className="relative overflow-hidden mb-12 rounded-b-[40px] shadow-2xl transition-all duration-1000 min-h-[420px] flex items-center">
+        <div className="relative overflow-hidden mb-12 rounded-b-[50px] shadow-2xl transition-all duration-1000 min-h-[480px] flex items-center -mx-4 -mt-4">
             
             {/* Dynamic Animated Background */}
-            <div className={`absolute inset-0 transition-colors duration-1000 animate-aurora
-                ${themeColor === 'red' ? 'bg-gradient-to-br from-red-900 via-rose-800 to-slate-900' :
-                  themeColor === 'emerald' ? 'bg-gradient-to-br from-emerald-900 via-teal-800 to-slate-900' :
-                  themeColor === 'cyan' ? 'bg-gradient-to-br from-cyan-900 via-blue-800 to-slate-900' :
-                  themeColor === 'purple' ? 'bg-gradient-to-br from-purple-900 via-indigo-800 to-slate-900' :
-                  'bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900'
-                }`}
-            >
+            <div className={`absolute inset-0 transition-colors duration-1000 animate-aurora ${currentStyle.gradient}`}>
                 {/* Floating Blobs */}
-                <div className={`absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full mix-blend-screen filter blur-[100px] opacity-30 animate-pulse-slow
-                    ${themeColor === 'red' ? 'bg-red-500' : themeColor === 'emerald' ? 'bg-emerald-500' : themeColor === 'purple' ? 'bg-purple-500' : 'bg-blue-500'}`}>
-                </div>
-                <div className="absolute bottom-[-10%] right-[-10%] w-[400px] h-[400px] bg-purple-500 rounded-full mix-blend-screen filter blur-[100px] opacity-20 animate-pulse-slow delay-1000"></div>
+                <div className={`absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full mix-blend-screen filter blur-[100px] opacity-30 animate-pulse-slow ${currentStyle.blob1}`}></div>
+                <div className={`absolute bottom-[-10%] right-[-10%] w-[400px] h-[400px] rounded-full mix-blend-screen filter blur-[100px] opacity-20 animate-pulse-slow delay-1000 ${currentStyle.blob2}`}></div>
                 
                 {/* Grain Texture Overlay */}
                 <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 mix-blend-overlay"></div>
             </div>
 
-            <div className="max-w-6xl mx-auto px-6 w-full relative z-10 grid md:grid-cols-2 gap-12 items-center pt-8 pb-12">
+            <div className="max-w-7xl mx-auto px-6 w-full relative z-10 grid lg:grid-cols-2 gap-16 items-center pt-12 pb-16">
                 
                 {/* Left Column: Greeting & Info */}
-                <div className={`space-y-6 ${dir === 'rtl' ? 'md:text-right' : 'md:text-left'} text-center md:text-left`}>
+                <div className={`space-y-8 ${dir === 'rtl' ? 'lg:text-right' : 'lg:text-left'} text-center lg:text-left`}>
                     
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/10 backdrop-blur-md shadow-sm">
-                        <span className={`w-2 h-2 rounded-full ${heroInfo.mode === 'absent' ? 'bg-red-500' : heroInfo.mode === 'leave' ? 'bg-purple-400' : 'bg-emerald-400'} animate-pulse`}></span>
-                        <span className="text-[10px] font-bold text-white tracking-widest uppercase">System Online</span>
+                    <div className="flex items-center gap-4 justify-center lg:justify-start">
+                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 border border-white/10 backdrop-blur-md shadow-lg group hover:bg-white/20 transition-all cursor-default">
+                            <span className={`w-2.5 h-2.5 rounded-full ${currentStyle.dot} animate-pulse ${currentStyle.dotShadow}`}></span>
+                            <span className="text-[11px] font-bold text-white tracking-widest uppercase group-hover:tracking-[0.2em] transition-all">System Online</span>
+                        </div>
+                        <button 
+                            onClick={() => setRefreshTrigger(prev => prev + 1)}
+                            className="bg-white/10 hover:bg-white/20 text-white rounded-full w-9 h-9 flex items-center justify-center backdrop-blur-md transition-all border border-white/10 hover:rotate-180 duration-500"
+                            title="تحديث البيانات"
+                        >
+                            <i className="fas fa-sync-alt text-xs"></i>
+                        </button>
                     </div>
 
                     <div>
-                        <h2 className="text-lg font-medium text-blue-200 mb-1">{t('user.hero.welcome')}</h2>
-                        <h1 className="text-5xl md:text-6xl font-black text-white leading-tight drop-shadow-lg tracking-tight">
+                        <h2 className={`text-xl font-medium mb-2 tracking-wide ${currentStyle.subText}`}>{t('user.hero.welcome')}</h2>
+                        <h1 className="text-6xl lg:text-7xl font-black text-white leading-[0.9] drop-shadow-2xl tracking-tight">
                             {currentUserName.split(' ')[0]}
-                            <span className="text-white/40">.</span>
+                            <span className={`text-transparent bg-clip-text bg-gradient-to-tr from-white to-white/50`}>.</span>
                         </h1>
                     </div>
 
                     <div className={`flex flex-wrap items-center gap-4 ${dir === 'rtl' ? 'justify-center md:justify-start' : 'justify-center md:justify-start'}`}>
-                        <div className="glass-card px-5 py-2.5 rounded-2xl flex items-center gap-3 transition-transform hover:scale-105 cursor-default">
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-400 to-cyan-300 flex items-center justify-center text-slate-900 font-bold text-xs shadow-lg">
+                        <div className={`glass-card px-6 py-3 rounded-2xl flex items-center gap-4 transition-all hover:scale-105 cursor-default hover:bg-white/10 ${currentStyle.glassBorder}`}>
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-lg ${currentStyle.iconBg}`}>
                                 <i className="fas fa-id-badge"></i>
                             </div>
                             <div className="text-left">
-                                <p className="text-[10px] text-white/50 font-bold uppercase tracking-wider">Role</p>
-                                <p className="text-sm font-bold text-white capitalize">{t(`role.${currentUserRole}`)}</p>
+                                <p className="text-[10px] text-white/50 font-bold uppercase tracking-wider mb-0.5">Role</p>
+                                <p className="text-base font-bold text-white capitalize">{t(`role.${currentUserRole}`)}</p>
                             </div>
                         </div>
 
-                        <a 
-                            href="http://192.168.0.8" 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="group relative px-6 py-3 rounded-2xl bg-white text-slate-900 font-bold text-sm shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:shadow-[0_0_30px_rgba(255,255,255,0.5)] transition-all overflow-hidden flex items-center gap-2"
-                        >
-                            <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/50 to-transparent -translate-x-full group-hover:animate-shine"></span>
-                            <i className="fas fa-desktop text-blue-600"></i> Open IHMS
-                        </a>
-                        <a 
-                            href="https://chat.whatsapp.com/HO07MVE2Y1c9d9pSFBa8ly" 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="group relative px-6 py-3 rounded-2xl bg-[#25D366] text-white font-bold text-sm shadow-[0_0_20px_rgba(37,211,102,0.3)] hover:shadow-[0_0_30px_rgba(37,211,102,0.5)] transition-all overflow-hidden flex items-center gap-2"
-                        >
-                            <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-shine"></span>
-                            <i className="fab fa-whatsapp text-lg"></i> 
-                            <span>X-RAY GROUP</span>
-                        </a>
-                        <button 
-            onClick={handleGenerateManualCode}
-            disabled={isGenerating}
-            className="group px-4 py-2.5 rounded-2xl bg-cyan-600 text-white font-bold text-xs shadow-lg hover:bg-cyan-500 transition-all flex items-center gap-2 border border-cyan-400/30 active:scale-95"
-        >
-            {isGenerating ? (
-                <i className="fas fa-spinner fa-spin"></i>
-            ) : (
-                <i className="fas fa-shield-check"></i>
-            )}
-            <span>{generatedCode ? t('update') : t('dash.locationCode')}</span>
-        </button>
+                        <div className="flex items-center gap-3">
+                            <a 
+                                href="http://192.168.0.8" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="w-12 h-12 rounded-2xl bg-white/10 hover:bg-white text-white hover:text-blue-600 flex items-center justify-center transition-all backdrop-blur-md border border-white/10 shadow-lg group tooltip-container relative"
+                                title="Open IHMS"
+                            >
+                                <i className="fas fa-desktop text-lg group-hover:scale-110 transition-transform"></i>
+                            </a>
+                            <a 
+                                href="https://chat.whatsapp.com/HO07MVE2Y1c9d9pSFBa8ly" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="w-12 h-12 rounded-2xl bg-[#25D366]/20 hover:bg-[#25D366] text-[#25D366] hover:text-white flex items-center justify-center transition-all backdrop-blur-md border border-[#25D366]/30 shadow-lg group"
+                                title="WhatsApp Group"
+                            >
+                                <i className="fab fa-whatsapp text-xl group-hover:scale-110 transition-transform"></i>
+                            </a>
+                            <button 
+                                onClick={handleGenerateManualCode}
+                                disabled={isGenerating}
+                                className={`h-12 px-6 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-sm shadow-lg transition-all flex items-center gap-3 border border-white/10 backdrop-blur-md group`}
+                            >
+                                {isGenerating ? (
+                                    <i className="fas fa-spinner fa-spin"></i>
+                                ) : (
+                                    <i className="fas fa-shield-check text-lg group-hover:rotate-12 transition-transform"></i>
+                                )}
+                                <span>{generatedCode ? t('update') : t('dash.locationCode')}</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
                 {/* Right Column: The "Glass Card" Status Widget */}
-                <div className="flex justify-center md:justify-end">
-                    <div className="relative group perspective-1000">
+                <div className="flex justify-center lg:justify-end perspective-1000">
+                    <div className="relative group w-full max-w-md">
                         {/* Glow behind card */}
-                        <div className={`absolute inset-0 bg-gradient-to-r blur-2xl opacity-40 transition-colors duration-1000 rounded-3xl transform scale-110
-                            ${themeColor === 'red' ? 'from-red-500 to-orange-500' : themeColor === 'emerald' ? 'from-emerald-500 to-cyan-500' : themeColor === 'purple' ? 'from-purple-500 to-indigo-500' : 'from-blue-500 to-purple-500'}
-                        `}></div>
+                        <div className={`absolute inset-0 bg-gradient-to-r blur-3xl opacity-30 transition-colors duration-1000 rounded-[40px] transform scale-105 group-hover:opacity-50 ${currentStyle.glow}`}></div>
 
-                        <div className="glass-card w-full md:w-[380px] p-6 rounded-[32px] relative z-10 transition-transform duration-500 hover:rotate-y-2 hover:rotate-x-2">
+                        <div className={`glass-card w-full p-8 rounded-[40px] relative z-10 transition-all duration-500 transform group-hover:translate-y-[-5px] shadow-2xl backdrop-blur-2xl bg-white/5 ${currentStyle.glassBorder}`}>
                             
                             {/* Top Row: Icon & Status Label */}
-                            <div className="flex justify-between items-start mb-8">
-                                <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-3xl shadow-lg animate-float-icon
-                                    ${themeColor === 'red' ? 'bg-gradient-to-br from-red-500 to-orange-500 text-white' : 
-                                      themeColor === 'emerald' ? 'bg-gradient-to-br from-emerald-400 to-cyan-500 text-white' : 
-                                      themeColor === 'purple' ? 'bg-gradient-to-br from-purple-500 to-indigo-500 text-white' : 
-                                      themeColor === 'slate' ? 'bg-white/10 text-white/60' :
-                                      'bg-gradient-to-br from-blue-500 to-indigo-500 text-white'}
-                                `}>
+                            <div className="flex justify-between items-start mb-10">
+                                <div className={`w-20 h-20 rounded-3xl flex items-center justify-center text-4xl shadow-2xl animate-float-icon ring-4 ring-white/10 ${currentStyle.iconBg}`}>
                                     {heroInfo.mode === 'active' ? <i className="fas fa-bolt"></i> : 
                                      heroInfo.mode === 'late' ? <i className="fas fa-exclamation-triangle"></i> :
                                      heroInfo.mode === 'leave' ? <i className="fas fa-umbrella-beach"></i> :
@@ -828,38 +800,33 @@ const unsubAnnounce = onSnapshot(qAnnounce, (snap: any) => {
                                      <i className="fas fa-moon"></i>}
                                 </div>
                                 <div className="text-right">
-                                    <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border
-                                        ${themeColor === 'red' ? 'bg-red-500/20 border-red-500/50 text-red-200' : 
-                                          themeColor === 'emerald' ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-200' : 
-                                          themeColor === 'purple' ? 'bg-purple-500/20 border-purple-500/50 text-purple-200' :
-                                          'bg-white/10 border-white/20 text-white/60'}
-                                    `}>
+                                    <span className={`inline-block px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest border shadow-lg backdrop-blur-md ${currentStyle.badge}`}>
                                         {heroInfo.mode === 'active' ? 'On Duty' : heroInfo.mode}
                                     </span>
                                 </div>
                             </div>
 
                             {/* Middle: Big Title */}
-                            <div className="mb-6">
-                                <h3 className="text-3xl font-black text-white leading-tight mb-1">{heroInfo.title}</h3>
-                                <p className={`text-sm font-bold uppercase tracking-wide opacity-80 ${themeColor === 'red' ? 'text-red-200' : themeColor === 'emerald' ? 'text-emerald-200' : themeColor === 'purple' ? 'text-purple-200' : 'text-blue-200'}`}>
+                            <div className="mb-8">
+                                <h3 className="text-4xl lg:text-5xl font-black text-white leading-[0.9] mb-2 tracking-tight">{heroInfo.title}</h3>
+                                <p className={`text-sm font-bold uppercase tracking-[0.15em] opacity-90 ${currentStyle.subText}`}>
                                     {heroInfo.subtitle}
                                 </p>
                             </div>
 
                             {/* Bottom: Location & Action */}
                             <div className="flex items-center justify-between pt-6 border-t border-white/10">
-                                <div className="flex items-center gap-2 text-white/70">
-                                    <i className="fas fa-map-marker-alt text-lg"></i>
-                                    <span className="text-xs font-bold">{heroInfo.location || 'Unknown'}</span>
+                                <div className="flex items-center gap-3 text-white/80 bg-white/5 px-4 py-2 rounded-xl border border-white/5">
+                                    <i className="fas fa-map-marker-alt text-lg text-white"></i>
+                                    <span className="text-xs font-bold tracking-wide">{heroInfo.location || 'Unknown'}</span>
                                 </div>
                                 
                                 {heroInfo.mode === 'active' || heroInfo.mode === 'late' ? (
-                                    <button onClick={() => navigate('/attendance-punch')} className="w-12 h-12 rounded-full bg-white text-slate-900 flex items-center justify-center hover:scale-110 transition-transform shadow-lg shadow-white/20 animate-pulse">
-                                        <i className="fas fa-fingerprint text-xl"></i>
+                                    <button onClick={() => navigate('/attendance-punch')} className={`w-14 h-14 rounded-full flex items-center justify-center hover:scale-110 transition-transform animate-pulse group-hover:animate-none ${currentStyle.button}`}>
+                                        <i className="fas fa-fingerprint text-2xl"></i>
                                     </button>
                                 ) : (
-                                    <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center">
+                                    <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center border border-white/10">
                                         <i className="fas fa-check text-white/40"></i>
                                     </div>
                                 )}

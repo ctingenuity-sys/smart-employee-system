@@ -2,14 +2,15 @@
 // ... existing imports
 import React, { useEffect, useState, useMemo } from 'react';
 import { db } from '../firebase';
-import { User, ActionLog, Appointment } from '../types';
+import { User, ActionLog, Appointment, Schedule, AttendanceLog } from '../types';
 import Loading from '../components/Loading';
 import Modal from '../components/Modal';
 import { PrintHeader, PrintFooter } from '../components/PrintLayout';
 // @ts-ignore
-import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, Timestamp, query, where } from 'firebase/firestore';
+import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, Timestamp, query, where, onSnapshot } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
 import { supabase } from '../supabaseClient';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 // Helper to safely render date
 const safeDate = (val: any) => {
@@ -44,6 +45,9 @@ const Reports: React.FC = () => {
     const { t, dir } = useLanguage();
     const [employees, setEmployees] = useState<User[]>([]);
     const [actions, setActions] = useState<ActionLog[]>([]);
+    const [swaps, setSwaps] = useState<any[]>([]);
+    const [schedules, setSchedules] = useState<Schedule[]>([]);
+    const [attendanceLogs, setAttendanceLogs] = useState<AttendanceLog[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'attendance' | 'productivity'>('attendance');
 
@@ -70,7 +74,7 @@ const Reports: React.FC = () => {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [formData, setFormData] = useState({
         employeeId: '',
-        type: 'late',
+        type: 'annual_leave',
         fromDate: new Date().toISOString().split('T')[0],
         toDate: new Date().toISOString().split('T')[0],
         description: ''
@@ -88,24 +92,7 @@ const Reports: React.FC = () => {
     };
 
     const [refreshTrigger, setRefreshTrigger] = useState(0);
-
-    // --- Initial Load (Users & Actions) ---
-    useEffect(() => {
-        const init = async () => {
-            try {
-                const aSnap = await getDocs(collection(db, 'actions'));
-                setActions(aSnap.docs.map(d => ({ id: d.id, ...d.data() } as ActionLog)));
-
-                const uSnap = await getDocs(collection(db, 'users'));
-                setEmployees(uSnap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
-            } catch (err) {
-                console.error(err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        init();
-    }, [refreshTrigger]);
+    const [includeLateness, setIncludeLateness] = useState(true);
 
     // --- Helpers for Date Range ---
     const getDateRange = () => {
@@ -144,10 +131,85 @@ const Reports: React.FC = () => {
         return 1;
     };
 
+    // --- Initial Load (Users & Actions) ---
+    useEffect(() => {
+        const init = async () => {
+            try {
+                const aSnap = await getDocs(collection(db, 'actions'));
+                setActions(aSnap.docs.map(d => ({ id: d.id, ...d.data() } as ActionLog)));
+
+                const uSnap = await getDocs(collection(db, 'users'));
+                setEmployees(uSnap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
+
+                const sSnap = await getDocs(collection(db, 'swapRequests'));
+                setSwaps(sSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+            } catch (err) {
+                console.error(err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        init();
+    }, [refreshTrigger]);
+
+    // --- Fetch Schedules & Attendance Logs ---
+    useEffect(() => {
+        const fetchAttendanceData = async () => {
+            const { start, end } = getDateRange();
+            if (!start || !end) return;
+
+            try {
+                // 1. Calculate months in range for fetching monthly schedules
+                const months: string[] = [];
+                let cur = new Date(start);
+                const last = new Date(end);
+                let safety = 0;
+                while(cur <= last && safety < 24) {
+                    const mStr = `${cur.getFullYear()}-${(cur.getMonth()+1).toString().padStart(2,'0')}`;
+                    if(!months.includes(mStr)) months.push(mStr);
+                    cur.setMonth(cur.getMonth() + 1);
+                    safety++;
+                }
+
+                // 2. Fetch Daily Schedules
+                const qSchDate = query(collection(db, 'schedules'), where('date', '>=', start), where('date', '<=', end));
+                const schDateSnap = await getDocs(qSchDate);
+
+                // 3. Fetch Monthly Schedules
+                let schMonthDocs: any[] = [];
+                if (months.length > 0) {
+                    const qSchMonth = query(collection(db, 'schedules'), where('month', 'in', months.slice(0, 10)));
+                    const schMonthSnap = await getDocs(qSchMonth);
+                    schMonthDocs = schMonthSnap.docs;
+                }
+
+                const allSchedules = [
+                    ...schDateSnap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule)),
+                    ...schMonthDocs.map(d => ({ id: d.id, ...d.data() } as Schedule))
+                ];
+                
+                // Deduplicate by ID
+                const uniqueSchedules = Array.from(new Map(allSchedules.map(item => [item.id, item])).values());
+                setSchedules(uniqueSchedules);
+
+                // Fetch Attendance Logs
+                const startDate = new Date(start + 'T00:00:00');
+                const endDate = new Date(end + 'T23:59:59');
+                const qLogs = query(collection(db, 'attendance_logs'), 
+                    where('timestamp', '>=', Timestamp.fromDate(startDate)),
+                    where('timestamp', '<=', Timestamp.fromDate(endDate))
+                );
+                const logsSnap = await getDocs(qLogs);
+                setAttendanceLogs(logsSnap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog)));
+            } catch (err) {
+                console.error("Error fetching attendance data for reports:", err);
+            }
+        };
+        fetchAttendanceData();
+    }, [filterMonth, filterYear, filterFromDate, filterToDate, refreshTrigger]);
+
     // --- REAL-TIME PRODUCTIVITY FETCH (FROM SUPABASE) ---
     useEffect(() => {
-        if (activeTab !== 'productivity') return;
-
         setIsProductivityLoading(true);
         const { start, end } = getDateRange();
 
@@ -176,53 +238,269 @@ const Reports: React.FC = () => {
 
         fetchSupabaseData();
 
-    }, [activeTab, filterMonth, filterYear, filterFromDate, filterToDate]);
+    }, [filterMonth, filterYear, filterFromDate, filterToDate]);
 
 
     // --- Attendance Calculations ---
-    const filteredActions = useMemo(() => {
+    const autoActions = useMemo(() => {
+        const generated: ActionLog[] = [];
         const { start, end } = getDateRange();
-        return actions.filter(act => {
-            if (filterEmp && act.employeeId !== filterEmp) return false;
-            // Handle Timestamp objects if present
+        if (!start || !end) return [];
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        // Don't predict future: limit end date to today
+        const effectiveEnd = end < todayStr ? end : todayStr;
+
+        // Generate array of dates to check
+        const dates: string[] = [];
+        let curr = new Date(start);
+        const last = new Date(effectiveEnd);
+        
+        // Safety check
+        if (curr > last) return [];
+
+        while (curr <= last) {
+            dates.push(curr.toISOString().split('T')[0]);
+            curr.setDate(curr.getDate() + 1);
+        }
+
+        employees.forEach(emp => {
+            dates.forEach(dateStr => {
+                // 1. Find Schedule for this User on this Date
+                // Priority: Specific Date > Monthly
+                let sch = schedules.find(s => s.userId === emp.id && s.date === dateStr);
+                if (!sch) {
+                    const monthStr = dateStr.substring(0, 7); // YYYY-MM
+                    sch = schedules.find(s => s.userId === emp.id && s.month === monthStr);
+                }
+
+                if (!sch || !sch.shifts || sch.shifts.length === 0) return; // No schedule for this day
+
+                // 2. Check for Manual Actions (Leave, Absence, Mission, etc.)
+                // If there is ANY manual action covering this day, skip auto-generation
+                const hasManual = actions.some(act => {
+                    if (act.employeeId !== emp.id) return false;
+                    const actStart = safeDate(act.fromDate);
+                    const actEnd = safeDate(act.toDate);
+                    return dateStr >= actStart && dateStr <= actEnd;
+                });
+
+                if (hasManual) return;
+
+                // 3. Check Attendance Logs
+                const userLogs = attendanceLogs.filter(log => {
+                    if (log.userId !== emp.id) return false;
+                    const logDate = log.timestamp?.toDate ? log.timestamp.toDate() : new Date(log.timestamp);
+                    return logDate.toLocaleDateString('en-CA') === dateStr;
+                });
+
+                const inLogs = userLogs.filter(l => l.type === 'IN').sort((a, b) => {
+                    const da = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
+                    const db = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
+                    return da.getTime() - db.getTime();
+                });
+
+                if (inLogs.length === 0) {
+                    // No IN log -> Unjustified Absence
+                    generated.push({
+                        id: `auto-abs-${emp.id}-${dateStr}`,
+                        employeeId: emp.id,
+                        type: 'unjustified_absence',
+                        fromDate: dateStr,
+                        toDate: dateStr,
+                        description: 'غياب بدون إذن (تلقائي)',
+                        createdAt: new Date()
+                    } as ActionLog);
+                } else {
+                    // Check for Late
+                    const firstShift = sch!.shifts[0];
+                    if (firstShift && firstShift.start) {
+                        const firstInLog = inLogs[0];
+                        const logTime = firstInLog.timestamp?.toDate ? firstInLog.timestamp.toDate() : new Date(firstInLog.timestamp);
+                        
+                        const [h, m] = firstShift.start.split(':').map(Number);
+                        const shiftStart = new Date(dateStr + 'T00:00:00');
+                        shiftStart.setHours(h, m, 0, 0);
+
+                        const gracePeriodMins = 15;
+                        const lateThreshold = new Date(shiftStart.getTime() + gracePeriodMins * 60000);
+
+                        if (logTime > lateThreshold) {
+                            const lateMins = Math.floor((logTime.getTime() - shiftStart.getTime()) / 60000);
+                            generated.push({
+                                id: `auto-late-${emp.id}-${dateStr}`,
+                                employeeId: emp.id,
+                                type: 'late',
+                                fromDate: dateStr,
+                                toDate: dateStr,
+                                description: `تأخير ${lateMins} دقيقة (تلقائي)`,
+                                createdAt: new Date()
+                            } as ActionLog);
+                        }
+                    }
+                }
+            });
+        });
+
+        return generated;
+    }, [schedules, attendanceLogs, actions, employees, filterFromDate, filterToDate, filterMonth, filterYear]);
+
+    const allCombinedActions = useMemo(() => {
+        return [...actions, ...autoActions];
+    }, [actions, autoActions]);
+
+    const baseFilteredActions = useMemo(() => {
+        const { start, end } = getDateRange();
+        return allCombinedActions.filter(act => {
             const actStart = safeDate(act.fromDate);
             const actEnd = safeDate(act.toDate);
-            
             if (start && actEnd < start) return false;
             if (end && actStart > end) return false;
             return true;
+        });
+    }, [allCombinedActions, filterMonth, filterYear, filterFromDate, filterToDate]);
+
+    const filteredActions = useMemo(() => {
+        return baseFilteredActions.filter(act => {
+            if (filterEmp && act.employeeId !== filterEmp) return false;
+            return true;
         }).sort((a, b) => new Date(safeDate(b.fromDate)).getTime() - new Date(safeDate(a.fromDate)).getTime());
-    }, [actions, filterEmp, filterMonth, filterYear, filterFromDate, filterToDate]);
+    }, [baseFilteredActions, filterEmp]);
+
+    const allEvaluations = useMemo(() => {
+        const months = getMonthCount();
+        const maxScore = months * POINTS_PER_MONTH;
+        const { start, end } = getDateRange();
+        
+        return employees.map(emp => {
+            const empActions = baseFilteredActions.filter(act => act.employeeId === emp.id);
+            
+            // Calculate next leave date
+            const allEmpActions = actions.filter(act => act.employeeId === emp.id);
+            const annualLeaves = allEmpActions.filter(act => act.type === 'annual_leave');
+            let lastLeaveDate: Date | null = null;
+            if (annualLeaves.length > 0) {
+                annualLeaves.sort((a, b) => new Date(safeDate(b.toDate)).getTime() - new Date(safeDate(a.toDate)).getTime());
+                lastLeaveDate = new Date(safeDate(annualLeaves[0].toDate));
+            } else if (emp.hireDate) {
+                lastLeaveDate = new Date(emp.hireDate);
+            }
+
+            let nextLeaveDate: Date | null = null;
+            if (lastLeaveDate) {
+                nextLeaveDate = new Date(lastLeaveDate);
+                nextLeaveDate.setMonth(nextLeaveDate.getMonth() + 11);
+            }
+
+            let totalDeductions = 0;
+            let lates = 0;
+            let absences = 0;
+            let sickLeaves = 0;
+            let positives = 0;
+            let annualLeaveDays = 0;
+            
+            empActions.forEach(act => {
+                let weight = ACTION_WEIGHTS[act.type] || 0;
+                
+                // If lateness is excluded, set weight to 0 for 'late' actions
+                if (!includeLateness && act.type === 'late') {
+                    weight = 0;
+                }
+
+                const s = new Date(safeDate(act.fromDate));
+                const e = new Date(safeDate(act.toDate));
+                const diff = Math.abs(e.getTime() - s.getTime());
+                const days = Math.ceil(diff / (1000 * 60 * 60 * 24)) + 1; 
+                
+                totalDeductions += (weight * days);
+                
+                if (act.type === 'late') lates += days;
+                if (act.type === 'unjustified_absence' || act.type === 'justified_absence') absences += days;
+                if (act.type === 'sick_leave') sickLeaves += days;
+                if (act.type === 'positive') positives += days;
+                if (act.type === 'annual_leave') annualLeaveDays += days;
+            });
+
+            // Calculate swaps for this employee in the period
+            const empSwaps = swaps.filter(s => {
+                if (s.status !== 'approvedBySupervisor') return false;
+                if (s.requesterId !== emp.id && s.targetUserId !== emp.id) return false;
+                // Check if swap date is within range
+                const swapDate = s.date || s.shiftDate || s.createdAt; // Try to find a date
+                if (swapDate) {
+                    const d = new Date(swapDate);
+                    if (start && d < new Date(start)) return false;
+                    if (end && d > new Date(end)) return false;
+                }
+                return true;
+            });
+
+            // Calculate productivity (exams) for this employee
+            const empExams = productivityData.filter(p => p.performedByName === emp.name || p.performedByName === emp.email);
+
+            const finalScore = Math.min(maxScore + 100, Math.max(0, maxScore - totalDeductions)); 
+            const percentage = Math.round((finalScore / maxScore) * 100);
+
+            let grade = t('grade.excellent');
+            let color = 'text-emerald-500 stroke-emerald-500';
+            let bg = 'bg-emerald-50';
+            
+            if (percentage < 50) { grade = t('grade.weak'); color = 'text-red-500 stroke-red-500'; bg = 'bg-red-50'; }
+            else if (percentage < 70) { grade = t('grade.acceptable'); color = 'text-orange-500 stroke-orange-500'; bg = 'bg-orange-50'; }
+            else if (percentage < 85) { grade = t('grade.vgood'); color = 'text-blue-500 stroke-blue-500'; bg = 'bg-blue-50'; }
+
+            // Check if employee has any attendance logs in this period
+            const hasAttendance = attendanceLogs.some(log => log.userId === emp.id);
+
+            return { 
+                employee: emp,
+                months, 
+                maxScore, 
+                totalDeductions, 
+                finalScore, 
+                percentage, 
+                grade, 
+                color, 
+                bg,
+                hasAttendance,
+                stats: { 
+                    lates, 
+                    absences, 
+                    sickLeaves, 
+                    positives, 
+                    annualLeaveDays, 
+                    swapCount: empSwaps.length, 
+                    examCount: empExams.length 
+                },
+                nextLeaveDate
+            };
+        }).sort((a, b) => b.percentage - a.percentage);
+    }, [baseFilteredActions, actions, employees, swaps, productivityData, filterMonth, filterYear, filterFromDate, filterToDate, t, attendanceLogs, includeLateness]);
+
+    const chartEvaluations = useMemo(() => {
+        return allEvaluations.filter(ev => {
+            // Exclude doctors who don't have any attendance logs (fingerprint)
+            if (ev.employee.role === 'doctor' && !ev.hasAttendance) return false;
+            return true;
+        });
+    }, [allEvaluations]);
+
+    const needsImprovementList = useMemo(() => {
+        return chartEvaluations.filter(ev => ev.percentage < 70);
+    }, [chartEvaluations]);
+
+    const getImprovementAreas = (stats: any) => {
+        const areas = [];
+        if (stats.lates > 0) areas.push(`${t('action.late')}: ${stats.lates}`);
+        if (stats.absences > 0) areas.push(`${t('action.unjustified_absence')}: ${stats.absences}`);
+        if (stats.sickLeaves > 5) areas.push(`${t('action.sick_leave')}: ${stats.sickLeaves}`); // Example threshold
+        return areas.join('، ');
+    };
 
     const evaluation = useMemo(() => {
         if (!filterEmp) return null;
-        const months = getMonthCount();
-        const maxScore = months * POINTS_PER_MONTH;
-        let totalDeductions = 0;
-        
-        filteredActions.forEach(act => {
-            const weight = ACTION_WEIGHTS[act.type] || 0;
-            const s = new Date(safeDate(act.fromDate));
-            const e = new Date(safeDate(act.toDate));
-            const diff = Math.abs(e.getTime() - s.getTime());
-            const days = Math.ceil(diff / (1000 * 60 * 60 * 24)) + 1; 
-            
-            totalDeductions += (weight * days);
-        });
-
-        const finalScore = Math.min(maxScore + 100, Math.max(0, maxScore - totalDeductions)); 
-        const percentage = Math.round((finalScore / maxScore) * 100);
-
-        let grade = t('grade.excellent');
-        let color = 'text-emerald-500 stroke-emerald-500';
-        let bg = 'bg-emerald-50';
-        
-        if (percentage < 50) { grade = t('grade.weak'); color = 'text-red-500 stroke-red-500'; bg = 'bg-red-50'; }
-        else if (percentage < 70) { grade = t('grade.acceptable'); color = 'text-orange-500 stroke-orange-500'; bg = 'bg-orange-50'; }
-        else if (percentage < 85) { grade = t('grade.vgood'); color = 'text-blue-500 stroke-blue-500'; bg = 'bg-blue-50'; }
-
-        return { months, maxScore, totalDeductions, finalScore, percentage, grade, color, bg };
-    }, [filteredActions, filterEmp, filterMonth, filterYear, filterFromDate, filterToDate, t]);
+        return allEvaluations.find(e => e.employee.id === filterEmp) || null;
+    }, [allEvaluations, filterEmp]);
 
     // --- Productivity Filter & Chart Data ---
     const filteredProductivity = useMemo(() => {
@@ -342,7 +620,17 @@ const Reports: React.FC = () => {
                     </div>
                     {activeTab === 'attendance' && (
                         <button 
-                            onClick={() => { setEditingId(null); setIsFormOpen(true); }}
+                            onClick={() => { 
+                                setEditingId(null); 
+                                setFormData({
+                                    employeeId: filterEmp || '',
+                                    type: 'annual_leave',
+                                    fromDate: new Date().toISOString().split('T')[0],
+                                    toDate: new Date().toISOString().split('T')[0],
+                                    description: ''
+                                });
+                                setIsFormOpen(true); 
+                            }}
                             className="bg-blue-600 hover:bg-blue-50 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center gap-2"
                         >
                             <i className="fas fa-plus-circle"></i> {t('rep.add')}
@@ -406,6 +694,21 @@ const Reports: React.FC = () => {
                             {[2023, 2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
                         </select>
                     </div>
+
+                    {activeTab === 'attendance' && (
+                        <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">
+                            <input 
+                                type="checkbox" 
+                                id="includeLateness" 
+                                checked={includeLateness} 
+                                onChange={e => setIncludeLateness(e.target.checked)}
+                                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                            />
+                            <label htmlFor="includeLateness" className="text-xs font-bold text-slate-600 cursor-pointer select-none">
+                                احتساب التأخير
+                            </label>
+                        </div>
+                    )}
 
                     <button onClick={handlePrint} className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 flex items-center justify-center ml-auto">
                         <i className="fas fa-print"></i>
@@ -504,7 +807,7 @@ const Reports: React.FC = () => {
                 ) : (
                     // ... (HR & Attendance Tab Content) ...
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 print:block">
-                        {/* Evaluation Card */}
+                        {/* Evaluation Card or Dashboard */}
                         <div className="lg:col-span-1 print:mb-6 print:break-inside-avoid">
                             {evaluation ? (
                                 <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100 sticky top-4 print:border-2 print:border-slate-800 print:shadow-none">
@@ -514,7 +817,7 @@ const Reports: React.FC = () => {
                                         <div className="relative w-48 h-48 mx-auto mb-4">
                                             <svg className="w-full h-full transform -rotate-90">
                                                 <circle cx="96" cy="96" r={radius} className="text-gray-200 fill-none stroke-current" strokeWidth="12" />
-                                                <circle cx="96" cy="96" r={radius} className={`${evaluation.color} fill-none transition-all duration-1000 ease-out`} strokeWidth="12" strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" />
+                                                <circle cx="96" cy="96" r={radius} className={`${evaluation.color.split(' ')[0]} fill-none transition-all duration-1000 ease-out`} strokeWidth="12" strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" />
                                             </svg>
                                             <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
                                                 <span className={`text-4xl font-black ${evaluation.color.split(' ')[0]}`}>{evaluation.percentage}%</span>
@@ -555,81 +858,268 @@ const Reports: React.FC = () => {
                                                 <span className={`text-2xl font-black ${evaluation.color.split(' ')[0]}`}>{evaluation.finalScore}</span>
                                             </div>
                                         </div>
+
+                                        <div className="border-t border-gray-200 pt-4 mt-4 grid grid-cols-2 gap-2 text-center">
+                                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                                <div className="text-[10px] font-bold text-slate-400 uppercase">تأخير</div>
+                                                <div className="text-lg font-black text-orange-500">{evaluation.stats.lates}</div>
+                                            </div>
+                                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                                <div className="text-[10px] font-bold text-slate-400 uppercase">غياب</div>
+                                                <div className="text-lg font-black text-red-500">{evaluation.stats.absences}</div>
+                                            </div>
+                                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                                <div className="text-[10px] font-bold text-slate-400 uppercase">إجازات مرضية</div>
+                                                <div className="text-lg font-black text-blue-500">{evaluation.stats.sickLeaves}</div>
+                                            </div>
+                                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                                <div className="text-[10px] font-bold text-slate-400 uppercase">إجازات سنوية</div>
+                                                <div className="text-lg font-black text-purple-500">{evaluation.stats.annualLeaveDays}</div>
+                                            </div>
+                                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                                <div className="text-[10px] font-bold text-slate-400 uppercase">تبديلات</div>
+                                                <div className="text-lg font-black text-indigo-500">{evaluation.stats.swapCount}</div>
+                                            </div>
+                                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                                <div className="text-[10px] font-bold text-slate-400 uppercase">حالات منجزة</div>
+                                                <div className="text-lg font-black text-emerald-500">{evaluation.stats.examCount}</div>
+                                            </div>
+                                        </div>
+
+                                        {evaluation.nextLeaveDate && (
+                                            <div className="mt-4 bg-blue-50 border border-blue-100 rounded-xl p-3 flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                                                    <i className="fas fa-plane-departure"></i>
+                                                </div>
+                                                <div className="text-right flex-1">
+                                                    <div className="text-[10px] font-bold text-blue-400 uppercase">استحقاق الإجازة القادمة</div>
+                                                    <div className="text-sm font-black text-blue-700">
+                                                        {evaluation.nextLeaveDate.toLocaleDateString('en-GB')}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             ) : (
-                                <div className="bg-white rounded-3xl p-8 text-center border-2 border-dashed border-gray-200 print:hidden">
-                                    <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
-                                        <i className="fas fa-chart-pie text-4xl"></i>
+                                <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100 print:border-2 print:border-slate-800 print:shadow-none">
+                                    <div className="p-6 border-b border-gray-100 bg-slate-50">
+                                        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                            <i className="fas fa-users text-blue-500"></i> لوحة تقييم الموظفين
+                                        </h2>
+                                        <p className="text-xs text-slate-500 mt-1">ملخص أداء جميع الموظفين للفترة المحددة</p>
                                     </div>
-                                    <h3 className="text-lg font-bold text-slate-600">Select Employee</h3>
+                                    <div className="p-0 overflow-x-auto">
+                                        <table className="w-full text-sm text-right">
+                                            <thead className="bg-white text-slate-500 font-bold text-xs uppercase border-b border-slate-100">
+                                                <tr>
+                                                    <th className="p-4">الموظف</th>
+                                                    <th className="p-4 text-center">التقييم</th>
+                                                    <th className="p-4 text-center">الخصم</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-50">
+                                                {allEvaluations.map((ev, i) => (
+                                                    <tr key={ev.employee.id} className="hover:bg-slate-50 cursor-pointer transition-colors" onClick={() => setFilterEmp(ev.employee.id)}>
+                                                        <td className="p-4">
+                                                            <div className="font-bold text-slate-800">{ev.employee.name || ev.employee.email}</div>
+                                                            <div className="text-[10px] text-slate-400 flex gap-2 mt-1">
+                                                                <span title="تأخير" className={ev.stats.lates > 0 ? 'text-orange-500' : ''}><i className="fas fa-clock"></i> {ev.stats.lates}</span>
+                                                                <span title="غياب" className={ev.stats.absences > 0 ? 'text-red-500' : ''}><i className="fas fa-user-times"></i> {ev.stats.absences}</span>
+                                                                <span title="إجازات مرضية" className={ev.stats.sickLeaves > 0 ? 'text-blue-500' : ''}><i className="fas fa-procedures"></i> {ev.stats.sickLeaves}</span>
+                                                                <span title="إجازات سنوية" className={ev.stats.annualLeaveDays > 0 ? 'text-purple-500' : ''}><i className="fas fa-plane"></i> {ev.stats.annualLeaveDays}</span>
+                                                                <span title="تبديلات" className={ev.stats.swapCount > 0 ? 'text-indigo-500' : ''}><i className="fas fa-exchange-alt"></i> {ev.stats.swapCount}</span>
+                                                                <span title="حالات منجزة" className={ev.stats.examCount > 0 ? 'text-emerald-500' : ''}><i className="fas fa-check-circle"></i> {ev.stats.examCount}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-4 text-center">
+                                                            <div className={`text-lg font-black ${ev.color.split(' ')[0]}`}>{ev.percentage}%</div>
+                                                            <div className="text-[10px] font-bold text-slate-400 uppercase">{ev.grade}</div>
+                                                        </td>
+                                                        <td className="p-4 text-center">
+                                                            <span className="bg-red-50 text-red-600 px-2 py-1 rounded text-xs font-bold border border-red-100">
+                                                                -{ev.totalDeductions}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
                             )}
                         </div>
 
-                        {/* Action Log List */}
+                        {/* Action Log List / Performance Charts */}
                         <div className="lg:col-span-2 space-y-6 print:w-full">
-                            <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none print:rounded-lg">
-                                <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 print:bg-white print:border-b-2 print:border-slate-800">
-                                    <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2 uppercase">
-                                        <i className="fas fa-history text-blue-500 print:hidden"></i> {t('rep.log')}
-                                    </h3>
-                                    <span className="text-xs font-bold bg-white px-2 py-1 rounded border text-gray-500">{filteredActions.length}</span>
-                                </div>
+                            {!filterEmp ? (
+                                <div className="space-y-6">
+                                    {/* Top Cards */}
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        {/* Best Performer */}
+                                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-emerald-100 relative overflow-hidden">
+                                            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-bl-full -mr-4 -mt-4 opacity-50"></div>
+                                            <div className="relative z-10">
+                                                <div className="text-xs font-bold text-emerald-600 uppercase mb-2">الأفضل أداءً</div>
+                                                <div className="text-2xl font-black text-slate-800">
+                                                    {chartEvaluations[0]?.employee.name || '-'}
+                                                </div>
+                                                <div className="text-sm font-bold text-emerald-500 mt-1">
+                                                    {chartEvaluations[0]?.percentage}% - {chartEvaluations[0]?.grade}
+                                                </div>
+                                            </div>
+                                        </div>
 
-                                <div className="overflow-x-auto">
-                                    <table className={`w-full text-sm ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
-                                        <thead className="bg-gray-50 text-gray-500 font-medium print:bg-white print:text-black print:border-b-2 print:border-slate-800">
-                                            <tr>
-                                                <th className="p-4">{t('rep.filter.emp')}</th>
-                                                <th className="p-4">{t('req.type')}</th>
-                                                <th className="p-4">{t('date')}</th>
-                                                <th className="p-4">Points</th>
-                                                <th className="p-4 print:hidden">{t('actions')}</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-50 print:divide-slate-300">
-                                            {filteredActions.length === 0 ? (
-                                                <tr><td colSpan={5} className="p-8 text-center text-slate-400">---</td></tr>
-                                            ) : filteredActions.map(act => {
-                                                const weight = ACTION_WEIGHTS[act.type];
-                                                const isPositive = weight < 0;
-                                                return (
-                                                    <tr key={act.id} className="hover:bg-slate-50 transition-colors group print:hover:bg-transparent">
-                                                        <td className="p-4 border-r print:border-slate-300">
-                                                            <div className="font-bold text-slate-700">{employees.find(e => e.id === act.employeeId)?.name || 'Unknown'}</div>
-                                                            <div className="text-xs text-slate-400 print:text-slate-600">{act.description}</div>
-                                                        </td>
-                                                        <td className="p-4 border-r print:border-slate-300">
-                                                            <span className={`px-2 py-1 rounded text-xs font-bold border ${isPositive ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'} print:border-none print:bg-transparent print:text-black print:p-0`}>
-                                                                {t(`action.${act.type}`)}
-                                                            </span>
-                                                        </td>
-                                                        {/* Fixed Date Rendering */}
-                                                        <td className="p-4 text-xs font-mono text-slate-600 border-r print:border-slate-300">
-                                                            {safeDate(act.fromDate)} 
-                                                            {safeDate(act.fromDate) !== safeDate(act.toDate) && <><br/><i className="fas fa-arrow-down text-[10px] my-1 opacity-50 print:hidden"></i><span className="hidden print:inline"> - </span><br/>{safeDate(act.toDate)}</>}
-                                                        </td>
-                                                        <td className="p-4 font-bold border-r print:border-slate-300">
-                                                            {isPositive ? (
-                                                                <span className="text-emerald-500">+{Math.abs(weight)}</span>
-                                                            ) : (
-                                                                <span className="text-red-500">-{weight}</span>
-                                                            )}
-                                                        </td>
-                                                        <td className="p-4 print:hidden">
-                                                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                <button onClick={() => handleEdit(act)} className="w-8 h-8 rounded bg-blue-50 text-blue-600 hover:bg-blue-100"><i className="fas fa-pen text-xs"></i></button>
-                                                                <button onClick={() => handleDelete(act.id)} className="w-8 h-8 rounded bg-red-50 text-red-600 hover:bg-red-100"><i className="fas fa-trash text-xs"></i></button>
+                                        {/* Needs Improvement - List */}
+                                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-red-100 relative overflow-hidden row-span-2 md:row-span-1">
+                                            <div className="absolute top-0 right-0 w-24 h-24 bg-red-50 rounded-bl-full -mr-4 -mt-4 opacity-50"></div>
+                                            <div className="relative z-10 h-full flex flex-col">
+                                                <div className="text-xs font-bold text-red-600 uppercase mb-2">يحتاج تحسين ({needsImprovementList.length})</div>
+                                                
+                                                {needsImprovementList.length === 0 ? (
+                                                    <div className="text-slate-400 text-sm italic mt-2">لا يوجد موظفين بحاجة لتحسين</div>
+                                                ) : (
+                                                    <div className="flex-1 overflow-y-auto max-h-[120px] pr-2 space-y-3 custom-scrollbar">
+                                                        {needsImprovementList.map(emp => (
+                                                            <div key={emp.employee.id} className="border-b border-red-50 pb-2 last:border-0 last:pb-0">
+                                                                <div className="flex justify-between items-center">
+                                                                    <div className="font-bold text-slate-800 text-sm">{emp.employee.name}</div>
+                                                                    <div className="text-xs font-bold text-red-500">{emp.percentage}%</div>
+                                                                </div>
+                                                                <div className="text-[10px] text-slate-500 mt-1">
+                                                                    {getImprovementAreas(emp.stats)}
+                                                                </div>
                                                             </div>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Average */}
+                                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-blue-100 relative overflow-hidden">
+                                            <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-bl-full -mr-4 -mt-4 opacity-50"></div>
+                                            <div className="relative z-10">
+                                                <div className="text-xs font-bold text-blue-600 uppercase mb-2">متوسط الأداء</div>
+                                                <div className="text-2xl font-black text-slate-800">
+                                                    {Math.round(chartEvaluations.reduce((acc, curr) => acc + curr.percentage, 0) / (chartEvaluations.length || 1))}%
+                                                </div>
+                                                <div className="text-sm font-bold text-blue-400 mt-1">
+                                                    للموظفين النشطين ({chartEvaluations.length})
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Chart */}
+                                    <div className="bg-white rounded-3xl shadow-sm border border-gray-200 p-6">
+                                        <h3 className="font-bold text-slate-800 text-lg mb-6 flex items-center gap-2">
+                                            <i className="fas fa-chart-bar text-blue-500"></i>
+                                            تحليل الأداء العام
+                                        </h3>
+                                        <div className="h-[400px] w-full" dir="ltr">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <BarChart data={chartEvaluations} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                                    <XAxis 
+                                                        dataKey="employee.name" 
+                                                        angle={-45} 
+                                                        textAnchor="end" 
+                                                        interval={0} 
+                                                        height={80} 
+                                                        tick={{ fontSize: 10, fill: '#64748b' }}
+                                                    />
+                                                    <YAxis tick={{ fontSize: 12, fill: '#64748b' }} domain={[0, 100]} />
+                                                    <Tooltip 
+                                                        cursor={{ fill: '#f8fafc' }}
+                                                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
+                                                    />
+                                                    <Bar dataKey="percentage" radius={[4, 4, 0, 0]} barSize={40}>
+                                                        {chartEvaluations.map((entry, index) => (
+                                                            <Cell key={`cell-${index}`} fill={entry.percentage >= 85 ? '#10b981' : entry.percentage >= 70 ? '#3b82f6' : entry.percentage >= 50 ? '#f97316' : '#ef4444'} />
+                                                        ))}
+                                                    </Bar>
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
+                            ) : (
+                                <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none print:rounded-lg">
+                                    <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 print:bg-white print:border-b-2 print:border-slate-800">
+                                        <div className="flex items-center gap-4">
+                                            <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2 uppercase">
+                                                <i className="fas fa-history text-blue-500 print:hidden"></i> 
+                                                {filterEmp ? `${t('rep.log')} - ${employees.find(e => e.id === filterEmp)?.name}` : 'سجل الإجراءات لجميع الموظفين'}
+                                            </h3>
+                                            {filterEmp && (
+                                                <button 
+                                                    onClick={() => setFilterEmp('')}
+                                                    className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1 rounded-full transition-colors print:hidden"
+                                                >
+                                                    العودة للوحة التقييم
+                                                </button>
+                                            )}
+                                        </div>
+                                        <span className="text-xs font-bold bg-white px-2 py-1 rounded border text-gray-500">{filteredActions.length}</span>
+                                    </div>
+
+                                    <div className="overflow-x-auto">
+                                        <table className={`w-full text-sm ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
+                                            <thead className="bg-gray-50 text-gray-500 font-medium print:bg-white print:text-black print:border-b-2 print:border-slate-800">
+                                                <tr>
+                                                    <th className="p-4">{t('rep.filter.emp')}</th>
+                                                    <th className="p-4">{t('req.type')}</th>
+                                                    <th className="p-4">{t('date')}</th>
+                                                    <th className="p-4">Points</th>
+                                                    <th className="p-4 print:hidden">{t('actions')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-50 print:divide-slate-300">
+                                                {filteredActions.length === 0 ? (
+                                                    <tr><td colSpan={5} className="p-8 text-center text-slate-400">---</td></tr>
+                                                ) : filteredActions.map(act => {
+                                                    const weight = ACTION_WEIGHTS[act.type];
+                                                    const isPositive = weight < 0;
+                                                    return (
+                                                        <tr key={act.id} className="hover:bg-slate-50 transition-colors group print:hover:bg-transparent">
+                                                            <td className="p-4 border-r print:border-slate-300">
+                                                                <div className="font-bold text-slate-700">{employees.find(e => e.id === act.employeeId)?.name || 'Unknown'}</div>
+                                                                <div className="text-xs text-slate-400 print:text-slate-600">{act.description}</div>
+                                                            </td>
+                                                            <td className="p-4 border-r print:border-slate-300">
+                                                                <span className={`px-2 py-1 rounded text-xs font-bold border ${isPositive ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'} print:border-none print:bg-transparent print:text-black print:p-0`}>
+                                                                    {t(`action.${act.type}`)}
+                                                                </span>
+                                                            </td>
+                                                            {/* Fixed Date Rendering */}
+                                                            <td className="p-4 text-xs font-mono text-slate-600 border-r print:border-slate-300">
+                                                                {safeDate(act.fromDate)} 
+                                                                {safeDate(act.fromDate) !== safeDate(act.toDate) && <><br/><i className="fas fa-arrow-down text-[10px] my-1 opacity-50 print:hidden"></i><span className="hidden print:inline"> - </span><br/>{safeDate(act.toDate)}</>}
+                                                            </td>
+                                                            <td className="p-4 font-bold border-r print:border-slate-300">
+                                                                {isPositive ? (
+                                                                    <span className="text-emerald-500">+{Math.abs(weight)}</span>
+                                                                ) : (
+                                                                    <span className="text-red-500">-{weight}</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="p-4 print:hidden">
+                                                                {!act.id.startsWith('auto-') && (
+                                                                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                        <button onClick={() => handleEdit(act)} className="w-8 h-8 rounded bg-blue-50 text-blue-600 hover:bg-blue-100"><i className="fas fa-pen text-xs"></i></button>
+                                                                        <button onClick={() => handleDelete(act.id)} className="w-8 h-8 rounded bg-red-50 text-red-600 hover:bg-red-100"><i className="fas fa-trash text-xs"></i></button>
+                                                                    </div>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -671,9 +1161,12 @@ const Reports: React.FC = () => {
                             value={formData.type}
                             onChange={e => setFormData({...formData, type: e.target.value})}
                         >
-                            {Object.entries(ACTION_WEIGHTS).map(([k, weight]) => (
-                                <option key={k} value={k}>{t(`action.${k}`)} ({weight > 0 ? `-${weight}` : `+${Math.abs(weight)}`})</option>
-                            ))}
+                            <option value="annual_leave">{t('action.annual_leave')} (0)</option>
+                            <option value="sick_leave">{t('action.sick_leave')} (-1)</option>
+                            <option value="justified_absence">{t('action.justified_absence')} (-2)</option>
+                            <option value="mission">{t('action.mission')} (0)</option>
+                            <option value="violation">{t('action.violation')} (-10)</option>
+                            <option value="positive">{t('action.positive')} (+5)</option>
                         </select>
                     </div>
 

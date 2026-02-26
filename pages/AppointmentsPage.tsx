@@ -160,6 +160,7 @@ const normalizeTime = (time: any): string => {
 interface ExtendedAppointment extends Appointment {
     roomNumber?: string;
     preparation?: string;
+    isLocal?: boolean;
 }
 
 const AppointmentsPage: React.FC = () => {
@@ -240,7 +241,10 @@ const AppointmentsPage: React.FC = () => {
     // --- NEW: Archive Import State ---
     const [isArchiveView, setIsArchiveView] = useState(false);
     const [archiveFileName, setArchiveFileName] = useState('');
-
+    
+    // REMOVED: isLocalMode state. We now default to "Local Only" for incoming bridge data.
+    // The user requested: "I want pulling data to be local only... and no toggle button".
+    
     const [toast, setToast] = useState<{msg: string, type: 'success'|'info'|'error'} | null>(null);
     const [isListening, setIsListening] = useState(false);
     const isSyncProcessing = useRef(false);
@@ -272,6 +276,8 @@ const AppointmentsPage: React.FC = () => {
             localStorage.setItem('cached_appointments', JSON.stringify(appointments));
         }
     }, [appointments, isArchiveView]);
+
+    // REMOVED: Persist Local Mode useEffect
     
     useEffect(() => {
         if (activeView === 'scheduled') {
@@ -460,6 +466,7 @@ const AppointmentsPage: React.FC = () => {
                             createdByName: 'System',
                             status: 'pending',
                             createdAt: new Date().toISOString(),
+                            isLocal: true // ALWAYS LOCAL for bridge data
                         });
                     });
                 } else {
@@ -483,45 +490,33 @@ const AppointmentsPage: React.FC = () => {
                         createdByName: 'System',
                         status: 'pending',
                         createdAt: new Date().toISOString(),
+                        isLocal: true // ALWAYS LOCAL for bridge data
                     });
                 }
             });
 
             // OPTIMIZATION: Deduplicate against current state to prevent wasted writes
-            // The bridge might send the same 50 patients every 30 seconds.
-            // We filter out records that already exist in state with SAME status and SAME exam list.
-            
             const currentDataMap = new Map(appointmentsRef.current.map(a => [a.id, a]));
-            const batch = writeBatch(db);
-            let writeCount = 0;
             
-            Array.from(uniqueRecordsMap.values()).forEach(record => {
-                const existing = currentDataMap.get(record.id);
-                
-                // If existing and status is same (pending), skip write
-                // Note: If user moved it to 'processing'/'done', existing.status will be diff, so we MIGHT overwrite? 
-                // NO, because we usually want to KEEP user changes.
-                // Logic: Only update if it's NEW or if crucial info changed, but typically bridge data is static until processed.
-                // Strongest Check: If it exists in ANY state locally, assume it's tracked. Only update if absolutely needed.
-                // For safety: We assume bridge sends "pending". If we have it as "processing", DO NOT overwrite with "pending".
-                
-                if (existing) {
-                    // It exists. Do nothing. This prevents 99% of redundant writes.
-                    return; 
-                }
+            // ALWAYS LOCAL MODE: Update State Only, NO DB Writes for incoming bridge data
+            let newRecordsCount = 0;
+            const updatedList = [...appointmentsRef.current];
 
-                // New record
-                const ref = doc(db, 'appointments', record.id);
-                batch.set(ref, record, { merge: true });
-                writeCount++;
+            Array.from(uniqueRecordsMap.values()).forEach(record => {
+                const existingIndex = updatedList.findIndex(a => a.id === record.id);
+                if (existingIndex === -1) {
+                    updatedList.push(record);
+                    newRecordsCount++;
+                }
+                // If exists, we generally don't overwrite in local mode to preserve user changes
             });
 
-            if (writeCount > 0) {
-                await batch.commit();
+            if (newRecordsCount > 0) {
+                setAppointments(updatedList);
                 setLastSyncTime(new Date());
                 safeVibrate([100, 50, 100]);
-                setToast({ msg: `تم تحديث ${writeCount} سجلات جديدة 📥`, type: 'success' });
-            } 
+                setToast({ msg: `تم جلب ${newRecordsCount} سجلات محلياً (بدون قاعدة بيانات) 📥`, type: 'info' });
+            }
 
         } catch (e) {
             console.error("Sync Error:", e);
@@ -603,11 +598,36 @@ const AppointmentsPage: React.FC = () => {
 
             getDocs(q).then((snapshot) => {
                 const fetchedApps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ExtendedAppointment));
-                setAppointments(fetchedApps);
+                
+                if (activeView === 'pending') {
+                    // MERGE STRATEGY:
+                    // Keep existing LOCAL items (isLocal: true).
+                    // Replace/Add DB items.
+                    setAppointments(prev => {
+                        const mergedMap = new Map<string, ExtendedAppointment>();
+                        
+                        // 1. Add existing LOCAL items
+                        prev.forEach(p => {
+                            if (p.isLocal) mergedMap.set(p.id, p);
+                        });
+
+                        // 2. Add/Overwrite with DB items
+                        fetchedApps.forEach(f => {
+                            mergedMap.set(f.id, f);
+                        });
+
+                        return Array.from(mergedMap.values());
+                    });
+                } else {
+                    setAppointments(fetchedApps);
+                }
                 setLoading(false);
             }).catch((error) => {
                 console.error("Firebase Fetch Error:", error);
-                setToast({msg: "يرجى التحقق من اتصال الإنترنت أو الفلاتر", type: 'error'});
+                // Don't show error toast for pending view if it's just empty or index issue, as we have local data
+                if (activeView !== 'pending') {
+                    setToast({msg: "يرجى التحقق من اتصال الإنترنت أو الفلاتر", type: 'error'});
+                }
                 setLoading(false);
             });
             
@@ -617,12 +637,38 @@ const AppointmentsPage: React.FC = () => {
         fetchAndSubscribe();
 
     }, [selectedDate, activeView, enableDateFilter, activeModality, isArchiveView, refreshTrigger]);
-
-    // ... (rest of the component remains the same)
     
     // --- Client Side Filtering (Fallback/Refinement) ---
     const filteredAppointments = useMemo(() => {
         let list = appointments;
+
+        // --- CLIENT-SIDE FILTERING & SORTING ---
+        // We need to ensure sorting is correct, especially for mixed Local/DB data.
+        // User wants "Newest on Top" for Pending/Processing/Done.
+        // "Scheduled" is usually Oldest (Soonest) on Top.
+
+        // 1. Filter by Status (Client side double check)
+        list = list.filter(a => a.status === activeView);
+
+        // 2. Filter by Date (Client side double check)
+        const today = getLocalToday();
+        const targetDate = selectedDate || today;
+        
+        if (activeView === 'scheduled') {
+             if (enableDateFilter) {
+                 list = list.filter(a => a.scheduledDate === targetDate);
+             } else {
+                 list = list.filter(a => a.scheduledDate && a.scheduledDate >= today);
+             }
+        } else {
+             list = list.filter(a => a.date === targetDate);
+        }
+
+        // 3. Filter by Modality
+        if (activeModality !== 'ALL') {
+             list = list.filter(a => a.examType === activeModality);
+        }
+
         if (searchQuery) {
             const lowerQ = searchQuery.toLowerCase();
             list = list.filter(a => 
@@ -631,8 +677,27 @@ const AppointmentsPage: React.FC = () => {
                 (a.refNo && a.refNo.includes(lowerQ))
             );
         }
+
+        // 4. SORTING
+        if (activeView === 'scheduled') {
+            // Sort by Date ASC, then Time ASC
+            list.sort((a, b) => {
+                if (a.scheduledDate !== b.scheduledDate) {
+                    return (a.scheduledDate || '').localeCompare(b.scheduledDate || '');
+                }
+                return (a.time || '').localeCompare(b.time || '');
+            });
+        } else {
+            // Pending/Processing/Done: Sort by Time DESC (Newest First)
+            list.sort((a, b) => {
+                // Time format is HH:mm.
+                // We want DESC (14:00 before 13:00).
+                return (b.time || '').localeCompare(a.time || '');
+            });
+        }
+
         return list;
-    }, [appointments, searchQuery]);
+    }, [appointments, searchQuery, activeView, selectedDate, enableDateFilter, activeModality]);
 
     // --- FETCH ACTUAL SCHEDULED COUNT FOR QUOTA (OPTIMIZED) ---
     useEffect(() => {
@@ -682,12 +747,24 @@ const AppointmentsPage: React.FC = () => {
         if (isArchiveView) return setToast({ msg: 'Cannot edit archived data', type: 'error' });
         try {
             setAppointments(prev => prev.filter(a => a.id !== appt.id));
-            await updateDoc(doc(db, 'appointments', appt.id), {
+            
+            const updateData = {
                 status: 'done',
                 performedBy: currentUserId,
                 performedByName: currentUserName,
                 completedAt: new Date().toISOString()
-            });
+            };
+
+            if (appt.isLocal) {
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const { isLocal, ...dbRecord } = appt;
+                await setDoc(doc(db, 'appointments', appt.id), {
+                    ...dbRecord,
+                    ...updateData
+                });
+            } else {
+                await updateDoc(doc(db, 'appointments', appt.id), updateData);
+            }
 
             setToast({ msg: `تم إنجاز ${appt.patientName} ✅`, type: 'success' });
         } catch(e: any) {
@@ -703,7 +780,10 @@ const AppointmentsPage: React.FC = () => {
         if(!confirm(t('confirm') + '?')) return;
         try {
             setAppointments(prev => prev.filter(a => a.id !== id));
-            await deleteDoc(doc(db, 'appointments', id));
+            // If it's in local list but not in DB (isLocal), deleteDoc might fail or be unnecessary
+            // But we don't have the object here, only ID. 
+            // We'll try deleteDoc, if it fails (not found), it's fine.
+            await deleteDoc(doc(db, 'appointments', id)).catch(() => {}); 
             setToast({ msg: t('delete'), type: 'success' });
         } catch(e) { console.error(e); }
     };
@@ -712,13 +792,20 @@ const AppointmentsPage: React.FC = () => {
     if (isArchiveView) return;
     if (!confirm(t('appt.confirmCancel'))) return;
         try {
-            setAppointments(prev => prev.filter(a => a.id !== appt.id));
-            await updateDoc(doc(db, 'appointments', appt.id), {
-                status: 'pending',
-                scheduledDate: null,
-                time: null,
-                notes: appt.notes ? appt.notes + '\n[System]: Appointment Cancelled' : '[System]: Appointment Cancelled'
-            });
+            if (appt.isLocal) {
+                 // In Local Mode, keep in state but change status to 'pending'
+                 setAppointments(prev => prev.map(a => 
+                     a.id === appt.id ? { ...a, status: 'pending', notes: appt.notes ? appt.notes + '\\n[Cancelled]' : '[Cancelled]' } : a
+                 ));
+            } else {
+                setAppointments(prev => prev.filter(a => a.id !== appt.id));
+                await updateDoc(doc(db, 'appointments', appt.id), {
+                    status: 'pending',
+                    scheduledDate: null,
+                    time: null,
+                    notes: appt.notes ? appt.notes + '\\n[System]: Appointment Cancelled' : '[System]: Appointment Cancelled'
+                });
+            }
             setToast({ msg: t('appt.toast.cancelled'), type: 'success' });
         } catch (e) {
             console.error(e);
@@ -750,9 +837,11 @@ const AppointmentsPage: React.FC = () => {
                 // Map _id to id if necessary
                 const mapped = records.map((r: any) => ({
                     ...r,
-                    id: r._id || r.id
+                    id: r._id || r.id,
+                    isLocal: undefined // Imported archive data is treated as read-only archive usually
                 }));
 
+                // Standard Archive View (Read Only)
                 setAppointments(mapped);
                 setIsArchiveView(true);
                 setArchiveFileName(file.name);
@@ -802,26 +891,54 @@ const AppointmentsPage: React.FC = () => {
             const currentCount = settings[modKey]?.currentCounter || 1;
             const regNo = `${modKey}-${currentCount}`;
 
+            // Increment Counter
             settings[modKey] = {
                 ...settings[modKey],
                 currentCounter: currentCount + 1
             };
-            saveSettings(settings);
-
-            setAppointments(prev => prev.filter(a => a.id !== appt.id));
-
-            await updateDoc(doc(db, 'appointments', appt.id), {
-                status: 'processing',
-                performedBy: currentUserId,
-                performedByName: currentUserName,
-                registrationNumber: regNo
-            });
             
+            // Save Settings (Optimistic Update)
+            setModalitySettings(settings);
+            // Fire and forget settings update to DB to speed up UI
+            updateDoc(doc(db, 'system_settings', 'appointment_slots'), settings).catch(e => console.error("Settings save failed", e));
+
+            const updateData = {
+                status: 'processing',
+                startedAt: new Date().toISOString(),
+                startedBy: currentUserId,
+                startedByName: currentUserName,
+                registrationNumber: regNo
+            };
+
+            // If Local Mode, we must CREATE the document in Firestore first
+            if (appt.isLocal) {
+                // Remove isLocal flag before saving
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const { isLocal, ...dbRecord } = appt;
+                
+                await setDoc(doc(db, 'appointments', appt.id), {
+                    ...dbRecord,
+                    ...updateData
+                });
+            } else {
+                // Standard Update
+                await updateDoc(doc(db, 'appointments', appt.id), updateData);
+            }
+
+            // Update Local State immediately
+            setAppointments(prev => prev.map(a => 
+                a.id === appt.id 
+                ? { ...a, ...updateData } 
+                : a
+            ));
+
             setCurrentRegNo(regNo);
             setIsRegModalOpen(true);
             safeVibrate(200);
+            setToast({ msg: t('appt.startSuccess'), type: 'success' });
 
-        } catch(e: any) {
+        } catch (e: any) {
+            console.error(e);
             setToast({ msg: t('error.general'), type: 'error' });
         } finally {
             setProcessingId(null);
@@ -1371,6 +1488,9 @@ const AppointmentsPage: React.FC = () => {
                                 <i className="fas fa-cog"></i>
                             </button>
                         )}
+                        
+                        {/* LOCAL MODE TOGGLE REMOVED */}
+
                         <button onClick={() => setIsBridgeModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white w-9 h-9 rounded-lg flex items-center justify-center shadow-lg transition-all" title="Auto Sync">
                             <i className={`fas fa-satellite-dish ${isListening ? 'animate-pulse' : ''}`}></i>
                         </button>

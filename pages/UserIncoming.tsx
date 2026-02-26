@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, updateDoc, doc, Timestamp, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, Timestamp, getDoc } from 'firebase/firestore';
 import { SwapRequest } from '../types';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
@@ -18,16 +18,24 @@ const UserIncoming: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
     const currentUserId = auth.currentUser?.uid;
-    const [incomingSwaps, setIncomingSwaps] = useState<SwapRequestWithUser[]>([]);
+    const [incomingSwaps, setIncomingSwaps] = useState<SwapRequestWithUser[]>(() => {
+        const cached = localStorage.getItem('usr_cached_incoming');
+        return cached ? JSON.parse(cached) : [];
+    });
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
     const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, title: string, message: string, onConfirm: () => void}>({
         isOpen: false, title: '', message: '', onConfirm: () => {}
     });
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+    useEffect(() => {
+        localStorage.setItem('usr_cached_incoming', JSON.stringify(incomingSwaps));
+    }, [incomingSwaps]);
 
     useEffect(() => {
         if (!currentUserId) return;
         const qIncoming = query(collection(db, 'swapRequests'), where('to', '==', currentUserId), where('status', '==', 'pending'));
-        const unsub = onSnapshot(qIncoming, async (snap) => {
+        getDocs(qIncoming).then(async (snap) => {
             const reqs = await Promise.all(snap.docs.map(async d => {
                 const data = d.data() as SwapRequest;
                 // Fetch user name
@@ -41,8 +49,7 @@ const UserIncoming: React.FC = () => {
             }));
             setIncomingSwaps(reqs);
         });
-        return () => unsub();
-    }, [currentUserId]);
+    }, [currentUserId, refreshTrigger]);
 
     const handleSwapAction = (requestId: string, action: 'approved' | 'rejected') => {
         setConfirmModal({

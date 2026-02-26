@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, addDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, Timestamp } from 'firebase/firestore';
 import { ActionLog, PeerRecognition, User } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import Toast from '../components/Toast';
@@ -25,33 +25,55 @@ const UserProfile: React.FC = () => {
     const currentUserId = auth.currentUser?.uid;
     const currentUserName = localStorage.getItem('username') || 'User';
     
-    const [myActions, setMyActions] = useState<ActionLog[]>([]);
-    const [myKudos, setMyKudos] = useState<PeerRecognition[]>([]);
-    const [users, setUsers] = useState<User[]>([]);
+    const [myActions, setMyActions] = useState<ActionLog[]>(() => {
+        const cached = localStorage.getItem('usr_cached_actions');
+        return cached ? JSON.parse(cached) : [];
+    });
+    const [myKudos, setMyKudos] = useState<PeerRecognition[]>(() => {
+        const cached = localStorage.getItem('usr_cached_kudos');
+        return cached ? JSON.parse(cached) : [];
+    });
+    const [users, setUsers] = useState<User[]>(() => {
+        const cached = localStorage.getItem('usr_cached_users');
+        return cached ? JSON.parse(cached) : [];
+    });
     const [patientsCount, setPatientsCount] = useState(0);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
     
     const [isKudosModalOpen, setIsKudosModalOpen] = useState(false);
     const [kudosForm, setKudosForm] = useState({ toUserId: '', type: 'thankyou' as 'hero'|'thankyou'|'teamplayer', message: '' });
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
 
     useEffect(() => {
+        localStorage.setItem('usr_cached_actions', JSON.stringify(myActions));
+    }, [myActions]);
+
+    useEffect(() => {
+        localStorage.setItem('usr_cached_kudos', JSON.stringify(myKudos));
+    }, [myKudos]);
+
+    useEffect(() => {
+        localStorage.setItem('usr_cached_users', JSON.stringify(users));
+    }, [users]);
+
+    useEffect(() => {
         if (!currentUserId) return;
 
         const qKudos = query(collection(db, 'peer_recognition'), where('toUserId', '==', currentUserId));
-        const unsubKudos = onSnapshot(qKudos, (snap) => {
+        getDocs(qKudos).then((snap) => {
             const fetchedKudos = snap.docs.map(d => ({ id: d.id, ...d.data() } as PeerRecognition));
             fetchedKudos.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
             setMyKudos(fetchedKudos);
         });
 
         const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
-        const unsubActions = onSnapshot(qActions, (snap) => {
+        getDocs(qActions).then((snap) => {
             const fetchedActions = snap.docs.map(d => ({ id: d.id, ...d.data() } as ActionLog));
             fetchedActions.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
             setMyActions(fetchedActions);
         });
 
-        const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+        getDocs(collection(db, 'users')).then((snap) => {
             setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
         });
 
@@ -70,8 +92,7 @@ const UserProfile: React.FC = () => {
         };
         fetchPatientCount();
 
-        return () => { unsubKudos(); unsubActions(); unsubUsers(); };
-    }, [currentUserId]);
+    }, [currentUserId, refreshTrigger]);
 
     const handleSendKudos = async (e: React.FormEvent) => {
         e.preventDefault();

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, updateDoc, doc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, Timestamp } from 'firebase/firestore';
 import { OpenShift, Location } from '../types';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -12,20 +12,34 @@ const UserMarket: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
     const currentUserId = auth.currentUser?.uid;
-    const [openShifts, setOpenShifts] = useState<OpenShift[]>([]);
-    const [locations, setLocations] = useState<Location[]>([]);
+    const [openShifts, setOpenShifts] = useState<OpenShift[]>(() => {
+        const cached = localStorage.getItem('usr_cached_market_shifts');
+        return cached ? JSON.parse(cached) : [];
+    });
+    const [locations, setLocations] = useState<Location[]>(() => {
+        const cached = localStorage.getItem('usr_cached_market_locs');
+        return cached ? JSON.parse(cached) : [];
+    });
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
 
     useEffect(() => {
-        const unsubLocs = onSnapshot(collection(db, 'locations'), (snap) => {
+        localStorage.setItem('usr_cached_market_shifts', JSON.stringify(openShifts));
+    }, [openShifts]);
+
+    useEffect(() => {
+        localStorage.setItem('usr_cached_market_locs', JSON.stringify(locations));
+    }, [locations]);
+
+    useEffect(() => {
+        getDocs(collection(db, 'locations')).then((snap) => {
             setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
         });
         const qOpenShifts = query(collection(db, 'openShifts'), where('status', '==', 'open'));
-        const unsubOpenShifts = onSnapshot(qOpenShifts, (snap) => {
+        getDocs(qOpenShifts).then((snap) => {
             setOpenShifts(snap.docs.map(d => ({ id: d.id, ...d.data() } as OpenShift)));
         });
-        return () => { unsubLocs(); unsubOpenShifts(); };
-    }, []);
+    }, [refreshTrigger]);
 
     const handleClaimShift = async (shift: OpenShift) => {
         if (!currentUserId) return;

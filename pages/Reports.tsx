@@ -7,7 +7,7 @@ import Loading from '../components/Loading';
 import Modal from '../components/Modal';
 import { PrintHeader, PrintFooter } from '../components/PrintLayout';
 // @ts-ignore
-import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, Timestamp, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, Timestamp, query, where } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
 import { supabase } from '../supabaseClient';
 
@@ -87,19 +87,17 @@ const Reports: React.FC = () => {
         'positive': -5
     };
 
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+
     // --- Initial Load (Users & Actions) ---
     useEffect(() => {
         const init = async () => {
             try {
-                // Real-time listener for Actions to keep HR tab updated
-                const unsubActions = onSnapshot(collection(db, 'actions'), (snap) => {
-                    setActions(snap.docs.map(d => ({ id: d.id, ...d.data() } as ActionLog)));
-                });
+                const aSnap = await getDocs(collection(db, 'actions'));
+                setActions(aSnap.docs.map(d => ({ id: d.id, ...d.data() } as ActionLog)));
 
                 const uSnap = await getDocs(collection(db, 'users'));
                 setEmployees(uSnap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
-                
-                return () => unsubActions();
             } catch (err) {
                 console.error(err);
             } finally {
@@ -107,7 +105,7 @@ const Reports: React.FC = () => {
             }
         };
         init();
-    }, []);
+    }, [refreshTrigger]);
 
     // --- Helpers for Date Range ---
     const getDateRange = () => {

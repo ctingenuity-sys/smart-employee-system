@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getDoc, doc, getDocs } from 'firebase/firestore';
 import { SwapRequest, LeaveRequest } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 // @ts-ignore
@@ -30,12 +30,14 @@ const UserHistory: React.FC = () => {
     const [histFilterType, setHistFilterType] = useState<'all' | 'swap' | 'leave'>('all');
     const [histFilterStatus, setHistFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
 
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+
     useEffect(() => {
         if (!currentUserId) return;
 
         // Sent Swaps
         const qSent = query(collection(db, 'swapRequests'), where('from', '==', currentUserId));
-        const unsubSent = onSnapshot(qSent, async (snap) => {
+        getDocs(qSent).then(async (snap) => {
             const list = await Promise.all(snap.docs.map(async d => { 
                 const data = d.data() as SwapRequest; 
                 // Fetch recipient name
@@ -51,7 +53,7 @@ const UserHistory: React.FC = () => {
 
         // Received Swaps (Not pending)
         const qReceived = query(collection(db, 'swapRequests'), where('to', '==', currentUserId));
-        const unsubReceived = onSnapshot(qReceived, async (snap) => {
+        getDocs(qReceived).then(async (snap) => {
             const list = await Promise.all(snap.docs.filter(d => d.data().status !== 'pending').map(async d => { 
                 const data = d.data() as SwapRequest; 
                 let name = "Unknown";
@@ -66,12 +68,11 @@ const UserHistory: React.FC = () => {
 
         // Leaves
         const qLeaves = query(collection(db, 'leaveRequests'), where('from', '==', currentUserId));
-        const unsubLeaves = onSnapshot(qLeaves, (snap) => {
+        getDocs(qLeaves).then((snap) => {
             setLeaveHistory(snap.docs.map(d => ({ id: d.id, ...d.data() } as LeaveRequest)).reverse());
         });
 
-        return () => { unsubSent(); unsubReceived(); unsubLeaves(); };
-    }, [currentUserId]);
+    }, [currentUserId, refreshTrigger]);
 
     const filteredHistory = useMemo(() => {
         const swaps: UnifiedHistoryItem[] = [...sentHistory, ...receivedHistory].map(s => ({

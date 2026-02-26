@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, getDocs, getDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firestore';
 import { Schedule, Location, User, ActionLog, AttendanceLog, SavedTemplate } from '../types';
 import Loading from '../components/Loading';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -330,22 +330,44 @@ const UserSchedule: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
     const currentUserId = auth.currentUser?.uid;
-    const [schedules, setSchedules] = useState<Schedule[]>([]);
-    const [locations, setLocations] = useState<Location[]>([]);
+    const [schedules, setSchedules] = useState<Schedule[]>(() => {
+        const cached = localStorage.getItem('usr_cached_schedules');
+        return cached ? JSON.parse(cached) : [];
+    });
+    const [locations, setLocations] = useState<Location[]>(() => {
+        const cached = localStorage.getItem('usr_cached_locations');
+        return cached ? JSON.parse(cached) : [];
+    });
     const [loading, setLoading] = useState(true);
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
     const [isNoteOpen, setIsNoteOpen] = useState(false);
     const [punchedDates, setPunchedDates] = useState<Set<string>>(new Set());
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
     
     // --- View Mode State (Cards vs Full Table) ---
     const [viewMode, setViewMode] = useState<'cards' | 'full'>('cards');
     
     // --- Saved Template for Full View ---
-    const [publishedData, setPublishedData] = useState<SavedTemplate | null>(null);
+    const [publishedData, setPublishedData] = useState<SavedTemplate | null>(() => {
+        const cached = localStorage.getItem('usr_cached_published_data');
+        return cached ? JSON.parse(cached) : null;
+    });
+
+    useEffect(() => {
+        localStorage.setItem('usr_cached_schedules', JSON.stringify(schedules));
+    }, [schedules]);
+
+    useEffect(() => {
+        localStorage.setItem('usr_cached_locations', JSON.stringify(locations));
+    }, [locations]);
+
+    useEffect(() => {
+        localStorage.setItem('usr_cached_published_data', JSON.stringify(publishedData));
+    }, [publishedData]);
 
     useEffect(() => {
         setLoading(true);
-        const unsubLocs = onSnapshot(collection(db, 'locations'), (snap) => {
+        getDocs(collection(db, 'locations')).then((snap) => {
             setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
         });
 
@@ -353,7 +375,7 @@ const UserSchedule: React.FC = () => {
             // My Schedule (Cards) Data Fetch
             const [y, m] = selectedMonth.split('-');
             const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId));
-            const unsubLogs = onSnapshot(qLogs, (snap) => {
+            getDocs(qLogs).then((snap) => {
                 const dates = new Set<string>();
                 snap.docs.forEach(d => {
                     const log = d.data() as AttendanceLog;
@@ -364,8 +386,10 @@ const UserSchedule: React.FC = () => {
 
             // Start date of selected month
             const d = new Date(parseInt(y), parseInt(m) - 1, 1);
+            
+            // REDUCED FETCH RANGE: Only Previous, Current, Next Month to Save Quota
             const monthsToFetch = [];
-            for (let i = -3; i <= 2; i++) {
+            for (let i = -1; i <= 1; i++) {
                 const temp = new Date(d);
                 temp.setMonth(d.getMonth() + i);
                 monthsToFetch.push(temp.toISOString().slice(0, 7));
@@ -376,7 +400,7 @@ const UserSchedule: React.FC = () => {
                 where('month', 'in', monthsToFetch)
             );
 
-            const unsubSch = onSnapshot(qSch, snap => {
+            getDocs(qSch).then(snap => {
                 const fetchedData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule));
                 
                 const [selY, selM] = selectedMonth.split('-').map(Number);
@@ -447,34 +471,29 @@ const UserSchedule: React.FC = () => {
                     setLoading(false);
                 });
             });
-            return () => { unsubLocs(); unsubLogs(); unsubSch(); }
         }
         setLoading(false);
-        return () => { unsubLocs(); }
-    }, [selectedMonth, currentUserId]);
+    }, [selectedMonth, currentUserId, refreshTrigger]);
 
-    // --- FULL SCHEDULE VIEW FETCH (FROM SAVED TEMPLATES) ---
+    // --- FULL SCHEDULE VIEW FETCH (REAL-TIME SNAPSHOT) ---
+    // Updated to use getDoc for immediate deletion reflection
     useEffect(() => {
         if (viewMode === 'full') {
             setLoading(true);
-            const fetchPublished = async () => {
-                try {
-                    const docRef = doc(db, 'monthly_publishes', selectedMonth);
-                    const docSnap = await getDoc(docRef);
-                    if (docSnap.exists()) {
-                        setPublishedData(docSnap.data() as SavedTemplate);
-                    } else {
-                        setPublishedData(null);
-                    }
-                } catch(e) {
-                    console.error("Error fetching published schedule", e);
-                } finally {
-                    setLoading(false);
+            const docRef = doc(db, 'monthly_publishes', selectedMonth);
+            getDoc(docRef).then((docSnap) => {
+                if (docSnap.exists()) {
+                    setPublishedData(docSnap.data() as SavedTemplate);
+                } else {
+                    setPublishedData(null);
                 }
-            };
-            fetchPublished();
+                setLoading(false);
+            }).catch((error) => {
+                console.error("Error watching published schedule", error);
+                setLoading(false);
+            });
         }
-    }, [viewMode, selectedMonth]);
+    }, [viewMode, selectedMonth, refreshTrigger]);
 
     const getLocationName = useCallback((sch: Schedule) => {
         if (sch.locationId === 'LEAVE_ACTION') {
@@ -766,6 +785,16 @@ const UserSchedule: React.FC = () => {
                         const d = new Date(selectedMonth); d.setMonth(d.getMonth() + 1); setSelectedMonth(d.toISOString().slice(0, 7));
                     }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500">
                         <i className="fas fa-chevron-left rtl:rotate-180"></i>
+                    </button>
+                    
+                    <div className="h-6 w-px bg-slate-200 mx-1"></div>
+
+                    <button 
+                        onClick={() => setRefreshTrigger(prev => prev + 1)} 
+                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-indigo-100 text-indigo-600 transition-colors"
+                        title="تحديث البيانات"
+                    >
+                        <i className={`fas fa-sync-alt ${loading ? 'animate-spin' : ''}`}></i>
                     </button>
 
                     {/* Print Button (Only in Full View) */}

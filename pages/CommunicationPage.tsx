@@ -1,4 +1,4 @@
-
+// ... existing imports
 import React, { useState, useEffect, useRef } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
@@ -17,11 +17,27 @@ const CommunicationPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'logbook' | 'announcements'>('logbook');
     const [shiftLogs, setShiftLogs] = useState<ShiftLog[]>([]);
     const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-    const [users, setUsers] = useState<User[]>([]);
-    const [locations, setLocations] = useState<Location[]>([]);
+    const [users, setUsers] = useState<User[]>(() => {
+        const cached = localStorage.getItem('usr_cached_users');
+        return cached ? JSON.parse(cached) : [];
+    });
+    const [locations, setLocations] = useState<Location[]>(() => {
+        const cached = localStorage.getItem('usr_cached_locs');
+        return cached ? JSON.parse(cached) : [];
+    });
     const [loading, setLoading] = useState(true);
     const [toast, setToast] = useState<{msg: string, type: 'success'|'info'|'error'} | null>(null);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
 
+    useEffect(() => {
+        localStorage.setItem('usr_cached_users', JSON.stringify(users));
+    }, [users]);
+
+    useEffect(() => {
+        localStorage.setItem('usr_cached_locs', JSON.stringify(locations));
+    }, [locations]);
+
+    // ... (state variables)
     // Forms
     const [logContent, setLogContent] = useState('');
     const [logCategory, setLogCategory] = useState<'general'|'machine'|'patient'|'supply'>('general');
@@ -91,12 +107,12 @@ const CommunicationPage: React.FC = () => {
         setLoading(true);
 
         // 1. Fetch Users & Locations
-        const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-            setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
+        getDocs(collection(db, 'users')).then((snap: any) => {
+            setUsers(snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as User)));
         });
         
         getDocs(collection(db, 'locations')).then(snap => {
-             setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
+             setLocations(snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Location)));
         });
 
         // 2. Fetch Logs based on Filter Month/Year
@@ -110,20 +126,20 @@ const CommunicationPage: React.FC = () => {
             orderBy('createdAt', 'desc')
         );
 
-        const unsubLogs = onSnapshot(qLogs, (snap) => {
-            const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as ShiftLog));
+        getDocs(qLogs).then((snap: any) => {
+            const logs = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as ShiftLog));
             setShiftLogs(logs);
         });
 
         // 3. Fetch Announcements (Always fetch latest)
         const qAnnounce = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
-        const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
-            const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Announcement));
+        getDocs(qAnnounce).then((snap: any) => {
+            const list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Announcement));
             setAnnouncements(list);
 
             // Auto-mark as seen logic
             if (userId) {
-                list.forEach(ann => {
+                list.forEach((ann: any) => {
                     if (ann.isActive && !ann.seenBy?.includes(userId)) {
                         updateDoc(doc(db, 'announcements', ann.id), {
                             seenBy: arrayUnion(userId)
@@ -138,15 +154,9 @@ const CommunicationPage: React.FC = () => {
             setLoading(false);
         }, 1000);
 
-        return () => {
-            unsubUsers();
-            unsubLogs();
-            unsubAnnounce();
-        };
-    }, [userId, userName, storedRole, filterMonth, filterYear]);
+    }, [userId, userName, storedRole, filterMonth, filterYear, refreshTrigger]);
 
-    // --- Handlers: Shift Logs ---
-
+    // ... (rest of the component)
     const handleLogSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         

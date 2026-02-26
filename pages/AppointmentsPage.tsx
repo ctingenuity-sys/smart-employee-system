@@ -5,7 +5,7 @@ import { auth, db } from '../firebase';
 import { 
     doc, getDoc, setDoc, updateDoc, deleteDoc, 
     collection, query, where, getDocs, writeBatch, 
-    onSnapshot, Timestamp, orderBy, limit, runTransaction, addDoc, getCountFromServer 
+    Timestamp, orderBy, limit, runTransaction, addDoc, getCountFromServer 
 } from 'firebase/firestore';
 import { Appointment } from '../types';
 import Loading from '../components/Loading';
@@ -172,6 +172,7 @@ const AppointmentsPage: React.FC = () => {
         return cached ? JSON.parse(cached) : [];
     });
     const appointmentsRef = useRef<ExtendedAppointment[]>([]); 
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
     
     // Initialize with Local Date
     const [selectedDate, setSelectedDate] = useState(getLocalToday());
@@ -282,7 +283,7 @@ const AppointmentsPage: React.FC = () => {
 
     useEffect(() => {
         const docRef = doc(db, 'system_settings', 'appointment_slots');
-        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+        getDoc(docRef).then((docSnap) => {
             if (docSnap.exists()) {
                 setModalitySettings(docSnap.data() as Record<string, ModalitySettings>);
             } else {
@@ -290,11 +291,10 @@ const AppointmentsPage: React.FC = () => {
                     setDoc(docRef, DEFAULT_SETTINGS);
                 }
             }
-        }, (error) => {
+        }).catch((error) => {
             console.error("Failed to sync settings", error);
         });
-        return () => unsubscribe();
-    }, [isSupervisor]);
+    }, [isSupervisor, refreshTrigger]);
 
     // --- DAILY ARCHIVE LOGIC (Yesterday's Data) ---
     useEffect(() => {
@@ -601,23 +601,22 @@ const AppointmentsPage: React.FC = () => {
             // Create Query
             const q = query(collectionRef, ...constraints);
 
-            const unsubscribe = onSnapshot(q, (snapshot) => {
+            getDocs(q).then((snapshot) => {
                 const fetchedApps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ExtendedAppointment));
                 setAppointments(fetchedApps);
                 setLoading(false);
-            }, (error) => {
-                console.error("Firebase Listen Error:", error);
+            }).catch((error) => {
+                console.error("Firebase Fetch Error:", error);
                 setToast({msg: "يرجى التحقق من اتصال الإنترنت أو الفلاتر", type: 'error'});
                 setLoading(false);
             });
             
-            return unsubscribe;
+            return () => {}; // No unsubscribe needed for getDocs
         };
 
-        const unsub = fetchAndSubscribe();
-        return () => unsub();
+        fetchAndSubscribe();
 
-    }, [selectedDate, activeView, enableDateFilter, activeModality, isArchiveView]);
+    }, [selectedDate, activeView, enableDateFilter, activeModality, isArchiveView, refreshTrigger]);
 
     // ... (rest of the component remains the same)
     
@@ -1321,8 +1320,8 @@ const AppointmentsPage: React.FC = () => {
                         </div>
                     </div>
                     
-                    <div className="flex-1 w-full md:max-w-md mx-4">
-                        <div className="relative">
+                    <div className="flex-1 w-full md:max-w-md mx-4 flex items-center gap-2">
+                        <div className="relative flex-1">
                             <i className="fas fa-search absolute left-3 top-2.5 text-slate-400 text-sm"></i>
                             <input 
                                 className="w-full bg-slate-800 border border-slate-700 rounded-full py-2 pl-10 pr-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
@@ -1336,6 +1335,13 @@ const AppointmentsPage: React.FC = () => {
                                 </button>
                             )}
                         </div>
+                        <button 
+                            onClick={() => setRefreshTrigger(prev => prev + 1)} 
+                            className="bg-indigo-600 hover:bg-indigo-500 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-lg transition-all"
+                            title="تحديث البيانات"
+                        >
+                            <i className={`fas fa-sync-alt ${loading ? 'animate-spin' : ''}`}></i>
+                        </button>
                     </div>
 
                     <div className="flex items-center gap-2">

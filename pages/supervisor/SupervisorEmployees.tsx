@@ -40,7 +40,7 @@ const JOB_CATEGORIES = [
     { id: 'doctor', title: 'Doctors', cssClass: 'doctors', icon: 'fa-user-md', cardTheme: 'from-rose-50 to-pink-100 border-rose-200' },
     { id: 'technologist', title: 'Specialists', cssClass: 'technologists', icon: 'fa-user-graduate', cardTheme: 'from-cyan-200 to-blue-300 border-cyan-400' },
     { id: 'usg', title: 'Ultrasound', cssClass: 'technologists', icon: 'fa-wave-square', isHidden: true, cardTheme: 'from-indigo-50 to-violet-100 border-indigo-200' }, 
-    { id: 'technician', title: 'Technicians', cssClass: 'technicians', icon: 'fa-cogs', cardTheme: 'bg-gradient-to-r from-yellow-950 via-yellow-400 to-yellow-500 border-yellow-900 text-black' },
+    { id: 'technician', title: 'Technicians', cssClass: 'technicians', icon: 'fa-cogs', cardTheme: 'from-cyan-200 to-blue-300 border-cyan-400' },
     { id: 'nurse', title: 'Nurses', cssClass: 'assistants', icon: 'fa-user-nurse', cardTheme: 'from-purple-50 to-fuchsia-100 border-purple-200' },
     { id: 'rso', title: 'R S O', cssClass: 'rso', icon: 'fa-radiation', cardTheme: 'from-yellow-50 to-amber-100 border-yellow-200' },
 ];
@@ -82,8 +82,8 @@ const styles = `
 /* Circle Colors */
 .doctors { background: linear-gradient(135deg, #ff416c, #ff4b2b); }
 .technologists { background: linear-gradient(135deg, #36d1dc, #5b86e5); }
-.technicians { background: linear-gradient(135deg, #fbc7aa, #f5af19); color: #333; text-shadow: none; }
-.assistants { background: linear-gradient(135deg, #667eea, #764ba2); }
+.technicians { background: linear-gradient(135deg, #4880e7, #b8b0ce); color: #333; text-shadow: none; }
+.assistants { background: linear-gradient(135deg, #2e3555, #764ba2); }
 .rso { background: linear-gradient(135deg, #f7971e, #ffd200); text-shadow: 1px 1px 2px rgba(0,0,0,0.2); }
 
 .section-title {
@@ -275,7 +275,7 @@ const SupervisorEmployees: React.FC = () => {
     const currentAdminId = auth.currentUser?.uid;
 
     useEffect(() => {
-        const unsub = onSnapshot(collection(db, 'users'), (snap) => {
+        getDocs(collection(db, 'users')).then((snap) => {
             setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
         });
         
@@ -286,7 +286,7 @@ const SupervisorEmployees: React.FC = () => {
                 where('status', '==', 'completed')
             );
             
-            const unsubChecks = onSnapshot(qChecks, (snap) => {
+            getDocs(qChecks).then((snap) => {
                 snap.docChanges().forEach(change => {
                     if (change.type === 'added' || change.type === 'modified') {
                         const data = change.doc.data() as LocationCheckRequest;
@@ -305,10 +305,10 @@ const SupervisorEmployees: React.FC = () => {
                     }
                 });
             });
-            return () => { unsub(); unsubChecks(); };
+            return () => {};
         }
 
-        return () => { unsub(); };
+        return () => {};
     }, [currentAdminId]);
 
     // Handle Scanner

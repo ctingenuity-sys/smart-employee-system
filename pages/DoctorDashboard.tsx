@@ -8,7 +8,7 @@ import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
 
 // @ts-ignore
-import { collection, getDocs, addDoc, onSnapshot, query, where, doc, updateDoc, Timestamp, orderBy, limit } from 'firebase/firestore';
+import { collection, getDocs, addDoc, query, where, doc, updateDoc, Timestamp, orderBy, limit } from 'firebase/firestore';
 
 interface SwapRequestWithUser extends SwapRequest {
   id: string;
@@ -219,18 +219,20 @@ const DoctorDashboard: React.FC = () => {
     });
   }, [sentHistory, receivedHistory, leaveHistory, histFilterType, histFilterStatus, histFilterMonth, t]);
 
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
   useEffect(() => {
     // ... (Initial Data loading - users, locations, announcements) ...
     setLoading(true);
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+    getDocs(collection(db, 'users')).then((snap) => {
         const userList = snap.docs.map(d => ({ id: d.id, ...d.data() } as User));
         setUsers(userList);
     });
-    const unsubLocs = onSnapshot(collection(db, 'locations'), (snap) => {
+    getDocs(collection(db, 'locations')).then((snap) => {
         setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as LocationData)));
     });
     const qAnnounce = query(collection(db, 'announcements'), where('isActive', '==', true));
-    const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
+    getDocs(qAnnounce).then((snap) => {
       const now = new Date();
       const cutoffTime = new Date(now.getTime() - 48 * 60 * 60 * 1000); 
       const list = snap.docs
@@ -243,8 +245,7 @@ const DoctorDashboard: React.FC = () => {
       list.sort((a, b) => { const ta = a.createdAt?.seconds || 0; const tb = b.createdAt?.seconds || 0; return tb - ta; });
       setAnnouncements(list);
     });
-    return () => { unsubUsers(); unsubLocs(); unsubAnnounce(); };
-  }, []);
+  }, [refreshTrigger]);
 
   // ... (Schedules loading useEffect) ...
   useEffect(() => {
@@ -263,7 +264,7 @@ const DoctorDashboard: React.FC = () => {
       where('userId', '==', currentUserId),
       where('month', 'in', [prevMonth, currentMonth, nextMonth])
     );
-    const unsub = onSnapshot(q, snap => {
+    getDocs(q).then(snap => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule));
       data.sort((a, b) => {
         const aIsSwap = a.locationId === 'Swap' || (a.note && a.note.startsWith('Swap'));
@@ -280,8 +281,7 @@ const DoctorDashboard: React.FC = () => {
       setSchedules(data);
       setLoading(false);
     });
-    return () => { unsub(); };
-  }, [selectedMonth, currentUserId]);
+  }, [selectedMonth, currentUserId, refreshTrigger]);
 
   const getUserName = useCallback((userId: string) => {
     const user = users.find(u => u.id === userId);
@@ -306,7 +306,7 @@ const DoctorDashboard: React.FC = () => {
   useEffect(() => {
     if (!currentUserId) return;
     const qIncoming = query(collection(db, 'swapRequests'), where('to', '==', currentUserId), where('status', '==', 'pending'));
-    const unsubIncoming = onSnapshot(qIncoming, (snap) => {
+    getDocs(qIncoming).then((snap) => {
       const reqs = snap.docs.map(d => {
         const data = d.data() as SwapRequest;
         return { id: d.id, ...data, fromUser: { id: data.from, name: getUserName(data.from) } };
@@ -314,28 +314,27 @@ const DoctorDashboard: React.FC = () => {
       setIncomingSwaps(reqs);
     });
     const qSent = query(collection(db, 'swapRequests'), where('from', '==', currentUserId));
-    const unsubSent = onSnapshot(qSent, (snap) => {
+    getDocs(qSent).then((snap) => {
       const list = snap.docs.map(d => { const data = d.data() as SwapRequest; return { id: d.id, ...data, isOutgoing: true, otherUserName: getUserName(data.to) }; });
       setSentHistory(list);
     });
     const qReceived = query(collection(db, 'swapRequests'), where('to', '==', currentUserId));
-    const unsubReceived = onSnapshot(qReceived, (snap) => {
+    getDocs(qReceived).then((snap) => {
       const list = snap.docs.filter(d => d.data().status !== 'pending').map(d => { const data = d.data() as SwapRequest; return { id: d.id, ...data, isOutgoing: false, otherUserName: getUserName(data.from) }; });
       setReceivedHistory(list);
     });
     const qLeaves = query(collection(db, 'leaveRequests'), where('from', '==', currentUserId));
-    const unsubLeaves = onSnapshot(qLeaves, (snap) => {
+    getDocs(qLeaves).then((snap) => {
       setLeaveHistory(snap.docs.map(d => ({ id: d.id, ...d.data() } as LeaveRequestWithId)).reverse());
     });
-    return () => { unsubIncoming(); unsubSent(); unsubReceived(); unsubLeaves(); };
-  }, [currentUserId, users]);
+  }, [currentUserId, users, refreshTrigger]);
 
   useEffect(() => {
       const now = new Date();
       const currentMonth = now.toISOString().slice(0, 7);
       const currentDayStr = getLocalDateStr(now);
       const qActions = query(collection(db, 'actions'), where('toDate', '>=', currentDayStr));
-      const unsubActions = onSnapshot(qActions, (snap) => {
+      getDocs(qActions).then((snap) => {
           const absentIds = new Set<string>();
           snap.docs.forEach(doc => {
               const data = doc.data() as ActionLog;
@@ -346,18 +345,17 @@ const DoctorDashboard: React.FC = () => {
           setTodayAbsences(absentIds);
       });
       const qSchedule = query(collection(db, 'schedules'), where('month', '==', currentMonth));
-      const unsubSchedule = onSnapshot(qSchedule, (snap) => {
+      getDocs(qSchedule).then((snap) => {
           setCurrentSchedules(snap.docs.map(d => d.data() as Schedule));
       });
       
       // NEW: Fetch ALL Logs for Today for "On Shift" Widget
       const qAllLogs = query(collection(db, 'attendance_logs'), where('date', '==', currentDayStr));
-      const unsubAllLogs = onSnapshot(qAllLogs, (snap) => {
+      getDocs(qAllLogs).then((snap) => {
           setAllTodayLogs(snap.docs.map(d => d.data() as AttendanceLog));
       });
 
-      return () => { unsubActions(); unsubSchedule(); unsubAllLogs(); };
-  }, []);
+  }, [refreshTrigger]);
 
   // Updated On Shift Logic
   useEffect(() => {

@@ -288,7 +288,7 @@ export const calculateShiftStatus = (
             effectiveNow += 1440;
         }
 
-        const windowOpen = start - 30; // 60 mins before start allowed
+        const windowOpen = start - 60; // 60 mins before start allowed
         const unlockOutTime = end - 15; // 15 mins before end allowed for early out
 
         const logIn = matchedShifts[i].in;
@@ -296,20 +296,27 @@ export const calculateShiftStatus = (
 
         // 1. Shift Completed
         if (logIn && logOut) {
-            // *** FIX FOR EARLY EXIT OVERRIDE ***
             // If it's the LAST shift, we close the day immediately and persistently.
-            // We do NOT check for time buffers if it's the last shift. 
-            // If they punched out, they are done.
             if (!hasNextShift) {
                 return { state: 'COMPLETED', message: 'SHIFT COMPLETE', sub: `Shift ${shiftNum} Done`, canPunch: false };
             }
 
-            // For split shifts, we still need the buffer logic to transition to WAITING
+            // For split shifts, check if the next shift's window is open
+            const nextS = todayShifts[i+1];
+            let nextStartMins = toMins(nextS.start);
+            if (nextStartMins === 0 && now > 1000) nextStartMins = 1440;
+            const nextWindowOpen = nextStartMins - 60;
+
+            if (effectiveNow >= nextWindowOpen) {
+                continue; // Move to next shift immediately if its window is open
+            }
+
+            // Otherwise, show a temporary COMPLETED state or WAITING state
             const outDate = getLogDate(logOut);
             let outMins = outDate.getHours() * 60 + outDate.getMinutes();
             if (outMins < start && outMins < 300) outMins += 1440; 
 
-            if (effectiveNow < outMins + 120) {
+            if (effectiveNow < outMins + 30) { // Show completed for 30 mins only, then WAITING
                 return { state: 'COMPLETED', message: 'SHIFT COMPLETE', sub: `Shift ${shiftNum} Done`, canPunch: false };
             }
             continue; 
@@ -324,8 +331,8 @@ export const calculateShiftStatus = (
                      const nextS = todayShifts[i+1];
                      let nextStartMins = toMins(nextS.start);
                      if (nextStartMins === 0 && now > 1000) nextStartMins = 1440; 
-                     // Only skip if the next shift has actually started
-                     if (now >= nextStartMins - 30) continue; 
+                     // Only skip if the next shift has actually started or its window is open (60 mins before)
+                     if (now >= nextStartMins - 60) continue; 
                  }
                  return { state: 'MISSED_OUT', message: 'MISSED OUT', sub: 'Forgot to punch out?', canPunch: false };
             }

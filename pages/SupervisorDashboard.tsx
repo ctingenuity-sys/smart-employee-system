@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, getDocs, orderBy, limit, Timestamp, addDoc, writeBatch, doc, QuerySnapshot, DocumentData } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, limit, Timestamp, addDoc, writeBatch, doc, QuerySnapshot, DocumentData } from 'firebase/firestore';
 import { User, SwapRequest, LeaveRequest, AttendanceLog, Schedule } from '../types';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
@@ -81,6 +81,8 @@ const SupervisorDashboard: React.FC = () => {
   const currentAdminName = localStorage.getItem('username') || 'Admin';
   const currentAdminId = auth.currentUser?.uid;
 
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
   // --- Data Loading (Overview Only) ---
   useEffect(() => {
       // 1. Users Count & List
@@ -89,22 +91,22 @@ const SupervisorDashboard: React.FC = () => {
 
       // 2. Pending Requests Counts
       const qSwaps = query(collection(db, 'swapRequests'), where('status', 'in', ['pending', 'approvedByUser']));
-      const unsubSwaps = onSnapshot(qSwaps, (snap: QuerySnapshot<DocumentData>) => setSwapRequestsCount(snap.size));
+      getDocs(qSwaps).then((snap: QuerySnapshot<DocumentData>) => setSwapRequestsCount(snap.size));
 
       const qLeaves = query(collection(db, 'leaveRequests'), where('status', '==', 'pending'));
-      const unsubLeaves = onSnapshot(qLeaves, (snap: QuerySnapshot<DocumentData>) => setLeaveRequestsCount(snap.size));
+      getDocs(qLeaves).then((snap: QuerySnapshot<DocumentData>) => setLeaveRequestsCount(snap.size));
 
       const qMarket = query(collection(db, 'openShifts'), where('status', '==', 'claimed'));
-      const unsubMarket = onSnapshot(qMarket, (snap: QuerySnapshot<DocumentData>) => setOpenShiftsCount(snap.size));
+      getDocs(qMarket).then((snap: QuerySnapshot<DocumentData>) => setOpenShiftsCount(snap.size));
 
       // 3. Today's Appointments
       const todayDate = new Date().toISOString().split('T')[0];
       const qAppt = query(collection(db, 'appointments'), where('date', '==', todayDate));
-      const unsubAppt = onSnapshot(qAppt, (snap: QuerySnapshot<DocumentData>) => setTodayApptCount(snap.size));
+      getDocs(qAppt).then((snap: QuerySnapshot<DocumentData>) => setTodayApptCount(snap.size));
 
       // 4. Live Logs (Fetch ALL for today to calculate presence)
       const qLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayDate)); 
-      const unsubLogs = onSnapshot(qLogs, (snap: QuerySnapshot<DocumentData>) => {
+      getDocs(qLogs).then((snap: QuerySnapshot<DocumentData>) => {
           const logs = snap.docs.map(d => d.data() as AttendanceLog);
           // Sort for the feed
           const sortedLogs = [...logs].sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
@@ -129,8 +131,7 @@ const SupervisorDashboard: React.FC = () => {
           setSchedules(snap.docs.map(d => d.data() as Schedule));
       });
 
-      return () => { unsubSwaps(); unsubLeaves(); unsubMarket(); unsubAppt(); unsubLogs(); };
-  }, []);
+  }, [refreshTrigger]);
 
   // --- On Shift Logic (Updated for Presence) ---
   useEffect(() => {

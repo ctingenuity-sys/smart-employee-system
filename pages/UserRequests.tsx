@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, addDoc, onSnapshot, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, Timestamp } from 'firebase/firestore';
 import { User } from '../types';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -14,8 +14,12 @@ const UserRequests: React.FC = () => {
     const navigate = useNavigate();
     const currentUserId = auth.currentUser?.uid;
     
-    const [users, setUsers] = useState<User[]>([]);
+    const [users, setUsers] = useState<User[]>(() => {
+        const cached = localStorage.getItem('usr_cached_users');
+        return cached ? JSON.parse(cached) : [];
+    });
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
 
     // Swap Form
     const [targetUser, setTargetUser] = useState('');
@@ -31,11 +35,14 @@ const UserRequests: React.FC = () => {
     const [leaveErrors, setLeaveErrors] = useState<{start?: string, end?: string, reason?: string}>({});
 
     useEffect(() => {
-        const unsub = onSnapshot(collection(db, 'users'), (snap) => {
+        localStorage.setItem('usr_cached_users', JSON.stringify(users));
+    }, [users]);
+
+    useEffect(() => {
+        getDocs(collection(db, 'users')).then((snap) => {
             setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
         });
-        return () => unsub();
-    }, []);
+    }, [refreshTrigger]);
 
     const validateSwap = () => {
         const errs: any = {};

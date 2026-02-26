@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { User, Schedule, Location } from '../../types';
 import Loading from '../../components/Loading';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -116,19 +116,19 @@ const SupervisorRotation: React.FC = () => {
 
     useEffect(() => {
         setLoading(true);
-        const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+        getDocs(collection(db, 'users')).then((snap) => {
             setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
         });
-        const unsubLocs = onSnapshot(collection(db, 'locations'), (snap) => {
+        getDocs(collection(db, 'locations')).then((snap) => {
             setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
         });
         const oldestMonth = months[0];
         const qSch = query(collection(db, 'schedules'), where('month', '>=', oldestMonth));
-        const unsubSch = onSnapshot(qSch, (snap) => {
+        getDocs(qSch).then((snap) => {
             setSchedules(snap.docs.map(d => d.data() as Schedule));
             setLoading(false);
         });
-        return () => { unsubUsers(); unsubLocs(); unsubSch(); };
+        return () => {};
     }, [months]);
 
     // --- Processing Logic ---

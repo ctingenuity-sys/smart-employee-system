@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, addDoc, updateDoc, deleteDoc, doc, query, orderBy, onSnapshot, Timestamp, limit, getDocs } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, query, orderBy, Timestamp, limit, getDocs } from 'firebase/firestore';
 import { DepartmentTask, Location } from '../types';
 import Loading from '../components/Loading';
 import Toast from '../components/Toast';
@@ -11,10 +10,17 @@ import { useLanguage } from '../contexts/LanguageContext';
 
 const TasksPage: React.FC = () => {
     const { t, dir } = useLanguage();
-    const [tasks, setTasks] = useState<DepartmentTask[]>([]);
-    const [locations, setLocations] = useState<Location[]>([]);
+    const [tasks, setTasks] = useState<DepartmentTask[]>(() => {
+        const cached = localStorage.getItem('usr_cached_tasks');
+        return cached ? JSON.parse(cached) : [];
+    });
+    const [locations, setLocations] = useState<Location[]>(() => {
+        const cached = localStorage.getItem('usr_cached_task_locs');
+        return cached ? JSON.parse(cached) : [];
+    });
     const [loading, setLoading] = useState(true);
     const [toast, setToast] = useState<{msg: string, type: 'success'|'info'|'error'} | null>(null);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
 
     // Task Form
     const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -31,23 +37,31 @@ const TasksPage: React.FC = () => {
     const isSupervisor = storedRole === 'admin' || storedRole === 'supervisor';
 
     useEffect(() => {
+        localStorage.setItem('usr_cached_tasks', JSON.stringify(tasks));
+    }, [tasks]);
+
+    useEffect(() => {
+        localStorage.setItem('usr_cached_task_locs', JSON.stringify(locations));
+    }, [locations]);
+
+    useEffect(() => {
         setLoading(true);
         
         // Fetch Locations
         getDocs(collection(db, 'locations')).then(snap => {
-            setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
+            setLocations(snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Location)));
         });
 
-        // Fetch Tasks (Real-time)
+        // Fetch Tasks
         const qTasks = query(collection(db, 'departmentTasks'), orderBy('createdAt', 'desc'), limit(100));
-        const unsubTasks = onSnapshot(qTasks, (snap) => {
-             setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() } as DepartmentTask)));
+        getDocs(qTasks).then((snap: any) => {
+             setTasks(snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as DepartmentTask)));
              setLoading(false);
         });
 
-        return () => unsubTasks();
-    }, []);
+    }, [refreshTrigger]);
 
+    // ... (rest of the component)
     const handleAddTask = async (e: React.FormEvent) => {
         e.preventDefault();
         if(!isSupervisor) return setToast({msg: 'Access Denied', type: 'error'});

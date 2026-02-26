@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { LeaveRequest, User } from '../../types';
 import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -11,22 +11,35 @@ import { useNavigate } from 'react-router-dom';
 const SupervisorLeaves: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
-    const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
-    const [users, setUsers] = useState<User[]>([]);
+    const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>(() => {
+        const cached = localStorage.getItem('usr_cached_sup_leaves');
+        return cached ? JSON.parse(cached) : [];
+    });
+    const [users, setUsers] = useState<User[]>(() => {
+        const cached = localStorage.getItem('usr_cached_sup_users_leaves');
+        return cached ? JSON.parse(cached) : [];
+    });
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'} | null>(null);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
 
     useEffect(() => {
-        const unsubUsers = onSnapshot(collection(db, 'users'), snap => {
+        localStorage.setItem('usr_cached_sup_leaves', JSON.stringify(leaveRequests));
+    }, [leaveRequests]);
+
+    useEffect(() => {
+        localStorage.setItem('usr_cached_sup_users_leaves', JSON.stringify(users));
+    }, [users]);
+
+    useEffect(() => {
+        getDocs(collection(db, 'users')).then(snap => {
             setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
         });
         
         const qLeaves = query(collection(db, 'leaveRequests'), where('status', '==', 'pending'));
-        const unsubLeaves = onSnapshot(qLeaves, snap => {
+        getDocs(qLeaves).then(snap => {
             setLeaveRequests(snap.docs.map(d => ({ id: d.id, ...d.data() } as LeaveRequest)));
         });
-
-        return () => { unsubUsers(); unsubLeaves(); };
-    }, []);
+    }, [refreshTrigger]);
 
     const getUserName = (id: string) => users.find(u => u.id === id)?.name || id;
 

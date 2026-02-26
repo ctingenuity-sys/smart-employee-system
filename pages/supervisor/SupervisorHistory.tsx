@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, deleteDoc } from 'firebase/firestore';
 import { SwapRequest, LeaveRequest, User } from '../../types';
 import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -25,17 +25,32 @@ interface HistoryItem {
 const SupervisorHistory: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
-    const [historyData, setHistoryData] = useState<HistoryItem[]>([]);
-    const [users, setUsers] = useState<User[]>([]);
+    const [historyData, setHistoryData] = useState<HistoryItem[]>(() => {
+        const cached = localStorage.getItem('usr_cached_sup_hist');
+        return cached ? JSON.parse(cached) : [];
+    });
+    const [users, setUsers] = useState<User[]>(() => {
+        const cached = localStorage.getItem('usr_cached_sup_users');
+        return cached ? JSON.parse(cached) : [];
+    });
     const [histFilterType, setHistFilterType] = useState<'all' | 'swap' | 'leave'>('all');
     const [histFilterMonth, setHistFilterMonth] = useState(new Date().toISOString().slice(0, 7));
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'} | null>(null);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
 
     useEffect(() => {
-        const unsubUsers = onSnapshot(collection(db, 'users'), snap => setUsers(snap.docs.map(d => ({id:d.id, ...d.data()} as User))));
+        localStorage.setItem('usr_cached_sup_hist', JSON.stringify(historyData));
+    }, [historyData]);
+
+    useEffect(() => {
+        localStorage.setItem('usr_cached_sup_users', JSON.stringify(users));
+    }, [users]);
+
+    useEffect(() => {
+        getDocs(collection(db, 'users')).then(snap => setUsers(snap.docs.map(d => ({id:d.id, ...d.data()} as User))));
         
         const qSwaps = query(collection(db, 'swapRequests'), where('status', 'in', ['approvedBySupervisor', 'rejectedBySupervisor', 'rejected']));
-        const unsubSwaps = onSnapshot(qSwaps, snap => {
+        getDocs(qSwaps).then(snap => {
             const swaps = snap.docs.map(d => ({
                 id: d.id, type: 'swap', userId: d.data().from, targetId: d.data().to, startDate: d.data().startDate, details: d.data().details, status: d.data().status, createdAt: d.data().createdAt
             } as HistoryItem));
@@ -43,15 +58,13 @@ const SupervisorHistory: React.FC = () => {
         });
 
         const qLeaves = query(collection(db, 'leaveRequests'), where('status', 'in', ['approved', 'rejected']));
-        const unsubLeaves = onSnapshot(qLeaves, snap => {
+        getDocs(qLeaves).then(snap => {
             const leaves = snap.docs.map(d => ({
                 id: d.id, type: 'leave', userId: d.data().from, startDate: d.data().startDate, endDate: d.data().endDate, details: d.data().reason, status: d.data().status, createdAt: d.data().createdAt
             } as HistoryItem));
             setHistoryData(prev => [...prev.filter(i => i.type !== 'leave'), ...leaves]);
         });
-
-        return () => { unsubUsers(); unsubSwaps(); unsubLeaves(); };
-    }, []);
+    }, [refreshTrigger]);
 
     const getUserName = (id: string) => users.find(u => u.id === id)?.name || id;
 

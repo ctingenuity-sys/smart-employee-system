@@ -1,6 +1,6 @@
-
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../supabaseClient';
+import { appointmentsDb } from '../firebaseAppointments';
+import { writeBatch, doc } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
 
 // Helper to find value case-insensitively
@@ -74,63 +74,19 @@ const BridgePage: React.FC = () => {
         const targetUrl = `${currentOrigin}#/appointments`;
 
         const scriptContent = `
-/* 🚀 AJ-SMART-BRIDGE AUTO-INJECTOR V2.0 */
+/* 🚀 AJ-SMART-BRIDGE AUTO-INJECTOR V2.7 Hidden UI + Silent Console */
 (function() {
     // Prevent double injection
     if (window.AJ_BRIDGE_ACTIVE) return;
     window.AJ_BRIDGE_ACTIVE = true;
 
-    console.log("%c 🟢 Smart Bridge Extension Active ", "background: #0f172a; color: #00ff00; font-size: 12px; font-weight: bold; padding: 4px; border-radius: 4px;");
+    // Silent Console: No logs
+    // console.log("%c 🟢 Smart Bridge Extension Active ", ...);
 
     const APP_URL = "${targetUrl}";
     let syncWin = null;
 
-    // UI Overlay
-    const createUI = () => {
-        const container = document.createElement('div');
-        Object.assign(container.style, {
-            position: 'fixed',
-            bottom: '20px',
-            left: '20px',
-            zIndex: '999999',
-            backgroundColor: '#0f172a',
-            color: 'white',
-            padding: '10px 15px',
-            borderRadius: '12px',
-            boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
-            fontFamily: 'sans-serif',
-            fontSize: '12px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            border: '1px solid #334155',
-            transition: 'all 0.3s ease'
-        });
-
-        const statusDot = document.createElement('div');
-        Object.assign(statusDot.style, {
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            backgroundColor: '#22c55e',
-            boxShadow: '0 0 10px #22c55e'
-        });
-
-        const text = document.createElement('span');
-        text.innerText = 'Smart Sync Active';
-        text.style.fontWeight = 'bold';
-
-        container.appendChild(statusDot);
-        container.appendChild(text);
-        document.body.appendChild(container);
-
-        // Hover Effect
-        container.onmouseenter = () => { container.style.transform = 'scale(1.05)'; };
-        container.onmouseleave = () => { container.style.transform = 'scale(1)'; };
-    };
-
-    if (document.readyState === 'complete') createUI();
-    else window.addEventListener('load', createUI);
+    // Hidden UI: No UI creation
 
     // Window Management
     function openSyncWindow() {
@@ -153,7 +109,7 @@ const BridgePage: React.FC = () => {
                     
                     // Filter relevant packets
                     if (payload[0]?.patientName || payload[0]?.fileNumber || payload[0]?.mrn) {
-                        console.log("⚡ Smart Bridge: Data Captured", payload.length);
+                        // console.log("⚡ Smart Bridge: Data Captured", payload.length);
                         
                         syncWin = openSyncWindow();
                         
@@ -163,13 +119,6 @@ const BridgePage: React.FC = () => {
                             if (syncWin && !syncWin.closed) {
                                 syncWin.postMessage({ type: 'SMART_SYNC_DATA', payload }, '*');
                                 clearInterval(sendInterval);
-                                // Visual Feedback
-                                const ui = document.querySelector('div[style*="z-index: 999999"] span');
-                                if(ui) {
-                                    const oldText = ui.innerText;
-                                    ui.innerText = 'Data Sent 🚀';
-                                    setTimeout(() => ui.innerText = oldText, 2000);
-                                }
                             }
                             attempts++;
                             if (attempts > 10) clearInterval(sendInterval);
@@ -210,7 +159,8 @@ const BridgePage: React.FC = () => {
             for (const [id, keywords] of Object.entries(MODALITY_KEYWORDS)) {
                 if (keywords.some(k => sNameUpper.includes(k))) return id;
             }
-            return 'OTHER';
+            // Default 'OTHER' (General) to 'X-RAY' (X-Ray & General)
+            return 'X-RAY'; 
         };
 
         const cleanTime = (t: any) => (t ? String(t).trim().substring(0, 5) : '00:00');
@@ -283,7 +233,13 @@ const BridgePage: React.FC = () => {
 
         try {
             if (rowsToInsert.length > 0) {
-                const { error } = await supabase.from('appointments').upsert(rowsToInsert, { onConflict: 'id' });
+                const batch = writeBatch(appointmentsDb);
+                rowsToInsert.forEach(row => {
+                    const docRef = doc(appointmentsDb, 'appointments', row.id);
+                    batch.set(docRef, row, { merge: true });
+                });
+                await batch.commit();
+                const error = null;
                 if (error) throw error;
                 addLog(`✅ Successfully saved ${rowsToInsert.length} appointments.`);
                 setStatus('success');

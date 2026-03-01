@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../supabaseClient';
+import { appointmentsDb } from '../../firebaseAppointments';
 import { db, auth } from '../../firebase';
 // @ts-ignore
 import { collection, addDoc, query, where, getDocs, Timestamp, orderBy } from 'firebase/firestore';
@@ -14,7 +14,9 @@ import { useNavigate } from 'react-router-dom';
 interface EmployeeStats {
     userId: string;
     name: string;
-    totalCases: number;
+    totalCases: number; // Monthly
+    daily: number;
+    weekly: number;
 }
 
 interface ArchivedReport {
@@ -42,21 +44,41 @@ const SupervisorPerformance: React.FC = () => {
     // Fetch Live Data (Supabase)
     const fetchLiveStats = async () => {
         setLoading(true);
+        
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+        const isCurrentMonth = selectedMonth === todayStr.slice(0, 7);
+
+        // Start of Month
         const startOfMonth = `${selectedMonth}-01`;
-        // Calculate end of month
+        
+        // End of Month
         const [y, m] = selectedMonth.split('-');
         const nextMonth = new Date(parseInt(y), parseInt(m), 1).toISOString().split('T')[0];
 
-        try {
-            // Fetch all done appointments for this month
-            const { data, error } = await supabase
-                .from('appointments')
-                .select('performedBy, performedByName')
-                .eq('status', 'done')
-                .gte('date', startOfMonth)
-                .lt('date', nextMonth);
+        // Start of Week (Saturday)
+        const currentDay = now.getDay(); // 0-6
+        const daysToSubtract = (currentDay + 1) % 7; 
+        const startOfWeekDate = new Date(now);
+        startOfWeekDate.setDate(now.getDate() - daysToSubtract);
+        const startOfWeek = startOfWeekDate.toISOString().split('T')[0];
 
-            if (error) throw error;
+        try {
+            // Determine query range
+            // If current month, we might need data from startOfWeek (which could be in prev month)
+            let queryStart = startOfMonth;
+            if (isCurrentMonth && startOfWeek < startOfMonth) {
+                queryStart = startOfWeek;
+            }
+
+            // Fetch all done appointments
+            const qData = query(collection(appointmentsDb, 'appointments'), 
+                where('status', '==', 'done'), 
+                where('date', '>=', queryStart)
+            );
+            
+            const dataSnap = await getDocs(qData);
+            const data = dataSnap.docs.map(d => d.data());
 
             // Aggregation
             const agg: Record<string, EmployeeStats> = {};
@@ -64,11 +86,29 @@ const SupervisorPerformance: React.FC = () => {
             data.forEach((appt: any) => {
                 const uid = appt.performedBy || 'unknown';
                 const name = appt.performedByName || 'Unknown';
+                const date = appt.date;
                 
+                // Filter out if date is beyond nextMonth (shouldn't happen with query but good safety)
+                if (date >= nextMonth && !isCurrentMonth) return; 
+
                 if (!agg[uid]) {
-                    agg[uid] = { userId: uid, name, totalCases: 0 };
+                    agg[uid] = { userId: uid, name, totalCases: 0, daily: 0, weekly: 0 };
                 }
-                agg[uid].totalCases++;
+                
+                // Monthly Count (Strictly within selected month)
+                if (date >= startOfMonth && date < nextMonth) {
+                    agg[uid].totalCases++;
+                }
+
+                // Daily & Weekly (Only if viewing current month)
+                if (isCurrentMonth) {
+                    if (date === todayStr) {
+                        agg[uid].daily++;
+                    }
+                    if (date >= startOfWeek) {
+                        agg[uid].weekly++;
+                    }
+                }
             });
 
             const sorted = Object.values(agg).sort((a,b) => b.totalCases - a.totalCases);
@@ -206,23 +246,39 @@ const SupervisorPerformance: React.FC = () => {
                                 <tr>
                                     <th className="p-4 text-center w-16">#</th>
                                     <th className="p-4 text-right">Employee Name</th>
-                                    <th className="p-4 text-center">Total Cases</th>
+                                    <th className="p-4 text-center">Daily (Today)</th>
+                                    <th className="p-4 text-center">Weekly (This Week)</th>
+                                    <th className="p-4 text-center">Monthly (Total)</th>
                                     <th className="p-4 text-center">Performance Index</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 print:divide-black">
                                 {currentStats.length === 0 ? (
-                                    <tr><td colSpan={4} className="p-8 text-center text-slate-400">No records found.</td></tr>
+                                    <tr><td colSpan={6} className="p-8 text-center text-slate-400">No records found.</td></tr>
                                 ) : (
                                     currentStats.map((stat, index) => (
                                         <tr key={stat.userId} className="hover:bg-slate-50 print:break-inside-avoid">
                                             <td className="p-4 text-center font-mono text-slate-400 print:text-black">{index + 1}</td>
                                             <td className="p-4 text-right font-bold text-slate-800 print:text-black">{stat.name}</td>
+                                            
+                                            <td className="p-4 text-center">
+                                                <span className={`px-3 py-1 rounded-full font-bold ${stat.daily > 0 ? 'bg-blue-100 text-blue-800' : 'text-slate-300'} print:bg-transparent print:text-black`}>
+                                                    {stat.daily || 0}
+                                                </span>
+                                            </td>
+
+                                            <td className="p-4 text-center">
+                                                <span className={`px-3 py-1 rounded-full font-bold ${stat.weekly > 0 ? 'bg-amber-100 text-amber-800' : 'text-slate-300'} print:bg-transparent print:text-black`}>
+                                                    {stat.weekly || 0}
+                                                </span>
+                                            </td>
+
                                             <td className="p-4 text-center">
                                                 <span className="bg-violet-100 text-violet-800 px-3 py-1 rounded-full font-black print:bg-transparent print:text-black print:border print:border-black">
                                                     {stat.totalCases}
                                                 </span>
                                             </td>
+
                                             <td className="p-4 text-center">
                                                 <div className="w-full bg-slate-100 rounded-full h-2.5 print:hidden">
                                                     <div 

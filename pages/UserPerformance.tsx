@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../supabaseClient';
+import { appointmentsDb } from '../firebaseAppointments';
+import { collection, query, where, getDocs, getCountFromServer, orderBy, limit } from 'firebase/firestore';
 import { auth } from '../firebase';
 import Loading from '../components/Loading';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -27,29 +28,19 @@ const UserPerformance: React.FC = () => {
 
             try {
                 // Today's Count
-                const { count: todayC } = await supabase
-                    .from('appointments')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('performedBy', currentUserId)
-                    .eq('status', 'done')
-                    .eq('date', today);
+                const qToday = query(collection(appointmentsDb, 'appointments'), where('performedBy', '==', currentUserId), where('status', '==', 'done'), where('date', '==', today));
+                const todaySnap = await getCountFromServer(qToday);
+                const todayC = todaySnap.data().count;
 
                 // Month's Count
-                const { count: monthC } = await supabase
-                    .from('appointments')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('performedBy', currentUserId)
-                    .eq('status', 'done')
-                    .gte('date', startOfMonth);
+                const qMonth = query(collection(appointmentsDb, 'appointments'), where('performedBy', '==', currentUserId), where('status', '==', 'done'), where('date', '>=', startOfMonth));
+                const monthSnap = await getCountFromServer(qMonth);
+                const monthC = monthSnap.data().count;
 
                 // Daily Breakdown (Last 30 days)
-                const { data } = await supabase
-                    .from('appointments')
-                    .select('date')
-                    .eq('performedBy', currentUserId)
-                    .eq('status', 'done')
-                    .order('date', { ascending: true })
-                    .limit(500); // Reasonable limit for chart
+                const qData = query(collection(appointmentsDb, 'appointments'), where('performedBy', '==', currentUserId), where('status', '==', 'done'), orderBy('date', 'asc'), limit(500));
+                const dataSnap = await getDocs(qData);
+                const data = dataSnap.docs.map(d => d.data()); // Reasonable limit for chart
 
                 if (data) {
                     const counts: Record<string, number> = {};
@@ -161,28 +152,45 @@ const UserPerformance: React.FC = () => {
                 {dailyActivity.length === 0 ? (
                     <div className="text-center py-10 text-slate-400">لا يوجد نشاط مسجل مؤخراً</div>
                 ) : (
-                    <div className="flex items-end gap-2 h-40 mt-4">
-                        {dailyActivity.map((day, i) => {
-                            const max = Math.max(...dailyActivity.map(d => d.count), 10);
-                            const height = (day.count / max) * 100;
-                            return (
-                                <div key={i} className="flex-1 flex flex-col items-center gap-2 group">
-                                    <div className="w-full bg-slate-100 rounded-t-lg relative h-full flex items-end overflow-hidden">
-                                        <div 
-                                            className="w-full bg-indigo-500 rounded-t-lg transition-all duration-500 group-hover:bg-indigo-600"
-                                            style={{ height: `${height}%` }}
-                                        ></div>
-                                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                                            {day.count} حالة
+                    <>
+                        <div className="flex items-end gap-2 h-40 mt-4 mb-8">
+                            {dailyActivity.map((day, i) => {
+                                const max = Math.max(...dailyActivity.map(d => d.count), 10);
+                                const height = (day.count / max) * 100;
+                                return (
+                                    <div key={i} className="flex-1 flex flex-col items-center gap-2 group">
+                                        <div className="w-full bg-slate-100 rounded-t-lg relative h-full flex items-end overflow-hidden">
+                                            <div 
+                                                className="w-full bg-indigo-500 rounded-t-lg transition-all duration-500 group-hover:bg-indigo-600"
+                                                style={{ height: `${height}%` }}
+                                            ></div>
+                                            <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                                                {day.count} حالة
+                                            </div>
                                         </div>
+                                        <span className="text-[10px] text-slate-400 font-bold rotate-45 mt-2 origin-left whitespace-nowrap">
+                                            {day.date.slice(5)}
+                                        </span>
                                     </div>
-                                    <span className="text-[10px] text-slate-400 font-bold rotate-45 mt-2 origin-left whitespace-nowrap">
-                                        {day.date.slice(5)}
-                                    </span>
-                                </div>
-                            )
-                        })}
-                    </div>
+                                )
+                            })}
+                        </div>
+
+                        {/* Detailed Table */}
+                        <div className="border-t border-slate-100 pt-6">
+                            <h4 className="text-sm font-bold text-slate-500 mb-3">تفاصيل الأيام</h4>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                {dailyActivity.slice().reverse().map((day, i) => (
+                                    <div key={i} className="bg-slate-50 p-3 rounded-xl flex justify-between items-center">
+                                        <span className="text-xs font-bold text-slate-500">{day.date}</span>
+                                        <span className="bg-white px-2 py-1 rounded-lg text-xs font-black text-indigo-600 shadow-sm border border-slate-100">
+                                            {day.count}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </>
                 )}
             </div>
 

@@ -7,9 +7,9 @@ import Loading from '../components/Loading';
 import Modal from '../components/Modal';
 import { PrintHeader, PrintFooter } from '../components/PrintLayout';
 // @ts-ignore
-import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, Timestamp, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, Timestamp, query, where, onSnapshot, setDoc, orderBy } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
-import { supabase } from '../supabaseClient';
+import { appointmentsDb } from '../firebaseAppointments';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 // Helper to safely render date
@@ -215,14 +215,10 @@ const Reports: React.FC = () => {
 
         const fetchSupabaseData = async () => {
             try {
-                const { data, error } = await supabase
-                    .from('appointments')
-                    .select('*')
-                    .gte('date', start)
-                    .lte('date', end)
-                    .eq('status', 'done') 
-                    .order('date', { ascending: true })
-                    .order('time', { ascending: true });
+                const qData = query(collection(appointmentsDb, 'appointments'), where('date', '>=', start), where('date', '<=', end), where('status', '==', 'done'), orderBy('date', 'asc'), orderBy('time', 'asc'));
+                const dataSnap = await getDocs(qData);
+                const data = dataSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                const error = null;
 
                 if (error) throw error;
 
@@ -572,8 +568,9 @@ const Reports: React.FC = () => {
     const handleSaveAppointment = async () => {
         if (!selectedPatientForAppt || !newApptDate || !newApptTime) return;
         try {
-            const { error } = await supabase.from('appointments').insert({
-                id: `FOLLOWUP_${Date.now()}`,
+            const newId = `FOLLOWUP_${Date.now()}`;
+            await setDoc(doc(appointmentsDb, 'appointments', newId), {
+                id: newId,
                 patientName: selectedPatientForAppt.patientName,
                 fileNumber: selectedPatientForAppt.fileNumber || '',
                 examType: selectedPatientForAppt.examType,
@@ -586,6 +583,7 @@ const Reports: React.FC = () => {
                 createdAt: new Date().toISOString()
             });
 
+            const error = null;
             if (error) throw error;
 
             alert('تم حجز الموعد بنجاح ✅');

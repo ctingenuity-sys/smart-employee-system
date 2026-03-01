@@ -1,7 +1,7 @@
 
-// ... existing imports
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
+import { appointmentsDb } from '../firebaseAppointments';
 // @ts-ignore
 import { collection, query, where, getDocs, orderBy, limit, Timestamp, addDoc, writeBatch, doc, QuerySnapshot, DocumentData } from 'firebase/firestore';
 import { User, SwapRequest, LeaveRequest, AttendanceLog, Schedule } from '../types';
@@ -81,8 +81,6 @@ const SupervisorDashboard: React.FC = () => {
   const currentAdminName = localStorage.getItem('username') || 'Admin';
   const currentAdminId = auth.currentUser?.uid;
 
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
-
   // --- Data Loading (Overview Only) ---
   useEffect(() => {
       // 1. Users Count & List
@@ -101,7 +99,7 @@ const SupervisorDashboard: React.FC = () => {
 
       // 3. Today's Appointments
       const todayDate = new Date().toISOString().split('T')[0];
-      const qAppt = query(collection(db, 'appointments'), where('date', '==', todayDate));
+      const qAppt = query(collection(appointmentsDb, 'appointments'), where('date', '==', todayDate));
       getDocs(qAppt).then((snap: QuerySnapshot<DocumentData>) => setTodayApptCount(snap.size));
 
       // 4. Live Logs (Fetch ALL for today to calculate presence)
@@ -131,7 +129,7 @@ const SupervisorDashboard: React.FC = () => {
           setSchedules(snap.docs.map(d => d.data() as Schedule));
       });
 
-  }, [refreshTrigger]);
+  }, []);
 
   // --- On Shift Logic (Updated for Presence) ---
   useEffect(() => {
@@ -290,28 +288,11 @@ const SupervisorDashboard: React.FC = () => {
       { id: 'attendance', title: 'Smart Analyzer', icon: 'fa-chart-pie', path: '/supervisor/attendance', color: 'bg-indigo-600' },
       { id: 'appointments', title: t('nav.appointments'), icon: 'fa-calendar-check', path: '/appointments', badge: todayApptCount, color: 'bg-cyan-600' },
       { id: 'employees', title: t('sup.tab.users'), icon: 'fa-users', path: '/supervisor/employees', color: 'bg-blue-600' },
-      { id: 'rotations', title: 'Rotations', icon: 'fa-sync-alt', path: '/supervisor/rotation', color: 'bg-teal-600' }, // NEW: Rotation Button
       { id: 'swaps', title: t('sup.tab.swaps'), icon: 'fa-exchange-alt', path: '/supervisor/swaps', badge: swapRequestsCount, color: 'bg-purple-600' },
       { id: 'leaves', title: t('sup.tab.leaves'), icon: 'fa-umbrella-beach', path: '/supervisor/leaves', badge: leaveRequestsCount, color: 'bg-rose-600' },
       { id: 'market', title: t('sup.tab.market'), icon: 'fa-store', path: '/supervisor/market', badge: openShiftsCount, color: 'bg-amber-500' },
-      { id: 'panic', title: 'Panic Reports', icon: 'fa-exclamation-triangle', path: '/supervisor/panic-reports', color: 'bg-red-600' },
       { id: 'locations', title: t('sup.tab.locations'), icon: 'fa-map-marker-alt', path: '/supervisor/locations', color: 'bg-emerald-600' },
       { id: 'history', title: 'History', icon: 'fa-history', path: '/supervisor/history', color: 'bg-slate-600' },
-      { id: 'performance', title: 'Performance', icon: 'fa-chart-bar', path: '/supervisor/performance', color: 'bg-violet-600' },
-  ];
-
-  // New Buttons for Safety & Facility Management
-  const safetyItems = [
-      { id: 'devices', title: 'Device Inventory', icon: 'fa-microscope', path: '/supervisor/devices', color: 'bg-sky-600' },
-      { id: 'fms', title: 'FMS Reports', icon: 'fa-fire-extinguisher', path: '/supervisor/fms', color: 'bg-orange-600' },
-      { id: 'rooms', title: 'Room Reports', icon: 'fa-door-open', path: '/supervisor/rooms', color: 'bg-indigo-600' },
-  ];
-
-  const logbookItems = [
-      { id: 'mri', title: 'MRI Log', icon: 'fa-magnet', path: '/logbook/mri', color: 'bg-blue-700' },
-      { id: 'ct', title: 'CT Log', icon: 'fa-ring', path: '/logbook/ct', color: 'bg-emerald-600' },
-      { id: 'us', title: 'Ultrasound Log', icon: 'fa-wave-square', path: '/logbook/us', color: 'bg-indigo-600' },
-      { id: 'xray', title: 'X-Ray / Gen Log', icon: 'fa-x-ray', path: '/logbook/xray', color: 'bg-slate-600' },
   ];
 
   return (
@@ -384,52 +365,6 @@ const SupervisorDashboard: React.FC = () => {
                         </div>
                     </div>
                 </div>
-            </div>
-            
-            {/* Safety & Facility Management Section (NEW) */}
-            <div className="mb-8">
-                 <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
-                    <i className="fas fa-hard-hat text-orange-500"></i> Facility & Safety Management
-                 </h3>
-                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                     {safetyItems.map(item => (
-                         <button 
-                             key={item.id}
-                             onClick={() => navigate(item.path)}
-                             className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-row items-center gap-4 transition-all hover:shadow-md hover:-translate-y-1 group relative overflow-hidden text-left"
-                         >
-                            <div className={`w-12 h-12 ${item.color} rounded-xl flex items-center justify-center text-white text-xl shadow-lg`}>
-                                <i className={`fas ${item.icon}`}></i>
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-slate-700 text-lg">{item.title}</h3>
-                                <p className="text-xs text-slate-400 font-bold uppercase">View Reports</p>
-                            </div>
-                         </button>
-                     ))}
-                 </div>
-            </div>
-            
-            {/* Logbooks Shortcut Section */}
-            <div className="mb-8">
-                 <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
-                    <i className="fas fa-book-medical text-indigo-500"></i> Department Logbooks
-                 </h3>
-                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                     {logbookItems.map(item => (
-                         <button 
-                             key={item.id}
-                             onClick={() => navigate(item.path)}
-                             className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center gap-3 transition-all hover:shadow-md hover:-translate-y-1 group relative overflow-hidden"
-                         >
-                            <div className={`absolute top-0 left-0 w-1 h-full ${item.color}`}></div>
-                            <div className={`w-12 h-12 ${item.color} rounded-xl flex items-center justify-center text-white text-xl shadow-lg`}>
-                                <i className={`fas ${item.icon}`}></i>
-                            </div>
-                            <h3 className="font-bold text-slate-700 text-sm">{item.title}</h3>
-                         </button>
-                     ))}
-                 </div>
             </div>
 
             {/* 2. Navigation Menu */}
@@ -571,13 +506,12 @@ const SupervisorDashboard: React.FC = () => {
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-center gap-1">
                                                     {p.role !== 'doctor' && (
-                                                    <div
-                                                        className={`w-2 h-2 rounded-full mr-1 ${
-                                                        p.isPresent ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
-                                                        }`}
-                                                    ></div>
-                                                    )}
-
+                                                        <div
+                                                            className={`w-2 h-2 rounded-full mr-1 ${
+                                                            p.isPresent ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
+                                                            }`}
+                                                        ></div>
+                                                        )}
                                                     <span className={`font-bold text-xs truncate max-w-[100px] ${p.role === 'doctor' ? 'text-cyan-900' : 'text-slate-700'}`}>
                                                         {p.name}
                                                     </span>
@@ -595,17 +529,19 @@ const SupervisorDashboard: React.FC = () => {
                                                     {p.time}
                                                 </div>
                                                 {/* VISIBLE STATUS INDICATOR */}
-                                                {p.isPresent ? (
-                                                    <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
+                                                {p.role !== 'doctor' && (
+                                                    p.isPresent ? (
+                                                        <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
                                                         <i className="fas fa-check-circle text-[8px]"></i> {t('status.in')}
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
                                                         {t('status.notyet')}
-                                                    </span>
-                                                )}
+                                                        </span>
+                                                    )
+                                                    )}
                                                 {p.phone && (
-                                                    <a 
+                                                     <a 
                                                         href={`tel:${p.phone}`}
                                                         className="ml-1 w-5 h-5 flex items-center justify-center rounded-full bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors shadow-sm"
                                                         title={t('dash.call')}

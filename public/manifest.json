@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Smart Employee Bridge",
+  "version": "2.0",
+  "description": "Auto-sync patient data from Hospital System (IHMS) to Smart Employee App.",
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "smart-bridge.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start"
+    }
+  ]
+}

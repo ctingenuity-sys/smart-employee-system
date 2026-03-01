@@ -2,8 +2,8 @@
 import React, { useState } from 'react';
 import { db } from '../firebase';
 // @ts-ignore
-import { collection, query, where, getDocs, writeBatch, Timestamp, limit, addDoc } from 'firebase/firestore';
-import { supabase } from '../supabaseClient'; // Import Supabase
+import { collection, query, where, getDocs, writeBatch, Timestamp, limit, addDoc, doc } from 'firebase/firestore';
+import { appointmentsDb } from '../firebaseAppointments';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
 // @ts-ignore
@@ -34,7 +34,7 @@ const DataArchiver: React.FC = () => {
         'schedules': 'Firebase: الجداول القديمة (Schedules)',
         'swapRequests': 'Firebase: طلبات التبديل (Swaps)',
         'leaveRequests': 'Firebase: طلبات الإجازة (Leaves)',
-        'supabase_appointments': 'Supabase: المواعيد والسجلات (Appointments)' // Added Supabase
+        'appointments': 'Appointments: المواعيد والسجلات (Appointments)' // Added Appointments
     };
 
     // --- Archiving Logic ---
@@ -47,13 +47,13 @@ const DataArchiver: React.FC = () => {
             let dataToExport: any[] = [];
             let deletedCount = 0;
 
-            // --- SUPABASE LOGIC ---
-            if (targetCollection === 'supabase_appointments') {
+            // --- APPOINTMENTS LOGIC ---
+            if (targetCollection === 'appointments') {
                 // 1. Fetch
-                const { data, error } = await supabase
-                    .from('appointments')
-                    .select('*')
-                    .lt('date', archiveDate); // Assuming 'date' is YYYY-MM-DD
+                const qData = query(collection(appointmentsDb, 'appointments'), where('date', '<', archiveDate));
+                const dataSnap = await getDocs(qData);
+                const data = dataSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                const error = null;
 
                 if (error) throw error;
                 if (!data || data.length === 0) {
@@ -100,15 +100,16 @@ const DataArchiver: React.FC = () => {
                     });
                 }
                 
-                // 2. Delete (Requires RLS Policy allowing delete)
-                const idsToDelete = data.map((d: any) => d.id);
-                const { error: delError } = await supabase
-                    .from('appointments')
-                    .delete()
-                    .in('id', idsToDelete);
+                // 2. Delete
+                const batch = writeBatch(appointmentsDb);
+                data.forEach((d: any) => {
+                    batch.delete(doc(appointmentsDb, 'appointments', d.id));
+                });
+                await batch.commit();
+                const delError = null;
                 
                 if (delError) throw delError;
-                deletedCount = idsToDelete.length;
+                deletedCount = data.length;
 
             } else {
                 // --- FIREBASE LOGIC ---

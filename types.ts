@@ -239,6 +239,8 @@ export interface Appointment {
   createdByName: string;
   performedBy?: string; // NEW: User ID who did the exam
   performedByName?: string; // NEW: Name of user who did the exam
+  startedBy?: string; // NEW: User ID who started the exam
+  startedByName?: string; // NEW: Name of user who started the exam
   createdAt: any;
   scheduledDate?: string; // For bookings
   refNo?: string; // Unique Reference for deduplication

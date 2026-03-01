@@ -9,7 +9,8 @@ import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../supabaseClient';
+import { appointmentsDb } from '../firebaseAppointments';
+import {  getCountFromServer } from 'firebase/firestore';
 
 // Helper for safe dates
 const safeDate = (val: any) => {
@@ -80,11 +81,10 @@ const UserProfile: React.FC = () => {
         // Get Patients Count from Supabase
         const fetchPatientCount = async () => {
             try {
-                const { count, error } = await supabase
-                    .from('appointments')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('performedBy', currentUserId)
-                    .eq('status', 'done');
+                const qCount = query(collection(appointmentsDb, 'appointments'), where('performedBy', '==', currentUserId), where('status', '==', 'done'));
+                const countSnap = await getCountFromServer(qCount);
+                const count = countSnap.data().count;
+                const error = null;
 
                 if (error) throw error;
                 setPatientsCount(count || 0);

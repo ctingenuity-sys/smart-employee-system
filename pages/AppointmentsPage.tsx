@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { auth, db } from '../firebase';
+import { appointmentsDb } from '../firebaseAppointments';
 // @ts-ignore
 import { 
     doc, getDoc, setDoc, updateDoc, deleteDoc, 
@@ -14,6 +15,7 @@ import Modal from '../components/Modal';
 import { useLanguage } from '../contexts/LanguageContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
+import { localAppointmentService } from '../services/localAppointmentService';
 
 // Helper for Safe Vibration
 const safeVibrate = (pattern: number | number[]) => {
@@ -39,6 +41,10 @@ const MODALITIES = [
         border: 'border-blue-200', 
         keywords: ['MRI', 'MR ', 'MAGNETIC', 'M.R.I', 'رنين', 'مغناطيسي'],
         instructionImage: 'https://forms.gle/reVThvP19PygkGwbA',
+        defaultPrep: `• Remove all metal objects (jewelry, watches, etc).
+• Inform staff of any implants or pacemaker.
+• إزالة جميع المعادن والمجوهرات.
+• إبلاغ الطاقم عن أي مزروعات معدنية أو منظم ضربات القلب.`
     },
     { 
         id: 'CT', 
@@ -48,7 +54,10 @@ const MODALITIES = [
         border: 'border-emerald-200', 
         keywords: ['C.T.', 'CT ', 'COMPUTED', 'CAT ', 'MDCT', 'مقطعية', 'أشعة مقطعية'],
         instructionImage: "https://forms.gle/QmxviSZU6me8iHmR6",
-
+        defaultPrep: `• Fasting for 4-6 hours if contrast is needed.
+• Bring kidney function test results (Creatinine).
+• صيام 4-6 ساعات في حال الحاجة لصبغة.
+• إحضار تحليل وظائف الكلى.`
     },
     { 
         id: 'US', 
@@ -57,7 +66,10 @@ const MODALITIES = [
         color: 'text-indigo-600 bg-indigo-50', 
         border: 'border-indigo-200', 
         keywords: ['US', 'U.S', 'ULTRASOUND', 'SONO', 'DOPPLER', 'ECHO', 'DUPLEX', 'تلفزيونية', 'سونار'],
-
+        defaultPrep: `• Abdomen: Fasting for 6-8 hours.
+• Pelvis: Drink water and hold bladder (full bladder).
+• البطن: صيام 6-8 ساعات.
+• الحوض: شرب الماء وحبس البول (مثانة ممتلئة).`
     },
     { 
         id: 'X-RAY', 
@@ -242,6 +254,19 @@ const AppointmentsPage: React.FC = () => {
     const [isArchiveView, setIsArchiveView] = useState(false);
     const [archiveFileName, setArchiveFileName] = useState('');
     
+    // --- NEW: Local Network Mode (Independent DB) ---
+    const [isLocalNetworkMode, setIsLocalNetworkMode] = useState(() => {
+        return localStorage.getItem('appt_mode') === 'local_network';
+    });
+
+    const toggleNetworkMode = () => {
+        const newMode = !isLocalNetworkMode;
+        setIsLocalNetworkMode(newMode);
+        localStorage.setItem('appt_mode', newMode ? 'local_network' : 'cloud');
+        setRefreshTrigger(prev => prev + 1);
+        setToast({ msg: newMode ? 'تم التحويل للوضع المحلي (شبكة داخلية)' : 'تم التحويل للوضع السحابي (Firebase)', type: 'info' });
+    };
+    
     // REMOVED: isLocalMode state. We now default to "Local Only" for incoming bridge data.
     // The user requested: "I want pulling data to be local only... and no toggle button".
     
@@ -266,7 +291,24 @@ const AppointmentsPage: React.FC = () => {
     const [manualJsonInput, setManualJsonInput] = useState('');
 
     const currentUserId = auth.currentUser?.uid;
-    const currentUserName = localStorage.getItem('username') || 'User';
+    // const currentUserName = localStorage.getItem('username') || 'User'; // OLD
+    const [currentUserName, setCurrentUserName] = useState(localStorage.getItem('username') || 'User');
+
+    // Fetch accurate user name on mount
+    useEffect(() => {
+        if (currentUserId) {
+            getDoc(doc(db, 'users', currentUserId)).then(snap => {
+                if (snap.exists()) {
+                    const data = snap.data();
+                    if (data.name && data.name !== currentUserName) {
+                        setCurrentUserName(data.name);
+                        localStorage.setItem('username', data.name);
+                    }
+                }
+            }).catch(err => console.error("Failed to fetch user name", err));
+        }
+    }, [currentUserId]);
+
     const isSupervisor = localStorage.getItem('role') === 'admin' || localStorage.getItem('role') === 'supervisor';
 
     useEffect(() => {
@@ -288,7 +330,9 @@ const AppointmentsPage: React.FC = () => {
     }, [activeView]);
 
     useEffect(() => {
-        const docRef = doc(db, 'system_settings', 'appointment_slots');
+        if (isLocalNetworkMode) return;
+
+        const docRef = doc(appointmentsDb, 'system_settings', 'appointment_slots');
         getDoc(docRef).then((docSnap) => {
             if (docSnap.exists()) {
                 setModalitySettings(docSnap.data() as Record<string, ModalitySettings>);
@@ -298,12 +342,14 @@ const AppointmentsPage: React.FC = () => {
                 }
             }
         }).catch((error) => {
-            console.error("Failed to sync settings", error);
+            console.warn("Could not sync settings from server, using defaults. Reason:", error.message);
         });
-    }, [isSupervisor, refreshTrigger]);
+    }, [isSupervisor, refreshTrigger, isLocalNetworkMode]);
 
     // --- DAILY ARCHIVE LOGIC (Yesterday's Data) ---
     useEffect(() => {
+        if (isLocalNetworkMode) return;
+
         const checkAndPurgeOldData = async () => {
             const LAST_DAILY_ARCHIVE = 'last_daily_archive_run';
             const lastRun = localStorage.getItem(LAST_DAILY_ARCHIVE);
@@ -319,7 +365,7 @@ const AppointmentsPage: React.FC = () => {
                     const yesterday = getYesterdayDate();
                     // Query ALL appointments for yesterday, regardless of status
                     const q = query(
-                        collection(db, 'appointments'), 
+                        collection(appointmentsDb, 'appointments'), 
                         where('date', '==', yesterday)
                         // REMOVED: where('status', '==', 'done') -> Now archives EVERYTHING
                     );
@@ -331,7 +377,7 @@ const AppointmentsPage: React.FC = () => {
                         
                         // 1. Save to Cloud Archive (Firestore Collection: daily_archives)
                         // Create a specific document for that day to avoid massive collections
-                        await setDoc(doc(db, 'daily_archives', yesterday), {
+                        await setDoc(doc(appointmentsDb, 'daily_archives', yesterday), {
                             archivedAt: Timestamp.now(),
                             archiveDate: yesterday,
                             recordCount: snapshot.size,
@@ -340,7 +386,7 @@ const AppointmentsPage: React.FC = () => {
                         });
 
                         // 2. Delete from Active Collection (Batch)
-                        const batch = writeBatch(db);
+                        const batch = writeBatch(appointmentsDb);
                         snapshot.docs.forEach(doc => batch.delete(doc.ref));
                         await batch.commit();
 
@@ -375,6 +421,50 @@ const AppointmentsPage: React.FC = () => {
             setPreparationText(def);
         }
     }, [examType, modalitySettings]);
+
+    // --- CACHE HELPERS ---
+    const getCacheKey = (view: string, date: string) => `appt_cache_${view}_${date}`;
+
+    const checkExistsInAnyCache = (id: string, date: string) => {
+        const views = ['pending', 'processing', 'done', 'scheduled'];
+        for (const v of views) {
+            try {
+                const cacheKey = getCacheKey(v, date);
+                const cached = localStorage.getItem(cacheKey);
+                if (cached) {
+                    const list = JSON.parse(cached);
+                    if (Array.isArray(list) && list.some((a: any) => a.id === id)) {
+                        return true;
+                    }
+                }
+            } catch (e) {
+                console.warn("Cache check error", e);
+            }
+        }
+        return false;
+    };
+
+    const updateSpecificCache = (view: string, date: string, action: 'add' | 'remove' | 'update', appt: ExtendedAppointment) => {
+        try {
+            const key = getCacheKey(view, date);
+            const cached = localStorage.getItem(key);
+            let list: ExtendedAppointment[] = cached ? JSON.parse(cached) : [];
+
+            if (action === 'remove') {
+                list = list.filter(a => a.id !== appt.id);
+            } else if (action === 'add') {
+                if (!list.some(a => a.id === appt.id)) {
+                    list.push(appt);
+                }
+            } else if (action === 'update') {
+                list = list.map(a => a.id === appt.id ? appt : a);
+            }
+
+            localStorage.setItem(key, JSON.stringify(list));
+        } catch (e) {
+            console.error("Failed to update cache", e);
+        }
+    };
 
     // --- SHARED DATA PROCESSOR ---
     const processIncomingData = async (rawPayload: any) => {
@@ -411,7 +501,8 @@ const AppointmentsPage: React.FC = () => {
                         return mod.id;
                     }
                 }
-                return 'OTHER';
+                // Default 'OTHER' (General) to 'X-RAY' (X-Ray & General)
+                return 'X-RAY'; 
             };
             const cleanTime = (t: any) => (t ? String(t).trim().substring(0, 5) : '00:00');
             const cleanDate = (d: any) => (d ? String(d).split('T')[0] : getLocalToday());
@@ -495,27 +586,49 @@ const AppointmentsPage: React.FC = () => {
                 }
             });
 
-            // OPTIMIZATION: Deduplicate against current state to prevent wasted writes
-            const currentDataMap = new Map(appointmentsRef.current.map(a => [a.id, a]));
-            
-            // ALWAYS LOCAL MODE: Update State Only, NO DB Writes for incoming bridge data
-            let newRecordsCount = 0;
+            // OPTIMIZATION: Deduplicate against current state AND all local caches
             const updatedList = [...appointmentsRef.current];
+            let newRecordsCount = 0;
 
-            Array.from(uniqueRecordsMap.values()).forEach(record => {
+            for (const record of Array.from(uniqueRecordsMap.values())) {
+                // 1. Check if currently loaded
                 const existingIndex = updatedList.findIndex(a => a.id === record.id);
-                if (existingIndex === -1) {
-                    updatedList.push(record);
-                    newRecordsCount++;
+                
+                // 2. Check if exists in ANY cache (Pending, Processing, Done) to prevent status overwrite
+                const existsInCache = checkExistsInAnyCache(record.id, record.date);
+
+                if (existingIndex === -1 && !existsInCache) {
+                    try {
+                        // Save to Firestore (appointmentsDb) directly
+                        const docRef = doc(appointmentsDb, 'appointments', record.id);
+                        // Remove isLocal flag before saving
+                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                        const { isLocal, ...recordToSave } = record;
+                        await setDoc(docRef, recordToSave);
+                        
+                        // Update local state immediately (Optimistic UI)
+                        // Only add to list if we are in 'pending' view, otherwise just save to DB
+                        if (activeView === 'pending') {
+                            updatedList.push(record);
+                        }
+                        
+                        // Always update pending cache
+                        updateSpecificCache('pending', record.date, 'add', record as ExtendedAppointment);
+
+                        newRecordsCount++;
+                    } catch (err) {
+                        console.error("Failed to save record to Firestore", err);
+                    }
                 }
-                // If exists, we generally don't overwrite in local mode to preserve user changes
-            });
+            }
 
             if (newRecordsCount > 0) {
-                setAppointments(updatedList);
+                if (activeView === 'pending') {
+                    setAppointments(updatedList);
+                }
                 setLastSyncTime(new Date());
                 safeVibrate([100, 50, 100]);
-                setToast({ msg: `تم جلب ${newRecordsCount} سجلات محلياً (بدون قاعدة بيانات) 📥`, type: 'info' });
+                setToast({ msg: `تم جلب ${newRecordsCount} سجلات وحفظها في قاعدة البيانات 📥`, type: 'info' });
             }
 
         } catch (e) {
@@ -536,107 +649,93 @@ const AppointmentsPage: React.FC = () => {
         return () => window.removeEventListener('message', handleMessage);
     }, [selectedDate]); 
 
-    // --- FIREBASE REALTIME LISTENER WITH OPTIMIZED QUERY ---
+    const lastRefreshTrigger = useRef(refreshTrigger);
+
+    // --- FIREBASE / LOCAL DB LISTENER ---
     useEffect(() => {
         // If in Archive Mode, DO NOT LISTEN TO LIVE DATA
         if (isArchiveView) return;
 
         setLoading(true);
 
-        const fetchAndSubscribe = () => {
-            const collectionRef = collection(db, 'appointments');
+        const fetchAndSubscribe = async () => {
             const today = getLocalToday();
+            const targetDate = selectedDate || today;
+            const cacheKey = `appt_cache_${activeView}_${targetDate}`;
             
-            // Basic Constraints
-            const constraints: any[] = [];
+            // Check if this is a manual refresh
+            const isManualRefresh = refreshTrigger !== lastRefreshTrigger.current;
+            lastRefreshTrigger.current = refreshTrigger;
 
-            // 1. Status Filter
-            constraints.push(where('status', '==', activeView));
-
-            // 2. Date Filter
-            if (activeView === 'scheduled') {
-                const targetDate = selectedDate || today;
-                if (enableDateFilter) {
-                    constraints.push(where('scheduledDate', '==', targetDate));
-                } else {
-                    constraints.push(where('scheduledDate', '>=', today));
+            // 1. Try Local Cache First (Only if NOT a manual refresh)
+            if (!isManualRefresh) {
+                try {
+                    const cachedData = localStorage.getItem(cacheKey);
+                    if (cachedData) {
+                        const parsed = JSON.parse(cachedData);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            console.log(`Loaded ${parsed.length} records from local cache (${activeView})`);
+                            setAppointments(parsed);
+                            setLoading(false);
+                            return; 
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Cache read error", e);
                 }
-            } else if (activeView === 'done') {
-                 const targetDate = selectedDate || today;
-                 constraints.push(where('date', '==', targetDate));
             } else {
-                // Pending or Processing
-                const targetDate = selectedDate || today;
-                constraints.push(where('date', '==', targetDate));
+                console.log("Manual Refresh: Bypassing Cache");
+                setToast({ msg: 'جاري تحديث البيانات...', type: 'info' });
             }
 
-            // 3. Modality Filter (Server-Side Optimization)
-            if (activeModality !== 'ALL') {
-                if (activeModality === 'X-RAY') {
-                    // Requires "in" query support or individual indexes
-                    constraints.push(where('examType', 'in', ['X-RAY', 'XRAY', 'OTHER']));
-                } else {
-                    constraints.push(where('examType', '==', activeModality));
+            // 2. If No Cache or Manual Refresh, Fetch from Firestore
+            try {
+                const collectionRef = collection(appointmentsDb, 'appointments');
+                
+                // Basic Constraints
+                const constraints: any[] = [];
+
+                // Status Filter
+                constraints.push(where('status', '==', activeView));
+
+                // Date Filter
+                if (activeView === 'scheduled') {
+                    if (enableDateFilter) {
+                        constraints.push(where('scheduledDate', '==', targetDate));
+                    } else {
+                        constraints.push(where('scheduledDate', '>=', today));
+                    }
+                } else if (activeView === 'done' || activeView === 'processing' || activeView === 'pending') {
+                    // For pending, we also filter by date to keep cache manageable and relevant
+                    constraints.push(where('date', '==', targetDate));
                 }
-            }
 
-            // 4. Order By
-            // Firestore requires the first orderBy to match the inequality filter. 
-            // If using 'scheduledDate >=' (range), must order by 'scheduledDate'.
-            if (activeView === 'scheduled') {
-                constraints.push(orderBy('scheduledDate', 'asc'));
-                constraints.push(orderBy('time', 'asc'));
-            } else {
-                constraints.push(orderBy('time', 'desc'));
-            }
-            
-            // 5. Limit for Pagination (Performance Optimization)
-            constraints.push(limit(50));
+                // Create Query
+                const q = query(collectionRef, ...constraints);
 
-            // Create Query
-            const q = query(collectionRef, ...constraints);
-
-            getDocs(q).then((snapshot) => {
+                const snapshot = await getDocs(q);
                 const fetchedApps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ExtendedAppointment));
                 
-                if (activeView === 'pending') {
-                    // MERGE STRATEGY:
-                    // Keep existing LOCAL items (isLocal: true).
-                    // Replace/Add DB items.
-                    setAppointments(prev => {
-                        const mergedMap = new Map<string, ExtendedAppointment>();
-                        
-                        // 1. Add existing LOCAL items
-                        prev.forEach(p => {
-                            if (p.isLocal) mergedMap.set(p.id, p);
-                        });
-
-                        // 2. Add/Overwrite with DB items
-                        fetchedApps.forEach(f => {
-                            mergedMap.set(f.id, f);
-                        });
-
-                        return Array.from(mergedMap.values());
-                    });
-                } else {
-                    setAppointments(fetchedApps);
+                setAppointments(fetchedApps);
+                
+                // 3. Save to Cache
+                try {
+                    localStorage.setItem(cacheKey, JSON.stringify(fetchedApps));
+                } catch (e) {
+                    console.warn("Cache write error", e);
                 }
-                setLoading(false);
-            }).catch((error) => {
+
+            } catch (error) {
                 console.error("Firebase Fetch Error:", error);
-                // Don't show error toast for pending view if it's just empty or index issue, as we have local data
-                if (activeView !== 'pending') {
-                    setToast({msg: "يرجى التحقق من اتصال الإنترنت أو الفلاتر", type: 'error'});
-                }
+                setToast({msg: "يرجى التحقق من اتصال الإنترنت", type: 'error'});
+            } finally {
                 setLoading(false);
-            });
-            
-            return () => {}; // No unsubscribe needed for getDocs
+            }
         };
 
         fetchAndSubscribe();
 
-    }, [selectedDate, activeView, enableDateFilter, activeModality, isArchiveView, refreshTrigger]);
+    }, [selectedDate, activeView, enableDateFilter, isArchiveView, refreshTrigger]);
     
     // --- Client Side Filtering (Fallback/Refinement) ---
     const filteredAppointments = useMemo(() => {
@@ -721,25 +820,25 @@ const AppointmentsPage: React.FC = () => {
             let q;
             if (typeKey !== 'ALL') {
                 if (typeKey === 'X-RAY') {
-                     q = query(collection(db, 'appointments'), where('status', '==', 'scheduled'), where('scheduledDate', '==', selectedDate), where('examType', 'in', ['X-RAY', 'XRAY', 'OTHER']));
+                     q = query(collection(appointmentsDb, 'appointments'), where('status', '==', 'scheduled'), where('scheduledDate', '==', selectedDate), where('examType', 'in', ['X-RAY', 'XRAY', 'OTHER']));
                 } else {
-                     q = query(collection(db, 'appointments'), where('status', '==', 'scheduled'), where('scheduledDate', '==', selectedDate), where('examType', '==', typeKey));
+                     q = query(collection(appointmentsDb, 'appointments'), where('status', '==', 'scheduled'), where('scheduledDate', '==', selectedDate), where('examType', '==', typeKey));
                 }
             } else {
-                q = query(collection(db, 'appointments'), where('status', '==', 'scheduled'), where('scheduledDate', '==', selectedDate));
+                q = query(collection(appointmentsDb, 'appointments'), where('status', '==', 'scheduled'), where('scheduledDate', '==', selectedDate));
             }
             
-            // Use aggregation query to save reads
+            // Use getDocs instead of getCountFromServer to avoid aggregation query quota limits
             try {
-                const snapshot = await getCountFromServer(q);
-                setCurrentBookedCount(snapshot.data().count);
+                const snapshot = await getDocs(q);
+                setCurrentBookedCount(snapshot.size);
             } catch (e) {
                 console.error("Count Error:", e);
             }
         };
 
         fetchBookedCount();
-    }, [selectedDate, activeModality, isArchiveView]);
+    }, [selectedDate, activeModality, isArchiveView, modalitySettings]);
 
 
     // --- ACTIONS ---
@@ -755,15 +854,17 @@ const AppointmentsPage: React.FC = () => {
                 completedAt: new Date().toISOString()
             };
 
-            if (appt.isLocal) {
+            if (isLocalNetworkMode) {
+                await localAppointmentService.update(appt.id, updateData as any);
+            } else if (appt.isLocal) {
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const { isLocal, ...dbRecord } = appt;
-                await setDoc(doc(db, 'appointments', appt.id), {
+                await setDoc(doc(appointmentsDb, 'appointments', appt.id), {
                     ...dbRecord,
                     ...updateData
                 });
             } else {
-                await updateDoc(doc(db, 'appointments', appt.id), updateData);
+                await updateDoc(doc(appointmentsDb, 'appointments', appt.id), updateData);
             }
 
             setToast({ msg: `تم إنجاز ${appt.patientName} ✅`, type: 'success' });
@@ -780,10 +881,12 @@ const AppointmentsPage: React.FC = () => {
         if(!confirm(t('confirm') + '?')) return;
         try {
             setAppointments(prev => prev.filter(a => a.id !== id));
-            // If it's in local list but not in DB (isLocal), deleteDoc might fail or be unnecessary
-            // But we don't have the object here, only ID. 
-            // We'll try deleteDoc, if it fails (not found), it's fine.
-            await deleteDoc(doc(db, 'appointments', id)).catch(() => {}); 
+            
+            if (activeView === 'pending') {
+                await localAppointmentService.delete(id);
+            } else {
+                await deleteDoc(doc(appointmentsDb, 'appointments', id)).catch(() => {}); 
+            }
             setToast({ msg: t('delete'), type: 'success' });
         } catch(e) { console.error(e); }
     };
@@ -792,20 +895,26 @@ const AppointmentsPage: React.FC = () => {
     if (isArchiveView) return;
     if (!confirm(t('appt.confirmCancel'))) return;
         try {
-            if (appt.isLocal) {
-                 // In Local Mode, keep in state but change status to 'pending'
-                 setAppointments(prev => prev.map(a => 
-                     a.id === appt.id ? { ...a, status: 'pending', notes: appt.notes ? appt.notes + '\\n[Cancelled]' : '[Cancelled]' } : a
-                 ));
-            } else {
-                setAppointments(prev => prev.filter(a => a.id !== appt.id));
-                await updateDoc(doc(db, 'appointments', appt.id), {
-                    status: 'pending',
-                    scheduledDate: null,
-                    time: null,
-                    notes: appt.notes ? appt.notes + '\\n[System]: Appointment Cancelled' : '[System]: Appointment Cancelled'
-                });
-            }
+            setAppointments(prev => prev.filter(a => a.id !== appt.id));
+
+            const cancelData = {
+                status: 'pending',
+                scheduledDate: null,
+                time: null,
+                notes: appt.notes ? appt.notes + '\\n[System]: Appointment Cancelled' : '[System]: Appointment Cancelled'
+            };
+
+            // Move from Firebase (scheduled) back to Local DB (pending)
+            // 1. Delete from Firebase
+            await deleteDoc(doc(appointmentsDb, 'appointments', appt.id)).catch(() => {});
+            
+            // 2. Create in Local DB
+            await localAppointmentService.create({
+                ...appt,
+                ...cancelData,
+                isLocal: true
+            } as any);
+
             setToast({ msg: t('appt.toast.cancelled'), type: 'success' });
         } catch (e) {
             console.error(e);
@@ -866,7 +975,7 @@ const AppointmentsPage: React.FC = () => {
         if (type === 'X-RAY' || type === 'OTHER') return true;
         
         const q = query(
-            collection(db, 'appointments'),
+            collection(appointmentsDb, 'appointments'),
             where('scheduledDate', '==', date),
             where('time', '==', time),
             where('examType', '==', type),
@@ -900,7 +1009,9 @@ const AppointmentsPage: React.FC = () => {
             // Save Settings (Optimistic Update)
             setModalitySettings(settings);
             // Fire and forget settings update to DB to speed up UI
-            updateDoc(doc(db, 'system_settings', 'appointment_slots'), settings).catch(e => console.error("Settings save failed", e));
+            if (!isLocalNetworkMode) {
+                updateDoc(doc(appointmentsDb, 'system_settings', 'appointment_slots'), settings).catch(e => console.error("Settings save failed", e));
+            }
 
             const updateData = {
                 status: 'processing',
@@ -911,31 +1022,38 @@ const AppointmentsPage: React.FC = () => {
             };
 
             // If Local Mode, we must CREATE the document in Firestore first
-            if (appt.isLocal) {
+            if (isLocalNetworkMode) {
+                await localAppointmentService.update(appt.id, updateData as any);
+            } else if (appt.isLocal) {
                 // Remove isLocal flag before saving
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const { isLocal, ...dbRecord } = appt;
                 
-                await setDoc(doc(db, 'appointments', appt.id), {
+                await setDoc(doc(appointmentsDb, 'appointments', appt.id), {
                     ...dbRecord,
                     ...updateData
                 });
             } else {
                 // Standard Update
-                await updateDoc(doc(db, 'appointments', appt.id), updateData);
+                await updateDoc(doc(appointmentsDb, 'appointments', appt.id), updateData);
             }
 
             // Update Local State immediately
             setAppointments(prev => prev.map(a => 
                 a.id === appt.id 
-                ? { ...a, ...updateData } 
+                ? { ...a, ...updateData } as ExtendedAppointment
                 : a
             ));
+
+            // --- CACHE UPDATE: Move from Pending to Processing ---
+            const today = getLocalToday();
+            updateSpecificCache('pending', today, 'remove', appt);
+            updateSpecificCache('processing', today, 'add', { ...appt, ...updateData } as ExtendedAppointment);
 
             setCurrentRegNo(regNo);
             setIsRegModalOpen(true);
             safeVibrate(200);
-            setToast({ msg: t('appt.startSuccess'), type: 'success' });
+            setToast({ msg: t('appt.toast.started'), type: 'success' });
 
         } catch (e: any) {
             console.error(e);
@@ -961,12 +1079,25 @@ const AppointmentsPage: React.FC = () => {
         try {
             setAppointments(prev => prev.filter(a => a.id !== finishingAppt.id));
 
-            await updateDoc(doc(db, 'appointments', finishingAppt.id), {
+            const finishData = {
                 status: 'done',
                 completedAt: new Date().toISOString(),
                 isPanic: isPanic,
-                panicDetails: isPanic ? panicDescription : null
-            });
+                panicDetails: isPanic ? panicDescription : null,
+                performedBy: currentUserId,
+                performedByName: currentUserName
+            };
+
+            if (isLocalNetworkMode) {
+                await localAppointmentService.update(finishingAppt.id, finishData as any);
+            } else {
+                await updateDoc(doc(appointmentsDb, 'appointments', finishingAppt.id), finishData);
+            }
+
+            // --- CACHE UPDATE: Move from Processing to Done ---
+            const today = getLocalToday();
+            updateSpecificCache('processing', today, 'remove', finishingAppt);
+            updateSpecificCache('done', today, 'add', { ...finishingAppt, ...finishData } as ExtendedAppointment);
 
             setToast({ 
                 msg: isPanic ? t('appt.toast.panic') : t('appt.toast.finish'), 
@@ -1014,13 +1145,13 @@ const AppointmentsPage: React.FC = () => {
 
                 let q;
                 if (typeKey === 'X-RAY') {
-                    q = query(collection(db, 'appointments'), where('status', '==', 'scheduled'), where('scheduledDate', '==', bookingDate), where('examType', 'in', ['X-RAY', 'XRAY', 'OTHER']));
+                    q = query(collection(appointmentsDb, 'appointments'), where('status', '==', 'scheduled'), where('scheduledDate', '==', bookingDate), where('examType', 'in', ['X-RAY', 'XRAY', 'OTHER']));
                 } else {
-                    q = query(collection(db, 'appointments'), where('status', '==', 'scheduled'), where('scheduledDate', '==', bookingDate), where('examType', '==', typeKey));
+                    q = query(collection(appointmentsDb, 'appointments'), where('status', '==', 'scheduled'), where('scheduledDate', '==', bookingDate), where('examType', '==', typeKey));
                 }
 
-                const snap = await getCountFromServer(q);
-                const currentCount = snap.data().count;
+                const snap = await getDocs(q);
+                const currentCount = snap.size;
                 
                 const settings = modalitySettings[typeKey] || DEFAULT_SETTINGS['OTHER'];
                 const limit = settings.limit;
@@ -1040,7 +1171,7 @@ const AppointmentsPage: React.FC = () => {
                     setIsDayLimitReached(false);
                     if (definedSlots.length > 0) {
                         // We need the times to filter slots
-                        const timeQuery = query(collection(db, 'appointments'), where('status', '==', 'scheduled'), where('scheduledDate', '==', bookingDate));
+                        const timeQuery = query(collection(appointmentsDb, 'appointments'), where('status', '==', 'scheduled'), where('scheduledDate', '==', bookingDate));
                         const timeSnap = await getDocs(timeQuery);
                         const bookedTimes = timeSnap.docs.map(d => (d.data() as any).time);
                         const free = definedSlots.filter(s => !bookedTimes.includes(s));
@@ -1068,13 +1199,25 @@ const AppointmentsPage: React.FC = () => {
         try {
             setAppointments(prev => prev.filter(a => a.id !== bookingAppt.id));
 
-            await updateDoc(doc(db, 'appointments', bookingAppt.id), {
+            const updateData = {
                 status: 'scheduled',
                 scheduledDate: bookingDate,
-                time: bookingTime || '08:00', 
-                roomNumber: bookingRoom, 
-                preparation: bookingPrep, 
+                time: bookingTime || '08:00',
+                roomNumber: bookingRoom,
+                preparation: bookingPrep,
                 notes: `${bookingAppt.notes || ''}\n📅 Booked: ${bookingDate} ${bookingTime}`
+            };
+
+            // Move from Local DB (pending) to Firebase (scheduled)
+            // 1. Delete from Local
+            await localAppointmentService.delete(bookingAppt.id).catch(() => {});
+            
+            // 2. Create in Firebase
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { isLocal, ...dbRecord } = bookingAppt;
+            await setDoc(doc(appointmentsDb, 'appointments', bookingAppt.id), {
+                ...dbRecord,
+                ...updateData
             });
 
             setBookedTicketId(bookingAppt.id);
@@ -1098,13 +1241,27 @@ const AppointmentsPage: React.FC = () => {
         }
         try {
             setAppointments(prev => prev.filter(a => a.id !== appt.id));
-            await updateDoc(doc(db, 'appointments', appt.id), {
+            
+            const undoData = {
                 status: 'pending',
                 performedBy: null,
                 performedByName: null,
                 completedAt: null,
-                isPanic: false
-            });
+                isPanic: false,
+                scheduledDate: null,
+                time: null
+            };
+
+            // Move from Firebase (scheduled/processing/done) back to Local DB (pending)
+            // 1. Delete from Firebase
+            await deleteDoc(doc(appointmentsDb, 'appointments', appt.id)).catch(() => {});
+            
+            // 2. Create in Local DB
+            await localAppointmentService.create({
+                ...appt,
+                ...undoData,
+                isLocal: true
+            } as any);
 
             setToast({ msg: t('appt.confirmCancel'), type: 'info' });
         } catch(e) { console.error(e); }
@@ -1159,14 +1316,15 @@ const AppointmentsPage: React.FC = () => {
             let typeKey = examType;
             if (typeKey === 'OTHER' || typeKey === 'XRAY') typeKey = 'X-RAY';
 
+            let count = 0;
             const q = query(
-                collection(db, 'appointments'),
+                collection(appointmentsDb, 'appointments'),
                 where('status', '==', 'scheduled'),
                 where('scheduledDate', '==', manualDate),
                 typeKey === 'X-RAY' ? where('examType', 'in', ['X-RAY', 'XRAY', 'OTHER']) : where('examType', '==', typeKey)
             );
-            const snap = await getCountFromServer(q);
-            const count = snap.data().count;
+            const snap = await getDocs(q);
+            count = snap.size;
             
             const settings = modalitySettings[typeKey] || DEFAULT_SETTINGS['OTHER'];
             const limit = settings.limit;
@@ -1185,7 +1343,7 @@ const AppointmentsPage: React.FC = () => {
             const status = manualDate ? 'scheduled' : 'pending';
             const examList = specificExamName ? [specificExamName] : [examType];
 
-            await setDoc(doc(db, 'appointments', uniqueId), {
+            const newApptData: ExtendedAppointment = {
                 id: uniqueId,
                 patientName,
                 fileNumber,
@@ -1199,11 +1357,16 @@ const AppointmentsPage: React.FC = () => {
                 roomNumber: manualRoom,
                 notes,
                 preparation: preparationText, 
-                status: status,
+                status: status as any,
                 createdBy: currentUserId,
                 createdByName: currentUserName,
                 createdAt: new Date().toISOString()
-            });
+            };
+
+            await setDoc(doc(appointmentsDb, 'appointments', uniqueId), newApptData);
+            
+            // Optimistic update
+            setAppointments(prev => [...prev, newApptData]);
 
         setToast({ msg: t('appt.toast.addSuccess'), type: 'success' });
             setIsAddModalOpen(false);
@@ -1222,7 +1385,7 @@ const AppointmentsPage: React.FC = () => {
     const saveSettings = async (newSettings: Record<string, ModalitySettings>) => {
         setModalitySettings(newSettings); 
         try {
-            const docRef = doc(db, 'system_settings', 'appointment_slots');
+            const docRef = doc(appointmentsDb, 'system_settings', 'appointment_slots');
             await setDoc(docRef, newSettings); 
         } catch (e) {
             console.error("Error saving counter:", e);
@@ -1231,7 +1394,7 @@ const AppointmentsPage: React.FC = () => {
 
     const handleSaveSettings = async () => {
         try {
-            await setDoc(doc(db, 'system_settings', 'appointment_slots'), modalitySettings);
+            await setDoc(doc(appointmentsDb, 'system_settings', 'appointment_slots'), modalitySettings);
         setToast({ msg: t('appt.toast.settingsUpdated'), type: 'success' });
             setIsSettingsModalOpen(false);
         } catch (e) {
@@ -1316,7 +1479,7 @@ const AppointmentsPage: React.FC = () => {
             // Using query directly instead of getDocs first is better for Firestore reads
             // Query only what we need to minimize reads
             const q = query(
-                collection(db, 'appointments'),
+                collection(appointmentsDb, 'appointments'),
                 where('status', '==', 'done'),
                 where('completedAt', '>=', `${logStartDate}T00:00:00`),
                 where('completedAt', '<=', `${logEndDate}T23:59:59`),
@@ -1389,6 +1552,33 @@ const AppointmentsPage: React.FC = () => {
         );
     };
 
+    // --- STAFF STATISTICS ---
+    const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
+    
+    const staffStats = useMemo(() => {
+        const stats: Record<string, { name: string, started: number, completed: number }> = {};
+
+        appointments.forEach(appt => {
+            // Count Started
+            if (appt.startedBy && appt.startedByName) {
+                if (!stats[appt.startedBy]) {
+                    stats[appt.startedBy] = { name: appt.startedByName, started: 0, completed: 0 };
+                }
+                stats[appt.startedBy].started++;
+            }
+
+            // Count Completed
+            if (appt.performedBy && appt.performedByName) {
+                if (!stats[appt.performedBy]) {
+                    stats[appt.performedBy] = { name: appt.performedByName, started: 0, completed: 0 };
+                }
+                stats[appt.performedBy].completed++;
+            }
+        });
+
+        return Object.values(stats).sort((a, b) => b.completed - a.completed);
+    }, [appointments]);
+
     return (
         <div className="min-h-screen bg-slate-50 pb-20 font-sans" dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
@@ -1458,6 +1648,15 @@ const AppointmentsPage: React.FC = () => {
                             title="تحديث البيانات"
                         >
                             <i className={`fas fa-sync-alt ${loading ? 'animate-spin' : ''}`}></i>
+                        </button>
+                        
+                        {/* Stats Button */}
+                        <button 
+                            onClick={() => setIsStatsModalOpen(true)}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-lg transition-all"
+                            title="إحصائيات الموظفين"
+                        >
+                            <i className="fas fa-chart-pie"></i>
                         </button>
                     </div>
 
@@ -2201,6 +2400,54 @@ const AppointmentsPage: React.FC = () => {
                         </button>
                         <button onClick={() => setIsLogBookOpen(false)} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 cursor-pointer">
                             Close                        </button>
+                    </div>
+                </div>
+            </Modal>
+            {/* Staff Statistics Modal */}
+            <Modal isOpen={isStatsModalOpen} onClose={() => setIsStatsModalOpen(false)} title="إحصائيات الموظفين (Staff Statistics)">
+                <div className="p-4">
+                    <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 mb-4 text-xs text-indigo-800">
+                        <i className="fas fa-info-circle mr-2"></i>
+                        يتم حساب هذه الإحصائيات بناءً على البيانات المعروضة حالياً في القائمة.
+                    </div>
+
+                    <div className="overflow-x-auto rounded-lg border border-slate-200">
+                        <table className="w-full text-sm text-left rtl:text-right text-slate-600">
+                            <thead className="text-xs text-slate-700 uppercase bg-slate-100">
+                                <tr>
+                                    <th scope="col" className="px-6 py-3">الموظف (Staff Name)</th>
+                                    <th scope="col" className="px-6 py-3 text-center">بدأ (Started)</th>
+                                    <th scope="col" className="px-6 py-3 text-center">أنهى (Completed)</th>
+                                    <th scope="col" className="px-6 py-3 text-center">الإجمالي (Total)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {staffStats.length > 0 ? (
+                                    staffStats.map((stat, index) => (
+                                        <tr key={index} className="bg-white border-b hover:bg-slate-50">
+                                            <th scope="row" className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap">
+                                                {stat.name}
+                                            </th>
+                                            <td className="px-6 py-4 text-center text-amber-600 font-bold">
+                                                {stat.started}
+                                            </td>
+                                            <td className="px-6 py-4 text-center text-emerald-600 font-bold">
+                                                {stat.completed}
+                                            </td>
+                                            <td className="px-6 py-4 text-center text-slate-900 font-black">
+                                                {stat.started + stat.completed}
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan={4} className="px-6 py-8 text-center text-slate-400">
+                                            لا توجد بيانات متاحة (No Data Available)
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </Modal>

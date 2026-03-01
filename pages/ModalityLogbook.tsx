@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
+import { appointmentsDb } from '../firebaseAppointments';
 // @ts-ignore
 import { collection, query, where, getDocs, orderBy, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ExtendedAppointment } from '../types';
@@ -58,7 +58,7 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
             const queryStart = `${startDate}T00:00:00`;
             const queryEnd = `${endDate}T23:59:59`;
 
-            const collectionRef = collection(db, 'appointments');
+            const collectionRef = collection(appointmentsDb, 'appointments');
 
             // --- OPTIMIZED QUERY FOR MINIMAL READS ---
             // Fetch ONLY 'done' appointments for this specific modality within date range.
@@ -131,7 +131,7 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
 
     const fetchCounter = async () => {
         try {
-            const docRef = doc(db, 'system_settings', 'appointment_slots');
+            const docRef = doc(appointmentsDb, 'system_settings', 'appointment_slots');
             const snap = await getDoc(docRef);
             if (snap.exists()) {
                 const data = snap.data();
@@ -156,7 +156,7 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
         if (isNaN(val) || val < 0) return setToast({msg: 'Invalid Number', type: 'error'});
 
         try {
-            const docRef = doc(db, 'system_settings', 'appointment_slots');
+            const docRef = doc(appointmentsDb, 'system_settings', 'appointment_slots');
             await updateDoc(docRef, {
                 [`${type}.currentCounter`]: val
             });

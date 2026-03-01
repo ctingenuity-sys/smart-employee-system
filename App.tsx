@@ -1,9 +1,11 @@
-
 import React, { useEffect, useState, Suspense, createContext, useContext } from 'react';
 // @ts-ignore
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { auth, db } from './firebase';
 import Loading from './components/Loading';
+import ErrorBoundary from './components/ErrorBoundary';
+// @ts-ignore
+import ReloadPrompt from './components/ReloadPrompt';
 import { UserRole } from './types';
 import { LanguageProvider } from './contexts/LanguageContext';
 // @ts-ignore
@@ -21,8 +23,11 @@ const SupervisorMarket = React.lazy(() => import('./pages/supervisor/SupervisorM
 const SupervisorLocations = React.lazy(() => import('./pages/supervisor/SupervisorLocations'));
 const SupervisorHistory = React.lazy(() => import('./pages/supervisor/SupervisorHistory'));
 const SupervisorPerformance = React.lazy(() => import('./pages/supervisor/SupervisorPerformance'));
-const SupervisorRotation = React.lazy(() => import('./pages/supervisor/SupervisorRotation')); // NEW
+const SupervisorRotation = React.lazy(() => import('./pages/supervisor/SupervisorRotation'));
 const PanicReportsPage = React.lazy(() => import('./pages/supervisor/PanicReportsPage'));
+
+// NEW ADMIN PAGE
+const DepartmentsPage = React.lazy(() => import('./pages/admin/DepartmentsPage'));
 
 // NEW PAGES
 const DeviceInventory = React.lazy(() => import('./pages/supervisor/DeviceInventory'));
@@ -59,11 +64,12 @@ interface AuthContextType {
   user: any;
   role: string | null;
   userName: string;
+  departmentId?: string; // NEW
   loading: boolean;
   permissions: string[];
 }
 const AuthContext = createContext<AuthContextType>({ user: null, role: null, userName: '', loading: true, permissions: [] });
-const useAuth = () => useContext(AuthContext);
+export const useAuth = () => useContext(AuthContext);
 
 // --- Auth Provider ---
 const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -71,6 +77,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
+  const [departmentId, setDepartmentId] = useState<string|undefined>(undefined);
   const [permissions, setPermissions] = useState<string[]>([]);
 
   useEffect(() => {
@@ -94,7 +101,8 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
             
             setRole(userRole);
             setUserName(name);
-            setPermissions(data?.permissions || []); // Load permissions
+            setDepartmentId(data?.departmentId);
+            setPermissions(data?.permissions || []); 
             
             localStorage.setItem("role", userRole);
             localStorage.setItem("username", name);
@@ -111,6 +119,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
         setUser(null);
         setRole(null);
         setUserName('');
+        setDepartmentId(undefined);
         setPermissions([]);
         localStorage.removeItem("role");
         localStorage.removeItem("username");
@@ -129,7 +138,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     );
 
   return (
-      <AuthContext.Provider value={{ user, role, userName, loading, permissions }}>
+      <AuthContext.Provider value={{ user, role, userName, departmentId, loading, permissions }}>
           {children}
       </AuthContext.Provider>
   );
@@ -183,82 +192,88 @@ const AppRoutes: React.FC = () => {
 
   return (
     <Router>
-      <Routes>
-        {/* Public Routes */}
-        <Route path="/ticket/:id" element={<Suspense fallback={<Loading />}><PatientTicket /></Suspense>} />
+      <ErrorBoundary>
+        <ReloadPrompt />
+        <Routes>
+          {/* Public Routes */}
+          <Route path="/ticket/:id" element={<Suspense fallback={<Loading />}><PatientTicket /></Suspense>} />
 
-        <Route
-          path="/login"
-          element={
-            <Suspense fallback={<Loading />}>
-                {!user ? <Login /> : 
-                role === UserRole.DOCTOR ? <Navigate to="/doctor" replace /> :
-                (role === UserRole.USER ? <Navigate to="/user" replace /> : <Navigate to="/supervisor" replace />)
-                }
-            </Suspense>
-          }
-        />
+          <Route
+            path="/login"
+            element={
+              <Suspense fallback={<Loading />}>
+                  {!user ? <Login /> : 
+                  role === UserRole.DOCTOR ? <Navigate to="/doctor" replace /> :
+                  (role === UserRole.USER ? <Navigate to="/user" replace /> : <Navigate to="/supervisor" replace />)
+                  }
+              </Suspense>
+            }
+          />
 
-        {/* Supervisor Routes */}
-        <Route path="/supervisor" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorDashboard /></ProtectedRoute>} />
-        <Route path="/supervisor/attendance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorAttendance /></ProtectedRoute>} />
-        <Route path="/supervisor/employees" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorEmployees /></ProtectedRoute>} />
-        <Route path="/supervisor/swaps" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorSwaps /></ProtectedRoute>} />
-        <Route path="/supervisor/leaves" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorLeaves /></ProtectedRoute>} />
-        <Route path="/supervisor/market" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorMarket /></ProtectedRoute>} />
-        <Route path="/supervisor/locations" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorLocations /></ProtectedRoute>} />
-        <Route path="/supervisor/history" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorHistory /></ProtectedRoute>} />
-        <Route path="/supervisor/performance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorPerformance /></ProtectedRoute>} />
-        <Route path="/supervisor/panic-reports" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><PanicReportsPage /></ProtectedRoute>} />
-        <Route path="/supervisor/rotation" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorRotation /></ProtectedRoute>} />
-        
-        {/* NEW ROUTES FOR DEVICES, FMS, ROOMS */}
-        <Route path="/supervisor/devices" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><DeviceInventory /></ProtectedRoute>} />
-        <Route path="/supervisor/fms" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><FMSReports /></ProtectedRoute>} />
-        <Route path="/supervisor/rooms" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><RoomReports /></ProtectedRoute>} />
+          {/* Supervisor Routes */}
+          <Route path="/supervisor" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorDashboard /></ProtectedRoute>} />
+          <Route path="/supervisor/attendance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorAttendance /></ProtectedRoute>} />
+          <Route path="/supervisor/employees" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorEmployees /></ProtectedRoute>} />
+          <Route path="/supervisor/swaps" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorSwaps /></ProtectedRoute>} />
+          <Route path="/supervisor/leaves" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorLeaves /></ProtectedRoute>} />
+          <Route path="/supervisor/market" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorMarket /></ProtectedRoute>} />
+          <Route path="/supervisor/locations" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorLocations /></ProtectedRoute>} />
+          <Route path="/supervisor/history" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorHistory /></ProtectedRoute>} />
+          <Route path="/supervisor/performance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorPerformance /></ProtectedRoute>} />
+          <Route path="/supervisor/panic-reports" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><PanicReportsPage /></ProtectedRoute>} />
+          <Route path="/supervisor/rotation" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorRotation /></ProtectedRoute>} />
+          
+          {/* --- Departments Management (ADMIN ONLY) --- */}
+          <Route path="/admin/departments" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN]}><DepartmentsPage /></ProtectedRoute>} />
 
-        {/* NEW: Data Archiver Route */}
-        <Route path="/supervisor/archive" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><DataArchiver /></ProtectedRoute>} />
+          {/* NEW ROUTES FOR DEVICES, FMS, ROOMS */}
+          <Route path="/supervisor/devices" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><DeviceInventory /></ProtectedRoute>} />
+          <Route path="/supervisor/fms" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><FMSReports /></ProtectedRoute>} />
+          <Route path="/supervisor/rooms" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><RoomReports /></ProtectedRoute>} />
 
-        {/* --- MODALITY LOGBOOKS (New Pages) --- */}
-        <Route path="/logbook/mri" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ModalityLogbook type="MRI" title="MRI Department" colorTheme="blue" /></ProtectedRoute>} />
-        <Route path="/logbook/ct" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ModalityLogbook type="CT" title="CT Department" colorTheme="emerald" /></ProtectedRoute>} />
-        <Route path="/logbook/us" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ModalityLogbook type="US" title="Ultrasound" colorTheme="indigo" /></ProtectedRoute>} />
-        <Route path="/logbook/xray" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ModalityLogbook type="X-RAY" title="X-Ray & General" colorTheme="slate" /></ProtectedRoute>} />
+          {/* NEW: Data Archiver Route */}
+          <Route path="/supervisor/archive" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><DataArchiver /></ProtectedRoute>} />
 
-        {/* User Routes */}
-        <Route path="/user" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><UserDashboard /></ProtectedRoute>} />
-        <Route path="/user/schedule" element={<ProtectedRoute allowedRoles={[UserRole.USER]} requiredPermission="schedule"><UserSchedule /></ProtectedRoute>} />
-        <Route path="/user/requests" element={<ProtectedRoute allowedRoles={[UserRole.USER]} requiredPermission="requests"><UserRequests /></ProtectedRoute>} />
-        <Route path="/user/market" element={<ProtectedRoute allowedRoles={[UserRole.USER]} requiredPermission="market"><UserMarket /></ProtectedRoute>} />
-        <Route path="/user/incoming" element={<ProtectedRoute allowedRoles={[UserRole.USER]} requiredPermission="incoming"><UserIncoming /></ProtectedRoute>} />
-        <Route path="/user/history" element={<ProtectedRoute allowedRoles={[UserRole.USER]} requiredPermission="history"><UserHistory /></ProtectedRoute>} />
-        <Route path="/user/profile" element={<ProtectedRoute allowedRoles={[UserRole.USER]} requiredPermission="profile"><UserProfile /></ProtectedRoute>} />
-        <Route path="/user/performance" element={<ProtectedRoute allowedRoles={[UserRole.USER]} requiredPermission="performance"><UserPerformance /></ProtectedRoute>} />
+          {/* --- MODALITY LOGBOOKS (New Pages) --- */}
+          <Route path="/logbook/mri" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ModalityLogbook type="MRI" title="MRI Department" colorTheme="blue" /></ProtectedRoute>} />
+          <Route path="/logbook/ct" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ModalityLogbook type="CT" title="CT Department" colorTheme="emerald" /></ProtectedRoute>} />
+          <Route path="/logbook/us" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ModalityLogbook type="US" title="Ultrasound" colorTheme="indigo" /></ProtectedRoute>} />
+          <Route path="/logbook/xray" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ModalityLogbook type="X-RAY" title="X-Ray & General" colorTheme="slate" /></ProtectedRoute>} />
 
-        {/* Other Routes */}
-        <Route path="/schedule-builder" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ScheduleBuilder /></ProtectedRoute>} />
-        <Route path="/reports" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><Reports /></ProtectedRoute>} />
-        <Route path="/attendance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><AttendanceAnalyzer /></ProtectedRoute>} />
+          {/* User Routes */}
+          <Route path="/user" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><UserDashboard /></ProtectedRoute>} />
+          <Route path="/user/schedule" element={<ProtectedRoute allowedRoles={[UserRole.USER]} requiredPermission="schedule"><UserSchedule /></ProtectedRoute>} />
+          <Route path="/user/requests" element={<ProtectedRoute allowedRoles={[UserRole.USER]} requiredPermission="requests"><UserRequests /></ProtectedRoute>} />
+          <Route path="/user/market" element={<ProtectedRoute allowedRoles={[UserRole.USER]} requiredPermission="market"><UserMarket /></ProtectedRoute>} />
+          <Route path="/user/incoming" element={<ProtectedRoute allowedRoles={[UserRole.USER]} requiredPermission="incoming"><UserIncoming /></ProtectedRoute>} />
+          <Route path="/user/history" element={<ProtectedRoute allowedRoles={[UserRole.USER]} requiredPermission="history"><UserHistory /></ProtectedRoute>} />
+          <Route path="/user/profile" element={<ProtectedRoute allowedRoles={[UserRole.USER]} requiredPermission="profile"><UserProfile /></ProtectedRoute>} />
+          <Route path="/user/performance" element={<ProtectedRoute allowedRoles={[UserRole.USER]} requiredPermission="performance"><UserPerformance /></ProtectedRoute>} />
 
-        <Route path="/attendance-punch" element={
-            <Suspense fallback={<Loading />}>
-                {user ? <AttendancePage /> : <Navigate to="/login" replace />}
-            </Suspense>
-        } />
+          {/* Other Routes */}
+          <Route path="/schedule-builder" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ScheduleBuilder /></ProtectedRoute>} />
+          <Route path="/reports" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><Reports /></ProtectedRoute>} />
+          <Route path="/attendance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><AttendanceAnalyzer /></ProtectedRoute>} />
 
-        <Route path="/doctor" element={<ProtectedRoute allowedRoles={[UserRole.DOCTOR]}><DoctorDashboard /></ProtectedRoute>} />
+          <Route path="/attendance-punch" element={
+              <Suspense fallback={<Loading />}>
+                  {user ? <AttendancePage /> : <Navigate to="/login" replace />}
+              </Suspense>
+          } />
 
-        {/* Shared Routes with Permissions */}
-        <Route path="/communications" element={<ProtectedRoute requiredPermission="communications"><CommunicationPage /></ProtectedRoute>} />
-        <Route path="/inventory" element={<ProtectedRoute requiredPermission="inventory"><InventoryPage /></ProtectedRoute>} />
-        <Route path="/tasks" element={<ProtectedRoute requiredPermission="tasks"><TasksPage /></ProtectedRoute>} />
-        <Route path="/tech-support" element={<ProtectedRoute requiredPermission="tech_support"><TechSupportPage /></ProtectedRoute>} />
-        <Route path="/hr-assistant" element={<ProtectedRoute requiredPermission="hr_assistant"><HRAssistantPage /></ProtectedRoute>} />
-        <Route path="/appointments" element={<ProtectedRoute requiredPermission="appointments"><AppointmentsPage /></ProtectedRoute>} />
+          <Route path="/doctor" element={<ProtectedRoute allowedRoles={[UserRole.DOCTOR]}><DoctorDashboard /></ProtectedRoute>} />
 
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
+          {/* Shared Routes with Permissions */}
+          <Route path="/communications" element={<ProtectedRoute requiredPermission="communications"><CommunicationPage /></ProtectedRoute>} />
+          <Route path="/inventory" element={<ProtectedRoute requiredPermission="inventory"><InventoryPage /></ProtectedRoute>} />
+          <Route path="/tasks" element={<ProtectedRoute requiredPermission="tasks"><TasksPage /></ProtectedRoute>} />
+          <Route path="/tech-support" element={<ProtectedRoute requiredPermission="tech_support"><TechSupportPage /></ProtectedRoute>} />
+          <Route path="/hr-assistant" element={<ProtectedRoute requiredPermission="hr_assistant"><HRAssistantPage /></ProtectedRoute>} />
+          <Route path="/appointments" element={<ProtectedRoute requiredPermission="appointments"><AppointmentsPage /></ProtectedRoute>} />
+
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </ErrorBoundary>
     </Router>
   );
 };

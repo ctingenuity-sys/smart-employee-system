@@ -3,7 +3,7 @@ import React, { useEffect, useState, useRef } from 'react';
 // @ts-ignore
 import { useParams } from 'react-router-dom';
 import Loading from '../components/Loading';
-import { db } from '../firebase';
+import { appointmentsDb } from '../firebaseAppointments';
 // @ts-ignore
 import { doc, getDoc } from 'firebase/firestore';
 import { ExtendedAppointment } from '../types';
@@ -22,7 +22,7 @@ const PatientTicket: React.FC = () => {
         const fetchTicket = async () => {
             if (!id) return;
             try {
-                const docRef = doc(db, 'appointments', id);
+                const docRef = doc(appointmentsDb, 'appointments', id);
                 const docSnap = await getDoc(docRef);
 
                 if (docSnap.exists()) {

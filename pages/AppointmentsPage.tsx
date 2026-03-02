@@ -16,6 +16,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 import { localAppointmentService } from '../services/localAppointmentService';
+import { useAttendanceStatus } from '../hooks/useAttendanceStatus';
 
 // Helper for Safe Vibration
 const safeVibrate = (pattern: number | number[]) => {
@@ -178,6 +179,12 @@ interface ExtendedAppointment extends Appointment {
 const AppointmentsPage: React.FC = () => {
     const { t, dir, language } = useLanguage();
     const navigate = useNavigate();
+    const currentUserId = auth.currentUser?.uid;
+    const attendanceStatus = useAttendanceStatus(currentUserId);
+    const userRole = localStorage.getItem('role');
+
+    // REMOVED: On-duty check redirection per user request.
+    // The link is hidden in Layout, so we assume if they are here, they are allowed or accessed directly.
     
     // Data State (Load from LocalStorage initially)
     const [appointments, setAppointments] = useState<ExtendedAppointment[]>(() => {
@@ -290,7 +297,6 @@ const AppointmentsPage: React.FC = () => {
     // Bridge Manual Input
     const [manualJsonInput, setManualJsonInput] = useState('');
 
-    const currentUserId = auth.currentUser?.uid;
     // const currentUserName = localStorage.getItem('username') || 'User'; // OLD
     const [currentUserName, setCurrentUserName] = useState(localStorage.getItem('username') || 'User');
 
@@ -1065,10 +1071,13 @@ const AppointmentsPage: React.FC = () => {
 
     const handleFinishClick = (appt: ExtendedAppointment) => {
         if (isArchiveView) return;
-        if (appt.performedBy && appt.performedBy !== currentUserId && !isSupervisor) {
+        
+        // Ownership Check: Only the user who STARTED the exam can finish it (or supervisor)
+        if (appt.startedBy && appt.startedBy !== currentUserId && !isSupervisor) {
             setToast({ msg: t('appt.toast.anotherUser'), type: 'error' });         
             return;
         }
+        
         setFinishingAppt(appt);
         setIsPanicModalOpen(true);
     };
@@ -1085,13 +1094,25 @@ const AppointmentsPage: React.FC = () => {
                 isPanic: isPanic,
                 panicDetails: isPanic ? panicDescription : null,
                 performedBy: currentUserId,
-                performedByName: currentUserName
+                performedByName: currentUserName !== 'User' ? currentUserName : (auth.currentUser?.displayName || 'Unknown')
             };
 
             if (isLocalNetworkMode) {
                 await localAppointmentService.update(finishingAppt.id, finishData as any);
             } else {
                 await updateDoc(doc(appointmentsDb, 'appointments', finishingAppt.id), finishData);
+                
+                // --- PERMANENT ARCHIVE: Ensure case never gets lost ---
+                try {
+                    await addDoc(collection(appointmentsDb, 'completed_cases_archive'), {
+                        ...finishingAppt,
+                        ...finishData,
+                        archivedAt: Timestamp.now(),
+                        originalId: finishingAppt.id
+                    });
+                } catch (archiveError) {
+                    console.error("Failed to archive case:", archiveError);
+                }
             }
 
             // --- CACHE UPDATE: Move from Processing to Done ---
@@ -1235,10 +1256,21 @@ const AppointmentsPage: React.FC = () => {
 
     const handleUndo = async (appt: ExtendedAppointment) => {
         if (isArchiveView) return;
-        if (!isSupervisor && appt.performedBy !== currentUserId) {
-            setToast({ msg: t('appt.error.notYourColleague'), type: 'error' });
-            return;
+
+        // Ownership Check
+        if (!isSupervisor) {
+             if (appt.status === 'done' && appt.performedBy && appt.performedBy !== currentUserId) {
+                 setToast({ msg: t('appt.error.notYourColleague'), type: 'error' });
+                 return;
+             }
+             if (appt.status === 'processing' && appt.startedBy && appt.startedBy !== currentUserId) {
+                 setToast({ msg: t('appt.error.notYourColleague'), type: 'error' });
+                 return;
+             }
         }
+
+        if (!window.confirm(t('appt.confirmUndo'))) return;
+
         try {
             setAppointments(prev => prev.filter(a => a.id !== appt.id));
             
@@ -1246,6 +1278,9 @@ const AppointmentsPage: React.FC = () => {
                 status: 'pending',
                 performedBy: null,
                 performedByName: null,
+                startedBy: null,
+                startedByName: null,
+                startedAt: null,
                 completedAt: null,
                 isPanic: false,
                 scheduledDate: null,
@@ -1262,6 +1297,15 @@ const AppointmentsPage: React.FC = () => {
                 ...undoData,
                 isLocal: true
             } as any);
+
+            // --- CACHE UPDATE: Move from Done/Processing to Pending ---
+            const today = getLocalToday();
+            if (appt.status === 'done') {
+                updateSpecificCache('done', today, 'remove', appt);
+            } else if (appt.status === 'processing') {
+                updateSpecificCache('processing', today, 'remove', appt);
+            }
+            updateSpecificCache('pending', today, 'add', { ...appt, ...undoData, isLocal: true } as ExtendedAppointment);
 
             setToast({ msg: t('appt.confirmCancel'), type: 'info' });
         } catch(e) { console.error(e); }
@@ -1878,13 +1922,14 @@ const AppointmentsPage: React.FC = () => {
                                                 </button>
                                             </>
                                         ) : appt.status === 'processing' ? (
-                                            <div className="w-full flex gap-2">
+                                            <div className="w-full flex gap-2 items-center">
                                                 <div className="flex-1 bg-blue-50 text-blue-700 px-2 py-2 rounded-lg text-xs font-bold text-center border border-blue-100">
-                                                    <i className="fas fa-user-clock"></i> {appt.performedByName || 'Unknown'}
+                                                    <i className="fas fa-user-clock"></i> {appt.startedByName || 'Unknown'}
                                                 </div>
                                                 <button onClick={() => handleFinishClick(appt)} className="flex-[2] bg-emerald-500 text-white py-2 rounded-lg font-bold text-xs hover:bg-emerald-600 transition-colors shadow-md flex items-center justify-center gap-1 cursor-pointer">
                                                     <span>{t('appt.finish')}</span> <i className="fas fa-check-double"></i>
                                                 </button>
+                                                <button onClick={() => handleUndo(appt)} className="text-slate-300 hover:text-red-500 px-2 cursor-pointer" title="Undo"><i className="fas fa-undo"></i></button>
                                             </div>
                                         ) : (
                                             <div className="w-full flex items-center justify-between">

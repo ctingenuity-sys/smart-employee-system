@@ -491,10 +491,23 @@ const handleGenerateManualCode = () => {
       }
   ];
 
+  // Add Appointments ONLY if ON DUTY (Punched In)
+  if (shiftStatus.state === 'READY_OUT' || shiftStatus.state === 'LOCKED') {
+      menuItems.splice(1, 0, {
+          id: 'appointments',
+          title: t('nav.appointments'),
+          subtitle: 'إدارة المواعيد',
+          icon: 'fa-calendar-check',
+          gradient: 'from-cyan-500 to-blue-500',
+          path: '/appointments',
+          badge: 0
+      });
+  }
+
   // --- ENHANCED HERO STYLING CONFIG ---
   const heroStyles: Record<string, any> = {
     active: {
-      gradient: 'bg-gradient-to-br from-emerald-900 via-teal-900 to-slate-900',
+      gradient: 'bg-gradient-to-br from-emerald-950 via-teal-900 to-slate-950',
       blob1: 'bg-emerald-500',
       blob2: 'bg-teal-400',
       accentText: 'text-emerald-400',
@@ -505,10 +518,10 @@ const handleGenerateManualCode = () => {
       subText: 'text-emerald-200',
       button: 'bg-emerald-500 hover:bg-emerald-400 text-white shadow-emerald-500/50',
       dot: 'bg-emerald-400',
-      dotShadow: 'shadow-[0_0_10px_#34d399]'
+      dotShadow: 'shadow-[0_0_15px_#34d399]'
     },
     late: {
-      gradient: 'bg-gradient-to-br from-red-900 via-rose-900 to-slate-900',
+      gradient: 'bg-gradient-to-br from-red-950 via-rose-900 to-slate-950',
       blob1: 'bg-red-600',
       blob2: 'bg-orange-500',
       accentText: 'text-red-400',
@@ -519,10 +532,10 @@ const handleGenerateManualCode = () => {
       subText: 'text-red-200',
       button: 'bg-red-500 hover:bg-red-400 text-white shadow-red-500/50',
       dot: 'bg-red-500',
-      dotShadow: 'shadow-[0_0_10px_#ef4444]'
+      dotShadow: 'shadow-[0_0_15px_#ef4444]'
     },
     leave: {
-      gradient: 'bg-gradient-to-br from-purple-900 via-fuchsia-900 to-slate-900',
+      gradient: 'bg-gradient-to-br from-purple-950 via-fuchsia-900 to-slate-950',
       blob1: 'bg-purple-500',
       blob2: 'bg-pink-500',
       accentText: 'text-purple-400',
@@ -533,7 +546,7 @@ const handleGenerateManualCode = () => {
       subText: 'text-purple-200',
       button: 'bg-purple-500 hover:bg-purple-400 text-white shadow-purple-500/50',
       dot: 'bg-purple-400',
-      dotShadow: 'shadow-[0_0_10px_#c084fc]'
+      dotShadow: 'shadow-[0_0_15px_#c084fc]'
     },
     absent: {
       gradient: 'bg-gradient-to-br from-rose-950 via-red-950 to-slate-950',
@@ -547,10 +560,10 @@ const handleGenerateManualCode = () => {
       subText: 'text-rose-200',
       button: 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-500/50',
       dot: 'bg-rose-500',
-      dotShadow: 'shadow-[0_0_10px_#f43f5e]'
+      dotShadow: 'shadow-[0_0_15px_#f43f5e]'
     },
     upcoming: {
-      gradient: 'bg-gradient-to-br from-blue-900 via-indigo-900 to-slate-900',
+      gradient: 'bg-gradient-to-br from-blue-950 via-indigo-900 to-slate-950',
       blob1: 'bg-blue-500',
       blob2: 'bg-indigo-500',
       accentText: 'text-blue-400',
@@ -561,10 +574,10 @@ const handleGenerateManualCode = () => {
       subText: 'text-blue-200',
       button: 'bg-blue-500 hover:bg-blue-400 text-white shadow-blue-500/50',
       dot: 'bg-blue-400',
-      dotShadow: 'shadow-[0_0_10px_#60a5fa]'
+      dotShadow: 'shadow-[0_0_15px_#60a5fa]'
     },
     complete: {
-      gradient: 'bg-gradient-to-br from-cyan-900 via-sky-900 to-slate-900',
+      gradient: 'bg-gradient-to-br from-cyan-950 via-sky-900 to-slate-950',
       blob1: 'bg-cyan-500',
       blob2: 'bg-sky-500',
       accentText: 'text-cyan-400',
@@ -575,10 +588,10 @@ const handleGenerateManualCode = () => {
       subText: 'text-cyan-200',
       button: 'bg-cyan-500 hover:bg-cyan-400 text-white shadow-cyan-500/50',
       dot: 'bg-cyan-400',
-      dotShadow: 'shadow-[0_0_10px_#22d3ee]'
+      dotShadow: 'shadow-[0_0_15px_#22d3ee]'
     },
     off: {
-      gradient: 'bg-gradient-to-br from-slate-800 via-gray-900 to-black',
+      gradient: 'bg-gradient-to-br from-slate-900 via-gray-900 to-black',
       blob1: 'bg-slate-600',
       blob2: 'bg-gray-600',
       accentText: 'text-slate-400',
@@ -589,7 +602,7 @@ const handleGenerateManualCode = () => {
       subText: 'text-slate-400',
       button: 'bg-slate-600 hover:bg-slate-500 text-white shadow-slate-500/50',
       dot: 'bg-slate-500',
-      dotShadow: 'shadow-[0_0_10px_#94a3b8]'
+      dotShadow: 'shadow-[0_0_15px_#94a3b8]'
     }
   };
 

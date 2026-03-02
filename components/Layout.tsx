@@ -11,6 +11,7 @@ import { UserRole } from '../types';
 import Modal from './Modal';
 import Toast from './Toast';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useAttendanceStatus } from '../hooks/useAttendanceStatus';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -90,6 +91,10 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
   const navigate = useNavigate();
   const location = useLocation();
   const currentUserId = auth.currentUser?.uid;
+
+  // Fetch Attendance Status for Sidebar Logic
+  const shiftStatus = useAttendanceStatus(currentUserId);
+  const isOnDuty = shiftStatus.state === 'READY_OUT' || shiftStatus.state === 'LOCKED';
 
   // Change Password State
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
@@ -239,7 +244,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
           <div className="pt-4 mt-4 border-t border-slate-700">
              <p className="px-4 text-xs font-bold text-slate-500 mb-2">{t('nav.sharedTools')}</p>
              
-             {canAccess('appointments') && (
+             {canAccess('appointments') && (userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR || isOnDuty) && (
                  <Link to="/appointments" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/appointments')}`}>
                     <i className="fas fa-calendar-check w-6 text-indigo-400"></i>
                     <span className="font-medium">{t('nav.appointments')}</span>

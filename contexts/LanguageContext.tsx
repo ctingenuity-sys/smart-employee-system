@@ -144,7 +144,7 @@ const translations: Record<string, { ar: string; en: string }> = {
   'appt.noNormal': { ar: 'لا (Normal)', en: 'No (Normal)' },
   'appt.panicDetails': { ar: 'وصف الحالة الحرجة:', en: 'Critical Findings:' },
   'appt.saveFinishReport': { ar: 'حفظ التقرير وإنهاء', en: 'Save & Finish' },
-  'appt.startSuccess': { ar: 'تم بدء الفحص ✅', en: 'Exam Started ✅' },
+  'appt.toast.started': { ar: 'تم بدء الفحص ✅', en: 'Exam Started ✅' },
   'appt.writeReg': { ar: 'يرجى كتابة رقم التسجيل التالي على الفيلم/الجهاز:', en: 'Write this Reg No on film/device:' },
   'appt.ok': { ar: 'حسناً، تم', en: 'OK, Done' },
   'appt.bridge': { ar: 'الربط الذكي', en: 'Smart Bridge' },

@@ -285,7 +285,16 @@ export const calculateShiftStatus = (
         // *** CRITICAL FIX FOR OVERNIGHT SHIFTS ***
         let effectiveNow = now;
         if (end > 1440 && now < start) {
-            effectiveNow += 1440;
+            // Only add 1440 if 'now' is likely part of the "next day" segment (early morning)
+            // If 'now' is close to 'start' (e.g. 21:00 vs 21:30), it's the same day.
+            // If 'now' is small (e.g. 01:00) and start is large (21:30), it's next day.
+            
+            // Threshold: If now is less than (End of Shift Day 2 + 12 hours), treat as Day 2.
+            // Otherwise treat as Day 1 (Early).
+            const day2Limit = (end - 1440) + 720; // 12 hours buffer
+            if (now < day2Limit) {
+                effectiveNow += 1440;
+            }
         }
 
         const windowOpen = start - 60; // 60 mins before start allowed

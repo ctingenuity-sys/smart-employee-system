@@ -260,6 +260,9 @@ const AppointmentsPage: React.FC = () => {
     // --- NEW: Archive Import State ---
     const [isArchiveView, setIsArchiveView] = useState(false);
     const [archiveFileName, setArchiveFileName] = useState('');
+    const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
+    const [archiveList, setArchiveList] = useState<any[]>([]);
+    const [loadingArchives, setLoadingArchives] = useState(false);
     
     // --- NEW: Local Network Mode (Independent DB) ---
     const [isLocalNetworkMode, setIsLocalNetworkMode] = useState(() => {
@@ -595,6 +598,7 @@ const AppointmentsPage: React.FC = () => {
             // OPTIMIZATION: Deduplicate against current state AND all local caches
             const updatedList = [...appointmentsRef.current];
             let newRecordsCount = 0;
+            let updatedRecordsCount = 0;
 
             for (const record of Array.from(uniqueRecordsMap.values())) {
                 // 1. Check if currently loaded
@@ -604,6 +608,7 @@ const AppointmentsPage: React.FC = () => {
                 const existsInCache = checkExistsInAnyCache(record.id, record.date);
 
                 if (existingIndex === -1 && !existsInCache) {
+                    // NEW RECORD
                     try {
                         // Save to Firestore (appointmentsDb) directly
                         const docRef = doc(appointmentsDb, 'appointments', record.id);
@@ -625,16 +630,98 @@ const AppointmentsPage: React.FC = () => {
                     } catch (err) {
                         console.error("Failed to save record to Firestore", err);
                     }
+                } else {
+                    // EXISTING RECORD - MERGE EXAMS
+                    // We need to find the existing record (either in updatedList or fetch from cache/DB logic if needed)
+                    // For simplicity, if it's in updatedList (loaded), we merge.
+                    // If it's not loaded but exists in cache, we should probably update the cache/DB too.
+                    
+                    let existingRecord = existingIndex !== -1 ? updatedList[existingIndex] : null;
+
+                    // If not in memory list, try to find in cache to update it
+                    if (!existingRecord && existsInCache) {
+                        // We won't load it into view if not active, but we will update DB and cache
+                        // This part is tricky without fetching, but let's assume we want to update DB at least.
+                    }
+
+                    if (existingRecord) {
+                        const currentExams = new Set(existingRecord.examList || []);
+                        const newExams = record.examList || [];
+                        let hasNewExam = false;
+
+                        newExams.forEach((ex: string) => {
+                            if (!currentExams.has(ex)) {
+                                currentExams.add(ex);
+                                hasNewExam = true;
+                            }
+                        });
+
+                        if (hasNewExam) {
+                            const mergedExamList = Array.from(currentExams);
+                            const updatedRecord = { ...existingRecord, examList: mergedExamList };
+                            
+                            // Update List
+                            updatedList[existingIndex] = updatedRecord;
+
+                            // Update DB
+                            try {
+                                const docRef = doc(appointmentsDb, 'appointments', record.id);
+                                await updateDoc(docRef, { examList: mergedExamList });
+                                updatedRecordsCount++;
+                                
+                                // Update Cache
+                                updateSpecificCache(activeView, record.date, 'update', updatedRecord);
+
+                            } catch (err) {
+                                console.error("Failed to update existing record exams", err);
+                            }
+                        }
+                    } else {
+                        // Record exists in DB/Cache but not currently loaded in view.
+                        // We should blindly update the DB with arrayUnion logic or read-modify-write.
+                        // Since we have the ID, let's try to update DB directly.
+                        try {
+                            const docRef = doc(appointmentsDb, 'appointments', record.id);
+                            // We can use arrayUnion if we import it, but here we have the full list from 'record' which might be partial.
+                            // Safer to getDoc, merge, update.
+                            const snap = await getDoc(docRef);
+                            if (snap.exists()) {
+                                const dbData = snap.data();
+                                const dbExams = new Set(dbData.examList || []);
+                                const newExams = record.examList || [];
+                                let changed = false;
+                                newExams.forEach((ex: string) => {
+                                    if (!dbExams.has(ex)) {
+                                        dbExams.add(ex);
+                                        changed = true;
+                                    }
+                                });
+                                
+                                if (changed) {
+                                    await updateDoc(docRef, { examList: Array.from(dbExams) });
+                                    updatedRecordsCount++;
+                                    // We can't easily update cache here without knowing which view it belongs to, 
+                                    // but checkExistsInAnyCache might help if we refactored.
+                                    // For now, DB update ensures next fetch is correct.
+                                }
+                            }
+                        } catch (err) {
+                            console.error("Failed to update background record", err);
+                        }
+                    }
                 }
             }
 
-            if (newRecordsCount > 0) {
+            if (newRecordsCount > 0 || updatedRecordsCount > 0) {
                 if (activeView === 'pending') {
                     setAppointments(updatedList);
                 }
                 setLastSyncTime(new Date());
                 safeVibrate([100, 50, 100]);
-                setToast({ msg: `تم جلب ${newRecordsCount} سجلات وحفظها في قاعدة البيانات 📥`, type: 'info' });
+                let msg = '';
+                if (newRecordsCount > 0) msg += `تم جلب ${newRecordsCount} حالات جديدة. `;
+                if (updatedRecordsCount > 0) msg += `تم تحديث ${updatedRecordsCount} حالات بفحوصات إضافية.`;
+                setToast({ msg: msg, type: 'info' });
             }
 
         } catch (e) {
@@ -976,6 +1063,54 @@ const AppointmentsPage: React.FC = () => {
         setAppointments([]); // Will trigger refresh from live DB
         setToast({ msg: 'العودة للوضع المباشر (Live)', type: 'info' });
     };
+
+    const fetchArchives = async () => {
+        setLoadingArchives(true);
+        try {
+            const q = query(collection(appointmentsDb, 'daily_archives'), orderBy('archivedAt', 'desc'), limit(30));
+            const snap = await getDocs(q);
+            const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setArchiveList(list);
+        } catch (e) {
+            console.error("Failed to fetch archives", e);
+            setToast({ msg: 'فشل تحميل الأرشيف', type: 'error' });
+        } finally {
+            setLoadingArchives(false);
+        }
+    };
+
+    const handleLoadArchive = async (archiveId: string) => {
+        setLoading(true);
+        try {
+            const docRef = doc(appointmentsDb, 'daily_archives', archiveId);
+            const snap = await getDoc(docRef);
+            if (snap.exists()) {
+                const data = snap.data();
+                if (data.records && Array.isArray(data.records)) {
+                    setAppointments(data.records);
+                    setIsArchiveView(true);
+                    setArchiveFileName(data.date || archiveId);
+                    setIsArchiveModalOpen(false);
+                    setToast({ msg: `تم استرجاع أرشيف ${data.date}`, type: 'success' });
+                } else {
+                    setToast({ msg: 'تنسيق الأرشيف غير صالح', type: 'error' });
+                }
+            } else {
+                setToast({ msg: 'الأرشيف غير موجود', type: 'error' });
+            }
+        } catch (e) {
+            console.error("Failed to load archive", e);
+            setToast({ msg: 'فشل استرجاع الأرشيف', type: 'error' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (isArchiveModalOpen) {
+            fetchArchives();
+        }
+    }, [isArchiveModalOpen]);
 
     const checkAvailability = async (date: string, time: string, type: string) => {
         if (type === 'X-RAY' || type === 'OTHER') return true;
@@ -1737,6 +1872,12 @@ const AppointmentsPage: React.FC = () => {
                         <button onClick={() => setIsBridgeModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white w-9 h-9 rounded-lg flex items-center justify-center shadow-lg transition-all" title="Auto Sync">
                             <i className={`fas fa-satellite-dish ${isListening ? 'animate-pulse' : ''}`}></i>
                         </button>
+                        
+                        {/* Archive Button */}
+                        <button onClick={() => setIsArchiveModalOpen(true)} className="bg-slate-700 hover:bg-slate-600 text-white w-9 h-9 rounded-lg flex items-center justify-center shadow-lg transition-all" title="Archives">
+                            <i className="fas fa-archive"></i>
+                        </button>
+
                         <button onClick={() => setIsAddModalOpen(true)} className="bg-white text-slate-900 w-fit px-4 h-9 rounded-lg flex items-center justify-center font-bold shadow-lg hover:bg-slate-200 transition-all gap-2">
                             <i className="fas fa-plus"></i> <span className="hidden md:inline">{t('appt.new')}</span>
                         </button>
@@ -2404,6 +2545,46 @@ const AppointmentsPage: React.FC = () => {
                     <button onClick={() => setIsRegModalOpen(false)} className="w-full bg-emerald-500 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-emerald-600 mt-4 cursor-pointer">
                        {t('appt.ok')}
                     </button>
+                </div>
+            </Modal>
+
+            {/* Archive Modal */}
+            <Modal isOpen={isArchiveModalOpen} onClose={() => setIsArchiveModalOpen(false)} title="أرشيف المواعيد اليومي">
+                <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+                    <p className="text-sm text-slate-500 mb-4">اختر تاريخ لاستعراض الأرشيف المحفوظ تلقائياً.</p>
+                    
+                    {loadingArchives ? (
+                        <div className="flex justify-center py-8"><i className="fas fa-spinner fa-spin text-2xl text-slate-400"></i></div>
+                    ) : archiveList.length === 0 ? (
+                        <div className="text-center py-8 text-slate-400">لا يوجد أرشيف محفوظ</div>
+                    ) : (
+                        <div className="grid grid-cols-1 gap-2">
+                            {archiveList.map((arch) => (
+                                <button 
+                                    key={arch.id}
+                                    onClick={() => handleLoadArchive(arch.id)}
+                                    className="flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition-all group"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">
+                                            <i className="fas fa-archive"></i>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="font-bold text-slate-800">{arch.date}</p>
+                                            <p className="text-xs text-slate-400">
+                                                {new Date(arch.archivedAt?.seconds * 1000).toLocaleString('en-US')}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="text-left">
+                                        <span className="bg-slate-200 text-slate-600 text-xs font-bold px-2 py-1 rounded-lg group-hover:bg-blue-200 group-hover:text-blue-800">
+                                            {arch.records?.length || 0} Records
+                                        </span>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </Modal>
 

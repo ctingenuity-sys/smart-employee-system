@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { db } from '../../firebase';
+import { db } from '../../firebaseData';
 // @ts-ignore
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, Timestamp } from 'firebase/firestore';
 import { uploadFile } from '../../services/storageClient';
@@ -38,7 +38,10 @@ const RoomReports: React.FC = () => {
                 setFormData(prev => ({ ...prev, surveyUrl: url }));
                 setToast({ msg: 'Survey Uploaded', type: 'success' });
             }
-        } catch (e) {
+        } catch (e: any) {
+            if (e.message === 'CORS_ERROR') {
+                alert("خطأ في إعدادات الخادم (CORS). يرجى مراجعة صفحة الموظفين للحصول على تعليمات الإصلاح.");
+            }
             setToast({ msg: 'Upload Error', type: 'error' });
         } finally {
             setUploading(false);

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { db } from '../../firebase';
+import { db } from '../../firebaseData';
 // @ts-ignore
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, Timestamp, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { uploadFile } from '../../services/storageClient';

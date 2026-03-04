@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { db, firebaseConfig, auth } from '../../firebase'; // Removed storage import
+import { auth, db as mainDb, firebaseConfig as mainConfig } from '../../firebase';
+import { db as certDb } from '../../firebaseData';
 // @ts-ignore
-import { collection, updateDoc, deleteDoc, setDoc, onSnapshot, doc, Timestamp, query, where, getDocs, writeBatch, limit, orderBy, addDoc,serverTimestamp, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { collection, updateDoc, deleteDoc, setDoc, doc, Timestamp, query, where, getDocs, writeBatch, limit, orderBy, addDoc,serverTimestamp, arrayUnion, arrayRemove } from 'firebase/firestore';
 // @ts-ignore
 import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
 // @ts-ignore
@@ -40,7 +41,7 @@ const JOB_CATEGORIES = [
     { id: 'doctor', title: 'Doctors', cssClass: 'doctors', icon: 'fa-user-md', cardTheme: 'from-rose-50 to-pink-100 border-rose-200' },
     { id: 'technologist', title: 'Specialists', cssClass: 'technologists', icon: 'fa-user-graduate', cardTheme: 'from-cyan-200 to-blue-300 border-cyan-400' },
     { id: 'usg', title: 'Ultrasound', cssClass: 'technologists', icon: 'fa-wave-square', isHidden: true, cardTheme: 'from-indigo-50 to-violet-100 border-indigo-200' }, 
-    { id: 'technician', title: 'Technicians', cssClass: 'technicians', icon: 'fa-cogs', cardTheme: 'from-cyan-200 to-blue-300 border-cyan-400' },
+    { id: 'technician', title: 'Technicians', cssClass: 'technicians', icon: 'fa-cogs', cardTheme: 'bg-gradient-to-r from-yellow-950 via-yellow-400 to-yellow-500 border-yellow-900 text-black' },
     { id: 'nurse', title: 'Nurses', cssClass: 'assistants', icon: 'fa-user-nurse', cardTheme: 'from-purple-50 to-fuchsia-100 border-purple-200' },
     { id: 'rso', title: 'R S O', cssClass: 'rso', icon: 'fa-radiation', cardTheme: 'from-yellow-50 to-amber-100 border-yellow-200' },
 ];
@@ -82,8 +83,8 @@ const styles = `
 /* Circle Colors */
 .doctors { background: linear-gradient(135deg, #ff416c, #ff4b2b); }
 .technologists { background: linear-gradient(135deg, #36d1dc, #5b86e5); }
-.technicians { background: linear-gradient(135deg, #4880e7, #b8b0ce); color: #333; text-shadow: none; }
-.assistants { background: linear-gradient(135deg, #2e3555, #764ba2); }
+.technicians { background: linear-gradient(135deg, #fbc7aa, #f5af19); color: #333; text-shadow: none; }
+.assistants { background: linear-gradient(135deg, #667eea, #764ba2); }
 .rso { background: linear-gradient(135deg, #f7971e, #ffd200); text-shadow: 1px 1px 2px rgba(0,0,0,0.2); }
 
 .section-title {
@@ -275,13 +276,30 @@ const SupervisorEmployees: React.FC = () => {
     const currentAdminId = auth.currentUser?.uid;
 
     useEffect(() => {
-        getDocs(collection(db, 'users')).then((snap) => {
-            setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
-        });
+        const fetchUsers = async () => {
+            try {
+                const snap = await getDocs(collection(mainDb, 'users'));
+                const mainUsers = snap.docs.map(d => ({ id: d.id, ...d.data() } as User));
+                
+                let certMap = new Map();
+                try {
+                    const certSnap = await getDocs(collection(certDb, 'employee_records'));
+                    certMap = new Map(certSnap.docs.map(d => [d.id, d.data()]));
+                } catch (e) {
+                    console.error("Error fetching certs", e);
+                }
+
+                const merged = mainUsers.map(u => ({ ...u, ...(certMap.get(u.id) || {}) }));
+                setUsers(merged);
+            } catch (e) {
+                console.error("Error fetching users", e);
+            }
+        };
+        fetchUsers();
         
         if (currentAdminId) {
             const qChecks = query(
-                collection(db, 'location_checks'), 
+                collection(mainDb, 'location_checks'), 
                 where('supervisorId', '==', currentAdminId),
                 where('status', '==', 'completed')
             );
@@ -369,14 +387,14 @@ const SupervisorEmployees: React.FC = () => {
         let secondaryApp: any;
         
         try {
-            secondaryApp = initializeApp(firebaseConfig, appName);
+            secondaryApp = initializeApp(mainConfig, appName);
             const secondaryAuth = getAuth(secondaryApp);
             const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
             const newUserId = userCredential.user.uid;
             
             const defaultPermissions = ALL_PERMISSIONS.map(p => p.key);
 
-            await setDoc(doc(db, 'users', newUserId), {
+            await setDoc(doc(mainDb, 'users', newUserId), {
                 uid: newUserId,
                 email: email,
                 name: newUserName.trim(),
@@ -387,6 +405,13 @@ const SupervisorEmployees: React.FC = () => {
                 gender: newUserGender || 'male',
                 hireDate: newUserHireDate || '',
                 isHidden: newUserHidden || false,
+                createdAt: Timestamp.now()
+            });
+
+            // Initialize Cert Record
+            await setDoc(doc(certDb, 'employee_records', newUserId), {
+                userId: newUserId,
+                documents: [],
                 createdAt: Timestamp.now()
             });
             
@@ -415,24 +440,26 @@ const SupervisorEmployees: React.FC = () => {
     const handleUpdateUser = async () => {
         if (!editForm.id) return;
         try {
-            // sanitize fields to avoid undefined error
-            await updateDoc(doc(db, 'users', editForm.id), {
+            // 1. Update Main DB (Profile)
+            await updateDoc(doc(mainDb, 'users', editForm.id), {
                 name: editForm.name || '',
-                email: editForm.email || '', // ADDED: Allow updating email in Firestore record
+                email: editForm.email || '', 
                 role: editForm.role || 'user',
                 phone: editForm.phone || '', 
                 permissions: editForm.permissions || [],
                 jobCategory: editForm.jobCategory || 'technician',
-                licenseExpiry: editForm.licenseExpiry || null,
-                registrationExpiry: editForm.registrationExpiry || null,
-                nrrcExpiry: editForm.nrrcExpiry || null,
-                
-                // New Fields
                 nationality: editForm.nationality || '',
                 gender: editForm.gender || 'male',
                 hireDate: editForm.hireDate || '',
                 isHidden: editForm.isHidden || false
             });
+
+            // 2. Update Cert DB (Certificates)
+            await setDoc(doc(certDb, 'employee_records', editForm.id), {
+                licenseExpiry: editForm.licenseExpiry || null,
+                registrationExpiry: editForm.registrationExpiry || null,
+                nrrcExpiry: editForm.nrrcExpiry || null
+            }, { merge: true });
             setToast({ msg: 'User Updated Successfully', type: 'success' });
             setIsEditModalOpen(false);
         } catch (e: any) {
@@ -442,7 +469,7 @@ const SupervisorEmployees: React.FC = () => {
     };
     
 
-    // --- Updated File Upload Logic using Supabase (Bypass Firebase CORS) ---
+    // --- Updated File Upload Logic using Firebase Storage ---
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, category: 'registration' | 'license' | 'general' = 'general') => {
         const file = e.target.files?.[0];
         if (!file || !editForm.id) return;
@@ -454,7 +481,7 @@ const SupervisorEmployees: React.FC = () => {
 
         setIsUploading(true);
         try {
-            // Upload to Supabase Storage instead of Firebase
+            // Upload to Firebase Storage
             // Use the user's ID as a folder structure
             const folderPath = `user_documents/${editForm.id}`;
             const downloadUrl = await uploadFile(file, folderPath);
@@ -473,10 +500,10 @@ const SupervisorEmployees: React.FC = () => {
                 uploadedAt: new Date().toISOString()
             };
 
-            // Save the link in Firebase Firestore
-            await updateDoc(doc(db, 'users', editForm.id), {
+            // Save the link in Cert DB
+            await setDoc(doc(certDb, 'employee_records', editForm.id), {
                 documents: arrayUnion(newDoc)
-            });
+            }, { merge: true });
 
             // Update local state
             setEditForm(prev => ({
@@ -487,11 +514,11 @@ const SupervisorEmployees: React.FC = () => {
             setToast({ msg: 'تم رفع الملف بنجاح', type: 'success' });
         } catch (error: any) {
             console.error("Upload error:", error);
-            // Check for CORS or Network errors explicitly to show helper
-            if (error.message && (error.message.includes('CORS') || error.message.includes('network') || error.code === 'storage/unknown')) {
-               setShowCorsHelp(true);
+            if (error.message === 'CORS_ERROR') {
+                setShowCorsHelp(true);
+            } else {
+                setToast({ msg: 'فشل رفع الملف: ' + error.message, type: 'error' });
             }
-            setToast({ msg: 'فشل رفع الملف: ' + error.message, type: 'error' });
         } finally {
             setIsUploading(false);
         }
@@ -514,9 +541,10 @@ const SupervisorEmployees: React.FC = () => {
                 uploadedAt: new Date().toISOString()
             };
 
-            await updateDoc(doc(db, 'users', editForm.id), {
+            // Save the link in Cert DB
+            await setDoc(doc(certDb, 'employee_records', editForm.id), {
                 documents: arrayUnion(newDoc)
-            });
+            }, { merge: true });
 
             setEditForm(prev => ({
                 ...prev,
@@ -537,8 +565,8 @@ const SupervisorEmployees: React.FC = () => {
     const handleDeleteDocument = async (docItem: UserDocument) => {
         if (!editForm.id || !confirm('هل أنت متأكد من حذف هذا الملف؟')) return;
         try {
-            // Remove the link from Firestore only. 
-            await updateDoc(doc(db, 'users', editForm.id), {
+            // Remove the link from Cert DB
+            await updateDoc(doc(certDb, 'employee_records', editForm.id), {
                 documents: arrayRemove(docItem)
             });
 
@@ -568,9 +596,9 @@ const SupervisorEmployees: React.FC = () => {
         
         setLoading(true);
         try {
-            const batch = writeBatch(db);
+            const batch = writeBatch(mainDb);
             const deleteByQuery = async (col: string, field: string) => {
-                const q = query(collection(db, col), where(field, '==', user.id));
+                const q = query(collection(mainDb, col), where(field, '==', user.id));
                 const snap = await getDocs(q);
                 snap.docs.forEach(d => batch.delete(d.ref));
             };
@@ -585,8 +613,11 @@ const SupervisorEmployees: React.FC = () => {
                 deleteByQuery('attendance_overrides', 'userId'),
             ]);
             
-            batch.delete(doc(db, 'users', user.id));
+            batch.delete(doc(mainDb, 'users', user.id));
             await batch.commit();
+
+            // Delete from Cert DB
+            await deleteDoc(doc(certDb, 'employee_records', user.id));
             setToast({ msg: 'User Deleted', type: 'success' });
         } catch(e:any) {
             setToast({ msg: 'Error: ' + e.message, type: 'error' });
@@ -598,7 +629,7 @@ const SupervisorEmployees: React.FC = () => {
     const handleResetBiometric = async (user: User) => {
         if (!confirm(`هل أنت متأكد من فك ارتباط الجهاز للموظف ${user.name}؟ سيتمكن من تسجيل الدخول من جهاز جديد.`)) return;
         try {
-            await updateDoc(doc(db, 'users', user.id), { biometricId: null, biometricRegisteredAt: null });
+            await updateDoc(doc(mainDb, 'users', user.id), { biometricId: null, biometricRegisteredAt: null });
             setToast({ msg: 'تم فك ارتباط الجهاز بنجاح', type: 'success' });
         } catch (e) { setToast({ msg: 'Error', type: 'error' }); }
     };
@@ -608,14 +639,14 @@ const SupervisorEmployees: React.FC = () => {
         
         setLoading(true);
         try {
-            const snap = await getDocs(collection(db, 'users'));
+            const snap = await getDocs(collection(mainDb, 'users'));
             const docs = snap.docs;
             const batchSize = 450;
             let count = 0;
 
             for (let i = 0; i < docs.length; i += batchSize) {
                 const chunk = docs.slice(i, i + batchSize);
-                const batch = writeBatch(db);
+                const batch = writeBatch(mainDb);
                 
                 chunk.forEach(doc => {
                     batch.update(doc.ref, { 
@@ -647,7 +678,7 @@ const SupervisorEmployees: React.FC = () => {
             const validityDuration = 45 * 1000; 
             const expiryDate = new Date(Date.now() + validityDuration);
 
-            await addDoc(collection(db, 'attendance_overrides'), {
+            await addDoc(collection(mainDb, 'attendance_overrides'), {
                 userId: user.id,
                 userName: user.name,
                 grantedBy: currentAdminName,
@@ -661,7 +692,7 @@ const SupervisorEmployees: React.FC = () => {
 
     const handleSendLiveCheck = async (user: User) => {
         try {
-            await addDoc(collection(db, 'location_checks'), {
+            await addDoc(collection(mainDb, 'location_checks'), {
                 targetUserId: user.id,
                 supervisorId: currentAdminId,
                 status: 'pending',
@@ -680,10 +711,10 @@ const SupervisorEmployees: React.FC = () => {
       try {
           let snap;
           try {
-              const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', user.id), orderBy('timestamp', 'desc'), limit(5));
+              const qLogs = query(collection(mainDb, 'attendance_logs'), where('userId', '==', user.id), orderBy('timestamp', 'desc'), limit(5));
               snap = await getDocs(qLogs);
           } catch (error: any) {
-              const qFallback = query(collection(db, 'attendance_logs'), where('userId', '==', user.id));
+              const qFallback = query(collection(mainDb, 'attendance_logs'), where('userId', '==', user.id));
               const fullSnap = await getDocs(qFallback);
               const sortedDocs = fullSnap.docs.sort((a, b) => (b.data().timestamp?.seconds || 0) - (a.data().timestamp?.seconds || 0)).slice(0, 5);
               snap = { empty: sortedDocs.length === 0, docs: sortedDocs, size: sortedDocs.length };
@@ -872,8 +903,8 @@ const SupervisorEmployees: React.FC = () => {
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
             {loading && <div className="fixed inset-0 bg-white/50 z-50 flex items-center justify-center"><div className="w-10 h-10 border-4 border-blue-500 rounded-full animate-spin border-t-transparent"></div></div>}
             
-            {/* Secret Button for Hidden Employees (Invisible Trigger in Bottom Left) */}
-            <div id="secretTrigger" onClick={toggleHiddenEmployees}></div>
+            {/* Secret Button for Hidden Employees (Invisible Trigger in Bottom Right) */}
+            <div id="secretTrigger" onClick={toggleHiddenEmployees} className="fixed bottom-0 right-0 w-20 h-20 cursor-pointer z-50 opacity-0"></div>
 
             <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
                 <div className="flex items-center gap-4">
@@ -1605,30 +1636,82 @@ const SupervisorEmployees: React.FC = () => {
             <Modal isOpen={showCorsHelp} onClose={() => setShowCorsHelp(false)} title="إعدادات الخادم مطلوبة (CORS)">
                 <div className="space-y-4">
                     <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-amber-900 text-sm">
-                        <p className="font-bold flex items-center gap-2"><i className="fas fa-exclamation-triangle"></i> مشكلة في رفع الملفات</p>
-                        <p className="mt-2">يرفض خادم التخزين (Firebase Storage) استقبال الملفات من هذا الموقع لأنه يفتقد إعدادات الأمان (CORS).</p>
+                        <p className="font-bold flex items-center gap-2"><i className="fas fa-exclamation-triangle"></i> لماذا تظهر هذه الصفحة؟</p>
+                        <p className="mt-2 text-xs">
+                            نعتذر عن الإزعاج. قواعد البيانات (Firestore) تعمل لأنها نصوص فقط، أما <b>رفع الملفات (Storage)</b> فيتطلب إعدادات أمان خاصة من جوجل (CORS) للسماح للمتصفح برفع الملفات إلى خادم خارجي.
+                        </p>
+                        <p className="mt-1 text-xs font-bold">هذا الإعداد يتم مرة واحدة فقط للمشروع الجديد.</p>
                     </div>
                     
                     <div className="space-y-3">
                         <p className="text-sm font-bold text-slate-700">لحل المشكلة نهائياً، يرجى اتباع الخطوات التالية:</p>
                         
-                        <div className="bg-slate-100 p-3 rounded-lg border border-slate-200">
-                            <span className="text-xs font-bold text-slate-500 uppercase block mb-1">الخطوة 1: تحميل ملف الإعدادات</span>
-                            <button onClick={downloadCorsConfig} className="bg-white border border-slate-300 px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-50">
-                                <i className="fas fa-download"></i> تحميل cors.json
-                            </button>
+                        <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                            <span className="text-xs font-bold text-amber-800 uppercase block mb-1">خطوة هامة جداً: تفعيل التخزين أولاً</span>
+                            <p className="text-xs text-amber-900 mb-2">
+                                إذا ظهر لك خطأ <span className="font-mono bg-amber-100 px-1">404 The specified bucket does not exist</span>، فهذا يعني أنك لم تفعل خدمة التخزين بعد.
+                            </p>
+                            <a href="https://console.firebase.google.com/project/radiology-inventory/storage" target="_blank" rel="noreferrer" className="text-amber-700 hover:underline text-xs font-bold flex items-center gap-1">
+                                <i className="fas fa-database"></i> اضغط هنا واضغط على "Get Started" لإنشاء الـ Bucket
+                            </a>
+                            
+                            <div className="mt-3 pt-3 border-t border-amber-200">
+                                <p className="text-[10px] font-bold text-amber-900 mb-1">واجهت خطأ "Unknown Error" في الموقع؟</p>
+                                <p className="text-[10px] text-amber-800 mb-2">لا تقلق، يمكنك إنشاؤه يدوياً. انسخ هذا الأمر وضعه في Cloud Shell قبل أمر الـ CORS:</p>
+                                <div className="bg-white/50 p-2 rounded font-mono text-[10px] text-amber-900 select-all border border-amber-200" dir="ltr">
+                                    gsutil mb -l us-central1 gs://radiology-inventory.appspot.com
+                                </div>
+                            </div>
                         </div>
 
                         <div className="bg-slate-100 p-3 rounded-lg border border-slate-200">
-                            <span className="text-xs font-bold text-slate-500 uppercase block mb-1">الخطوة 2: فتح Google Cloud Console</span>
-                            <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline text-xs font-bold">
-                                اضغط هنا لفتح لوحة التحكم <i className="fas fa-external-link-alt"></i>
+                            <span className="text-xs font-bold text-slate-500 uppercase block mb-1">الخطوة 1: فتح Cloud Shell</span>
+                            <a href="https://ssh.cloud.google.com/cloudshell/editor?project=radiology-inventory" target="_blank" rel="noreferrer" className="text-purple-600 hover:underline text-xs font-bold flex items-center gap-1">
+                                <i className="fas fa-terminal"></i> اضغط هنا لفتح Cloud Shell مباشرة
                             </a>
                         </div>
 
-                        <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-[10px] overflow-x-auto">
-                            <p className="text-slate-400 mb-2"># الخطوة 3: افتح Cloud Shell (أيقونة _) وارفع ملف cors.json ثم اكتب:</p>
-                            gsutil cors set cors.json gs://radiology-schedule-1ffba.firebasestorage.app
+                        <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-[10px] overflow-x-auto" dir="ltr">
+                            <p className="text-slate-400 mb-2"># الخطوة 2: انسخ هذا الكود بالكامل والصقه في الـ Terminal واضغط Enter:</p>
+                            <div className="select-all whitespace-pre-wrap break-all">
+                                {`echo '[{"origin": ["*"],"method": ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],"maxAgeSeconds": 3600}]' > cors.json && gsutil cors set cors.json gs://radiology-inventory.appspot.com`}
+                            </div>
+                        </div>
+                        
+                        <div className="mt-2 p-2 bg-blue-50 rounded border border-blue-100">
+                            <p className="text-[10px] text-blue-800 font-bold mb-1">
+                                <i className="fas fa-info-circle"></i> هام لمستخدمي الخطة المجانية (Spark):
+                            </p>
+                            <p className="text-[10px] text-blue-800 mb-2">
+                                إذا ظهر لك خطأ <span className="font-mono bg-blue-100 px-1">Billing account disabled</span> عند محاولة إنشاء الـ Bucket بالأوامر، فهذا طبيعي لأن جوجل تمنع الإنشاء اليدوي للحسابات المجانية.
+                            </p>
+                            <p className="text-[10px] text-blue-800 mb-2 font-bold">
+                                الحل الوحيد هو إنشاؤه من خلال Firebase Console. إذا واجهت "Unknown Error":
+                            </p>
+                            <ul className="list-disc list-inside text-[10px] text-blue-800 space-y-1">
+                                <li>جرب تحديث الصفحة (Refresh) والمحاولة مجدداً.</li>
+                                <li>جرب فتح الرابط في <b>متصفح خفي (Incognito)</b>.</li>
+                                <li>تأكد من تعطيل أي مانع إعلانات (AdBlock).</li>
+                            </ul>
+                            <div className="flex flex-col gap-2 mt-2">
+                                <a href="https://console.firebase.google.com/project/radiology-inventory/storage" target="_blank" rel="noreferrer" className="text-blue-700 hover:underline text-xs font-bold flex items-center gap-1">
+                                    <i className="fas fa-external-link-alt"></i> المحاولة عبر Firebase Console (الحل الوحيد)
+                                </a>
+                                
+                                <div className="bg-red-50 p-2 rounded border border-red-100 mt-1">
+                                    <p className="text-[10px] font-bold text-red-800 mb-1">
+                                        <i className="fas fa-times-circle"></i> لا يمكن الإنشاء من Google Cloud Console للحسابات المجانية.
+                                    </p>
+                                    <p className="text-[10px] text-red-800">
+                                        يجب أن تنجح في إنشائه من Firebase Console لتجاوز خطأ "Unknown Error". جرب الحلول التالية:
+                                    </p>
+                                    <ul className="list-decimal list-inside text-[10px] text-red-800 mt-1 space-y-1 font-bold">
+                                        <li>افتح الرابط من <u>الموبايل</u> (غالباً ينجح).</li>
+                                        <li>استخدم متصفح <u>Edge</u> أو <u>Safari</u> بدلاً من Chrome.</li>
+                                        <li>تأكد من إغلاق أي VPN.</li>
+                                    </ul>
+                                </div>
+                            </div>
                         </div>
                         
                         <p className="text-xs text-slate-400 mt-2">تنويه: هذا الإعداد يتم مرة واحدة فقط للمشروع.</p>

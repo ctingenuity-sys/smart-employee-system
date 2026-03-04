@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { db } from '../../firebase';
+import { db } from '../../firebaseData';
 // @ts-ignore
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, Timestamp } from 'firebase/firestore';
 import { uploadFile } from '../../services/storageClient';
@@ -81,7 +81,8 @@ const DeviceInventory: React.FC = () => {
         maintUrl: '',
         maintDate: '',
         qualUrl: '',
-        qualDate: ''
+        qualDate: '',
+        enableQA: false
     });
 
     // Upload States
@@ -98,7 +99,8 @@ const DeviceInventory: React.FC = () => {
     }, []);
 
     const xrayCategories = ['CT', 'X-Ray', 'Panoramic & Dental', 'Cath Lab', 'Mammogram & BMD', 'Portable', 'C-ARM', 'FLOUROSCOPY'];
-    const showQualityFields = xrayCategories.includes(formData.category);
+    // const showQualityFields = xrayCategories.includes(formData.category); // Removed
+
 
     const handleFileUpload = async (file: File, field: 'image' | 'maintUrl' | 'qualUrl') => {
         if (field === 'image') setUploadingImg(true);
@@ -111,7 +113,10 @@ const DeviceInventory: React.FC = () => {
                 setFormData(prev => ({ ...prev, [field]: url }));
                 setToast({ msg: 'File Uploaded', type: 'success' });
             }
-        } catch (e) {
+        } catch (e: any) {
+            if (e.message === 'CORS_ERROR') {
+                alert("خطأ في إعدادات الخادم (CORS). يرجى مراجعة صفحة الموظفين للحصول على تعليمات الإصلاح.");
+            }
             setToast({ msg: 'Upload Failed', type: 'error' });
         } finally {
             setUploadingImg(false); setUploadingPPM(false); setUploadingQC(false);
@@ -143,7 +148,7 @@ const DeviceInventory: React.FC = () => {
     };
 
     const resetForm = () => {
-        setFormData({ name: '', serial: '', category: '', installDate: '', image: '', maintUrl: '', maintDate: '', qualUrl: '', qualDate: '' });
+        setFormData({ name: '', serial: '', category: '', installDate: '', image: '', maintUrl: '', maintDate: '', qualUrl: '', qualDate: '', enableQA: false });
         setEditingId(null);
     };
 
@@ -366,7 +371,7 @@ const categories = [
                                                             </div>
 
                                                             {/* QC Report (Conditional) */}
-                                                            {['CT','X-Ray','Portable','C-ARM'].some(x => (dev.category||'').includes(x)) && (
+                                                            {dev.enableQA && (
                                                                 <div className={`flex justify-between items-center p-2.5 rounded-xl border transition-colors ${dev.qualUrl ? 'bg-slate-50 border-slate-100 group-hover:bg-purple-50 group-hover:border-purple-100' : 'bg-slate-50 border-slate-100 opacity-60'}`}>
                                                                     <div className="flex items-center gap-2">
                                                                         <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs ${dev.qualUrl ? 'bg-purple-100 text-purple-600' : 'bg-slate-200 text-slate-400'}`}>
@@ -455,10 +460,6 @@ const categories = [
                                     </div>
                                 </div>
                             </div>
-                            
-                            <div className="md:col-span-2 py-2">
-                                <div className="h-px w-full bg-slate-100"></div>
-                            </div>
 
                             <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 md:col-span-2">
                                 <h3 className="font-bold text-blue-800 text-sm mb-4 flex items-center gap-2"><i className="fas fa-tools"></i> Preventive Maintenance (PPM)</h3>
@@ -480,7 +481,23 @@ const categories = [
                                 </div>
                             </div>
 
-                            {showQualityFields && (
+                            <div>
+                                <label className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block cursor-pointer">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={formData.enableQA} 
+                                        onChange={e => setFormData({...formData, enableQA: e.target.checked})}
+                                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    Enable Quality Control (QC)
+                                </label>
+                            </div>
+                            
+                            <div className="md:col-span-2 py-2">
+                                <div className="h-px w-full bg-slate-100"></div>
+                            </div>
+
+                            {formData.enableQA && (
                                 <div className="bg-purple-50 p-4 rounded-2xl border border-purple-100 md:col-span-2">
                                     <h3 className="font-bold text-purple-800 text-sm mb-4 flex items-center gap-2"><i className="fas fa-certificate"></i> Quality Control (QC)</h3>
                                     <div className="grid grid-cols-2 gap-4">

@@ -87,7 +87,7 @@ export interface SwapRequest {
   id: string;
   from: string;
   to: string;
-  type: 'day' | 'month';
+  type: 'day' | 'month' | 'period';
   details: string;
   status: 'pending' | 'approvedByUser' | 'approvedBySupervisor' | 'rejected' | 'rejectedBySupervisor';
   startDate?: string;

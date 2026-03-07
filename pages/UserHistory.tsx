@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, getDoc, doc, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDoc, doc, getDocs } from 'firebase/firestore';
 import { SwapRequest, LeaveRequest } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 // @ts-ignore
@@ -79,7 +79,7 @@ const UserHistory: React.FC = () => {
             id: s.id,
             rawType: 'swap',
             displayType: s.type,
-            date: s.startDate || '',
+            date: s.endDate ? `${s.startDate} > ${s.endDate}` : (s.startDate || ''),
             details: `${s.isOutgoing ? t('user.req.to') : t('user.req.from')}: ${s.otherUserName} ${s.details ? `(${s.details})` : ''}`,
             status: s.status,
             createdAt: s.createdAt,

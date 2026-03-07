@@ -37,7 +37,7 @@ const SupervisorSwaps: React.FC = () => {
         });
         
         // Pending Requests
-        const qPending = query(collection(db, 'swapRequests'), where('status', 'in', ['pending', 'approvedByUser']));
+        const qPending = query(collection(db, 'swapRequests'), where('status', '==', 'approvedByUser'));
         const unsubPending = onSnapshot(qPending, snap => {
             const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as SwapRequest));
             // Sort Pending by newest as well
@@ -105,9 +105,21 @@ const SupervisorSwaps: React.FC = () => {
         });
     };
 
+    // Helper to get dates in range
+    const getDatesInRange = (startDate: string, endDate: string) => {
+        const date = new Date(startDate);
+        const end = new Date(endDate);
+        const dates = [];
+        while (date <= end) {
+            dates.push(new Date(date).toISOString().slice(0, 10));
+            date.setDate(date.getDate() + 1);
+        }
+        return dates;
+    };
+
     // Open Modal for Month Swaps
     const initiateApproval = (req: SwapRequest) => {
-        if (req.type === 'month') {
+        if (req.type === 'month' || req.type === 'period') {
             setSelectedReq(req);
             setIsOptionModalOpen(true);
         } else {
@@ -173,6 +185,64 @@ const SupervisorSwaps: React.FC = () => {
                   });
 
                   setToast({ msg: `Month Swapped! (${count} shifts moved)`, type: 'success' });
+
+              } else if (req.type === 'period' && req.startDate && req.endDate) {
+                  // --- PERIOD SWAP LOGIC ---
+                  const dates = getDatesInRange(req.startDate, req.endDate);
+                  const months = new Set<string>();
+                  dates.forEach(d => {
+                      months.add(d.slice(0, 7));
+                      const dateObj = new Date(d);
+                      dateObj.setMonth(dateObj.getMonth() - 1);
+                      months.add(dateObj.toISOString().slice(0, 7));
+                  });
+                  const monthList = Array.from(months).slice(0, 10);
+
+                  const qSch = query(collection(db, 'schedules'), where('month', 'in', monthList));
+                  const snap = await getDocs(qSch);
+                  const allSchedules = snap.docs.map(d => d.data() as Schedule);
+
+                  let count = 0;
+                  for (const dateStr of dates) {
+                      const dObj = new Date(dateStr);
+                      if (excludeFridays && dObj.getDay() === 5) continue;
+
+                      const shiftA = resolveShiftForUserDate(req.from, dateStr, allSchedules);
+                      const shiftB = resolveShiftForUserDate(req.to, dateStr, allSchedules);
+
+                      const newDocA = doc(collection(db, 'schedules'));
+                      batch.set(newDocA, {
+                          userId: req.from,
+                          staffName: nameA,
+                          date: dateStr,
+                          month: dateStr.slice(0, 7),
+                          locationId: shiftB ? `Swap Duty - ${shiftB.locationId}` : 'Swap Duty - Off',
+                          shifts: shiftB ? (shiftB.shifts || []) : [],
+                          note: `Swap Approved: Covering ${nameB}`,
+                          userType: 'user',
+                          createdAt: Timestamp.now()
+                      });
+
+                      const newDocB = doc(collection(db, 'schedules'));
+                      batch.set(newDocB, {
+                          userId: req.to,
+                          staffName: nameB,
+                          date: dateStr,
+                          month: dateStr.slice(0, 7),
+                          locationId: shiftA ? `Swap Duty - ${shiftA.locationId}` : 'Swap Duty - Off',
+                          shifts: shiftA ? (shiftA.shifts || []) : [],
+                          note: `Swap Approved: Covered by ${nameA}`,
+                          userType: 'user',
+                          createdAt: Timestamp.now()
+                      });
+                      count++;
+                  }
+
+                  batch.update(doc(db, 'swapRequests', req.id), { 
+                      status, 
+                      swapOption: excludeFridays ? 'exclude_fridays' : 'full_period'
+                  });
+                  setToast({ msg: `Period Swapped! (${count} days)`, type: 'success' });
 
               } else {
                   // --- DAY SWAP LOGIC (Existing) ---
@@ -297,6 +367,26 @@ const SupervisorSwaps: React.FC = () => {
                         });
                     }
                 });
+
+            } else if (req.type === 'period' && req.startDate && req.endDate) {
+                // --- PERIOD SWAP REVERT ---
+                const dates = getDatesInRange(req.startDate, req.endDate);
+                
+                for (const dateStr of dates) {
+                     const qDaySwaps = query(
+                        collection(db, 'schedules'),
+                        where('date', '==', dateStr),
+                        where('note', '>=', 'Swap Approved'),
+                        where('note', '<=', 'Swap Approved\uf8ff')
+                    );
+                    const snapDay = await getDocs(qDaySwaps);
+                    snapDay.docs.forEach(d => {
+                        const data = d.data();
+                        if (data.userId === req.from || data.userId === req.to) {
+                            batch.delete(d.ref);
+                        }
+                    });
+                }
 
             } else {
                 // --- DAY SWAP REVERT ---
@@ -474,7 +564,7 @@ const SupervisorSwaps: React.FC = () => {
                                     </div>
                                     <p className="text-sm text-slate-500 mt-1 flex items-center gap-2">
                                         <span className={`bg-slate-100 px-2 py-0.5 rounded font-bold ${req.type === 'month' ? 'text-indigo-600' : 'text-slate-600'}`}>
-                                            {req.type === 'month' ? `MONTH: ${req.startDate?.slice(0,7)}` : req.startDate}
+                                            {req.type === 'month' ? `MONTH: ${req.startDate?.slice(0,7)}` : req.type === 'period' ? `${req.startDate} > ${req.endDate}` : req.startDate}
                                         </span>
                                         {req.details && <span className="italic text-slate-400">"{req.details}"</span>}
                                         {(req as any).swapOption === 'exclude_fridays' && (

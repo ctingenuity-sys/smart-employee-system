@@ -384,8 +384,8 @@ const handleGenerateManualCode = () => {
         mode = 'active';
         location = 'On Duty';
     } else if (s.state === 'LOCKED') {
-        mode = 'upcoming';
-        location = 'Waiting';
+        mode = 'active'; // Changed from 'upcoming' to 'active' to show green immediately after check-in
+        location = 'On Duty'; // Changed from 'Waiting' to 'On Duty'
     } else if (s.state === 'COMPLETED') {
         mode = 'complete';
         location = 'Done';
@@ -396,8 +396,8 @@ const handleGenerateManualCode = () => {
         mode = 'absent';
         location = 'Action Required';
     } else if (s.state === 'WAITING') {
-        mode = 'upcoming'; 
-        location = 'On Break';
+        mode = 'active'; // Changed from 'upcoming' to 'active' to show green during break/waiting
+        location = 'On Duty'; // Changed from 'On Break' to 'On Duty'
         if (s.timeRemaining) subtitle = `Next shift in ${s.timeRemaining}`;
     } else if (s.state === 'UPCOMING') {
         mode = 'upcoming';
@@ -505,106 +505,106 @@ const handleGenerateManualCode = () => {
   }
 
   // --- ENHANCED HERO STYLING CONFIG ---
-const heroStyles: Record<string, any> = {
-  active: {
-    gradient: 'bg-gradient-to-br from-emerald-950 via-green-900 to-slate-950',
-    blob1: 'bg-emerald-500',
-    blob2: 'bg-lime-400',
-    accentText: 'text-emerald-400',
-    glassBorder: 'border-emerald-500/30',
-    iconBg: 'bg-gradient-to-br from-emerald-400 to-green-600',
-    badge: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30',
-    glow: 'from-emerald-500 to-lime-500',
-    subText: 'text-emerald-200/80',
-    button: 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/40',
-    dot: 'bg-emerald-400',
-    dotShadow: 'shadow-[0_0_15px_#10b981]'
-  },
-  late: {
-    gradient: 'bg-gradient-to-br from-amber-950 via-orange-900 to-slate-950',
-    blob1: 'bg-amber-500',
-    blob2: 'bg-orange-400',
-    accentText: 'text-amber-400',
-    glassBorder: 'border-amber-500/30',
-    iconBg: 'bg-gradient-to-br from-amber-400 to-orange-500',
-    badge: 'bg-amber-500/20 text-amber-200 border-amber-500/30',
-    glow: 'from-amber-500 to-orange-500',
-    subText: 'text-amber-200/80',
-    button: 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-500/40',
-    dot: 'bg-amber-400',
-    dotShadow: 'shadow-[0_0_15px_#f59e0b]'
-  },
-  leave: {
-    gradient: 'bg-gradient-to-br from-fuchsia-950 via-purple-900 to-slate-950',
-    blob1: 'bg-fuchsia-500',
-    blob2: 'bg-purple-500',
-    accentText: 'text-fuchsia-400',
-    glassBorder: 'border-fuchsia-500/30',
-    iconBg: 'bg-gradient-to-br from-fuchsia-500 to-purple-600',
-    badge: 'bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-500/30',
-    glow: 'from-fuchsia-500 to-purple-500',
-    subText: 'text-fuchsia-200/80',
-    button: 'bg-fuchsia-600 hover:bg-fuchsia-500 text-white shadow-fuchsia-500/40',
-    dot: 'bg-fuchsia-400',
-    dotShadow: 'shadow-[0_0_15px_#d946ef]'
-  },
-  absent: {
-    gradient: 'bg-gradient-to-br from-red-950 via-rose-950 to-slate-950',
-    blob1: 'bg-red-600',
-    blob2: 'bg-rose-700',
-    accentText: 'text-red-500',
-    glassBorder: 'border-red-500/30',
-    iconBg: 'bg-gradient-to-br from-red-600 to-rose-700',
-    badge: 'bg-red-500/20 text-red-200 border-red-500/30',
-    glow: 'from-red-600 to-rose-800',
-    subText: 'text-red-200/80',
-    button: 'bg-red-600 hover:bg-red-500 text-white shadow-red-600/40',
-    dot: 'bg-red-500',
-    dotShadow: 'shadow-[0_0_15px_#ef4444]'
-  },
-  upcoming: {
-    gradient: 'bg-gradient-to-br from-blue-950 via-indigo-900 to-slate-950',
-    blob1: 'bg-blue-600',
-    blob2: 'bg-indigo-500',
-    accentText: 'text-blue-400',
-    glassBorder: 'border-blue-500/30',
-    iconBg: 'bg-gradient-to-br from-blue-500 to-indigo-600',
-    badge: 'bg-blue-500/20 text-blue-200 border-blue-500/30',
-    glow: 'from-blue-500 to-indigo-500',
-    subText: 'text-blue-200/80',
-    button: 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/40',
-    dot: 'bg-blue-400',
-    dotShadow: 'shadow-[0_0_15px_#3b82f6]'
-  },
-  complete: {
-    gradient: 'bg-gradient-to-br from-cyan-950 via-teal-900 to-slate-950',
-    blob1: 'bg-cyan-500',
-    blob2: 'bg-teal-400',
-    accentText: 'text-cyan-400',
-    glassBorder: 'border-cyan-500/30',
-    iconBg: 'bg-gradient-to-br from-cyan-500 to-teal-500',
-    badge: 'bg-cyan-500/20 text-cyan-200 border-cyan-500/30',
-    glow: 'from-cyan-500 to-teal-500',
-    subText: 'text-cyan-200/80',
-    button: 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-cyan-500/40',
-    dot: 'bg-cyan-400',
-    dotShadow: 'shadow-[0_0_15px_#06b6d4]'
-  },
-  off: {
-    gradient: 'bg-gradient-to-br from-slate-900 via-gray-900 to-black',
-    blob1: 'bg-slate-600',
-    blob2: 'bg-zinc-700',
-    accentText: 'text-slate-400',
-    glassBorder: 'border-white/10',
-    iconBg: 'bg-slate-800 text-slate-400',
-    badge: 'bg-white/5 text-slate-300 border-white/10',
-    glow: 'from-slate-700 to-zinc-800',
-    subText: 'text-slate-500',
-    button: 'bg-slate-700 hover:bg-slate-600 text-white shadow-black/20',
-    dot: 'bg-slate-600',
-    dotShadow: 'shadow-[0_0_15px_#475569]'
-  }
-};
+  const heroStyles: Record<string, any> = {
+    active: {
+      gradient: 'bg-gradient-to-br from-green-600 via-emerald-800 to-slate-900',
+      blob1: 'bg-green-500',
+      blob2: 'bg-emerald-400',
+      accentText: 'text-green-100',
+      glassBorder: 'border-green-400/30',
+      iconBg: 'bg-gradient-to-br from-green-400 to-emerald-600',
+      badge: 'bg-green-500 text-white border-green-400 shadow-lg',
+      glow: 'from-green-500 to-emerald-500',
+      subText: 'text-green-100 opacity-90',
+      button: 'bg-white text-green-700 hover:bg-green-50 shadow-lg shadow-green-900/20',
+      dot: 'bg-green-400',
+      dotShadow: 'shadow-[0_0_15px_#4ade80]'
+    },
+    late: {
+      gradient: 'bg-gradient-to-br from-amber-900 via-orange-800 to-slate-900',
+      blob1: 'bg-amber-600',
+      blob2: 'bg-orange-500',
+      accentText: 'text-amber-400',
+      glassBorder: 'border-amber-500/30',
+      iconBg: 'bg-gradient-to-br from-amber-500 to-orange-600',
+      badge: 'bg-amber-500/20 text-amber-200 border-amber-500/30',
+      glow: 'from-amber-500 to-orange-500',
+      subText: 'text-amber-200',
+      button: 'bg-amber-500 hover:bg-amber-400 text-white shadow-amber-500/50',
+      dot: 'bg-amber-400',
+      dotShadow: 'shadow-[0_0_15px_#fbbf24]'
+    },
+    leave: {
+      gradient: 'bg-gradient-to-br from-purple-950 via-fuchsia-900 to-slate-950',
+      blob1: 'bg-purple-500',
+      blob2: 'bg-pink-500',
+      accentText: 'text-purple-400',
+      glassBorder: 'border-purple-500/30',
+      iconBg: 'bg-gradient-to-br from-purple-500 to-pink-500',
+      badge: 'bg-purple-500/20 text-purple-200 border-purple-500/30',
+      glow: 'from-purple-500 to-pink-500',
+      subText: 'text-purple-200',
+      button: 'bg-purple-500 hover:bg-purple-400 text-white shadow-purple-500/50',
+      dot: 'bg-purple-400',
+      dotShadow: 'shadow-[0_0_15px_#c084fc]'
+    },
+    absent: {
+      gradient: 'bg-gradient-to-br from-rose-950 via-red-950 to-slate-950',
+      blob1: 'bg-rose-700',
+      blob2: 'bg-red-800',
+      accentText: 'text-rose-500',
+      glassBorder: 'border-rose-500/30',
+      iconBg: 'bg-gradient-to-br from-rose-600 to-red-700',
+      badge: 'bg-rose-500/20 text-rose-200 border-rose-500/30',
+      glow: 'from-rose-600 to-red-900',
+      subText: 'text-rose-200',
+      button: 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-500/50',
+      dot: 'bg-rose-500',
+      dotShadow: 'shadow-[0_0_15px_#f43f5e]'
+    },
+    upcoming: {
+      gradient: 'bg-gradient-to-br from-blue-950 via-indigo-900 to-slate-950',
+      blob1: 'bg-blue-500',
+      blob2: 'bg-indigo-500',
+      accentText: 'text-blue-400',
+      glassBorder: 'border-blue-500/30',
+      iconBg: 'bg-gradient-to-br from-blue-500 to-indigo-600',
+      badge: 'bg-blue-500/20 text-blue-200 border-blue-500/30',
+      glow: 'from-blue-500 to-indigo-500',
+      subText: 'text-blue-200',
+      button: 'bg-blue-500 hover:bg-blue-400 text-white shadow-blue-500/50',
+      dot: 'bg-blue-400',
+      dotShadow: 'shadow-[0_0_15px_#60a5fa]'
+    },
+    complete: {
+      gradient: 'bg-gradient-to-br from-cyan-950 via-sky-900 to-slate-950',
+      blob1: 'bg-cyan-500',
+      blob2: 'bg-sky-500',
+      accentText: 'text-cyan-400',
+      glassBorder: 'border-cyan-500/30',
+      iconBg: 'bg-gradient-to-br from-cyan-500 to-sky-600',
+      badge: 'bg-cyan-500/20 text-cyan-200 border-cyan-500/30',
+      glow: 'from-cyan-500 to-sky-500',
+      subText: 'text-cyan-200',
+      button: 'bg-cyan-500 hover:bg-cyan-400 text-white shadow-cyan-500/50',
+      dot: 'bg-cyan-400',
+      dotShadow: 'shadow-[0_0_15px_#22d3ee]'
+    },
+    off: {
+      gradient: 'bg-gradient-to-br from-slate-900 via-gray-900 to-black',
+      blob1: 'bg-slate-600',
+      blob2: 'bg-gray-600',
+      accentText: 'text-slate-400',
+      glassBorder: 'border-slate-500/30',
+      iconBg: 'bg-slate-700 text-white/60',
+      badge: 'bg-white/10 border-white/20 text-white/60',
+      glow: 'from-slate-500 to-gray-500',
+      subText: 'text-slate-400',
+      button: 'bg-slate-600 hover:bg-slate-500 text-white shadow-slate-500/50',
+      dot: 'bg-slate-500',
+      dotShadow: 'shadow-[0_0_15px_#94a3b8]'
+    }
+  };
 
   const currentStyle = heroStyles[heroInfo.mode] || heroStyles.off;
 

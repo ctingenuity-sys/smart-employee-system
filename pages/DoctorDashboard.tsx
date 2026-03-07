@@ -177,6 +177,7 @@ const DoctorDashboard: React.FC = () => {
   const [targetUser, setTargetUser] = useState('');
   const [swapType, setSwapType] = useState('day');
   const [swapDate, setSwapDate] = useState('');
+  const [swapEndDate, setSwapEndDate] = useState('');
   const [swapDetails, setSwapDetails] = useState('');
 
   const [leaveStart, setLeaveStart] = useState('');
@@ -202,7 +203,7 @@ const DoctorDashboard: React.FC = () => {
 
     // ... (filteredHistory memo remains same) ...
     const filteredHistory = useMemo(() => {
-    const swaps: UnifiedHistoryItem[] = [...sentHistory, ...receivedHistory].map(s => ({ id: s.id, rawType: 'swap', displayType: s.type, date: s.startDate || '', details: `${s.isOutgoing ? t('user.req.to') : t('user.req.from')}: ${s.otherUserName} ${s.details ? `(${s.details})` : ''}`, status: s.status, createdAt: s.createdAt, isOutgoing: s.isOutgoing }));
+    const swaps: UnifiedHistoryItem[] = [...sentHistory, ...receivedHistory].map(s => ({ id: s.id, rawType: 'swap', displayType: s.type, date: s.endDate ? `${s.startDate} > ${s.endDate}` : (s.startDate || ''), details: `${s.isOutgoing ? t('user.req.to') : t('user.req.from')}: ${s.otherUserName} ${s.details ? `(${s.details})` : ''}`, status: s.status, createdAt: s.createdAt, isOutgoing: s.isOutgoing }));
     const leaves: UnifiedHistoryItem[] = leaveHistory.map(l => ({ id: l.id, rawType: 'leave', displayType: 'Leave', date: `${l.startDate} > ${l.endDate}`, details: l.reason, status: l.status, createdAt: l.createdAt }));
     let combined = [...swaps, ...leaves];
     combined.sort((a, b) => { const ta = a.createdAt?.seconds || 0; const tb = b.createdAt?.seconds || 0; return tb - ta; });
@@ -608,7 +609,12 @@ const DoctorDashboard: React.FC = () => {
   const handleSwapSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUserId || !targetUser) return setToast({ msg: 'Select colleague', type: 'error' });
-    if (!swapDate) return setToast({ msg: 'Select date', type: 'error' });
+    if (!swapDate) return setToast({ msg: 'Select start date', type: 'error' });
+    
+    if (swapType === 'period' && !swapEndDate) {
+        return setToast({ msg: 'Select end date', type: 'error' });
+    }
+
     try {
         await addDoc(collection(db, 'swapRequests'), {
             from: currentUserId,
@@ -616,11 +622,12 @@ const DoctorDashboard: React.FC = () => {
             type: swapType,
             details: swapDetails,
             startDate: swapDate,
+            endDate: swapType === 'period' ? swapEndDate : null,
             status: 'pending',
             createdAt: Timestamp.now()
         });
         setToast({ msg: t('save'), type: 'success' });
-        setTargetUser(''); setSwapDetails(''); setSwapDate('');
+        setTargetUser(''); setSwapDetails(''); setSwapDate(''); setSwapEndDate('');
     } catch (e) {
         setToast({ msg: 'Error', type: 'error' });
     }
@@ -950,17 +957,30 @@ const DoctorDashboard: React.FC = () => {
                                         <div className="flex bg-slate-50 p-1 rounded-xl">
                                             <button type="button" onClick={() => setSwapType('day')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${swapType === 'day' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>{t('user.req.day')}</button>
                                             <button type="button" onClick={() => setSwapType('month')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${swapType === 'month' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>{t('user.req.month')}</button>
+                                            <button type="button" onClick={() => setSwapType('period')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${swapType === 'period' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Period</button>
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-400 mb-1">{swapType === 'day' ? 'Date' : 'Month'}</label>
+                                        <label className="block text-xs font-bold text-slate-400 mb-1">{swapType === 'day' ? 'Date' : swapType === 'month' ? 'Month' : 'Start Date'}</label>
                                         <input 
-                                            type={swapType === 'day' ? 'date' : 'month'} 
+                                            type={swapType === 'month' ? 'month' : 'date'} 
                                             className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-indigo-100"
                                             value={swapDate}
                                             onChange={e => setSwapDate(e.target.value)}
                                             required
                                         />
+                                        {swapType === 'period' && (
+                                            <div className="mt-2">
+                                                <label className="block text-xs font-bold text-slate-400 mb-1">End Date</label>
+                                                <input 
+                                                    type="date"
+                                                    className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-indigo-100"
+                                                    value={swapEndDate}
+                                                    onChange={e => setSwapEndDate(e.target.value)}
+                                                    required
+                                                />
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                                 <div>

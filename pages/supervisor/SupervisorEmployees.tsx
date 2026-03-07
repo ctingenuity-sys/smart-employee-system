@@ -38,12 +38,12 @@ const ALL_PERMISSIONS = [
 
 // Mapped to match the specific CSS classes requested
 const JOB_CATEGORIES = [
-    { id: 'doctor', title: 'Doctors', cssClass: 'doctors', icon: 'fa-user-md', cardTheme: 'from-rose-50 to-pink-100 border-rose-200' },
-    { id: 'technologist', title: 'Specialists', cssClass: 'technologists', icon: 'fa-user-graduate', cardTheme: 'from-cyan-200 to-blue-300 border-cyan-400' },
-    { id: 'usg', title: 'Ultrasound', cssClass: 'technologists', icon: 'fa-wave-square', isHidden: true, cardTheme: 'from-indigo-50 to-violet-100 border-indigo-200' }, 
-    { id: 'technician', title: 'Technicians', cssClass: 'technicians', icon: 'fa-cogs', cardTheme: 'bg-gradient-to-r from-yellow-950 via-yellow-400 to-yellow-500 border-yellow-900 text-black' },
-    { id: 'nurse', title: 'Nurses', cssClass: 'assistants', icon: 'fa-user-nurse', cardTheme: 'from-purple-50 to-fuchsia-100 border-purple-200' },
-    { id: 'rso', title: 'R S O', cssClass: 'rso', icon: 'fa-radiation', cardTheme: 'from-yellow-50 to-amber-100 border-yellow-200' },
+    { id: 'doctor', title: 'Doctors', cssClass: 'doctors', icon: 'fa-user-md', cardTheme: 'bg-gradient-to-br from-rose-500 to-pink-600 text-white border-rose-400' },
+    { id: 'technologist', title: 'Specialists', cssClass: 'technologists', icon: 'fa-user-graduate', cardTheme: 'bg-gradient-to-br from-cyan-500 to-blue-600 text-white border-cyan-400' },
+    { id: 'usg', title: 'Ultrasound', cssClass: 'technologists', icon: 'fa-wave-square', isHidden: true, cardTheme: 'bg-gradient-to-br from-indigo-500 to-violet-600 text-white border-indigo-400' }, 
+    { id: 'technician', title: 'Technicians', cssClass: 'technicians', icon: 'fa-cogs', cardTheme: 'bg-gradient-to-br from-amber-400 to-orange-500 text-white border-amber-400' },
+    { id: 'nurse', title: 'Nurses', cssClass: 'assistants', icon: 'fa-user-nurse', cardTheme: 'bg-gradient-to-br from-purple-500 to-fuchsia-600 text-white border-purple-400' },
+    { id: 'rso', title: 'R S O', cssClass: 'rso', icon: 'fa-radiation', cardTheme: 'bg-gradient-to-br from-yellow-400 to-amber-500 text-white border-yellow-400' },
 ];
 
 const styles = `
@@ -176,6 +176,44 @@ const styles = `
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+}
+
+/* New Input Styles */
+.input-group-modern {
+    position: relative;
+    transition: all 0.3s ease;
+}
+.input-group-modern:focus-within {
+    transform: translateY(-2px);
+}
+.input-modern {
+    width: 100%;
+    background: #f8fafc;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 12px 12px 12px 45px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #334155;
+    transition: all 0.3s ease;
+    outline: none;
+}
+.input-modern:focus {
+    background: #fff;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}
+.input-icon {
+    position: absolute;
+    left: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    font-size: 16px;
+    transition: all 0.3s ease;
+}
+.input-group-modern:focus-within .input-icon {
+    color: #3b82f6;
 }
 `;
 
@@ -959,42 +997,78 @@ const SupervisorEmployees: React.FC = () => {
                                 <i className={`fas fa-chevron-${isAddFormOpen ? 'up' : 'down'} text-slate-400 text-xs`}></i>
                             </button>
                             {isAddFormOpen && (
-                                <div className="p-5 border-t border-slate-50 space-y-3 animate-in fade-in duration-300">
-                                    <input className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" placeholder={t('sup.user.name')} value={newUserName} onChange={e => setNewUserName(e.target.value)} />
-                                    <input className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" placeholder="Email" type="email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} />
-                                    <input className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" placeholder="Password" type="password" value={newUserPassword} onChange={e => setNewUserPassword(e.target.value)} />
-                                    <input className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" placeholder="Phone" value={newUserPhone} onChange={e => setNewUserPhone(e.target.value)} />
+                                <div className="p-6 border-t border-slate-50 space-y-5 animate-in fade-in duration-300 bg-slate-50/50">
                                     
-                                    <div className="grid grid-cols-2 gap-2">
-                                         <select className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-bold" value={newUserGender} onChange={e => setNewUserGender(e.target.value as 'male'|'female')}>
-                                            <option value="male">Male</option>
-                                            <option value="female">Female</option>
-                                        </select>
-                                        <input type="date" className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" value={newUserHireDate} onChange={e => setNewUserHireDate(e.target.value)} placeholder="Hire Date" />
+                                    {/* Personal Info */}
+                                    <div className="space-y-3">
+                                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Personal Information</p>
+                                        <div className="input-group-modern">
+                                            <i className="fas fa-user input-icon"></i>
+                                            <input className="input-modern" placeholder={t('sup.user.name')} value={newUserName} onChange={e => setNewUserName(e.target.value)} />
+                                        </div>
+                                        <div className="input-group-modern">
+                                            <i className="fas fa-envelope input-icon"></i>
+                                            <input className="input-modern" placeholder="Email Address" type="email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} />
+                                        </div>
+                                        <div className="input-group-modern">
+                                            <i className="fas fa-lock input-icon"></i>
+                                            <input className="input-modern" placeholder="Password" type="password" value={newUserPassword} onChange={e => setNewUserPassword(e.target.value)} />
+                                        </div>
+                                        <div className="input-group-modern">
+                                            <i className="fas fa-phone input-icon"></i>
+                                            <input className="input-modern" placeholder="Phone Number" value={newUserPhone} onChange={e => setNewUserPhone(e.target.value)} />
+                                        </div>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <select className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-bold" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}>
-                                            <option value="user">User</option>
-                                            <option value="doctor">Doctor</option>
-                                            <option value="supervisor">Supervisor</option>
-                                        </select>
-                                        <select className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-bold" value={newUserCategory} onChange={e => setNewUserCategory(e.target.value)}>
-                                            {JOB_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
-                                        </select>
+                                    {/* Job Details */}
+                                    <div className="space-y-3 pt-2 border-t border-slate-200">
+                                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Job Details</p>
+                                        <div className="grid grid-cols-2 gap-3">
+                                             <div className="input-group-modern">
+                                                <i className="fas fa-venus-mars input-icon"></i>
+                                                <select className="input-modern" value={newUserGender} onChange={e => setNewUserGender(e.target.value as 'male'|'female')}>
+                                                    <option value="male">Male</option>
+                                                    <option value="female">Female</option>
+                                                </select>
+                                            </div>
+                                            <div className="input-group-modern">
+                                                <i className="fas fa-calendar-alt input-icon"></i>
+                                                <input type="date" className="input-modern" value={newUserHireDate} onChange={e => setNewUserHireDate(e.target.value)} placeholder="Hire Date" />
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="input-group-modern">
+                                                <i className="fas fa-user-tag input-icon"></i>
+                                                <select className="input-modern" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}>
+                                                    <option value="user">User</option>
+                                                    <option value="doctor">Doctor</option>
+                                                    <option value="supervisor">Supervisor</option>
+                                                </select>
+                                            </div>
+                                            <div className="input-group-modern">
+                                                <i className="fas fa-briefcase input-icon"></i>
+                                                <select className="input-modern" value={newUserCategory} onChange={e => setNewUserCategory(e.target.value)}>
+                                                    {JOB_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                                                </select>
+                                            </div>
+                                        </div>
                                     </div>
                                     
-                                    <label className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg">
-                                        <input type="checkbox" checked={newUserHidden} onChange={e => setNewUserHidden(e.target.checked)} />
-                                        <span className="text-xs text-slate-500 font-bold">Hide from lists (Secret)</span>
+                                    <label className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors shadow-sm">
+                                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${newUserHidden ? 'bg-blue-500 border-blue-500 text-white' : 'border-slate-300 bg-slate-100'}`}>
+                                            {newUserHidden && <i className="fas fa-check text-xs"></i>}
+                                        </div>
+                                        <input type="checkbox" checked={newUserHidden} onChange={e => setNewUserHidden(e.target.checked)} className="hidden" />
+                                        <span className="text-xs text-slate-600 font-bold">Hide from public lists (Secret Mode)</span>
                                     </label>
 
                                     <button 
                                         onClick={handleAddUser} 
                                         disabled={isAddingUser}
-                                        className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 shadow-md disabled:opacity-50"
+                                        className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-4 rounded-xl font-black hover:from-blue-700 hover:to-indigo-700 shadow-lg disabled:opacity-50 transform active:scale-[0.98] transition-all flex items-center justify-center gap-2"
                                     >
-                                        {isAddingUser ? <i className="fas fa-spinner fa-spin"></i> : t('add')}
+                                        {isAddingUser ? <i className="fas fa-spinner fa-spin"></i> : <><i className="fas fa-plus-circle"></i> {t('add')}</>}
                                     </button>
                                 </div>
                             )}
@@ -1437,7 +1511,7 @@ const SupervisorEmployees: React.FC = () => {
 
             {/* Category List Modal (New Colorful Card Layout) */}
             <Modal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} title={`${selectedCategoryTitle} List`} maxWidth="max-w-4xl">
-                <div className="grid grid-cols-1 gap-4 max-h-[60vh] overflow-y-auto pr-1 pb-4 custom-scrollbar">
+                <div className="grid grid-cols-1 gap-6 max-h-[60vh] overflow-y-auto pr-2 pb-4 custom-scrollbar">
                     {selectedCategoryUsers.length === 0 ? (
                         <div className="col-span-1 text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400">
                             <i className="fas fa-user-slash text-4xl mb-3 opacity-50"></i>
@@ -1445,145 +1519,156 @@ const SupervisorEmployees: React.FC = () => {
                         </div>
                     ) : (
                         selectedCategoryUsers.map(user => (
-                            <div key={user.id} className={`group relative bg-gradient-to-br ${selectedCategoryTheme} rounded-[20px] p-5 shadow-sm hover:shadow-xl transition-all duration-300 border-2 overflow-hidden glass-card-effect`}>
+                            <div key={user.id} className={`group relative ${selectedCategoryTheme} rounded-[24px] p-6 shadow-lg hover:shadow-2xl transition-all duration-300 border border-white/20 overflow-hidden`}>
                                 
                                 {/* Background Decorative Icon */}
-                                <div className="absolute -right-4 -bottom-4 text-[80px] opacity-10 pointer-events-none rotate-12">
+                                <div className="absolute -right-6 -bottom-6 text-[120px] text-white opacity-10 pointer-events-none rotate-12">
                                     <i className={`fas ${JOB_CATEGORIES.find(c => c.id === user.jobCategory)?.icon || 'fa-user'}`}></i>
                                 </div>
 
-                                {/* Header */}
-                                <div className="flex gap-4 items-center mb-4 relative z-10">
-                                    <div className="relative">
-                                        <img 
-                                            src={getAvatar(user)} 
-                                            alt={user.name} 
-                                            className="w-16 h-16 rounded-full border-4 border-white shadow-md object-cover bg-white" 
-                                        />
-                                        <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-[10px] text-white shadow-sm border-2 border-white bg-slate-800">
+                                {/* Header Section */}
+                                <div className="flex flex-col md:flex-row gap-6 items-start relative z-10">
+                                    <div className="relative shrink-0">
+                                        <div className="w-20 h-20 rounded-full p-1 bg-white/20 backdrop-blur-sm shadow-inner">
+                                            <img 
+                                                src={getAvatar(user)} 
+                                                alt={user.name} 
+                                                className="w-full h-full rounded-full object-cover bg-white shadow-md" 
+                                            />
+                                        </div>
+                                        <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full flex items-center justify-center text-sm text-slate-700 shadow-lg border-2 border-white bg-white">
                                             <i className={`fas ${JOB_CATEGORIES.find(c => c.id === user.jobCategory)?.icon || 'fa-user'}`}></i>
                                         </div>
                                     </div>
-                                    <div className="flex-1">
-                                        <h3 className="font-black text-slate-800 text-lg leading-tight">{user.name}</h3>
-                                        <p className="text-xs text-slate-500 font-bold mb-2 opacity-80">{user.email}</p>
+                                    
+                                    <div className="flex-1 w-full">
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <h3 className="font-black text-white text-2xl leading-tight drop-shadow-md">{user.name}</h3>
+                                                <p className="text-white/80 font-bold text-sm mb-3 flex items-center gap-2">
+                                                    <i className="fas fa-envelope opacity-70"></i> {user.email}
+                                                </p>
+                                            </div>
+                                            <button 
+                                                onClick={() => { setIsCategoryModalOpen(false); openEditModal(user); }}
+                                                className="w-10 h-10 rounded-full bg-white/20 hover:bg-white text-white hover:text-slate-800 transition-all shadow-lg backdrop-blur-md flex items-center justify-center border border-white/30"
+                                            >
+                                                <i className="fas fa-pen"></i>
+                                            </button>
+                                        </div>
                                         
-                                        {/* New Info Pills Row */}
-                                        <div className="flex flex-wrap gap-2 mb-2">
+                                        {/* Info Pills Row */}
+                                        <div className="flex flex-wrap gap-2 mb-4">
                                              {/* Specialty Pill */}
-                                             <span className="flex items-center gap-1 text-[10px] font-black px-2 py-0.5 bg-pink-100 text-pink-700 rounded-full border border-pink-200 shadow-sm">
+                                             <span className="flex items-center gap-1 text-[11px] font-black px-3 py-1 bg-white/20 text-white rounded-full border border-white/30 backdrop-blur-md shadow-sm">
                                                 <i className="fas fa-briefcase"></i> {JOB_CATEGORIES.find(c => c.id === user.jobCategory)?.title || 'Staff'}
                                             </span>
 
                                             {/* Nationality Pill */}
                                             {user.nationality && (
-                                                <span className="flex items-center gap-1 text-[10px] font-black px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full border border-indigo-200 shadow-sm">
+                                                <span className="flex items-center gap-1 text-[11px] font-black px-3 py-1 bg-white/20 text-white rounded-full border border-white/30 backdrop-blur-md shadow-sm">
                                                     <i className="fas fa-globe"></i> {user.nationality}
                                                 </span>
                                             )}
 
                                             {/* Hire Date Pill */}
                                             {user.hireDate && (
-                                                <span className="flex items-center gap-1 text-[10px] font-black px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full border border-violet-200 shadow-sm">
+                                                <span className="flex items-center gap-1 text-[11px] font-black px-3 py-1 bg-white/20 text-white rounded-full border border-white/30 backdrop-blur-md shadow-sm">
                                                     <i className="fas fa-calendar-alt"></i> {calculateDuration(user.hireDate)}
                                                 </span>
                                             )}
-                                        </div>
-
-                                        <div className="flex flex-wrap gap-2">
-                                            <span className="text-[9px] font-black px-2 py-0.5 bg-white/60 text-slate-700 rounded-full uppercase tracking-wide border border-white/40 shadow-sm">
-                                                {user.role}
-                                            </span>
+                                            
                                             {user.phone && (
-                                                <span className="text-[9px] font-black px-2 py-0.5 bg-white/60 text-slate-700 rounded-full border border-white/40 shadow-sm flex items-center gap-1">
+                                                <span className="flex items-center gap-1 text-[11px] font-black px-3 py-1 bg-white/20 text-white rounded-full border border-white/30 backdrop-blur-md shadow-sm">
                                                     <i className="fas fa-phone"></i> {user.phone}
                                                 </span>
                                             )}
                                         </div>
-                                    </div>
-                                    <button 
-                                        onClick={() => { setIsCategoryModalOpen(false); openEditModal(user); }}
-                                        className="w-10 h-10 rounded-full bg-white/50 hover:bg-white text-slate-500 hover:text-blue-600 transition-all shadow-sm flex items-center justify-center"
-                                    >
-                                        <i className="fas fa-pen"></i>
-                                    </button>
-                                </div>
 
-                                {/* Certificates Section (Clean Grid) */}
-                                <div className="pt-4 border-t border-black/5 relative z-10">
-                                    <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-3">Compliance & Certificates</p>
-                                    
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                                        {/* License */}
-                                        <div className="bg-white/60 rounded-xl p-3 shadow-sm border border-white/40">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-xs font-black text-slate-700"><i className="fas fa-id-card mr-1 text-blue-600"></i> License</span>
-                                                {getDocumentLink(user, 'license', 'Open')}
+                                        {/* Certificates Section (Glass Cards) */}
+                                        <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/20 shadow-inner">
+                                            <p className="text-[10px] font-black text-white/70 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                                <i className="fas fa-shield-alt"></i> Compliance & Documents
+                                            </p>
+                                            
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                                                {/* License Card */}
+                                                <div className="bg-white rounded-xl p-3 shadow-lg border-l-4 border-emerald-500 relative overflow-hidden group/card">
+                                                    <div className="flex items-center justify-between mb-2 relative z-10">
+                                                        <span className="text-xs font-black text-slate-700 flex items-center gap-2">
+                                                            <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600"><i className="fas fa-id-card"></i></div>
+                                                            License
+                                                        </span>
+                                                        {getDocumentLink(user, 'license', 'View')}
+                                                    </div>
+                                                    <div className="mt-1 pl-8">
+                                                        {getExpiryStatusBadge(user, 'licenseExpiry', 'Exp')}
+                                                    </div>
+                                                </div>
+
+                                                {/* Registration Card */}
+                                                <div className="bg-white rounded-xl p-3 shadow-lg border-l-4 border-blue-500 relative overflow-hidden group/card">
+                                                    <div className="flex items-center justify-between mb-2 relative z-10">
+                                                        <span className="text-xs font-black text-slate-700 flex items-center gap-2">
+                                                            <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-600"><i className="fas fa-file-contract"></i></div>
+                                                            Registration
+                                                        </span>
+                                                        {getDocumentLink(user, 'registration', 'View')}
+                                                    </div>
+                                                    <div className="mt-1 pl-8">
+                                                        {getExpiryStatusBadge(user, 'registrationExpiry', 'Exp')}
+                                                    </div>
+                                                </div>
+
+                                                {/* NRRC – RSO Only */}
+                                                {user.jobCategory === 'rso' && (
+                                                    <div className="bg-white rounded-xl p-3 shadow-lg border-l-4 border-purple-500 relative overflow-hidden group/card sm:col-span-2">
+                                                        <div className="flex items-center justify-between mb-2 relative z-10">
+                                                            <span className="text-xs font-black text-slate-700 flex items-center gap-2">
+                                                                <div className="w-6 h-6 rounded-full bg-purple-100 flex items-center justify-center text-purple-600"><i className="fas fa-radiation"></i></div>
+                                                                NRRC Certificate
+                                                            </span>
+                                                            {getDocumentLink(user, 'nrrc', 'View')}
+                                                        </div>
+                                                        <div className="mt-1 pl-8">
+                                                            {getExpiryStatusBadge(user, 'nrrcExpiry', 'Exp')}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div className="mt-1">
-                                                {getExpiryStatusBadge(user, 'licenseExpiry', '')}
-                                            </div>
+                                            
+                                            {/* GENERAL / OTHER DOCUMENTS SECTION */}
+                                            {(() => {
+                                                const generalDocs = user.documents?.filter(d => 
+                                                    d.category === 'general' || 
+                                                    (d.category !== 'license' && d.category !== 'registration' && d.category !== 'nrrc_certificate')
+                                                ) || [];
+
+                                                if (generalDocs.length === 0) return null;
+
+                                                return (
+                                                    <div className="mt-3 pt-3 border-t border-white/10">
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {generalDocs.map((doc, idx) => (
+                                                                <a 
+                                                                    key={idx}
+                                                                    href={doc.url} 
+                                                                    target="_blank" 
+                                                                    rel="noreferrer"
+                                                                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold bg-white/20 text-white hover:bg-white hover:text-slate-800 transition-all border border-white/30 shadow-sm backdrop-blur-sm"
+                                                                    title={doc.name}
+                                                                >
+                                                                    <i className={`fas ${doc.type === 'link' ? 'fa-link' : 'fa-file-alt'}`}></i> 
+                                                                    <span className="truncate max-w-[120px]">{doc.name}</span>
+                                                                </a>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
-
-                                        {/* Registration */}
-                                        <div className="bg-white/60 rounded-xl p-3 shadow-sm border border-white/40">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-xs font-black text-slate-700"><i className="fas fa-file-contract mr-1 text-emerald-600"></i> Registration</span>
-                                                {getDocumentLink(user, 'registration', 'Open')}
-                                            </div>
-                                            <div className="mt-1">
-                                                {getExpiryStatusBadge(user, 'registrationExpiry', '')}
-                                            </div>
-                                        </div>
-
-                                        {/* NRRC – RSO Only */}
-                                        {user.jobCategory === 'rso' && (
-                                            <div className="bg-white/60 rounded-xl p-3 shadow-sm border border-white/40">
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <span className="text-xs font-black text-slate-700"><i className="fas fa-radiation mr-1 text-purple-600"></i> NRRC</span>
-                                                    {getDocumentLink(user, 'nrrc', 'Open')}
-                                                </div>
-                                                <div className="mt-1">
-                                                    {getExpiryStatusBadge(user, 'nrrcExpiry', '')}
-                                                </div>
-                                            </div>
-                                        )}
                                     </div>
-                                    
-                                    {/* GENERAL / OTHER DOCUMENTS SECTION */}
-                                    {(() => {
-                                        // Filter documents that are NOT license, registration, or nrrc
-                                        const generalDocs = user.documents?.filter(d => 
-                                            d.category === 'general' || 
-                                            (d.category !== 'license' && d.category !== 'registration' && d.category !== 'nrrc_certificate')
-                                        ) || [];
-
-                                        if (generalDocs.length === 0) return null;
-
-                                        return (
-                                            <div className="mt-3">
-                                                <p className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wide">Other Documents</p>
-                                                <div className="flex flex-wrap gap-2">
-                                                    {generalDocs.map((doc, idx) => (
-                                                        <a 
-                                                            key={idx}
-                                                            href={doc.url} 
-                                                            target="_blank" 
-                                                            rel="noreferrer"
-                                                            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all border shadow-sm ${getDocumentButtonStyle(doc)}`}
-                                                            title={doc.name}
-                                                        >
-                                                            <i className={`fas ${doc.type === 'link' ? 'fa-link' : 'fa-file-alt'}`}></i> 
-                                                            <span className="truncate max-w-[120px]">{doc.name}</span>
-                                                            {doc.expiryDate && <span className="opacity-70 text-[9px] border-l pl-2 ml-1 border-current">{doc.expiryDate}</span>}
-                                                        </a>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        );
-                                    })()}
                                 </div>
-
                             </div>
                         ))
                     )}

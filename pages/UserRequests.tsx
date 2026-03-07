@@ -25,8 +25,9 @@ const UserRequests: React.FC = () => {
     const [targetUser, setTargetUser] = useState('');
     const [swapType, setSwapType] = useState('day');
     const [swapDate, setSwapDate] = useState('');
+    const [swapEndDate, setSwapEndDate] = useState('');
     const [swapDetails, setSwapDetails] = useState('');
-    const [swapErrors, setSwapErrors] = useState<{target?: string, date?: string}>({});
+    const [swapErrors, setSwapErrors] = useState<{target?: string, date?: string, endDate?: string}>({});
 
     // Leave Form
     const [leaveStart, setLeaveStart] = useState('');
@@ -47,7 +48,8 @@ const UserRequests: React.FC = () => {
     const validateSwap = () => {
         const errs: any = {};
         if (!targetUser) errs.target = 'Please select a colleague';
-        if (!swapDate) errs.date = 'Date is required';
+        if (!swapDate) errs.date = 'Start date is required';
+        if (swapType === 'period' && !swapEndDate) errs.endDate = 'End date is required';
         setSwapErrors(errs);
         return Object.keys(errs).length === 0;
     };
@@ -74,11 +76,12 @@ const UserRequests: React.FC = () => {
                 type: swapType,
                 details: swapDetails,
                 startDate: swapDate,
+                endDate: swapType === 'period' ? swapEndDate : null,
                 status: 'pending',
                 createdAt: Timestamp.now()
             });
             setToast({ msg: t('save'), type: 'success' });
-            setTargetUser(''); setSwapDetails(''); setSwapDate('');
+            setTargetUser(''); setSwapDetails(''); setSwapDate(''); setSwapEndDate('');
             setTimeout(() => navigate('/user/history'), 1500);
         } catch (e) {
             setToast({ msg: 'Error sending request', type: 'error' });
@@ -135,17 +138,30 @@ const UserRequests: React.FC = () => {
                                 <div className="flex bg-slate-50 p-1 rounded-xl">
                                     <button type="button" onClick={() => setSwapType('day')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${swapType === 'day' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>{t('user.req.day')}</button>
                                     <button type="button" onClick={() => setSwapType('month')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${swapType === 'month' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>{t('user.req.month')}</button>
+                                    <button type="button" onClick={() => setSwapType('period')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${swapType === 'period' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Period</button>
                                 </div>
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-slate-400 mb-1">{swapType === 'day' ? 'Date' : 'Month'}</label>
+                                <label className="block text-xs font-bold text-slate-400 mb-1">{swapType === 'day' ? 'Date' : swapType === 'month' ? 'Month' : 'Start Date'}</label>
                                 <input 
-                                    type={swapType === 'day' ? 'date' : 'month'} 
+                                    type={swapType === 'month' ? 'month' : 'date'} 
                                     className={`w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-indigo-100 ${swapErrors.date ? 'ring-2 ring-red-200 bg-red-50' : ''}`}
                                     value={swapDate}
                                     onChange={e => { setSwapDate(e.target.value); setSwapErrors({...swapErrors, date:''}) }}
                                 />
                                 {swapErrors.date && <p className="text-[10px] text-red-500 mt-1 ml-1">{swapErrors.date}</p>}
+                                {swapType === 'period' && (
+                                    <div className="mt-2">
+                                        <label className="block text-xs font-bold text-slate-400 mb-1">End Date</label>
+                                        <input 
+                                            type="date"
+                                            className={`w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-indigo-100 ${swapErrors.endDate ? 'ring-2 ring-red-200 bg-red-50' : ''}`}
+                                            value={swapEndDate}
+                                            onChange={e => { setSwapEndDate(e.target.value); setSwapErrors({...swapErrors, endDate:''}) }}
+                                        />
+                                        {swapErrors.endDate && <p className="text-[10px] text-red-500 mt-1 ml-1">{swapErrors.endDate}</p>}
+                                    </div>
+                                )}
                             </div>
                         </div>
                         <div>

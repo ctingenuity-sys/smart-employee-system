@@ -8,6 +8,7 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import Toast from '../../components/Toast';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
+import DocumentScanner from '../../components/DocumentScanner';
 
 const RoomReports: React.FC = () => {
     const { dir } = useLanguage();
@@ -16,6 +17,7 @@ const RoomReports: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'} | null>(null);
+    const [showScanner, setShowScanner] = useState(false);
     
     // Form
     const [editingId, setEditingId] = useState<string|null>(null);
@@ -31,9 +33,13 @@ const RoomReports: React.FC = () => {
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || !e.target.files[0]) return;
+        await processFile(e.target.files[0]);
+    };
+
+    const processFile = async (file: File) => {
         setUploading(true);
         try {
-            const url = await uploadFile(e.target.files[0], 'room_reports');
+            const url = await uploadFile(file, 'room_reports');
             if (url) {
                 setFormData(prev => ({ ...prev, surveyUrl: url }));
                 setToast({ msg: 'Survey Uploaded', type: 'success' });
@@ -46,6 +52,11 @@ const RoomReports: React.FC = () => {
         } finally {
             setUploading(false);
         }
+    };
+
+    const handleScannerSave = async (file: File) => {
+        setShowScanner(false);
+        await processFile(file);
     };
 
     const handleSubmit = async () => {
@@ -171,11 +182,21 @@ const RoomReports: React.FC = () => {
 
                             <div>
                                 <label className="text-xs font-bold text-slate-500 mb-1 block">Survey Report (PDF)</label>
-                                <div className="relative">
-                                    <input type="file" accept="application/pdf" className="hidden" id="survey-upload" onChange={handleFileUpload} />
-                                    <label htmlFor="survey-upload" className={`w-full p-4 flex items-center justify-center rounded-xl border-2 border-dashed cursor-pointer font-bold text-xs transition-colors ${formData.surveyUrl ? 'border-emerald-300 bg-emerald-50 text-emerald-600' : 'border-slate-300 bg-slate-50 text-slate-500'}`}>
-                                        {uploading ? 'Uploading...' : formData.surveyUrl ? 'File Attached ✅' : 'Click to Upload PDF'}
-                                    </label>
+                                <div className="flex gap-2">
+                                    <div className="relative flex-1">
+                                        <input type="file" accept="application/pdf" className="hidden" id="survey-upload" onChange={handleFileUpload} />
+                                        <label htmlFor="survey-upload" className={`w-full p-4 flex items-center justify-center rounded-xl border-2 border-dashed cursor-pointer font-bold text-xs transition-colors ${formData.surveyUrl ? 'border-emerald-300 bg-emerald-50 text-emerald-600' : 'border-slate-300 bg-slate-50 text-slate-500'}`}>
+                                            {uploading ? 'Uploading...' : formData.surveyUrl ? 'File Attached ✅' : 'Click to Upload PDF'}
+                                        </label>
+                                    </div>
+                                    <button 
+                                        type="button"
+                                        onClick={() => setShowScanner(true)}
+                                        className="p-4 bg-indigo-100 text-indigo-600 rounded-xl border border-indigo-200 hover:bg-indigo-200 transition-colors flex items-center justify-center"
+                                        title="Scan Document"
+                                    >
+                                        <i className="fas fa-camera"></i>
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -185,6 +206,13 @@ const RoomReports: React.FC = () => {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {showScanner && (
+                <DocumentScanner 
+                    onSave={handleScannerSave} 
+                    onCancel={() => setShowScanner(false)} 
+                />
             )}
         </div>
     );

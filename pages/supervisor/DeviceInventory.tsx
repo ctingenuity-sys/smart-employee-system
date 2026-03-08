@@ -8,6 +8,7 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import Toast from '../../components/Toast';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
+import DocumentScanner from '../../components/DocumentScanner';
 
 // --- COLOR THEMES ---
 const THEMES: Record<string, any> = {
@@ -90,6 +91,9 @@ const DeviceInventory: React.FC = () => {
     const [uploadingPPM, setUploadingPPM] = useState(false);
     const [uploadingQC, setUploadingQC] = useState(false);
 
+    // Scanner State
+    const [scannerField, setScannerField] = useState<'maintUrl' | 'qualUrl' | null>(null);
+
     useEffect(() => {
         const unsub = onSnapshot(collection(db, 'inventory_devices'), (snap) => {
             setDevices(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -119,8 +123,16 @@ const DeviceInventory: React.FC = () => {
             }
             setToast({ msg: 'Upload Failed', type: 'error' });
         } finally {
-            setUploadingImg(false); setUploadingPPM(false); setUploadingQC(false);
+            if (field === 'image') setUploadingImg(false);
+            if (field === 'maintUrl') setUploadingPPM(false);
+            if (field === 'qualUrl') setUploadingQC(false);
         }
+    };
+
+    const handleScannerSave = async (file: File) => {
+        if (!scannerField) return;
+        setScannerField(null); // Close scanner
+        await handleFileUpload(file, scannerField);
     };
 
     const handleSubmit = async () => {
@@ -470,12 +482,21 @@ const categories = [
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-bold text-blue-400 uppercase mb-1 block">Report PDF</label>
-                                        <div className="relative">
-                                            <input type="file" className="absolute inset-0 opacity-0 cursor-pointer z-10" onChange={e => e.target.files && handleFileUpload(e.target.files[0], 'maintUrl')} />
-                                            <div className={`w-full p-2 rounded-lg border border-blue-200 flex items-center justify-center gap-2 text-xs font-bold bg-white ${formData.maintUrl ? 'text-emerald-600' : 'text-blue-400'}`}>
-                                                {uploadingPPM ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-file-upload"></i>}
-                                                {formData.maintUrl ? 'File Attached' : 'Upload Report'}
+                                        <div className="flex gap-2">
+                                            <div className="relative flex-1">
+                                                <input type="file" className="absolute inset-0 opacity-0 cursor-pointer z-10" onChange={e => e.target.files && handleFileUpload(e.target.files[0], 'maintUrl')} />
+                                                <div className={`w-full p-2 rounded-lg border border-blue-200 flex items-center justify-center gap-2 text-xs font-bold bg-white ${formData.maintUrl ? 'text-emerald-600' : 'text-blue-400'}`}>
+                                                    {uploadingPPM ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-file-upload"></i>}
+                                                    {formData.maintUrl ? 'File Attached' : 'Upload Report'}
+                                                </div>
                                             </div>
+                                            <button 
+                                                onClick={() => setScannerField('maintUrl')}
+                                                className="p-2 bg-blue-100 text-blue-600 rounded-lg border border-blue-200 hover:bg-blue-200 transition-colors"
+                                                title="Scan Document"
+                                            >
+                                                <i className="fas fa-camera"></i>
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
@@ -507,12 +528,21 @@ const categories = [
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-bold text-purple-400 uppercase mb-1 block">Report PDF</label>
-                                            <div className="relative">
-                                                <input type="file" className="absolute inset-0 opacity-0 cursor-pointer z-10" onChange={e => e.target.files && handleFileUpload(e.target.files[0], 'qualUrl')} />
-                                                <div className={`w-full p-2 rounded-lg border border-purple-200 flex items-center justify-center gap-2 text-xs font-bold bg-white ${formData.qualUrl ? 'text-emerald-600' : 'text-purple-400'}`}>
-                                                    {uploadingQC ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-file-upload"></i>}
-                                                    {formData.qualUrl ? 'File Attached' : 'Upload Report'}
+                                            <div className="flex gap-2">
+                                                <div className="relative flex-1">
+                                                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer z-10" onChange={e => e.target.files && handleFileUpload(e.target.files[0], 'qualUrl')} />
+                                                    <div className={`w-full p-2 rounded-lg border border-purple-200 flex items-center justify-center gap-2 text-xs font-bold bg-white ${formData.qualUrl ? 'text-emerald-600' : 'text-purple-400'}`}>
+                                                        {uploadingQC ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-file-upload"></i>}
+                                                        {formData.qualUrl ? 'File Attached' : 'Upload Report'}
+                                                    </div>
                                                 </div>
+                                                <button 
+                                                    onClick={() => setScannerField('qualUrl')}
+                                                    className="p-2 bg-purple-100 text-purple-600 rounded-lg border border-purple-200 hover:bg-purple-200 transition-colors"
+                                                    title="Scan Document"
+                                                >
+                                                    <i className="fas fa-camera"></i>
+                                                </button>
                                             </div>
                                         </div>
                                     </div>
@@ -530,6 +560,14 @@ const categories = [
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Document Scanner Modal */}
+            {scannerField && (
+                <DocumentScanner 
+                    onSave={handleScannerSave} 
+                    onCancel={() => setScannerField(null)} 
+                />
             )}
         </div>
     );

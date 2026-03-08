@@ -8,6 +8,7 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import Toast from '../../components/Toast';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
+import DocumentScanner from '../../components/DocumentScanner';
 
 const FMSReports: React.FC = () => {
     const { dir } = useLanguage();
@@ -17,6 +18,7 @@ const FMSReports: React.FC = () => {
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'} | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [showScanner, setShowScanner] = useState(false);
     
     // Form
     const [reportName, setReportName] = useState('');
@@ -43,9 +45,13 @@ const FMSReports: React.FC = () => {
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || !e.target.files[0]) return;
+        await processFile(e.target.files[0]);
+    };
+
+    const processFile = async (file: File) => {
         setUploading(true);
         try {
-            const url = await uploadFile(e.target.files[0], 'fms_reports');
+            const url = await uploadFile(file, 'fms_reports');
             if (url) {
                 setFileUrl(url);
                 setToast({ msg: 'File Uploaded', type: 'success' });
@@ -55,6 +61,11 @@ const FMSReports: React.FC = () => {
         } finally {
             setUploading(false);
         }
+    };
+
+    const handleScannerSave = async (file: File) => {
+        setShowScanner(false);
+        await processFile(file);
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -201,11 +212,21 @@ const FMSReports: React.FC = () => {
                                     value={reportDate}
                                     onChange={e => setReportDate(e.target.value)}
                                 />
-                                <div className="relative">
-                                    <input type="file" accept="application/pdf" className="hidden" id="pdf-upload" onChange={handleFileUpload} />
-                                    <label htmlFor="pdf-upload" className={`w-full h-full flex items-center justify-center rounded-xl border-2 border-dashed cursor-pointer font-bold text-xs transition-colors ${fileUrl ? 'border-emerald-300 bg-emerald-50 text-emerald-600' : 'border-slate-300 bg-slate-50 text-slate-500'}`}>
-                                        {uploading ? 'Uploading...' : fileUrl ? 'File Ready ✅' : 'Upload PDF'}
-                                    </label>
+                                <div className="flex gap-2">
+                                    <div className="relative flex-1">
+                                        <input type="file" accept="application/pdf" className="hidden" id="pdf-upload" onChange={handleFileUpload} />
+                                        <label htmlFor="pdf-upload" className={`w-full h-full flex items-center justify-center rounded-xl border-2 border-dashed cursor-pointer font-bold text-xs transition-colors ${fileUrl ? 'border-emerald-300 bg-emerald-50 text-emerald-600' : 'border-slate-300 bg-slate-50 text-slate-500'}`}>
+                                            {uploading ? 'Uploading...' : fileUrl ? 'File Ready ✅' : 'Upload PDF'}
+                                        </label>
+                                    </div>
+                                    <button 
+                                        type="button"
+                                        onClick={() => setShowScanner(true)}
+                                        className="p-3 bg-sky-100 text-sky-600 rounded-xl border border-sky-200 hover:bg-sky-200 transition-colors flex items-center justify-center"
+                                        title="Scan Document"
+                                    >
+                                        <i className="fas fa-camera"></i>
+                                    </button>
                                 </div>
                             </div>
                             
@@ -216,6 +237,13 @@ const FMSReports: React.FC = () => {
                         </form>
                     </div>
                 </div>
+            )}
+
+            {showScanner && (
+                <DocumentScanner 
+                    onSave={handleScannerSave} 
+                    onCancel={() => setShowScanner(false)} 
+                />
             )}
         </div>
     );

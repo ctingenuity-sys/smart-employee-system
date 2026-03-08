@@ -16,6 +16,7 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { useNavigate } from 'react-router-dom';
 // Import the new storage service
 import { uploadFile } from '../../services/storageClient';
+import DocumentScanner from '../../components/DocumentScanner';
 
 // Declare Html5QrcodeScanner from global scope (CDN)
 declare const Html5QrcodeScanner: any;
@@ -240,6 +241,8 @@ const SupervisorEmployees: React.FC = () => {
 
     // Document Upload State
     const [isUploading, setIsUploading] = useState(false);
+    const [showScanner, setShowScanner] = useState(false);
+    const [scannerCategory, setScannerCategory] = useState<'registration' | 'license' | 'general'>('general');
     
     // Link/Scan Modal State
     const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
@@ -571,6 +574,49 @@ const SupervisorEmployees: React.FC = () => {
             }, { merge: true });
 
             // Update local state
+            setEditForm(prev => ({
+                ...prev,
+                documents: [...(prev.documents || []), newDoc]
+            }));
+
+            setToast({ msg: 'تم رفع الملف بنجاح', type: 'success' });
+        } catch (error: any) {
+            console.error("Upload error:", error);
+            if (error.message === 'CORS_ERROR') {
+                setShowCorsHelp(true);
+            } else {
+                setToast({ msg: 'فشل رفع الملف: ' + error.message, type: 'error' });
+            }
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const handleScannerSave = async (file: File) => {
+        if (!editForm.id) return;
+        setIsUploading(true);
+        setShowScanner(false);
+        try {
+            const folderPath = `user_documents/${editForm.id}`;
+            const downloadUrl = await uploadFile(file, folderPath);
+
+            if (!downloadUrl) {
+                setIsUploading(false);
+                return;
+            }
+
+            const newDoc: UserDocument = {
+                name: file.name,
+                url: downloadUrl,
+                type: 'pdf',
+                category: scannerCategory,
+                uploadedAt: new Date().toISOString()
+            };
+
+            await setDoc(doc(certDb, 'employee_records', editForm.id), {
+                documents: arrayUnion(newDoc)
+            }, { merge: true });
+
             setEditForm(prev => ({
                 ...prev,
                 documents: [...(prev.documents || []), newDoc]
@@ -1371,7 +1417,7 @@ const SupervisorEmployees: React.FC = () => {
                     <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 space-y-3">
                         <div className="flex justify-between items-center">
                             <h4 className="font-bold text-blue-800 text-sm flex items-center gap-2"><i className="fas fa-file-pdf"></i> Documents (PDF)</h4>
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 flex-wrap">
                                 {/* NEW BUTTON for Link/QR */}
                                 <button 
                                     onClick={() => { setIsLinkModalOpen(true); setIsEditModalOpen(false); }} // Close edit, open link modal (or nested)
@@ -1380,14 +1426,33 @@ const SupervisorEmployees: React.FC = () => {
                                     <i className="fas fa-link"></i> Link / QR
                                 </button>
 
-                                <label className="cursor-pointer bg-white text-blue-600 px-3 py-1 rounded-lg text-[10px] font-bold border border-blue-200 hover:bg-blue-100 transition-colors flex items-center gap-1">
-                                    <i className="fas fa-certificate"></i> + Reg. Certificate
-                                    <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleFileUpload(e, 'registration')} disabled={isUploading} />
-                                </label>
-                                <label className="cursor-pointer bg-white text-emerald-600 px-3 py-1 rounded-lg text-[10px] font-bold border border-emerald-200 hover:bg-emerald-50 transition-colors flex items-center gap-1">
-                                    <i className="fas fa-id-card"></i> + License
-                                    <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleFileUpload(e, 'license')} disabled={isUploading} />
-                                </label>
+                                <div className="flex items-center gap-1">
+                                    <label className="cursor-pointer bg-white text-blue-600 px-3 py-1 rounded-lg text-[10px] font-bold border border-blue-200 hover:bg-blue-100 transition-colors flex items-center gap-1">
+                                        <i className="fas fa-certificate"></i> + Reg. Certificate
+                                        <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleFileUpload(e, 'registration')} disabled={isUploading} />
+                                    </label>
+                                    <button 
+                                        onClick={() => { setScannerCategory('registration'); setShowScanner(true); }}
+                                        className="cursor-pointer bg-white text-blue-600 px-2 py-1 rounded-lg text-[10px] font-bold border border-blue-200 hover:bg-blue-100 transition-colors flex items-center"
+                                        title="Scan Reg. Certificate"
+                                    >
+                                        <i className="fas fa-camera"></i>
+                                    </button>
+                                </div>
+
+                                <div className="flex items-center gap-1">
+                                    <label className="cursor-pointer bg-white text-emerald-600 px-3 py-1 rounded-lg text-[10px] font-bold border border-emerald-200 hover:bg-emerald-50 transition-colors flex items-center gap-1">
+                                        <i className="fas fa-id-card"></i> + License
+                                        <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleFileUpload(e, 'license')} disabled={isUploading} />
+                                    </label>
+                                    <button 
+                                        onClick={() => { setScannerCategory('license'); setShowScanner(true); }}
+                                        className="cursor-pointer bg-white text-emerald-600 px-2 py-1 rounded-lg text-[10px] font-bold border border-emerald-200 hover:bg-emerald-50 transition-colors flex items-center"
+                                        title="Scan License"
+                                    >
+                                        <i className="fas fa-camera"></i>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                         
@@ -1834,6 +1899,13 @@ const SupervisorEmployees: React.FC = () => {
                     </button>
                 </div>
             </Modal>
+
+            {showScanner && (
+                <DocumentScanner 
+                    onSave={handleScannerSave} 
+                    onCancel={() => setShowScanner(false)} 
+                />
+            )}
         </div>
     );
 };

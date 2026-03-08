@@ -158,10 +158,13 @@ const ProtectedRoute = ({ children, allowedRoles, requiredPermission }: Protecte
 
     if (!user) return <Navigate to="/login" replace />;
     
-    if (allowedRoles && role && !allowedRoles.includes(role)) {
-        if (role === UserRole.USER) return <Navigate to="/user" replace />;
-        if (role === UserRole.DOCTOR) return <Navigate to="/doctor" replace />;
-        return <Navigate to="/login" replace />;
+    // FIX: Strictly check if role exists when allowedRoles are defined
+    if (allowedRoles) {
+        if (!role || !allowedRoles.includes(role)) {
+            if (role === UserRole.USER) return <Navigate to="/user" replace />;
+            if (role === UserRole.DOCTOR) return <Navigate to="/doctor" replace />;
+            return <Navigate to="/login" replace />;
+        }
     }
 
     if (role === UserRole.USER && requiredPermission && permissions && permissions.length > 0) {
@@ -206,7 +209,18 @@ const AppRoutes: React.FC = () => {
               <Suspense fallback={<Loading />}>
                   {!user ? <Login /> : 
                   role === UserRole.DOCTOR ? <Navigate to="/doctor" replace /> :
-                  (role === UserRole.USER ? <Navigate to="/user" replace /> : <Navigate to="/supervisor" replace />)
+                  role === UserRole.USER ? <Navigate to="/user" replace /> :
+                  role === UserRole.ADMIN || role === UserRole.SUPERVISOR ? <Navigate to="/supervisor" replace /> :
+                  <div className="flex items-center justify-center h-screen bg-slate-100">
+                      <div className="text-center p-8 bg-white rounded-2xl shadow-xl">
+                          <i className="fas fa-user-slash text-4xl text-red-500 mb-4"></i>
+                          <h2 className="text-xl font-bold text-slate-800">Account Not Found</h2>
+                          <p className="text-slate-500 mt-2">Your account details are missing. Please contact the administrator.</p>
+                          <button onClick={() => auth.signOut()} className="mt-6 px-6 py-2 bg-slate-800 text-white rounded-lg font-bold hover:bg-slate-700">
+                              Logout
+                          </button>
+                      </div>
+                  </div>
                   }
               </Suspense>
             }

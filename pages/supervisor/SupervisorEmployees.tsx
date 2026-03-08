@@ -683,7 +683,7 @@ const SupervisorEmployees: React.FC = () => {
 
             // Delete from Cert DB
             await deleteDoc(doc(certDb, 'employee_records', user.id));
-            setToast({ msg: 'User Deleted', type: 'success' });
+            setToast({ msg: 'User Deleted from Database. Note: User still exists in Auth (Login). Disable in Firebase Console if needed.', type: 'success' });
         } catch(e:any) {
             setToast({ msg: 'Error: ' + e.message, type: 'error' });
         } finally {

@@ -81,6 +81,7 @@ export interface Schedule {
   createdAt?: any;
   swapRequestId?: string;
   isRamadan?: boolean; // NEW: Explicit flag to force Ramadan theme regardless of dates
+  isException?: boolean; // NEW: Explicit flag for Exception days
 }
 
 export interface SwapRequest {

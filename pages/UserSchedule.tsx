@@ -374,7 +374,12 @@ const UserSchedule: React.FC = () => {
         if (currentUserId) {
             // My Schedule (Cards) Data Fetch
             const [y, m] = selectedMonth.split('-');
-            const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId));
+            const qLogs = query(
+                collection(db, 'attendance_logs'), 
+                where('userId', '==', currentUserId),
+                where('date', '>=', `${selectedMonth}-01`),
+                where('date', '<=', `${selectedMonth}-31`)
+            );
             getDocs(qLogs).then((snap) => {
                 const dates = new Set<string>();
                 snap.docs.forEach(d => {
@@ -578,7 +583,8 @@ const UserSchedule: React.FC = () => {
         else if (isExplicitNotRamadan) isRamadan = false;
         else isRamadan = occasion === 'ramadan';
 
-        const isEid = occasion === 'eid';
+        // FIX: Exceptions should NOT take Eid theme
+        const isEid = occasion === 'eid' && !sch.isException;
         const national = getNationalHoliday(sch.date);
 
         if (shiftDate < today) {
@@ -598,6 +604,10 @@ const UserSchedule: React.FC = () => {
         
         if (national) return { label: national.name, theme: 'emerald', icon: national.icon, isNational: true };
         if (isEid) return { label: 'EID MUBARAK', theme: 'teal', icon: 'fa-star', isEid: true };
+        
+        // NEW: Exception Theme
+        if (sch.isException) return { label: 'EXCEPTION', theme: 'purple', icon: 'fa-exclamation-circle' };
+
         if (isRamadan) return { label: 'RAMADAN', theme: 'indigo', icon: 'fa-moon', isRamadan: true };
 
         if (sch.locationId.includes('Friday')) return { label: 'FRIDAY', theme: 'emerald', icon: 'fa-mosque' };

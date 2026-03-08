@@ -142,6 +142,17 @@ const defaultDoctorFridayCols: ScheduleColumn[] = [
     { id: 'col4', title: 'NIGHT SHIFT', time: '21:00 - 09:00' }
 ];
 
+// Helper to batch delete large sets of docs
+const deleteDocsInBatches = async (docs: any[]) => {
+    const chunkSize = 400; 
+    for (let i = 0; i < docs.length; i += chunkSize) {
+        const batch = writeBatch(db);
+        const chunk = docs.slice(i, i + chunkSize);
+        chunk.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+    }
+};
+
 const ScheduleBuilder: React.FC = () => {
     // ... (Keep existing State Hooks)
     const { t, dir } = useLanguage();
@@ -151,6 +162,7 @@ const ScheduleBuilder: React.FC = () => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
     const [activeTemplateName, setActiveTemplateName] = useState<string>('');
+    const [activePublishId, setActivePublishId] = useState<string | null>(null);
     const [generalData, setGeneralData] = useState<ModalityColumn[]>([
         { id: '1', title: 'MRI', defaultTime: '8 AM - 8 PM', colorClass: 'bg-blue-100 text-blue-900', staff: [] },
         { id: '2', title: 'CT Scan', defaultTime: '24 Hours', colorClass: 'bg-green-100 text-green-900', staff: [] }
@@ -249,6 +261,8 @@ const ScheduleBuilder: React.FC = () => {
     const handleSaveTemplate = () => {
         if (activeTemplateId) {
             setNewTemplateName(activeTemplateName);
+        } else if (activePublishId) {
+            setNewTemplateName(`Schedule ${activePublishId}`);
         } else {
             setNewTemplateName(`Schedule ${new Date().toLocaleDateString()}`);
         }
@@ -355,6 +369,7 @@ const ScheduleBuilder: React.FC = () => {
             onConfirm: () => {
                 setActiveTemplateId(tpl.id);
                 setActiveTemplateName(tpl.name);
+                setActivePublishId(null);
                 loadStateFromTemplate(tpl);
                 setConfirmation(prev => ({ ...prev, isOpen: false }));
                 setIsTemplatesOpen(false); 
@@ -383,6 +398,9 @@ const ScheduleBuilder: React.FC = () => {
                     if (docSnap.exists()) {
                         const data = docSnap.data() as SavedTemplate;
                         loadStateFromTemplate(data);
+                        setActivePublishId(publishMonth);
+                        setActiveTemplateId(null);
+                        setActiveTemplateName('');
                         setToast({ msg: `Successfully loaded published schedule for ${publishMonth}`, type: 'success' });
                     } else {
                         setToast({ msg: `No published schedule found for ID: ${publishMonth}`, type: 'error' });
@@ -401,13 +419,23 @@ const ScheduleBuilder: React.FC = () => {
         setIsFetchingMonths(true);
         setIsDeleteModalOpen(true);
         try {
-            const q = query(collection(db, 'schedules'));
-            const snapshot = await getDocs(q);
+            // First check monthly_publishes collection as it is the source of truth for full schedules
+            const qPub = query(collection(db, 'monthly_publishes'));
+            const snapPub = await getDocs(qPub);
             const months = new Set<string>();
+            
+            snapPub.docs.forEach(d => {
+                months.add(d.id);
+            });
+            
+            // Fallback: Check schedules collection if monthly_publishes is empty/unsynced
+            const qSch = query(collection(db, 'schedules'));
+            const snapshot = await getDocs(qSch);
             snapshot.docs.forEach(d => {
                 const m = d.data().month;
                 if (m) months.add(m);
             });
+            
             setAvailableMonthsToDelete(Array.from(months).sort().reverse());
         } catch (e) {
             console.error(e);
@@ -421,18 +449,33 @@ const ScheduleBuilder: React.FC = () => {
         if (!confirm(`Are you sure you want to DELETE ALL schedules for ${monthToDelete}? This is irreversible.`)) return;
         
         setLoading(true);
-        const q = query(collection(db, 'schedules'), where('month', '==', monthToDelete));
-        getDocs(q).then(async (snap) => {
-            const batch = writeBatch(db);
-            snap.docs.forEach(d => batch.delete(d.ref));
-            // Also remove from published views
-            batch.delete(doc(db, 'monthly_publishes', monthToDelete));
+        
+        // 1. Delete tickets by explicit month field
+        const q1 = query(collection(db, 'schedules'), where('month', '==', monthToDelete));
+        
+        // 2. Delete tickets by sourcePublishId field (Newly added to solve the zombie ticket issue)
+        const q2 = query(collection(db, 'schedules'), where('sourcePublishId', '==', monthToDelete));
 
-            await batch.commit();
-            setToast({ msg: `Deleted schedule for ${monthToDelete}`, type: 'success' });
+        Promise.all([getDocs(q1), getDocs(q2)]).then(async ([snap1, snap2]) => {
+            const allDocs = [...snap1.docs, ...snap2.docs];
+            
+            // Filter unique docs
+            const uniqueDocsMap = new Map();
+            allDocs.forEach(d => uniqueDocsMap.set(d.id, d));
+            const uniqueDocs = Array.from(uniqueDocsMap.values());
+            
+            // USE BATCH DELETE FUNCTION
+            await deleteDocsInBatches(uniqueDocs);
+            
+            // Also remove from published views (Snapshot)
+            // Separate single delete for the snapshot document
+            await deleteDoc(doc(db, 'monthly_publishes', monthToDelete));
+
+            setToast({ msg: `Deleted schedule for ${monthToDelete} (${uniqueDocs.length} tickets removed)`, type: 'success' });
             setAvailableMonthsToDelete(prev => prev.filter(m => m !== monthToDelete));
             setLoading(false);
         }).catch(err => {
+            console.error(err);
             setToast({ msg: 'Error deleting', type: 'error' });
             setLoading(false);
         });
@@ -495,33 +538,43 @@ const ScheduleBuilder: React.FC = () => {
             
             // *** 2. Standard Individual Ticket Generation (For My Schedule & Logic) ***
             if (!mergeMode) {
-                const q = query(collection(db, 'schedules'), where('month', '==', publishMonth));
-                const snapshot = await getDocs(q);
+                // Delete based on BOTH month AND sourcePublishId to catch everything
                 
-                if (!snapshot.empty) {
-                    const deleteBatch = writeBatch(db);
-                    let deleteOps = 0;
-                    
-                    snapshot.docs.forEach(docSnap => {
+                const q = query(collection(db, 'schedules'), where('month', '==', publishMonth));
+                // We also check for any tickets that claim to be from this source ID even if month differs
+                const qSource = query(collection(db, 'schedules'), where('sourcePublishId', '==', publishMonth));
+                
+                const [snap1, snap2] = await Promise.all([getDocs(q), getDocs(qSource)]);
+                
+                const docsToDelete: any[] = [];
+                const processedDeletes = new Set<string>();
+
+                const processDelete = (docs: any[]) => {
+                    docs.forEach(docSnap => {
+                        if (processedDeletes.has(docSnap.id)) return;
+                        
                         const sData = docSnap.data();
                         
                         // PROTECT SWAPS: If it's a swap, SKIP deletion
                         const isSwap = (sData.locationId && sData.locationId.toString().includes('Swap')) || 
                                        (sData.note && sData.note.toString().includes('Swap'));
                         
-                        // PROTECT LEAVES (Synced from Actions): If it's a leave ticket, SKIP
-                        // Actually, leaves usually come from Actions dynamically, but if synced as tickets:
+                        // PROTECT LEAVES
                         const isLeave = sData.locationId === 'LEAVE_ACTION';
 
                         if (!isSwap && !isLeave) {
-                            deleteBatch.delete(docSnap.ref);
-                            deleteOps++;
+                            docsToDelete.push(docSnap);
+                            processedDeletes.add(docSnap.id);
                         }
                     });
+                };
 
-                    if (deleteOps > 0) {
-                        await deleteBatch.commit();
-                    }
+                processDelete(snap1.docs);
+                processDelete(snap2.docs);
+
+                if (docsToDelete.length > 0) {
+                    // USE BATCH DELETE HELPER
+                    await deleteDocsInBatches(docsToDelete);
                 }
             }
 
@@ -552,7 +605,7 @@ const ScheduleBuilder: React.FC = () => {
 
             // Generic Save Function
             // Added uniqueSuffix to generate deterministic IDs for specific dates
-            const saveStaff = async (staffList: VisualStaff[], locId: string, notePrefix: string, time: string, isExceptionDate?: string, userType: string = 'user', forcedStart?: string, forcedEnd?: string, overrideMonth?: string, isRamadanFlag: boolean = false, activeTitle?: string, uniqueSuffix?: string) => {
+            const saveStaff = async (staffList: VisualStaff[], locId: string, notePrefix: string, time: string, isExceptionDate?: string, userType: string = 'user', forcedStart?: string, forcedEnd?: string, overrideMonth?: string, isRamadanFlag: boolean = false, activeTitle?: string, uniqueSuffix?: string, isExceptionFlag: boolean = false) => {
                 const parsed = parseMultiShifts(time);
                 const shifts = (parsed && parsed.length > 0) ? parsed : [{ start: '08:00', end: '16:00' }];
                 
@@ -564,12 +617,14 @@ const ScheduleBuilder: React.FC = () => {
                             staffName: resolved.name, 
                             locationId: locId,
                             month: overrideMonth || publishMonth,
+                            sourcePublishId: publishMonth, // CRITICAL: Tag every ticket with the ID of this publish action
                             userType: userType,
                             shifts: staff.time ? parseMultiShifts(staff.time) : shifts,
                             note: staff.note ? `${notePrefix} - ${staff.note}` : notePrefix,
                             createdAt: Timestamp.now(),
                             periodName: activeTitle || scheduleNote, 
-                            isRamadan: isRamadanFlag
+                            isRamadan: isRamadanFlag,
+                            isException: isExceptionFlag
                         };
                         
                         let docId = null;
@@ -612,6 +667,9 @@ const ScheduleBuilder: React.FC = () => {
             if (hasRamadanContent) {
                 const rStart = ramadanStartDate || globalStartDate;
                 const rEnd = ramadanEndDate || globalEndDate;
+                // FIX: Use publishMonth as the month key even for Ramadan, unless it's a specific date ticket.
+                // This ensures deletion works simply by month.
+                // OR better: Rely on sourcePublishId for deletion.
                 const ramadanMonthGroup = rStart ? rStart.slice(0, 7) : publishMonth;
                 const rTitle = ramadanScheduleNote || "RAMADAN SCHEDULE";
 
@@ -674,12 +732,14 @@ const ScheduleBuilder: React.FC = () => {
                                      staffName: resolved.name,
                                      locationId: 'Holiday Shift',
                                      month: specificMonth, 
+                                     sourcePublishId: publishMonth, // TAGGING
                                      userType: 'user',
                                      shifts: staff.time ? parseMultiShifts(staff.time) : shifts,
                                      note: staff.note ? `${occ} - ${col.title} - ${staff.note}` : `${occ} - ${col.title}`,
                                      createdAt: Timestamp.now(),
                                      periodName: holidayScheduleNote || scheduleNote, 
-                                     isRamadan: false 
+                                     isRamadan: false,
+                                     isException: false // Explicitly false for holidays
                                  };
                                  
                                  let docId = null;
@@ -708,16 +768,18 @@ const ScheduleBuilder: React.FC = () => {
             for (const ex of exceptions) {
                 if (!ex.date) continue;
                 const exMonth = ex.date.match(/^\d{4}-\d{2}/) ? ex.date.slice(0, 7) : publishMonth;
+                const exceptionTitle = ex.note || "EXCEPTION DAY"; // Use the specific exception note
+
                 if (ex.columns) {
                     for (const col of ex.columns) {
                         // Deterministic for Exception Columns
-                        await saveStaff(col.staff, col.title, col.title, col.defaultTime, ex.date, 'user', undefined, undefined, exMonth, false, scheduleNote, `Exception_${col.id}`);
+                        await saveStaff(col.staff, col.title, col.title, col.defaultTime, ex.date, 'user', undefined, undefined, exMonth, false, exceptionTitle, `Exception_${col.id}`, true);
                     }
                 }
                 if (ex.commonDuties) {
                     for (const duty of ex.commonDuties) {
                          // Deterministic for Exception Duties
-                        await saveStaff(duty.staff, 'common_duty', duty.section, duty.time, ex.date, 'user', undefined, undefined, exMonth, false, scheduleNote, `Exception_Duty_${duty.section.replace(/\s+/g, '')}`);
+                        await saveStaff(duty.staff, 'common_duty', duty.section, duty.time, ex.date, 'user', undefined, undefined, exMonth, false, exceptionTitle, `Exception_Duty_${duty.section.replace(/\s+/g, '')}`, true);
                     }
                 }
                 if (ex.doctorData && ex.doctorData.length > 0) {
@@ -727,7 +789,7 @@ const ScheduleBuilder: React.FC = () => {
                          const staffList = row[col.id] as VisualStaff[];
                          if (staffList && Array.isArray(staffList)) {
                              // Deterministic for Doctor Exception
-                             await saveStaff(staffList, 'Doctor Schedule', `Exception - ${col.title}`, col.time || '', ex.date, 'doctor', undefined, undefined, exMonth, false, scheduleNote, `Exception_Dr_${col.id}`);
+                             await saveStaff(staffList, 'Doctor Schedule', `Exception - ${col.title}`, col.time || '', ex.date, 'doctor', undefined, undefined, exMonth, false, exceptionTitle, `Exception_Dr_${col.id}`, true);
                          }
                      }
                 }
@@ -1013,7 +1075,7 @@ const ScheduleBuilder: React.FC = () => {
             </div>
 
             {/* Save Template Modal */}
-            <Modal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} title={activeTemplateId ? t('sb.updateExisting') : t('sb.newTemplateName')}>
+            <Modal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} title={activeTemplateId ? t('sb.updateExisting') : (activePublishId ? 'Update Published Schedule' : t('sb.newTemplateName'))}>
                 <div className="space-y-6">
                     <div>
                         <label className="text-xs font-bold text-slate-500 mb-2 block">{t('sb.newTemplateName')}</label>
@@ -1035,7 +1097,31 @@ const ScheduleBuilder: React.FC = () => {
                         </div>
                     )}
 
-                    {!activeTemplateId && (
+                    {activePublishId && !activeTemplateId && (
+                         <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100 space-y-4">
+                            <div className="text-xs text-emerald-800 mb-2 font-bold">
+                                <i className="fas fa-info-circle mr-1"></i> You are editing a published schedule ({activePublishId}).
+                            </div>
+                            <button 
+                                onClick={() => {
+                                    setIsSaveModalOpen(false);
+                                    handlePublishSchedule();
+                                }} 
+                                className="w-full bg-emerald-600 text-white py-3 rounded-xl font-black shadow-lg hover:bg-emerald-700 flex items-center justify-center gap-2"
+                            >
+                                <i className="fas fa-upload"></i> Update Published Schedule (Re-Publish)
+                            </button>
+                            <div className="relative text-center">
+                                <span className="bg-emerald-50 px-2 text-[10px] font-bold text-emerald-400 relative z-10">OR</span>
+                                <div className="absolute top-1/2 left-0 w-full h-px bg-emerald-200"></div>
+                            </div>
+                            <button onClick={() => confirmSaveTemplate(true)} className="w-full bg-white border-2 border-emerald-200 text-emerald-600 py-3 rounded-xl font-bold hover:bg-white/50 flex items-center justify-center gap-2">
+                                <i className="fas fa-save"></i> Save as New Template
+                            </button>
+                        </div>
+                    )}
+
+                    {!activeTemplateId && !activePublishId && (
                         <button onClick={() => confirmSaveTemplate(false)} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black shadow-lg hover:bg-black">
                             {t('save')}
                         </button>

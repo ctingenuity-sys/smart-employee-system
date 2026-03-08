@@ -1624,17 +1624,124 @@ const AppointmentsPage: React.FC = () => {
     // Helper for generating the script content
     const generateBridgeScript = () => {
         const currentOrigin = window.location.href.split('#')[0];
-        const targetUrl = `${currentOrigin}#/appointments`;
-
+        
         return `
-/* 🚀 AJ-SMART-BRIDGE AUTO-INJECTOR V2.7 Hidden UI + Silent Console */
+/* 🚀 AJ-SMART-BRIDGE AUTO-INJECTOR V3.0 */
 (function () {
     if (window.AJ_BRIDGE_ACTIVE) return;
     window.AJ_BRIDGE_ACTIVE = true;
 
-    // ... (rest of script as before) ...
-`;
+    // CONFIGURATION: Dynamically set from the server where this script was downloaded
+    const CONFIG = {
+        TARGET_URL: "${currentOrigin}", 
+        APP_PAGE: "${currentOrigin}#/appointments"
+    };
 
+    console.log("🚀 Smart Bridge Loaded. Target:", CONFIG.TARGET_URL);
+
+    // --- UI HELPER: Floating Status ---
+    const btn = document.createElement('div');
+    btn.innerHTML = '🏥 Smart Bridge';
+    Object.assign(btn.style, {
+        position: 'fixed',
+        bottom: '20px',
+        left: '20px',
+        background: '#1e293b',
+        color: 'white',
+        padding: '8px 12px',
+        borderRadius: '8px',
+        fontSize: '12px',
+        zIndex: 999999,
+        cursor: 'pointer',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+        fontFamily: 'system-ui, sans-serif',
+        border: '1px solid #334155',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px'
+    });
+    
+    const statusDot = document.createElement('span');
+    Object.assign(statusDot.style, {
+        width: '8px',
+        height: '8px',
+        borderRadius: '50%',
+        backgroundColor: '#10b981'
+    });
+    btn.prepend(statusDot);
+
+    btn.onclick = () => {
+        // Open the correct app URL
+        window.open(CONFIG.APP_PAGE, '_blank');
+    };
+    
+    document.body.appendChild(btn);
+
+    // --- IFRAME COMMUNICATION ---
+    // We open a hidden iframe to the app to allow postMessage communication
+    const iframe = document.createElement('iframe');
+    iframe.src = CONFIG.APP_PAGE;
+    iframe.style.display = 'none';
+    iframe.id = 'aj-bridge-frame';
+    document.body.appendChild(iframe);
+
+    // --- DATA INTERCEPTION (XHR) ---
+    const originalXHR = window.XMLHttpRequest;
+    window.XMLHttpRequest = function() {
+        const xhr = new originalXHR();
+        const originalSend = xhr.send;
+        
+        xhr.addEventListener('load', function() {
+            try {
+                // Check if response is JSON
+                if (xhr.responseText && (xhr.responseText.startsWith('{') || xhr.responseText.startsWith('['))) {
+                    const data = JSON.parse(xhr.responseText);
+                    
+                    // Filter logic: Check for common patient data fields
+                    const str = JSON.stringify(data).toLowerCase();
+                    if (str.includes('patient') || str.includes('exam') || str.includes('order')) {
+                        
+                        // Send to App via Iframe
+                        if (iframe.contentWindow) {
+                            iframe.contentWindow.postMessage({
+                                type: 'AJ_BRIDGE_DATA',
+                                payload: data
+                            }, '*');
+                            
+                            // Visual Feedback
+                            statusDot.style.backgroundColor = '#f59e0b'; // Orange (Sending)
+                            setTimeout(() => statusDot.style.backgroundColor = '#10b981', 500); // Back to Green
+                        }
+                    }
+                }
+            } catch (e) { /* ignore */ }
+        });
+        return xhr;
+    };
+    
+    // --- DATA INTERCEPTION (FETCH) ---
+    const originalFetch = window.fetch;
+    window.fetch = async function(...args) {
+        const response = await originalFetch(...args);
+        try {
+            const clone = response.clone();
+            clone.json().then(data => {
+                const str = JSON.stringify(data).toLowerCase();
+                if (str.includes('patient') || str.includes('exam') || str.includes('order')) {
+                     if (iframe.contentWindow) {
+                        iframe.contentWindow.postMessage({
+                            type: 'AJ_BRIDGE_DATA',
+                            payload: data
+                        }, '*');
+                     }
+                }
+            }).catch(() => {});
+        } catch(e) {}
+        return response;
+    };
+
+})();
+`;
     };
 
     const handleDownloadExtensionScript = () => {
@@ -2313,87 +2420,125 @@ const AppointmentsPage: React.FC = () => {
 
                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
                         <h4 className="font-bold text-slate-700">{editingModalityId} Settings</h4>
+                        
+                        {/* BULK GENERATOR */}
+                        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+                            <p className="text-xs font-bold text-blue-600 mb-2 flex items-center gap-2">
+                                <i className="fas fa-magic"></i> Bulk Generate Slots
+                            </p>
+                            <div className="grid grid-cols-3 gap-2 mb-2">
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 block">Start</label>
+                                    <input type="time" value={editStartTime} onChange={e => setEditStartTime(e.target.value)} className="w-full border rounded p-1 text-xs" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 block">End</label>
+                                    <input type="time" value={editEndTime} onChange={e => setEditEndTime(e.target.value)} className="w-full border rounded p-1 text-xs" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 block">Mins</label>
+                                    <input type="number" value={editInterval} onChange={e => setEditInterval(parseInt(e.target.value))} className="w-full border rounded p-1 text-xs" />
+                                </div>
+                            </div>
+                            <button 
+                                onClick={() => {
+                                    if (!editStartTime || !editEndTime || !editInterval) return;
+                                    const slots: string[] = [];
+                                    let current = new Date(`2000-01-01T${editStartTime}`);
+                                    const end = new Date(`2000-01-01T${editEndTime}`);
+                                    
+                                    while (current < end) {
+                                        const timeStr = current.toTimeString().substring(0, 5);
+                                        slots.push(timeStr);
+                                        current.setMinutes(current.getMinutes() + editInterval);
+                                    }
+
+                                    setManualSlots(slots);
+                                    setManualSlotsCount(slots.length);
+                                    setModalitySettings(prev => ({
+                                        ...prev,
+                                        [editingModalityId]: {
+                                            ...prev[editingModalityId],
+                                            slots: slots,
+                                            limit: slots.length
+                                        }
+                                    }));
+                                }}
+                                className="w-full bg-blue-50 text-blue-600 text-xs font-bold py-1.5 rounded hover:bg-blue-100 transition-colors"
+                            >
+                                Generate Slots
+                            </button>
+                        </div>
+
                         <div className="border-t pt-4">
-  <label className="text-xs font-bold text-slate-600 block mb-2">
-   {t('appt.slotsCount')
-  }
-    </label>
+                            <div className="flex justify-between items-center mb-2">
+                                <label className="text-xs font-bold text-slate-600">
+                                    {t('appt.slotsCount')} ({manualSlotsCount})
+                                </label>
+                                <button 
+                                    onClick={() => {
+                                        const updated = [...manualSlots, ''];
+                                        setManualSlots(updated);
+                                        setManualSlotsCount(updated.length);
+                                        setModalitySettings(prev => ({
+                                            ...prev,
+                                            [editingModalityId]: {
+                                                ...prev[editingModalityId],
+                                                slots: updated,
+                                                limit: updated.length
+                                            }
+                                        }));
+                                    }}
+                                    className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded hover:bg-emerald-100"
+                                >
+                                    <i className="fas fa-plus mr-1"></i> Add Slot
+                                </button>
+                            </div>
 
-  <input
-    type="number"
-    min={0}
-    className="w-full bg-white border border-slate-300 rounded-lg p-2 text-sm font-bold mb-3"
-    placeholder="example: 15"
-    value={manualSlotsCount || ''}
-    onChange={e => {
-      const count = parseInt(e.target.value) || 0;
-      setManualSlotsCount(count);
-
-      const newSlots = Array.from({ length: count }, (_, i) => manualSlots[i] || '');
-      setManualSlots(newSlots);
-
-      setModalitySettings(prev => ({
-        ...prev,
-        [editingModalityId]: {
-          ...prev[editingModalityId],
-          slots: newSlots.filter(Boolean),
-          limit: count
-        }
-      }));
-    }}
-  />
-</div>
-
-  {manualSlotsCount > 0 && (
-  <div className="space-y-3">
-    <div className="grid grid-cols-3 gap-2">
-      {manualSlots.map((slot, index) => (
-        <input
-          key={index}
-          type="time"
-          className="bg-white border border-slate-300 rounded p-1 text-xs font-mono"
-            value={normalizeTime(slot)}
-          onChange={e => {
-            const updated = [...manualSlots];
-            updated[index] = e.target.value;
-            setManualSlots(updated);
-
-            setModalitySettings(prev => ({
-              ...prev,
-              [editingModalityId]: {
-                ...prev[editingModalityId],
-                slots: updated.filter(Boolean),
-                limit: updated.length
-              }
-            }));
-          }}
-        />
-      ))}
-    </div>
-
-    {/* زر إضافة موعد */}
-    <button
-      onClick={() => {
-        const updated = [...manualSlots, ''];
-        setManualSlots(updated);
-        setManualSlotsCount(updated.length);
-
-        setModalitySettings(prev => ({
-          ...prev,
-          [editingModalityId]: {
-            ...prev[editingModalityId],
-            slots: updated.filter(Boolean),
-            limit: updated.length
-          }
-        }));
-      }}
-      className="flex items-center gap-2 text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-2 rounded-lg hover:bg-emerald-200 w-fit"
-    >
-      {t('add')}
-    </button>
-  </div>
-  
-)}
+                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[200px] overflow-y-auto pr-1">
+                                {manualSlots.map((slot, index) => (
+                                    <div key={index} className="relative group">
+                                        <input
+                                            type="time"
+                                            className="w-full bg-white border border-slate-300 rounded p-1 text-xs font-mono text-center focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                            value={normalizeTime(slot)}
+                                            onChange={e => {
+                                                const updated = [...manualSlots];
+                                                updated[index] = e.target.value;
+                                                setManualSlots(updated);
+                                                setModalitySettings(prev => ({
+                                                    ...prev,
+                                                    [editingModalityId]: {
+                                                        ...prev[editingModalityId],
+                                                        slots: updated.filter(Boolean),
+                                                        limit: updated.length // Optional: auto-update limit
+                                                    }
+                                                }));
+                                            }}
+                                        />
+                                        <button 
+                                            onClick={() => {
+                                                const updated = manualSlots.filter((_, i) => i !== index);
+                                                setManualSlots(updated);
+                                                setManualSlotsCount(updated.length);
+                                                setModalitySettings(prev => ({
+                                                    ...prev,
+                                                    [editingModalityId]: {
+                                                        ...prev[editingModalityId],
+                                                        slots: updated,
+                                                        limit: updated.length
+                                                    }
+                                                }));
+                                            }}
+                                            className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                                            title="Remove"
+                                        >
+                                            <i className="fas fa-times"></i>
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
 
 
 

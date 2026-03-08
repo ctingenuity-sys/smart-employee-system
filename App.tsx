@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, Suspense, createContext, useContext } from 'react';
 // @ts-ignore
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
@@ -56,6 +57,7 @@ const AttendancePage = React.lazy(() => import('./pages/AttendancePage'));
 const AppointmentsPage = React.lazy(() => import('./pages/AppointmentsPage'));
 const PatientTicket = React.lazy(() => import('./pages/PatientTicket'));
 const DataArchiver = React.lazy(() => import('./pages/DataArchiver')); 
+const DepartmentBookings = React.lazy(() => import('./pages/DepartmentBookings'));
 
 const ModalityLogbook = React.lazy(() => import('./pages/ModalityLogbook'));
 
@@ -191,7 +193,7 @@ const AppRoutes: React.FC = () => {
   const { user, role } = useAuth();
 
   return (
-    <Router>
+    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ErrorBoundary>
         <ReloadPrompt />
         <Routes>
@@ -270,6 +272,7 @@ const AppRoutes: React.FC = () => {
           <Route path="/tech-support" element={<ProtectedRoute requiredPermission="tech_support"><TechSupportPage /></ProtectedRoute>} />
           <Route path="/hr-assistant" element={<ProtectedRoute requiredPermission="hr_assistant"><HRAssistantPage /></ProtectedRoute>} />
           <Route path="/appointments" element={<ProtectedRoute requiredPermission="appointments"><AppointmentsPage /></ProtectedRoute>} />
+          <Route path="/department-bookings" element={<ProtectedRoute requiredPermission="appointments"><DepartmentBookings /></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { auth, db as mainDb, firebaseConfig as mainConfig } from '../../firebase';
 import { db as certDb } from '../../firebaseData';
 // @ts-ignore
-import { collection, updateDoc, deleteDoc, setDoc, doc, Timestamp, query, where, getDocs, writeBatch, limit, orderBy, addDoc,serverTimestamp, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { collection, updateDoc, deleteDoc, setDoc, doc, Timestamp, query, where, getDocs, writeBatch, limit, orderBy, addDoc, serverTimestamp, arrayUnion, arrayRemove, onSnapshot } from 'firebase/firestore';
 // @ts-ignore
 import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
 // @ts-ignore
@@ -313,28 +313,57 @@ const SupervisorEmployees: React.FC = () => {
     const currentAdminName = localStorage.getItem('username') || 'Admin';
     const currentAdminId = auth.currentUser?.uid;
 
-    useEffect(() => {
-        const fetchUsers = async () => {
-            try {
-                const snap = await getDocs(collection(mainDb, 'users'));
-                const mainUsers = snap.docs.map(d => ({ id: d.id, ...d.data() } as User));
-                
-                let certMap = new Map();
-                try {
-                    const certSnap = await getDocs(collection(certDb, 'employee_records'));
-                    certMap = new Map(certSnap.docs.map(d => [d.id, d.data()]));
-                } catch (e) {
-                    console.error("Error fetching certs", e);
-                }
+    const [mainUsers, setMainUsers] = useState<User[]>([]);
+    const [certData, setCertData] = useState<Record<string, any>>({});
 
-                const merged = mainUsers.map(u => ({ ...u, ...(certMap.get(u.id) || {}) }));
-                setUsers(merged);
-            } catch (e) {
-                console.error("Error fetching users", e);
+    // Fetch Main Users (Real-time)
+    useEffect(() => {
+        setLoading(true);
+        const unsubscribe = onSnapshot(
+            collection(mainDb, 'users'), 
+            (snapshot) => {
+                const usersList = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as User));
+                setMainUsers(usersList);
+                setLoading(false);
+            },
+            (error) => {
+                console.error("Error fetching main users:", error);
+                setToast({ msg: "Connection Issue: Running in offline mode", type: 'info' });
+                setLoading(false);
             }
-        };
-        fetchUsers();
+        );
+        return () => unsubscribe();
+    }, []);
+
+    // Fetch Cert Records (Real-time)
+    useEffect(() => {
+        const unsubscribe = onSnapshot(
+            collection(certDb, 'employee_records'), 
+            (snapshot) => {
+                const data: Record<string, any> = {};
+                snapshot.forEach(d => { data[d.id] = d.data(); });
+                setCertData(data);
+            },
+            (error) => {
+                console.error("Error fetching cert records:", error);
+                // Do not block UI if cert DB fails
+            }
+        );
+        return () => unsubscribe();
+    }, []);
+
+    // Merge Data
+    useEffect(() => {
+        if (mainUsers.length > 0) {
+            const merged = mainUsers.map(u => ({ 
+                ...u, 
+                ...(certData[u.id] || {}) 
+            }));
+            setUsers(merged);
+        }
+    }, [mainUsers, certData]);
         
+    useEffect(() => {
         if (currentAdminId) {
             const qChecks = query(
                 collection(mainDb, 'location_checks'), 
@@ -342,14 +371,14 @@ const SupervisorEmployees: React.FC = () => {
                 where('status', '==', 'completed')
             );
             
-            getDocs(qChecks).then((snap) => {
-                snap.docChanges().forEach(change => {
+            const unsubscribe = onSnapshot(qChecks, (snapshot) => {
+                snapshot.docChanges().forEach(change => {
                     if (change.type === 'added' || change.type === 'modified') {
                         const data = change.doc.data() as LocationCheckRequest;
                         const completedTime = data.completedAt?.toDate().getTime();
                         const now = Date.now();
                         
-                        if (now - completedTime < 60000) {
+                        if (completedTime && now - completedTime < 60000) {
                             setToast({ msg: `Check Completed for User!`, type: 'success' });
                             setCheckResult(data);
                             setShowMapModal(true);
@@ -361,10 +390,8 @@ const SupervisorEmployees: React.FC = () => {
                     }
                 });
             });
-            return () => {};
+            return () => unsubscribe();
         }
-
-        return () => {};
     }, [currentAdminId]);
 
     // Handle Scanner

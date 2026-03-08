@@ -245,10 +245,16 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
              <p className="px-4 text-xs font-bold text-slate-500 mb-2">{t('nav.sharedTools')}</p>
              
              {canAccess('appointments') && (userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR || isOnDuty) && (
-                 <Link to="/appointments" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/appointments')}`}>
-                    <i className="fas fa-calendar-check w-6 text-indigo-400"></i>
-                    <span className="font-medium">{t('nav.appointments')}</span>
-                 </Link>
+                 <>
+                    <Link to="/appointments" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/appointments')}`}>
+                        <i className="fas fa-calendar-check w-6 text-indigo-400"></i>
+                        <span className="font-medium">{t('nav.appointments')}</span>
+                    </Link>
+                    <Link to="/department-bookings" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/department-bookings')}`}>
+                        <i className="fas fa-calendar-plus w-6 text-emerald-400"></i>
+                        <span className="font-medium">Department Bookings</span>
+                    </Link>
+                 </>
              )}
 
              {canAccess('communications') && (

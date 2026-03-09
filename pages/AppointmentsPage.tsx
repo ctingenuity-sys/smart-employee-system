@@ -497,9 +497,11 @@ const AppointmentsPage: React.FC = () => {
 
             const uniqueRecordsMap = new Map<string, any>();
 
-            const generateId = (dateStr: string, fileNo: string, modId: string) => {
+            const generateId = (dateStr: string, fileNo: string, modId: string, timeStr: string = '', refNo: string = '') => {
                 const safeFile = fileNo || `NOFILE_${Math.random().toString(36).substr(2,5)}`;
-                return `${dateStr}_${safeFile}_${modId}`.replace(/[^a-zA-Z0-9_]/g, '');
+                const safeTime = timeStr ? timeStr.replace(/[^0-9]/g, '') : '';
+                const safeRef = refNo ? refNo.replace(/[^a-zA-Z0-9]/g, '') : '';
+                return `${dateStr}_${safeFile}_${modId}_${safeTime}_${safeRef}`.replace(/[^a-zA-Z0-9_]/g, '');
             };
 
             const detectModality = (serviceName: string) => {
@@ -549,7 +551,7 @@ const AppointmentsPage: React.FC = () => {
 
                     Object.keys(modalityGroups).forEach(modId => {
                         const group = modalityGroups[modId];
-                        const id = generateId(group.date, String(fNum), modId);
+                        const id = generateId(group.date, String(fNum), modId, group.time, group.ref);
                         
                         uniqueRecordsMap.set(id, {
                             id,
@@ -573,7 +575,9 @@ const AppointmentsPage: React.FC = () => {
                     const sName = findValue(p, ['serviceName', 'examName']) || 'General Exam';
                     const modId = detectModality(sName);
                     const date = cleanDate(p.queDate);
-                    const id = generateId(date, String(fNum), modId);
+                    const time = cleanTime(rawQueTime);
+                    const refNo = String(p.refNo || '');
+                    const id = generateId(date, String(fNum), modId, time, refNo);
                     
                     uniqueRecordsMap.set(id, {
                         id,
@@ -583,9 +587,9 @@ const AppointmentsPage: React.FC = () => {
                         examType: modId,
                         examList: [sName],
                         doctorName: p.doctorName || 'Unknown Dr',
-                        refNo: String(p.refNo || ''),
+                        refNo: refNo,
                         date: date,
-                        time: cleanTime(rawQueTime),
+                        time: time,
                         createdBy: 'Bridge',
                         createdByName: 'System',
                         status: 'pending',
@@ -2122,6 +2126,7 @@ const AppointmentsPage: React.FC = () => {
                                     <div className="flex items-center gap-2 mb-3">
                                         <span className="text-[10px] font-bold text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">ID: {appt.fileNumber}</span>
                                         {appt.patientAge && <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">Age: {appt.patientAge}</span>}
+                                        {appt.refNo && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">Inv: {appt.refNo}</span>}
                                     </div>
 
                                     <div className="mb-3 bg-slate-50 rounded-lg p-2 border border-slate-100 min-h-[40px]">

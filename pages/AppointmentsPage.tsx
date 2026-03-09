@@ -527,6 +527,8 @@ const AppointmentsPage: React.FC = () => {
                 const cleanName = pName.includes(' - ') ? pName.split(' - ')[1] : pName;
                 const fNum = findValue(p, ['fileNumber', 'fileNo', 'mrn', 'patientId', 'pid']) || '';
                 const age = findValue(p, ['ageYear', 'age', 'patientAge', 'dob']);
+                const nationality = findValue(p, ['nationality', 'natName', 'patientNationality', 'nat']) || '';
+                const isCash = p.queCashComp === 1 || p.cashComp === 1 || p.paymentType === 'Cash' || p.paymentType === 'cash' || String(p.queCashComp) === '1';
                 const rawQueTime = findValue(p, ['queTime', 'time', 'visitTime']) || '';
                 
                 const detailsArr = p.xrayPatientDetails || p.orderDetails || p.services || [];
@@ -537,28 +539,36 @@ const AppointmentsPage: React.FC = () => {
                         const sName = findValue(det, ['serviceName', 'examName', 'procedure', 'xrayName']);
                         if (!sName) return;
                         const modId = detectModality(sName);
-                        if (!modalityGroups[modId]) {
-                            modalityGroups[modId] = {
+                        const refNo = String(det.queRefNo || det.refNo || p.refNo || '');
+                        
+                        // Group by modality AND refNo to separate different invoices
+                        const groupKey = `${modId}_${refNo}`;
+                        
+                        if (!modalityGroups[groupKey]) {
+                            modalityGroups[groupKey] = {
+                                modId: modId,
                                 exams: [],
                                 time: cleanTime(findValue(det, ['queTime', 'time']) || rawQueTime),
                                 date: cleanDate(det.queDate || p.queDate),
                                 doc: det.doctorName || p.doctorName || 'Unknown Dr',
-                                ref: String(det.queRefNo || det.refNo || p.refNo || '')
+                                ref: refNo
                             };
                         }
-                        modalityGroups[modId].exams.push(sName);
+                        modalityGroups[groupKey].exams.push(sName);
                     });
 
-                    Object.keys(modalityGroups).forEach(modId => {
-                        const group = modalityGroups[modId];
-                        const id = generateId(group.date, String(fNum), modId, group.time, group.ref);
+                    Object.keys(modalityGroups).forEach(groupKey => {
+                        const group = modalityGroups[groupKey];
+                        const id = generateId(group.date, String(fNum), group.modId, group.time, group.ref);
                         
                         uniqueRecordsMap.set(id, {
                             id,
                             patientName: cleanName,
                             fileNumber: String(fNum),
                             patientAge: age ? String(age) : '',
-                            examType: modId,
+                            nationality: nationality,
+                            isCash: isCash,
+                            examType: group.modId,
                             examList: group.exams,
                             doctorName: group.doc,
                             refNo: group.ref,
@@ -584,6 +594,8 @@ const AppointmentsPage: React.FC = () => {
                         patientName: cleanName,
                         fileNumber: String(fNum),
                         patientAge: age ? String(age) : '',
+                        nationality: nationality,
+                        isCash: isCash,
                         examType: modId,
                         examList: [sName],
                         doctorName: p.doctorName || 'Unknown Dr',
@@ -2099,8 +2111,13 @@ const AppointmentsPage: React.FC = () => {
                             const dateDisplay = appt.scheduledDate || appt.date;
                             const timeDisplay = appt.time;
 
+                            let bgClass = 'bg-white';
+                            if (appt.status === 'done') bgClass = 'bg-emerald-50/30';
+                            else if (appt.isCash === true) bgClass = 'bg-emerald-50/60';
+                            else if (appt.isCash === false) bgClass = 'bg-blue-50/60';
+
                             return (
-                                <div key={appt.id} className={`relative bg-white rounded-2xl p-4 shadow-sm border-l-4 transition-all hover:-translate-y-1 animate-fade-in ${appt.status === 'done' ? 'border-l-emerald-500 bg-emerald-50/30' : isScheduled ? 'border-l-blue-500' : 'border-l-amber-500 shadow-md'}`}>
+                                <div key={appt.id} className={`relative ${bgClass} rounded-2xl p-4 shadow-sm border-l-4 transition-all hover:-translate-y-1 animate-fade-in ${appt.status === 'done' ? 'border-l-emerald-500' : isScheduled ? 'border-l-blue-500' : 'border-l-amber-500 shadow-md'}`}>
                                     
                                     <div className="flex justify-between items-start mb-2">
                                         <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-wider border ${mod.color} ${mod.border}`}>
@@ -2123,9 +2140,10 @@ const AppointmentsPage: React.FC = () => {
                                     </div>
 
                                     <h3 className="font-bold text-slate-800 text-base leading-tight mb-1 truncate" title={appt.patientName}>{appt.patientName}</h3>
-                                    <div className="flex items-center gap-2 mb-3">
+                                    <div className="flex flex-wrap items-center gap-2 mb-3">
                                         <span className="text-[10px] font-bold text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">ID: {appt.fileNumber}</span>
                                         {appt.patientAge && <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">Age: {appt.patientAge}</span>}
+                                        {appt.nationality && <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-100">{appt.nationality}</span>}
                                         {appt.refNo && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">Inv: {appt.refNo}</span>}
                                     </div>
 

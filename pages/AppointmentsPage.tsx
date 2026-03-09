@@ -6,7 +6,7 @@ import { appointmentsDb } from '../firebaseAppointments';
 import { 
     doc, getDoc, setDoc, updateDoc, deleteDoc, 
     collection, query, where, getDocs, writeBatch, 
-    Timestamp, orderBy, limit, runTransaction, addDoc, getCountFromServer 
+    Timestamp, orderBy, limit, runTransaction, addDoc, getCountFromServer, onSnapshot 
 } from 'firebase/firestore';
 import { Appointment } from '../types';
 import Loading from '../components/Loading';
@@ -751,6 +751,8 @@ const AppointmentsPage: React.FC = () => {
 
         setLoading(true);
 
+        let unsubscribe: (() => void) | undefined;
+
         const fetchAndSubscribe = async () => {
             const today = getLocalToday();
             const targetDate = selectedDate || today;
@@ -770,7 +772,7 @@ const AppointmentsPage: React.FC = () => {
                             console.log(`Loaded ${parsed.length} records from local cache (${activeView})`);
                             setAppointments(parsed);
                             setLoading(false);
-                            return; 
+                            // We still want to set up the listener to get new data
                         }
                     }
                 } catch (e) {
@@ -806,27 +808,37 @@ const AppointmentsPage: React.FC = () => {
                 // Create Query
                 const q = query(collectionRef, ...constraints);
 
-                const snapshot = await getDocs(q);
-                const fetchedApps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ExtendedAppointment));
-                
-                setAppointments(fetchedApps);
-                
-                // 3. Save to Cache
-                try {
-                    localStorage.setItem(cacheKey, JSON.stringify(fetchedApps));
-                } catch (e) {
-                    console.warn("Cache write error", e);
-                }
+                unsubscribe = onSnapshot(q, (snapshot) => {
+                    const fetchedApps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ExtendedAppointment));
+                    
+                    setAppointments(fetchedApps);
+                    setLoading(false);
+                    
+                    // 3. Save to Cache
+                    try {
+                        localStorage.setItem(cacheKey, JSON.stringify(fetchedApps));
+                    } catch (e) {
+                        console.warn("Cache write error", e);
+                    }
+                }, (error) => {
+                    console.error("Firebase Fetch Error:", error);
+                    setToast({msg: "يرجى التحقق من اتصال الإنترنت", type: 'error'});
+                    setLoading(false);
+                });
 
             } catch (error) {
-                console.error("Firebase Fetch Error:", error);
-                setToast({msg: "يرجى التحقق من اتصال الإنترنت", type: 'error'});
-            } finally {
+                console.error("Query Setup Error:", error);
                 setLoading(false);
             }
         };
 
         fetchAndSubscribe();
+
+        return () => {
+            if (unsubscribe) {
+                unsubscribe();
+            }
+        };
 
     }, [selectedDate, activeView, enableDateFilter, isArchiveView, refreshTrigger]);
     

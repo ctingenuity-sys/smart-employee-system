@@ -528,7 +528,15 @@ const AppointmentsPage: React.FC = () => {
                 const fNum = findValue(p, ['fileNumber', 'fileNo', 'mrn', 'patientId', 'pid']) || '';
                 const age = findValue(p, ['ageYear', 'age', 'patientAge', 'dob']);
                 const nationality = findValue(p, ['nationality', 'natName', 'patientNationality', 'nat']) || '';
-                const isCash = p.queCashComp === 1 || p.cashComp === 1 || p.paymentType === 'Cash' || p.paymentType === 'cash' || String(p.queCashComp) === '1';
+                
+                // Determine if cash or insurance (prioritize cashCredit field)
+                let isCash = false;
+                if (p.cashCredit !== undefined && p.cashCredit !== null) {
+                    isCash = p.cashCredit === 1 || String(p.cashCredit) === '1';
+                } else {
+                    isCash = p.queCashComp === 1 || p.cashComp === 1 || p.paymentType === 'Cash' || p.paymentType === 'cash' || String(p.queCashComp) === '1';
+                }
+
                 const rawQueTime = findValue(p, ['queTime', 'time', 'visitTime']) || '';
                 
                 const detailsArr = p.xrayPatientDetails || p.orderDetails || p.services || [];
@@ -2112,9 +2120,9 @@ const AppointmentsPage: React.FC = () => {
                             const timeDisplay = appt.time;
 
                             let bgClass = 'bg-white';
-                            if (appt.status === 'done') bgClass = 'bg-emerald-50/30';
-                            else if (appt.isCash === true) bgClass = 'bg-emerald-50/60';
-                            else if (appt.isCash === false) bgClass = 'bg-blue-50/60';
+                            if (appt.status === 'done') bgClass = 'bg-slate-50';
+                            else if (appt.isCash === true) bgClass = 'bg-emerald-100'; // Darker green for Cash
+                            else if (appt.isCash === false) bgClass = 'bg-blue-100';   // Darker blue for Insurance
 
                             return (
                                 <div key={appt.id} className={`relative ${bgClass} rounded-2xl p-4 shadow-sm border-l-4 transition-all hover:-translate-y-1 animate-fade-in ${appt.status === 'done' ? 'border-l-emerald-500' : isScheduled ? 'border-l-blue-500' : 'border-l-amber-500 shadow-md'}`}>

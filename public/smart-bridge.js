@@ -3,109 +3,253 @@
     if (window.AJ_BRIDGE_ACTIVE) return;
     window.AJ_BRIDGE_ACTIVE = true;
 
-    // Silent Console: No logs
-    // console.log("%c 🟢 Smart Bridge Extension Active ", ...);
+    // =====================================================
+    // ✅ Console Control
+    // =====================================================
+    let consoleEnabled = false; // false = رسائل مخفية، true = رسائل تظهر
+    function log(...args) {
+        if (consoleEnabled) console.log(...args);
+    }
 
-    const APP_URL = "https://ais-dev-ochny5tnn5pzuyysf2m4ye-55098846967.europe-west1.run.app/#/appointments";
+    log("🟢 Smart Bridge Extension Active (V2.7 Hidden UI)");
+
+    const APP_URL = "https://staff7.vercel.app/#/appointments";
+
+    // Default times
+    let AUTO_CLICK_DELAY = 60 * 1000; // 1 دقيقة
+    let HEARTBEAT_DELAY = 4 * 60 * 1000; // 4 دقائق
+
     let syncWin = null;
+    let autoClickTimer = null;
+    let heartbeatTimer = null;
+    let autoClickEnabled = true;
 
-    // Hidden UI: No UI creation
-    /*
-    const createUI = () => {
-        const container = document.createElement('div');
-        Object.assign(container.style, {
-            position: 'fixed',
-            bottom: '20px',
-            left: '20px',
-            zIndex: '999999',
-            backgroundColor: '#0f172a',
-            color: 'white',
-            padding: '10px 15px',
-            borderRadius: '12px',
-            boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
-            fontFamily: 'sans-serif',
-            fontSize: '12px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            border: '1px solid #334155',
-            transition: 'all 0.3s ease'
+    // =====================================================
+    // 🔘 Safe Refresh Button Click
+    // =====================================================
+    function clickRefreshButton() {
+        if (!autoClickEnabled) return;
+        if (document.visibilityState !== "visible") return;
+
+        const btn =
+            document.querySelector('img[mattooltip="RefreshData"]') ||
+            document.querySelector('[mattooltip="RefreshData"]');
+
+        if (btn && !btn.disabled) {
+            btn.click();
+            log("🔁 Smart Bridge: Auto Refresh Clicked");
+        }
+    }
+
+    // =====================================================
+    // 💓 Heartbeat & IHMS Keep-Alive
+    // =====================================================
+    function sendHeartbeat() {
+        if (document.visibilityState !== "visible") return;
+        fetch(APP_URL, { method: "GET", credentials: "include" })
+            .then(() => log("💓 Heartbeat sent"))
+            .catch(() => {});
+            
+        // IHMS Keep-Alive: Simulate user activity to prevent session timeout
+        if (window.location.href.toLowerCase().includes('ihms') || document.title.toLowerCase().includes('ihms')) {
+            try {
+                document.dispatchEvent(new MouseEvent('mousemove', { view: window, bubbles: true, cancelable: true }));
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', keyCode: 16, which: 16, bubbles: true }));
+                log("🛡️ IHMS Keep-Alive activity simulated");
+            } catch (e) {}
+        }
+    }
+
+    // =====================================================
+    // 🧠 Floating Status UI (مخفي افتراضيًا)
+    // =====================================================
+    function createUI() {
+        if (document.getElementById("aj-smart-bridge-ui")) return;
+
+        const container = document.createElement("div");
+        container.id = "aj-smart-bridge-ui";
+        container.style.display = "none"; // مخفي افتراضيًا
+        container.style.position = "fixed";
+        container.style.bottom = "20px";
+        container.style.left = "20px";
+        container.style.zIndex = "999999";
+        container.style.backgroundColor = "#0f172a";
+        container.style.color = "#e5e7eb";
+        container.style.padding = "10px 14px";
+        container.style.borderRadius = "12px";
+        container.style.boxShadow = "0 10px 25px rgba(0,0,0,.35)";
+        container.style.display = "flex";
+        container.style.flexDirection = "column";
+        container.style.gap = "6px";
+        container.style.border = "1px solid #334155";
+        container.style.fontFamily = "sans-serif";
+        container.style.fontSize = "12px";
+        container.style.userSelect = "none";
+
+        // ✅ Status row
+        const statusRow = document.createElement("div");
+        statusRow.style.display = "flex";
+        statusRow.style.alignItems = "center";
+        statusRow.style.gap = "8px";
+        statusRow.innerHTML = `
+            <div style="width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e"></div>
+            <span><b>Smart Sync</b> Active</span>
+        `;
+        container.appendChild(statusRow);
+
+        // ✅ Auto Click Toggle
+        const toggleBtn = document.createElement("button");
+        toggleBtn.textContent = autoClickEnabled ? "Auto-Click: ON" : "Auto-Click: OFF";
+        Object.assign(toggleBtn.style, {
+            padding: "2px 6px",
+            fontSize: "12px",
+            cursor: "pointer",
+            backgroundColor: autoClickEnabled ? "#22c55e" : "#555",
+            color: "#fff",
+            border: "none",
+            borderRadius: "6px"
         });
+        toggleBtn.onclick = () => {
+            autoClickEnabled = !autoClickEnabled;
+            toggleBtn.textContent = autoClickEnabled ? "Auto-Click: ON" : "Auto-Click: OFF";
+            toggleBtn.style.backgroundColor = autoClickEnabled ? "#22c55e" : "#555";
+        };
+        container.appendChild(toggleBtn);
 
-        const statusDot = document.createElement('div');
-        Object.assign(statusDot.style, {
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            backgroundColor: '#22c55e',
-            boxShadow: '0 0 10px #22c55e'
+        // ✅ Inputs لتعديل الوقت
+        const inputsRow = document.createElement("div");
+        inputsRow.style.display = "flex";
+        inputsRow.style.gap = "6px";
+
+        const autoClickInput = document.createElement("input");
+        autoClickInput.type = "number";
+        autoClickInput.value = AUTO_CLICK_DELAY / 1000;
+        autoClickInput.style.width = "50px";
+        autoClickInput.title = "Auto-Click Delay (sec)";
+        autoClickInput.onchange = () => {
+            AUTO_CLICK_DELAY = parseInt(autoClickInput.value) * 1000;
+            if (autoClickTimer) clearInterval(autoClickTimer);
+            autoClickTimer = setInterval(clickRefreshButton, AUTO_CLICK_DELAY);
+        };
+        inputsRow.appendChild(document.createTextNode("Auto-Click(sec):"));
+        inputsRow.appendChild(autoClickInput);
+
+        const heartbeatInput = document.createElement("input");
+        heartbeatInput.type = "number";
+        heartbeatInput.value = HEARTBEAT_DELAY / 1000;
+        heartbeatInput.style.width = "50px";
+        heartbeatInput.title = "Heartbeat Delay (sec)";
+        heartbeatInput.onchange = () => {
+            HEARTBEAT_DELAY = parseInt(heartbeatInput.value) * 1000;
+            if (heartbeatTimer) clearInterval(heartbeatTimer);
+            heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_DELAY);
+        };
+        inputsRow.appendChild(document.createTextNode("Heartbeat(sec):"));
+        inputsRow.appendChild(heartbeatInput);
+
+        container.appendChild(inputsRow);
+
+        // ✅ Console Toggle
+        const consoleBtn = document.createElement("button");
+        consoleBtn.textContent = consoleEnabled ? "Console: ON" : "Console: OFF";
+        Object.assign(consoleBtn.style, {
+            padding: "2px 6px",
+            fontSize: "12px",
+            cursor: "pointer",
+            backgroundColor: consoleEnabled ? "#22c55e" : "#555",
+            color: "#fff",
+            border: "none",
+            borderRadius: "6px"
         });
+        consoleBtn.onclick = () => {
+            consoleEnabled = !consoleEnabled;
+            consoleBtn.textContent = consoleEnabled ? "Console: ON" : "Console: OFF";
+            consoleBtn.style.backgroundColor = consoleEnabled ? "#22c55e" : "#555";
+        };
+        container.appendChild(consoleBtn);
 
-        const text = document.createElement('span');
-        text.innerText = 'Smart Sync Active';
-        text.style.fontWeight = 'bold';
-
-        container.appendChild(statusDot);
-        container.appendChild(text);
         document.body.appendChild(container);
 
-        // Hover Effect
-        container.onmouseenter = () => { container.style.transform = 'scale(1.05)'; };
-        container.onmouseleave = () => { container.style.transform = 'scale(1)'; };
-    };
+        // Start timers
+        autoClickTimer = setInterval(clickRefreshButton, AUTO_CLICK_DELAY);
+        heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_DELAY);
+    }
 
-    if (document.readyState === 'complete') createUI();
-    else window.addEventListener('load', createUI);
-    */
+    if (document.readyState === "complete") {
+        createUI();
+    } else {
+        window.addEventListener("load", createUI);
+    }
 
-    // Window Management
+    // =====================================================
+    // 🔑 Shortcut لإظهار/إخفاء UI (Ctrl+Shift+B)
+    // =====================================================
+    document.addEventListener("keydown", (e) => {
+        if (e.ctrlKey && e.shiftKey && e.code === "KeyB") {
+            const ui = document.getElementById("aj-smart-bridge-ui");
+            if (ui) ui.style.display = ui.style.display === "none" ? "flex" : "none";
+        }
+    });
+
+    // =====================================================
+    // 🪟 Open / Reuse Sync Window
+    // =====================================================
     function openSyncWindow() {
         if (!syncWin || syncWin.closed) {
-            // Check if we already have a frame or window
             syncWin = window.open(APP_URL, "SmartAppSyncWindow");
         }
         return syncWin;
     }
 
-    // XHR Interceptor
-    const originalSend = XMLHttpRequest.prototype.send;
-    XMLHttpRequest.prototype.send = function() {
-        this.addEventListener('load', function() {
-            try {
-                if (this.getResponseHeader("content-type")?.includes("application/json")) {
+    // =====================================================
+    // 🌐 XHR Interception (SAFE – SINGLE HOOK)
+    // =====================================================
+    if (!XMLHttpRequest.prototype.__AJ_SMART_BRIDGE__) {
+        XMLHttpRequest.prototype.__AJ_SMART_BRIDGE__ = true;
+
+        const originalSend = XMLHttpRequest.prototype.send;
+
+        XMLHttpRequest.prototype.send = function () {
+            this.addEventListener("load", () => {
+                try {
+                    const type = this.getResponseHeader("content-type");
+                    if (!type || !type.includes("application/json")) return;
+
                     const json = JSON.parse(this.responseText);
-                    let payload = json.d || json.result || json;
+                    let payload = json?.d || json?.result || json;
                     if (!Array.isArray(payload)) payload = [payload];
-                    
-                    // Filter relevant packets
-                    if (payload[0]?.patientName || payload[0]?.fileNumber || payload[0]?.mrn) {
-                        // console.log("⚡ Smart Bridge: Data Captured", payload.length);
-                        
+
+                    if (payload[0]?.patientName || payload[0]?.fileNumber) {
                         syncWin = openSyncWindow();
-                        
-                        // Send with retry
                         let attempts = 0;
-                        const sendInterval = setInterval(() => {
+
+                        const interval = setInterval(() => {
                             if (syncWin && !syncWin.closed) {
-                                syncWin.postMessage({ type: 'SMART_SYNC_DATA', payload }, '*');
-                                clearInterval(sendInterval);
-                                // Visual Feedback - Removed for Hidden UI
-                                /*
-                                const ui = document.querySelector('div[style*="z-index: 999999"] span');
-                                if(ui) {
-                                    const oldText = ui.innerText;
-                                    ui.innerText = 'Data Sent 🚀';
-                                    setTimeout(() => ui.innerText = oldText, 2000);
-                                }
-                                */
+                                syncWin.postMessage(
+                                    { type: "SMART_SYNC_DATA", payload },
+                                    "*"
+                                );
+                                clearInterval(interval);
                             }
-                            attempts++;
-                            if (attempts > 10) clearInterval(sendInterval);
+                            if (++attempts > 8) clearInterval(interval);
                         }, 500);
                     }
-                }
-            } catch (e) {}
-        });
-        return originalSend.apply(this, arguments);
-    };
+                } catch (_) {}
+            });
+
+            return originalSend.apply(this, arguments);
+        };
+    }
+
+    // =====================================================
+    // 👁 Tab Visibility Awareness
+    // =====================================================
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") {
+            log("⏸ Smart Bridge paused (tab hidden)");
+        } else {
+            log("▶ Smart Bridge resumed (tab active)");
+        }
+    });
+
 })();

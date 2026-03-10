@@ -112,7 +112,7 @@ const DocumentScanner: React.FC<DocumentScannerProps> = ({ onSave, onCancel }) =
                 const x = (pdfWidth - renderWidth) / 2;
                 const y = (pdfHeight - renderHeight) / 2;
 
-                pdf.addImage(compressedImgData, 'JPEG', x, y, renderWidth, renderHeight, undefined, 'FAST');
+                pdf.addImage(compressedImgData, 'JPEG', x, y, renderWidth, renderHeight, undefined, 'MEDIUM');
             }
 
             const pdfBlob = pdf.output('blob');
@@ -133,8 +133,8 @@ const DocumentScanner: React.FC<DocumentScannerProps> = ({ onSave, onCancel }) =
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 
-                const MAX_WIDTH = 1200;
-                const MAX_HEIGHT = 1600;
+                const MAX_WIDTH = 1600;
+                const MAX_HEIGHT = 2000;
                 let width = img.width;
                 let height = img.height;
 
@@ -157,7 +157,7 @@ const DocumentScanner: React.FC<DocumentScannerProps> = ({ onSave, onCancel }) =
                     ctx.fillStyle = '#FFFFFF';
                     ctx.fillRect(0, 0, width, height);
                     ctx.drawImage(img, 0, 0, width, height);
-                    resolve(canvas.toDataURL('image/jpeg', 0.7));
+                    resolve(canvas.toDataURL('image/jpeg', 0.85));
                 } else {
                     resolve(dataUrl);
                 }

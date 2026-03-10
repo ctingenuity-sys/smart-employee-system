@@ -372,28 +372,33 @@ const AppointmentsPage: React.FC = () => {
                 setToast({ msg: 'بدء الأرشفة اليومية (الشاملة) لبيانات الأمس...', type: 'info' });
                 
                 try {
-                    const yesterday = getYesterdayDate();
-                    // Query ALL appointments for yesterday, regardless of status
-                    const q = query(
-                        collection(appointmentsDb, 'appointments'), 
-                        where('date', '==', yesterday)
-                        // REMOVED: where('status', '==', 'done') -> Now archives EVERYTHING
-                    );
-                    
-                    const snapshot = await getDocs(q);
+                        const yesterday = getYesterdayDate();
+                        // Set archivedAt to yesterday's date (end of day) to match the data date
+                        const yesterdayDate = new Date();
+                        yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+                        yesterdayDate.setHours(23, 59, 59, 999);
 
-                    if (!snapshot.empty) {
-                        const dataToExport = snapshot.docs.map(doc => ({_id: doc.id, ...doc.data()}));
+                        // Query ALL appointments for yesterday, regardless of status
+                        const q = query(
+                            collection(appointmentsDb, 'appointments'), 
+                            where('date', '==', yesterday)
+                            // REMOVED: where('status', '==', 'done') -> Now archives EVERYTHING
+                        );
                         
-                        // 1. Save to Cloud Archive (Firestore Collection: daily_archives)
-                        // Create a specific document for that day to avoid massive collections
-                        await setDoc(doc(appointmentsDb, 'daily_archives', yesterday), {
-                            archivedAt: Timestamp.now(),
-                            archiveDate: yesterday,
-                            recordCount: snapshot.size,
-                            records: dataToExport,
-                            type: 'daily_midnight_run_full'
-                        });
+                        const snapshot = await getDocs(q);
+
+                        if (!snapshot.empty) {
+                            const dataToExport = snapshot.docs.map(doc => ({_id: doc.id, ...doc.data()}));
+                            
+                            // 1. Save to Cloud Archive (Firestore Collection: daily_archives)
+                            // Create a specific document for that day to avoid massive collections
+                            await setDoc(doc(appointmentsDb, 'daily_archives', yesterday), {
+                                archivedAt: Timestamp.fromDate(yesterdayDate),
+                                archiveDate: yesterday,
+                                recordCount: snapshot.size,
+                                records: dataToExport,
+                                type: 'daily_midnight_run_full'
+                            });
 
                         // 2. Delete from Active Collection (Batch)
                         const batch = writeBatch(appointmentsDb);
@@ -872,6 +877,22 @@ const AppointmentsPage: React.FC = () => {
     const filteredAppointments = useMemo(() => {
         let list = appointments;
 
+        // If in Archive View, we show everything in the archive without status/date filtering
+        if (isArchiveView) {
+            let archiveList = [...appointments];
+            if (searchQuery) {
+                const lowerQ = searchQuery.toLowerCase();
+                archiveList = archiveList.filter(a => 
+                    (a.patientName && a.patientName.toLowerCase().includes(lowerQ)) || 
+                    (a.fileNumber && a.fileNumber.includes(lowerQ)) ||
+                    (a.refNo && a.refNo.includes(lowerQ))
+                );
+            }
+            // Sort by time DESC for archive
+            archiveList.sort((a, b) => (b.time || '').localeCompare(a.time || ''));
+            return archiveList;
+        }
+
         // --- CLIENT-SIDE FILTERING & SORTING ---
         // We need to ensure sorting is correct, especially for mixed Local/DB data.
         // User wants "Newest on Top" for Pending/Processing/Done.
@@ -1127,9 +1148,9 @@ const AppointmentsPage: React.FC = () => {
                 if (data.records && Array.isArray(data.records)) {
                     setAppointments(data.records);
                     setIsArchiveView(true);
-                    setArchiveFileName(data.date || archiveId);
+                    setArchiveFileName(data.archiveDate || data.date || archiveId);
                     setIsArchiveModalOpen(false);
-                    setToast({ msg: `تم استرجاع أرشيف ${data.date}`, type: 'success' });
+                    setToast({ msg: `تم استرجاع أرشيف ${data.archiveDate || data.date || archiveId}`, type: 'success' });
                 } else {
                     setToast({ msg: 'تنسيق الأرشيف غير صالح', type: 'error' });
                 }
@@ -2778,9 +2799,9 @@ const AppointmentsPage: React.FC = () => {
                                             <i className="fas fa-archive"></i>
                                         </div>
                                         <div className="text-right">
-                                            <p className="font-bold text-slate-800">{arch.date}</p>
+                                            <p className="font-bold text-slate-800">{arch.archiveDate || arch.date || arch.id}</p>
                                             <p className="text-xs text-slate-400">
-                                                {new Date(arch.archivedAt?.seconds * 1000).toLocaleString('en-US')}
+                                                {arch.archivedAt?.seconds ? new Date(arch.archivedAt.seconds * 1000).toLocaleString('en-US') : 'N/A'}
                                             </p>
                                         </div>
                                     </div>

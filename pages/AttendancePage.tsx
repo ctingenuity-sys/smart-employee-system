@@ -710,6 +710,14 @@ const AttendancePage: React.FC = () => {
                     };
 
                     if (!navigator.onLine) {
+                        const existing = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
+                        if (existing.length > 0) {
+                            setStatus('ERROR');
+                            setErrorDetails({ title: 'Pending Sync', msg: 'Already have a pending punch. Please wait for sync.' });
+                            playSound('error');
+                            releaseLock();
+                            return;
+                        }
                         saveOfflinePunch({
                             ...payload,
                             clientTimestampMs: Date.now()

@@ -10,8 +10,45 @@ import ReloadPrompt from './components/ReloadPrompt';
 import { UserRole } from './types';
 import { LanguageProvider } from './contexts/LanguageContext';
 // @ts-ignore
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import Layout from './components/Layout';
+
+// --- Offline Punch Sync Logic ---
+const OFFLINE_PUNCHES_KEY = 'offline_punches';
+
+const syncOfflinePunches = async () => {
+    if (!navigator.onLine) return;
+    const existing = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
+    if (existing.length === 0) return;
+
+    const successfulSyncs: number[] = [];
+    
+    for (let i = 0; i < existing.length; i++) {
+        const p = existing[i];
+        try {
+            const payload = { ...p };
+            delete payload._offlineTimestamp;
+            
+            if (payload.clientTimestampMs) {
+                payload.clientTimestamp = Timestamp.fromMillis(payload.clientTimestampMs);
+                delete payload.clientTimestampMs;
+            }
+            
+            payload.timestamp = serverTimestamp();
+            payload.isOfflineSync = true;
+
+            await addDoc(collection(db, 'attendance_logs'), payload);
+            successfulSyncs.push(i);
+        } catch (e) {
+            console.error("Failed to sync offline punch", e);
+        }
+    }
+    
+    if (successfulSyncs.length > 0) {
+        const remaining = existing.filter((_: any, idx: number) => !successfulSyncs.includes(idx));
+        localStorage.setItem(OFFLINE_PUNCHES_KEY, JSON.stringify(remaining));
+    }
+};
 
 // --- Lazy Loading Pages (Code Splitting) ---
 const Login = React.lazy(() => import('./pages/Login'));
@@ -83,6 +120,12 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   const [permissions, setPermissions] = useState<string[]>([]);
 
   useEffect(() => {
+    const handleOnline = () => {
+        syncOfflinePunches();
+    };
+    window.addEventListener('online', handleOnline);
+    syncOfflinePunches();
+
     const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
       if (currentUser) {
         // Optimistic check
@@ -129,7 +172,10 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+        unsubscribe();
+        window.removeEventListener('online', handleOnline);
+    };
   }, []);
 
   if (loading)

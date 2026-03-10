@@ -68,6 +68,8 @@ const translations: Record<string, { ar: string; en: string }> = {
   'role.supervisor': { ar: 'مشرف', en: 'Supervisor' },
   'role.user': { ar: 'موظف', en: 'Employee' },
   'role.doctor': { ar: 'طبيب', en: 'Doctor' },
+  'user.male': { ar: 'ذكر', en: 'Male' },
+  'user.female': { ar: 'أنثى', en: 'Female' },
 
   // --- Preserved keys ---
   'status.active': { ar: 'نشط الآن', en: 'Active Now' },

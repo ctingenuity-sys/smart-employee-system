@@ -109,6 +109,22 @@ interface DailyDetail {
     out2Lat?: number;
     out2Lng?: number;
 
+    // Shift 3
+    actualIn3?: string | null;
+    actualOut3?: string | null;
+    in3Lat?: number;
+    in3Lng?: number;
+    out3Lat?: number;
+    out3Lng?: number;
+
+    // Shift 4
+    actualIn4?: string | null;
+    actualOut4?: string | null;
+    in4Lat?: number;
+    in4Lng?: number;
+    out4Lat?: number;
+    out4Lng?: number;
+
     serverTimestamp?: any;
     clientTimestamp?: any;
 
@@ -332,49 +348,175 @@ const SupervisorAttendance: React.FC = () => {
                 }
 
                 // --- Match Logs ---
-                const todayLogs = logsMap.get(`${user.id}_${dateStr}`) || [];
-                const insToday = todayLogs.filter(l => l.type === 'IN');
-                const outsToday = todayLogs.filter(l => l.type === 'OUT');
-
-                let in1 = null, out1 = null, in2 = null, out2 = null;
-
-                if (insToday.length > 0) {
-                    in1 = insToday[0];
-                    out1 = outsToday.find(o => 
-                        o.timestamp.seconds > in1!.timestamp.seconds &&
-                        (o.timestamp.seconds - in1!.timestamp.seconds) < 57600
-                    );
+                const getLogSeconds = (log: any) => log?.timestamp?.seconds || log?.clientTimestamp?.seconds || 0;
+                
+                let dayLogs = [...(logsMap.get(`${user.id}_${dateStr}`) || [])];
+                
+                const nextD = new Date(d);
+                nextD.setDate(d.getDate() + 1);
+                const nextDateStr = nextD.toISOString().split('T')[0];
+                const nextDayLogs = [...(logsMap.get(`${user.id}_${nextDateStr}`) || [])].sort((a, b) => getLogSeconds(a) - getLogSeconds(b));
+                
+                let earlyNextDayOuts = [];
+                for (const log of nextDayLogs) {
+                    if (log.type === 'IN') break; // Stop at the first IN
+                    if (log.type === 'OUT') {
+                        const logDate = log.timestamp?.toDate() || log.clientTimestamp?.toDate();
+                        if (logDate && logDate.getHours() < 12) {
+                            earlyNextDayOuts.push(log);
+                        }
+                    }
+                }
+                
+                let allRelevantLogs = [...dayLogs, ...earlyNextDayOuts].sort((a, b) => getLogSeconds(a) - getLogSeconds(b));
+                
+                const prevD = new Date(d);
+                prevD.setDate(d.getDate() - 1);
+                const prevDateStr = prevD.toISOString().split('T')[0];
+                const prevLogs = [...(logsMap.get(`${user.id}_${prevDateStr}`) || [])].sort((a, b) => getLogSeconds(a) - getLogSeconds(b));
+                const lastInPrev = prevLogs.filter(l => l.type === 'IN').pop();
+                
+                if (lastInPrev) {
+                    while (allRelevantLogs.length > 0 && allRelevantLogs[0].type === 'OUT') {
+                        const firstOut = allRelevantLogs[0];
+                        const logDate = firstOut.timestamp?.toDate() || firstOut.clientTimestamp?.toDate();
+                        if (logDate && logDate.getHours() < 12 && (getLogSeconds(firstOut) - getLogSeconds(lastInPrev)) < 57600) {
+                            allRelevantLogs.shift();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                
+                // Clean up duplicate logs (within 60 minutes of the same type)
+                let cleanedLogs: any[] = [];
+                for (const log of allRelevantLogs) {
+                    if (cleanedLogs.length === 0) {
+                        cleanedLogs.push(log);
+                        continue;
+                    }
+                    const lastLog = cleanedLogs[cleanedLogs.length - 1];
+                    if (lastLog.type === log.type) {
+                        const diffMins = (getLogSeconds(log) - getLogSeconds(lastLog)) / 60;
+                        if (diffMins < 60) {
+                            if (log.type === 'OUT') {
+                                // For OUT, keep the LAST one
+                                cleanedLogs[cleanedLogs.length - 1] = log;
+                            }
+                            // For IN, keep the FIRST one (do nothing)
+                        } else {
+                            cleanedLogs.push(log);
+                        }
+                    } else {
+                        cleanedLogs.push(log);
+                    }
+                }
+                allRelevantLogs = cleanedLogs;
+                
+                let pairs: { inLog: any, outLog: any }[] = [];
+                let currentPair: { inLog: any, outLog: any } = { inLog: null, outLog: null };
+                
+                for (const log of allRelevantLogs) {
+                    if (log.type === 'IN') {
+                        if (currentPair.inLog) {
+                            pairs.push({ ...currentPair });
+                        }
+                        currentPair = { inLog: log, outLog: null };
+                    } else if (log.type === 'OUT') {
+                        if (currentPair.inLog) {
+                            currentPair.outLog = log;
+                            pairs.push({ ...currentPair });
+                            currentPair = { inLog: null, outLog: null };
+                        } else {
+                            if (log.date === dateStr) {
+                                pairs.push({ inLog: null, outLog: log });
+                            }
+                        }
+                    }
+                }
+                if (currentPair.inLog || currentPair.outLog) {
+                    if (currentPair.inLog?.date === dateStr || currentPair.outLog?.date === dateStr) {
+                        pairs.push({ ...currentPair });
+                    }
+                }
+                
+                let in1 = null, out1 = null, in2 = null, out2 = null, in3 = null, out3 = null, in4 = null, out4 = null;
+                
+                if (myShifts.length > 0) {
+                    let assignedPairs: any[] = new Array(myShifts.length).fill(null);
+                    let assignedDiffs: number[] = new Array(myShifts.length).fill(999999);
+                    let extraPairs: any[] = [];
                     
-                    if (!out1) {
-                        const nextD = new Date(d);
-                        nextD.setDate(d.getDate() + 1);
-                        const nextDateStr = nextD.toISOString().split('T')[0];
-                        const nextDayLogs = logsMap.get(`${user.id}_${nextDateStr}`) || [];
-                        out1 = nextDayLogs.find(o => 
-                            o.type === 'OUT' &&
-                            (o.timestamp.seconds - in1!.timestamp.seconds) < 57600 
-                        );
+                    for (const pair of pairs) {
+                        let pairTimeMins = 0;
+                        const refLog = pair.inLog || pair.outLog;
+                        if (refLog) {
+                            const dLog = refLog.timestamp?.toDate() || refLog.clientTimestamp?.toDate();
+                            if (dLog) {
+                                pairTimeMins = dLog.getHours() * 60 + dLog.getMinutes();
+                                const logDateStr = `${dLog.getFullYear()}-${String(dLog.getMonth() + 1).padStart(2, '0')}-${String(dLog.getDate()).padStart(2, '0')}`;
+                                if (logDateStr !== dateStr) {
+                                    pairTimeMins += 1440; // Next day
+                                }
+                            }
+                        }
+                        
+                        let closestShiftIdx = -1;
+                        let minDiff = 999999;
+                        
+                        for (let i = 0; i < myShifts.length; i++) {
+                            const shiftStart = timeToMinutes(myShifts[i].start);
+                            let shiftEnd = timeToMinutes(myShifts[i].end);
+                            if (shiftEnd < shiftStart) shiftEnd += 1440;
+                            const shiftMid = (shiftStart + shiftEnd) / 2;
+                            
+                            const diff = Math.abs(pairTimeMins - shiftMid);
+                            if (diff < minDiff) {
+                                minDiff = diff;
+                                closestShiftIdx = i;
+                            }
+                        }
+                        
+                        if (closestShiftIdx !== -1) {
+                            if (!assignedPairs[closestShiftIdx]) {
+                                assignedPairs[closestShiftIdx] = pair;
+                                assignedDiffs[closestShiftIdx] = minDiff;
+                            } else {
+                                // Slot taken, compare diffs
+                                if (minDiff < assignedDiffs[closestShiftIdx]) {
+                                    // New pair is closer, push old pair to extra
+                                    extraPairs.push(assignedPairs[closestShiftIdx]);
+                                    assignedPairs[closestShiftIdx] = pair;
+                                    assignedDiffs[closestShiftIdx] = minDiff;
+                                } else {
+                                    // Old pair is closer, push new pair to extra
+                                    extraPairs.push(pair);
+                                }
+                            }
+                        } else {
+                            extraPairs.push(pair);
+                        }
                     }
-
-                    if (insToday.length > 1) {
-                        in2 = insToday[1];
-                        out2 = outsToday.find(o => 
-                            o.timestamp.seconds > in2!.timestamp.seconds &&
-                            o.timestamp.seconds !== out1?.timestamp.seconds
-                        );
+                    
+                    // Fill remaining slots with extra pairs
+                    for (let i = 0; i < myShifts.length; i++) {
+                        if (!assignedPairs[i] && extraPairs.length > 0) {
+                            assignedPairs[i] = extraPairs.shift();
+                        }
                     }
-                } 
-
-                if (!in1 && outsToday.length > 0) {
-                    const prevD = new Date(d);
-                    prevD.setDate(d.getDate() - 1);
-                    const prevDateStr = prevD.toISOString().split('T')[0];
-                    const prevLogs = logsMap.get(`${user.id}_${prevDateStr}`) || [];
-                    const lastInPrev = prevLogs.filter(l => l.type === 'IN').pop();
-                    const isLinkedToPrev = lastInPrev && (outsToday[0].timestamp.seconds - lastInPrev.timestamp.seconds) < 57600;
-                    if (!isLinkedToPrev) {
-                        out1 = outsToday[0];
-                    }
+                    
+                    // Any remaining extra pairs go to the end
+                    assignedPairs.push(...extraPairs);
+                    
+                    if (assignedPairs[0]) { in1 = assignedPairs[0].inLog; out1 = assignedPairs[0].outLog; }
+                    if (assignedPairs[1]) { in2 = assignedPairs[1].inLog; out2 = assignedPairs[1].outLog; }
+                    if (assignedPairs[2]) { in3 = assignedPairs[2].inLog; out3 = assignedPairs[2].outLog; }
+                    if (assignedPairs[3]) { in4 = assignedPairs[3].inLog; out4 = assignedPairs[3].outLog; }
+                } else {
+                    if (pairs.length > 0) { in1 = pairs[0].inLog; out1 = pairs[0].outLog; }
+                    if (pairs.length > 1) { in2 = pairs[1].inLog; out2 = pairs[1].outLog; }
+                    if (pairs.length > 2) { in3 = pairs[2].inLog; out3 = pairs[2].outLog; }
+                    if (pairs.length > 3) { in4 = pairs[3].inLog; out4 = pairs[3].outLog; }
                 }
 
                 // --- Calculations ---
@@ -385,7 +527,12 @@ const SupervisorAttendance: React.FC = () => {
                 let absentValue = 0;
                 let flags: string[] = [];
 
-                const fmtTime = (log: any) => log ? log.timestamp.toDate().toLocaleTimeString('en-US', {hour12:false, hour:'2-digit', minute:'2-digit'}) : null;
+                const fmtTime = (log: any) => {
+                    if (!log) return null;
+                    const ts = log.timestamp || log.clientTimestamp;
+                    if (!ts || !ts.toDate) return null;
+                    return ts.toDate().toLocaleTimeString('en-US', {hour12:false, hour:'2-digit', minute:'2-digit'});
+                };
 
                 const isOnLeave = leaves.some(l => l.from === user.id && l.startDate <= dateStr && l.endDate >= dateStr);
 
@@ -416,8 +563,10 @@ const SupervisorAttendance: React.FC = () => {
                     summary.totalWorkDays++;
                     if (dayOfWeek === 5) summary.fridaysWorked++;
                     
-                    if (in1 && out1) workMinutes += Math.round((out1.timestamp.seconds - in1.timestamp.seconds) / 60);
-                    if (in2 && out2) workMinutes += Math.round((out2.timestamp.seconds - in2.timestamp.seconds) / 60);
+                    if (in1 && out1) workMinutes += Math.round((getLogSeconds(out1) - getLogSeconds(in1)) / 60);
+                    if (in2 && out2) workMinutes += Math.round((getLogSeconds(out2) - getLogSeconds(in2)) / 60);
+                    if (in3 && out3) workMinutes += Math.round((getLogSeconds(out3) - getLogSeconds(in3)) / 60);
+                    if (in4 && out4) workMinutes += Math.round((getLogSeconds(out4) - getLogSeconds(in4)) / 60);
 
                     // Late Logic (Shift 1)
                     if (myShifts[0] && in1) {
@@ -501,6 +650,12 @@ const SupervisorAttendance: React.FC = () => {
                     actualIn2: fmtTime(in2), actualOut2: fmtTime(out2),
                     in2Lat: in2?.locationLat, in2Lng: in2?.locationLng,
                     out2Lat: out2?.locationLat, out2Lng: out2?.locationLng,
+                    actualIn3: fmtTime(in3), actualOut3: fmtTime(out3),
+                    in3Lat: in3?.locationLat, in3Lng: in3?.locationLng,
+                    out3Lat: out3?.locationLat, out3Lng: out3?.locationLng,
+                    actualIn4: fmtTime(in4), actualOut4: fmtTime(out4),
+                    in4Lat: in4?.locationLat, in4Lng: in4?.locationLng,
+                    out4Lat: out4?.locationLat, out4Lng: out4?.locationLng,
                     lateHours: lateMins / 60, 
                     earlyHours: earlyMins / 60,
                     serverTimestamp: in1?.timestamp,
@@ -612,6 +767,10 @@ const SupervisorAttendance: React.FC = () => {
                         "Shift 1 Out": d.actualOut1 || '--:--',
                         "Shift 2 In": d.actualIn2 || '--:--',
                         "Shift 2 Out": d.actualOut2 || '--:--',
+                        "Shift 3 In": d.actualIn3 || '--:--',
+                        "Shift 3 Out": d.actualOut3 || '--:--',
+                        "Shift 4 In": d.actualIn4 || '--:--',
+                        "Shift 4 Out": d.actualOut4 || '--:--',
                         "Work (Hrs.Mins)": formatAsDotMinutes(d.dailyWorkHours),
                         "Late (Hrs.Mins)": formatAsDotMinutes(d.lateHours),
                         "Early (Hrs.Mins)": formatAsDotMinutes(d.earlyHours),
@@ -853,11 +1012,14 @@ const SupervisorAttendance: React.FC = () => {
                                                         </td>
                                                     </tr>
                                                     {/* Expanded Details */}
-                                                    {(expandedUser === summary.userId || showOnlySuspicious) && (
+                                                    {(expandedUser === summary.userId || showOnlySuspicious) && (() => {
+                                                        const hasShift3 = summary.details.some(d => d.actualIn3 || d.actualOut3);
+                                                        const hasShift4 = summary.details.some(d => d.actualIn4 || d.actualOut4);
+                                                        return (
                                                         <tr>
                                                             <td colSpan={10} className="p-0 bg-slate-50/50">
-                                                                <div className="p-2 border-b border-slate-200">
-                                                                    <table className="w-full text-[10px]">
+                                                                <div className="p-2 border-b border-slate-200 overflow-x-auto">
+                                                                    <table className="w-full text-[10px] min-w-max">
                                                                         <thead className="bg-slate-200 text-slate-600 uppercase">
                                                                             <tr>
                                                                                 <th className="p-2">Date</th>
@@ -866,6 +1028,10 @@ const SupervisorAttendance: React.FC = () => {
                                                                                 <th className="p-2 text-center text-blue-700">Shift 1 Out</th>
                                                                                 <th className="p-2 text-center text-indigo-700 border-l border-slate-300">Shift 2 In</th>
                                                                                 <th className="p-2 text-center text-indigo-700">Shift 2 Out</th>
+                                                                                {hasShift3 && <th className="p-2 text-center text-purple-700 border-l border-slate-300">Shift 3 In</th>}
+                                                                                {hasShift3 && <th className="p-2 text-center text-purple-700">Shift 3 Out</th>}
+                                                                                {hasShift4 && <th className="p-2 text-center text-pink-700 border-l border-slate-300">Shift 4 In</th>}
+                                                                                {hasShift4 && <th className="p-2 text-center text-pink-700">Shift 4 Out</th>}
                                                                                 <th className="p-2 text-center border-l border-slate-300">Work (Hrs)</th>
                                                                                 <th className="p-2 text-center text-amber-700">Late (Hrs)</th>
                                                                                 <th className="p-2 text-center text-orange-700">Early (Hrs)</th>
@@ -926,6 +1092,34 @@ const SupervisorAttendance: React.FC = () => {
                                                                                         {detail.out2Lat && <button onClick={() => openMapModal(detail.out2Lat!, detail.out2Lng!, 'OUT 2')} className="ml-1 text-red-400"><i className="fas fa-map-marker-alt"></i></button>}
                                                                                     </td>
 
+                                                                                    {/* Shift 3 */}
+                                                                                    {hasShift3 && (
+                                                                                        <>
+                                                                                            <td className="p-2 text-center font-mono text-emerald-600 border-l border-slate-100 group relative">
+                                                                                                {detail.actualIn3 || '-'}
+                                                                                                {detail.in3Lat && <button onClick={() => openMapModal(detail.in3Lat!, detail.in3Lng!, 'IN 3')} className="ml-1 text-blue-400"><i className="fas fa-map-marker-alt"></i></button>}
+                                                                                            </td>
+                                                                                            <td className="p-2 text-center font-mono text-red-500 group relative">
+                                                                                                {detail.actualOut3 || '-'}
+                                                                                                {detail.out3Lat && <button onClick={() => openMapModal(detail.out3Lat!, detail.out3Lng!, 'OUT 3')} className="ml-1 text-red-400"><i className="fas fa-map-marker-alt"></i></button>}
+                                                                                            </td>
+                                                                                        </>
+                                                                                    )}
+
+                                                                                    {/* Shift 4 */}
+                                                                                    {hasShift4 && (
+                                                                                        <>
+                                                                                            <td className="p-2 text-center font-mono text-emerald-600 border-l border-slate-100 group relative">
+                                                                                                {detail.actualIn4 || '-'}
+                                                                                                {detail.in4Lat && <button onClick={() => openMapModal(detail.in4Lat!, detail.in4Lng!, 'IN 4')} className="ml-1 text-blue-400"><i className="fas fa-map-marker-alt"></i></button>}
+                                                                                            </td>
+                                                                                            <td className="p-2 text-center font-mono text-red-500 group relative">
+                                                                                                {detail.actualOut4 || '-'}
+                                                                                                {detail.out4Lat && <button onClick={() => openMapModal(detail.out4Lat!, detail.out4Lng!, 'OUT 4')} className="ml-1 text-red-400"><i className="fas fa-map-marker-alt"></i></button>}
+                                                                                            </td>
+                                                                                        </>
+                                                                                    )}
+
                                                                                     <td className="p-2 text-center font-mono border-l border-slate-100">{detail.dailyWorkHours > 0 ? formatAsDotMinutes(detail.dailyWorkHours) : '-'}</td>
                                                                                     <td className="p-2 text-center text-amber-600 font-bold">{detail.lateHours > 0 ? formatAsDotMinutes(detail.lateHours) : '-'}</td>
                                                                                     <td className="p-2 text-center text-orange-600 font-bold">{detail.earlyHours > 0 ? formatAsDotMinutes(detail.earlyHours) : '-'}</td>
@@ -955,7 +1149,8 @@ const SupervisorAttendance: React.FC = () => {
                                                                 </div>
                                                             </td>
                                                         </tr>
-                                                    )}
+                                                        );
+                                                    })()}
                                                 </React.Fragment>
                                             ))
                                         )}

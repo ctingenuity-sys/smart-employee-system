@@ -607,17 +607,21 @@ const SupervisorSwaps: React.FC = () => {
                 )}
             </div>
 
-            {/* Modal for Month Swap Options */}
-            <Modal isOpen={isOptionModalOpen} onClose={() => setIsOptionModalOpen(false)} title="خيارات تبديل الشهر">
+            {/* Modal for Month/Period Swap Options */}
+            <Modal isOpen={isOptionModalOpen} onClose={() => setIsOptionModalOpen(false)} title={selectedReq?.type === 'period' ? "خيارات تبديل الفترة" : "خيارات تبديل الشهر"}>
                 <div className="space-y-4 text-center">
-                    <p className="text-slate-600 mb-4">كيف تريد تنفيذ تبديل الشهر؟</p>
+                    <p className="text-slate-600 mb-4 font-bold">
+                        {selectedReq?.type === 'period' 
+                            ? `موافقة على الفترة من ${selectedReq.startDate} إلى ${selectedReq.endDate}`
+                            : 'كيف تريد تنفيذ تبديل الشهر؟'}
+                    </p>
                     
                     <button 
                         onClick={() => selectedReq && handleSwapAction(selectedReq, true, false)}
                         className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-indigo-700 flex items-center justify-center gap-2"
                     >
                         <i className="fas fa-calendar-alt"></i>
-                        تبديل الشهر بالكامل
+                        {selectedReq?.type === 'period' ? 'تبديل الفترة بالكامل' : 'تبديل الشهر بالكامل'}
                         <span className="text-xs font-normal opacity-80">(يشمل الجمع)</span>
                     </button>
 
@@ -626,7 +630,7 @@ const SupervisorSwaps: React.FC = () => {
                         className="w-full bg-white border-2 border-indigo-100 text-indigo-700 py-4 rounded-xl font-bold hover:bg-indigo-50 flex items-center justify-center gap-2"
                     >
                         <i className="fas fa-calendar-minus"></i>
-                        تبديل الشهر 
+                        {selectedReq?.type === 'period' ? 'تبديل الفترة' : 'تبديل الشهر'}
                         <span className="text-red-500 font-black">(بدون الجمع)</span>
                     </button>
 

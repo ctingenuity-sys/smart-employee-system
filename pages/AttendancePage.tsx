@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef, memo } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, addDoc, onSnapshot, query, where, Timestamp, serverTimestamp, doc, updateDoc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, Timestamp, serverTimestamp, doc, updateDoc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
 import { AttendanceLog, Schedule, LocationCheckRequest, ActionLog } from '../types';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -115,12 +115,12 @@ const DigitalClock = memo(({ date }: { date: Date }) => {
     const dateStr = date.toLocaleDateString('en-US', {day: 'numeric', month: 'long', year: 'numeric'});
 
     return (
-        <div className="mb-10 relative flex flex-col items-center z-10 select-none pointer-events-none">
+        <div className="mb-8 relative flex flex-col items-center z-10 select-none pointer-events-none">
             <div className="flex items-baseline gap-2">
-                <span className="text-[6rem] md:text-[8.5rem] font-black leading-none tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-white/50 drop-shadow-2xl tabular-nums font-sans">
+                <span className="text-[5rem] md:text-[7.5rem] font-black leading-none tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-white/50 drop-shadow-2xl tabular-nums font-sans">
                     {hours}:{minutes}
                 </span>
-                <span className="text-2xl md:text-3xl font-bold text-white/30 tabular-nums">
+                <span className="text-xl md:text-2xl font-bold text-white/30 tabular-nums">
                     {seconds}
                 </span>
             </div>
@@ -132,6 +132,51 @@ const DigitalClock = memo(({ date }: { date: Date }) => {
         </div>
     );
 });
+
+const OFFLINE_PUNCHES_KEY = 'offline_punches';
+
+const saveOfflinePunch = (punchData: any) => {
+    const existing = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
+    existing.push({
+        ...punchData,
+        _offlineTimestamp: Date.now()
+    });
+    localStorage.setItem(OFFLINE_PUNCHES_KEY, JSON.stringify(existing));
+};
+
+export const syncOfflinePunches = async () => {
+    if (!navigator.onLine) return;
+    const existing = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
+    if (existing.length === 0) return;
+
+    const successfulSyncs: number[] = [];
+    
+    for (let i = 0; i < existing.length; i++) {
+        const p = existing[i];
+        try {
+            const payload = { ...p };
+            delete payload._offlineTimestamp;
+            
+            if (payload.clientTimestampMs) {
+                payload.clientTimestamp = Timestamp.fromMillis(payload.clientTimestampMs);
+                delete payload.clientTimestampMs;
+            }
+            
+            payload.timestamp = serverTimestamp();
+            payload.isOfflineSync = true;
+
+            await addDoc(collection(db, 'attendance_logs'), payload);
+            successfulSyncs.push(i);
+        } catch (e) {
+            console.error("Failed to sync offline punch", e);
+        }
+    }
+    
+    if (successfulSyncs.length > 0) {
+        const remaining = existing.filter((_: any, idx: number) => !successfulSyncs.includes(idx));
+        localStorage.setItem(OFFLINE_PUNCHES_KEY, JSON.stringify(remaining));
+    }
+};
 
 const AttendancePage: React.FC = () => {
     const { t, dir } = useLanguage();
@@ -158,6 +203,7 @@ const AttendancePage: React.FC = () => {
     
     // NEW: Action/Leave State
     const [todayAction, setTodayAction] = useState<string | null>(null);
+    const [isSwapShift, setIsSwapShift] = useState(false); // Track if today is a swap
     
     const [activeOverrideId, setActiveOverrideId] = useState<string | null>(null);
     const [overrideExpiry, setOverrideExpiry] = useState<Date | null>(null);
@@ -307,19 +353,19 @@ const AttendancePage: React.FC = () => {
 
 
     // 3. Data Subscriptions (DEPEND ON currentTime to refresh when day changes)
-    const todayDateKey = useMemo(() => currentTime ? getLocalDateKey(currentTime) : '', [currentTime]);
+    const todayDateKey = useMemo(() => currentTime ? getLocalDateKey(currentTime) : '', [currentTime ? currentTime.getDate() : 0]);
 
     useEffect(() => {
         if (!currentUserId || !currentTime) return;
 
-        const unsubUser = onSnapshot(doc(db, 'users', currentUserId), (docSnap) => {
+        getDoc(doc(db, 'users', currentUserId)).then((docSnap) => {
             if(docSnap.exists()) setUserProfile(docSnap.data());
         });
 
         // Use todayDateKey to ensure it refreshes if the day changes
         const todayStr = getLocalDateKey(currentTime);
         const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', todayStr));
-        const unsubLogs = onSnapshot(qLogs, (snap) => {
+        getDocs(qLogs).then((snap) => {
             const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
             
             // Fix: Sort with safe timestamp check to prevent crash on pending writes
@@ -337,7 +383,7 @@ const AttendancePage: React.FC = () => {
         const yesterdayStr = getLocalDateKey(yesterdayDate);
         
         const qLogsYesterday = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', yesterdayStr));
-        const unsubLogsYesterday = onSnapshot(qLogsYesterday, (snap) => {
+        getDocs(qLogsYesterday).then((snap) => {
             const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
             logs.sort((a, b) => {
                 const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
@@ -349,7 +395,7 @@ const AttendancePage: React.FC = () => {
 
         // OVERRIDE LISTENER (Robust)
         const qOverride = query(collection(db, 'attendance_overrides'), where('userId', '==', currentUserId));
-        const unsubOver = onSnapshot(qOverride, (snap) => {
+        getDocs(qOverride).then((snap) => {
             // Find any valid override based on server time logic
             // We do the time check in the interval to handle expiration smoothly
             const validDoc = snap.docs.find(d => {
@@ -371,7 +417,7 @@ const AttendancePage: React.FC = () => {
 
         // NEW: Fetch Actions/Leaves for Today to Lock Attendance
         const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
-        const unsubActions = onSnapshot(qActions, (snap) => {
+        getDocs(qActions).then((snap) => {
             const actions = snap.docs.map(d => d.data() as ActionLog);
             // Check if any active action covers today
             const active = actions.find(a => a.fromDate <= todayStr && a.toDate >= todayStr);
@@ -396,27 +442,41 @@ const AttendancePage: React.FC = () => {
         const nextMonth = nextDate.toISOString().slice(0, 7);
 
         const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
-        const unsubSch = onSnapshot(qSch, (snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
-
-        return () => { unsubUser(); unsubLogs(); unsubLogsYesterday(); unsubOver(); unsubSch(); unsubActions(); };
+        getDocs(qSch).then((snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
     }, [currentUserId, isTimeSynced, timeOffset, todayDateKey]); // Depends on todayDateKey to refresh daily
 
 
-    // 4. Calculate Shifts (Data layer)
+    // 4. Calculate Shifts (OPTIMIZED: only runs when schedules change or day changes)
     useEffect(() => {
         if (!currentTime) return;
         
-        const getShiftsForDate = (targetDate: Date) => {
+        // Helper to check if it's a swap shift for UI purposes
+        const checkIsSwap = (sch: Schedule | undefined) => {
+            if (!sch) return false;
+            return (sch.locationId || '').includes('Swap') || (sch.note || '').includes('Swap');
+        };
+
+        const getShiftsForDate = (targetDate: Date, setSwapState = false) => {
             const dateStr = getLocalDateKey(targetDate);
             const dayOfWeek = targetDate.getDay();
             
             // --- PRIORITY LOGIC: Exact Date > Specific Range > Recurring ---
             
-            // 1. Exact Date (Highest Priority)
+            // 1. Exact Date (Highest Priority) - Includes Swaps
             const specific = schedules.find(s => s.date === dateStr);
             if (specific) {
+                if (setSwapState) setIsSwapShift(checkIsSwap(specific));
+                
+                // CRITICAL: Handle "Swap Duty - Off" case
+                // If I swapped my shift OUT, I should have an entry for this date with "Off" or similar
+                if ((specific.locationId || '').includes('Off') || (specific.note || '').includes('Off')) {
+                    return []; // Return empty shifts -> OFF DUTY
+                }
+
                 return specific.shifts || parseMultiShifts(specific.note || "");
             }
+
+            if (setSwapState) setIsSwapShift(false);
 
             // 2. Filter all applicable recurring schedules
             const applicable = schedules.filter(sch => {
@@ -465,8 +525,8 @@ const AttendancePage: React.FC = () => {
             return [];
         };
 
-        // Today
-        setTodayShifts(getShiftsForDate(currentTime));
+        // Today (Enable Swap Check)
+        setTodayShifts(getShiftsForDate(currentTime, true));
 
         // Yesterday
         const yestDate = new Date(currentTime);
@@ -478,7 +538,7 @@ const AttendancePage: React.FC = () => {
         tomDate.setDate(tomDate.getDate() + 1);
         setTomorrowShifts(getShiftsForDate(tomDate));
 
-    }, [schedules, currentTime]);
+    }, [schedules, todayDateKey]); // Key Optimization: Only update shifts if schedules or date changes
 
     // Use the logic from separate file
     const shiftLogic = useMemo(() => {
@@ -556,9 +616,9 @@ const AttendancePage: React.FC = () => {
             }, delay);
         };
 
-        if (!navigator.onLine) {
+        if (!navigator.onLine && !userProfile?.biometricId) {
             setStatus('ERROR');
-            setErrorDetails({ title: 'No Internet', msg: 'Check connection.' });
+            setErrorDetails({ title: 'No Internet', msg: 'Internet required for first-time device registration.' });
             playSound('error');
             releaseLock(); 
             return;
@@ -632,12 +692,10 @@ const AttendancePage: React.FC = () => {
                     const currentShiftIdx = (shiftLogic as any).shiftIdx || 1;
 
                     // --- ADD LOG ---
-                    await addDoc(collection(db, 'attendance_logs'), {
+                    const payload = {
                         userId: currentUserId,
                         userName: currentUserName,
                         type: nextType,
-                        timestamp: serverTimestamp(),
-                        clientTimestamp: Timestamp.now(),
                         date: localDateStr,
                         locationLat: latitude,
                         locationLng: longitude,
@@ -649,10 +707,26 @@ const AttendancePage: React.FC = () => {
                         shiftIndex: currentShiftIdx, 
                         isSuspicious: isSuspicious, 
                         violationType: violationType 
-                    });
+                    };
+
+                    if (!navigator.onLine) {
+                        saveOfflinePunch({
+                            ...payload,
+                            clientTimestampMs: Date.now()
+                        });
+                        setStatus('SUCCESS');
+                        setErrorDetails({ title: 'Offline Punch Saved', msg: 'Will sync when online.' });
+                    } else {
+                        await addDoc(collection(db, 'attendance_logs'), {
+                            ...payload,
+                            timestamp: serverTimestamp(),
+                            clientTimestamp: Timestamp.now()
+                        });
+                        setStatus('SUCCESS');
+                    }
 
                     // --- CONSUME OVERRIDE (One Time Use) ---
-                    if (hasOverride && activeOverrideId) {
+                    if (hasOverride && activeOverrideId && navigator.onLine) {
                         await deleteDoc(doc(db, 'attendance_overrides', activeOverrideId));
                         // Optimistically clear local state
                         setHasOverride(false);
@@ -661,7 +735,6 @@ const AttendancePage: React.FC = () => {
                         setOverrideExpiry(null);
                     }
 
-                    setStatus('SUCCESS');
                     playSound('success');
                     if (navigator.vibrate) navigator.vibrate([100]);
                     
@@ -727,6 +800,17 @@ const AttendancePage: React.FC = () => {
     }, []);
 
     useEffect(() => {
+        const handleOnline = () => {
+            syncOfflinePunches();
+        };
+        window.addEventListener('online', handleOnline);
+        // Also try syncing on mount in case we are already online
+        syncOfflinePunches();
+        
+        return () => window.removeEventListener('online', handleOnline);
+    }, []);
+
+    useEffect(() => {
         if (!realUserId) return;
 
         const qLiveCheck = query(
@@ -735,7 +819,7 @@ const AttendancePage: React.FC = () => {
             where('status', '==', 'pending')
         );
 
-        const unsubLiveCheck = onSnapshot(qLiveCheck, async (snap) => {
+        getDocs(qLiveCheck).then(async (snap) => {
             if (!snap.empty) {
                 const docRef = snap.docs[0];
                 const docData = docRef.data();
@@ -748,7 +832,7 @@ const AttendancePage: React.FC = () => {
             }
         });
 
-        return () => unsubLiveCheck();
+        return () => {};
     }, [realUserId]);
 
     const handleLiveCheck = async () => {
@@ -954,6 +1038,18 @@ const AttendancePage: React.FC = () => {
                 </div>
             </div>
 
+            {/* VISUAL SHIFT INDICATOR */}
+            {todayShifts.length > 0 && (
+                <div className="relative z-30 flex justify-center -mt-4 mb-2">
+                    <div className={`backdrop-blur-md px-4 py-1 rounded-full border border-white/10 flex items-center gap-2 shadow-lg ${isSwapShift ? 'bg-purple-900/60 border-purple-500' : 'bg-black/40'}`}>
+                        <span className={`w-2 h-2 rounded-full animate-pulse ${isSwapShift ? 'bg-purple-400' : 'bg-emerald-500'}`}></span>
+                        <span className={`text-[10px] font-bold uppercase tracking-widest ${isSwapShift ? 'text-purple-300' : 'text-emerald-300'}`}>
+                            {isSwapShift ? 'SWAP SHIFT: ' : "Today's Shift: "} {todayShifts.map(s => `${s.start}-${s.end}`).join(', ')}
+                        </span>
+                    </div>
+                </div>
+            )}
+
           {hasOverride && timeLeft !== null && (
             <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 w-full max-w-[280px] transition-all duration-500 ${timeLeft <= 10 ? 'scale-110' : 'scale-100'}`}>
                 <div className={`
@@ -1069,9 +1165,9 @@ const AttendancePage: React.FC = () => {
             let textColor = 'text-white/90';
 
             if (isCurrent) {
-                borderColor = 'border-cyan-500/40';
-                bgColor = 'bg-cyan-500/10';
-                textColor = 'text-cyan-300 neon-text-glow';
+                borderColor = isSwapShift ? 'border-purple-500/40' : 'border-cyan-500/40';
+                bgColor = isSwapShift ? 'bg-purple-500/10' : 'bg-cyan-500/10';
+                textColor = isSwapShift ? 'text-purple-300 neon-text-glow' : 'text-cyan-300 neon-text-glow';
             } else if (isMissed) {
                 textColor = 'text-red-400/50 line-through';
             }
@@ -1086,9 +1182,9 @@ const AttendancePage: React.FC = () => {
                             Shift {i + 1} {isOvernight ? '(OVERNIGHT)' : ''}
                         </span>
                         {isCurrent && (
-                            <span className="flex items-center gap-2 text-[10px] bg-cyan-500 text-black px-3 py-1 rounded-full font-bold">
-                                <span className="w-1.5 h-1.5 bg-black rounded-full animate-ping" />
-                                ACTIVE NOW
+                            <span className={`flex items-center gap-2 text-[10px] px-3 py-1 rounded-full font-bold ${isSwapShift ? 'bg-purple-500 text-white' : 'bg-cyan-500 text-black'}`}>
+                                <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
+                                {isSwapShift ? 'SWAP ACTIVE' : 'ACTIVE NOW'}
                             </span>
                         )}
                     </div>

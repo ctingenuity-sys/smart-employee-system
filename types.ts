@@ -230,6 +230,7 @@ export interface Appointment {
   fileNumber?: string; // NEW: Patient File Number
   doctorName?: string; // NEW: Referring Doctor
   patientAge?: string; // NEW: Age
+  gender?: 'male' | 'female'; // NEW: Gender
   nationality?: string; // NEW: Nationality
   isCash?: boolean; // NEW: Cash or Insurance
   examType: string;

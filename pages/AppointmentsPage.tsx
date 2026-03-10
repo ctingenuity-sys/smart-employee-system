@@ -133,7 +133,7 @@ const findValue = (obj: any, keys: string[]): any => {
     if (!obj) return null;
     const lowerKeys = keys.map(k => k.toLowerCase());
     for (const key of Object.keys(obj)) {
-        if (lowerKeys.includes(key.toLowerCase()) && obj[key]) {
+        if (lowerKeys.includes(key.toLowerCase()) && obj[key] !== undefined && obj[key] !== null && obj[key] !== '') {
             return obj[key];
         }
     }
@@ -294,6 +294,7 @@ const AppointmentsPage: React.FC = () => {
     const [specificExamName, setSpecificExamName] = useState('');
     const [doctorName, setDoctorName] = useState('');
     const [patientAge, setPatientAge] = useState('');
+    const [gender, setGender] = useState<'male'|'female'|''>('');
     const [notes, setNotes] = useState('');
     const [preparationText, setPreparationText] = useState('');
 
@@ -528,6 +529,17 @@ const AppointmentsPage: React.FC = () => {
                 const fNum = findValue(p, ['fileNumber', 'fileNo', 'mrn', 'patientId', 'pid']) || '';
                 const age = findValue(p, ['ageYear', 'age', 'patientAge', 'dob']);
                 const nationality = findValue(p, ['nationality', 'natName', 'patientNationality', 'nat']) || '';
+                const rawGender = findValue(p, ['gender', 'sex', 'patientGender']);
+                let gender: 'male'|'female'|'' = '';
+                if (rawGender !== undefined && rawGender !== null) {
+                    if (typeof rawGender === 'boolean') {
+                        gender = rawGender ? 'male' : 'female';
+                    } else {
+                        const g = String(rawGender).toLowerCase().trim();
+                        if (g.startsWith('f') || g === 'أنثى' || g === 'انثى' || g === 'false') gender = 'female';
+                        else if (g.startsWith('m') || g === 'ذكر' || g === 'true') gender = 'male';
+                    }
+                }
                 
                 // Determine if cash or insurance (prioritize cashCredit field)
                 let isCash = false;
@@ -574,6 +586,7 @@ const AppointmentsPage: React.FC = () => {
                             patientName: cleanName,
                             fileNumber: String(fNum),
                             patientAge: age ? String(age) : '',
+                            gender: gender || '',
                             nationality: nationality,
                             isCash: isCash,
                             examType: group.modId,
@@ -602,6 +615,7 @@ const AppointmentsPage: React.FC = () => {
                         patientName: cleanName,
                         fileNumber: String(fNum),
                         patientAge: age ? String(age) : '',
+                        gender: gender || '',
                         nationality: nationality,
                         isCash: isCash,
                         examType: modId,
@@ -1552,6 +1566,7 @@ const AppointmentsPage: React.FC = () => {
                 fileNumber,
                 doctorName,
                 patientAge,
+                gender: gender || undefined,
                 examType,
                 examList: examList, 
                 date: manualDate || selectedDate,
@@ -1577,7 +1592,7 @@ const AppointmentsPage: React.FC = () => {
             setBookedTicketId(uniqueId);
             setIsTicketModalOpen(true);
 
-            setPatientName(''); setFileNumber(''); setNotes(''); setDoctorName(''); setPatientAge('');
+            setPatientName(''); setFileNumber(''); setNotes(''); setDoctorName(''); setPatientAge(''); setGender('');
             setManualRoom(''); setSpecificExamName(''); setPreparationText('');
         } catch (e: any) { 
             console.error(e);
@@ -2124,8 +2139,14 @@ const AppointmentsPage: React.FC = () => {
                             else if (appt.isCash === true) bgClass = 'bg-emerald-100'; // Darker green for Cash
                             else if (appt.isCash === false) bgClass = 'bg-blue-100';   // Darker blue for Insurance
 
+                            let borderClass = appt.status === 'done' ? 'border-l-emerald-500' : isScheduled ? 'border-l-blue-500' : 'border-l-amber-500 shadow-md';
+                            if (appt.status !== 'done' && !isScheduled) {
+                                if (appt.gender === 'female') borderClass = 'border-l-pink-500 shadow-md';
+                                else if (appt.gender === 'male') borderClass = 'border-l-blue-800 shadow-md';
+                            }
+
                             return (
-                                <div key={appt.id} className={`relative ${bgClass} rounded-2xl p-4 shadow-sm border-l-4 transition-all hover:-translate-y-1 animate-fade-in ${appt.status === 'done' ? 'border-l-emerald-500' : isScheduled ? 'border-l-blue-500' : 'border-l-amber-500 shadow-md'}`}>
+                                <div key={appt.id} className={`relative ${bgClass} rounded-2xl p-4 shadow-sm border-l-4 transition-all hover:-translate-y-1 animate-fade-in ${borderClass}`}>
                                     
                                     <div className="flex justify-between items-start mb-2">
                                         <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-wider border ${mod.color} ${mod.border}`}>
@@ -2151,6 +2172,11 @@ const AppointmentsPage: React.FC = () => {
                                     <div className="flex flex-wrap items-center gap-2 mb-3">
                                         <span className="text-[10px] font-bold text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">ID: {appt.fileNumber}</span>
                                         {appt.patientAge && <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">Age: {appt.patientAge}</span>}
+                                        {appt.gender && (
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${appt.gender === 'female' ? 'text-pink-600 bg-pink-50 border-pink-100' : 'text-blue-800 bg-blue-50 border-blue-200'}`}>
+                                                {appt.gender === 'female' ? t('user.female') : t('user.male')}
+                                            </span>
+                                        )}
                                         {appt.nationality && <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-100">{appt.nationality}</span>}
                                         {appt.refNo && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">Inv: {appt.refNo}</span>}
                                     </div>
@@ -2394,6 +2420,12 @@ const AppointmentsPage: React.FC = () => {
                             <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder={t('appt.doctor')} value={doctorName} onChange={e=>setDoctorName(e.target.value)} />
                             <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder={t('appt.age')} value={patientAge} onChange={e=>setPatientAge(e.target.value)} />
                         </div>
+                        
+                        <select className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" value={gender} onChange={e=>setGender(e.target.value as 'male'|'female'|'')}>
+                            <option value="">{t('user.gender')} (اختياري)</option>
+                            <option value="male">{t('user.male')}</option>
+                            <option value="female">{t('user.female')}</option>
+                        </select>
                         
                         <select className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" value={examType} onChange={e=>setExamType(e.target.value)}>
                             {MODALITIES.filter(m => m.id !== 'ALL').map(m => <option key={m.id} value={m.id}>{m.label}</option>)}

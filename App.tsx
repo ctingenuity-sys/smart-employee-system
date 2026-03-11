@@ -47,6 +47,7 @@ const syncOfflinePunches = async () => {
     if (successfulSyncs.length > 0) {
         const remaining = existing.filter((_: any, idx: number) => !successfulSyncs.includes(idx));
         localStorage.setItem(OFFLINE_PUNCHES_KEY, JSON.stringify(remaining));
+        window.dispatchEvent(new Event('offline-sync-complete'));
     }
 };
 

@@ -78,30 +78,53 @@ const getLocalDateKey = (dateObj: Date) => {
 const styles = `
 @keyframes float {
     0% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
+    50% { transform: translateY(-15px); }
     100% { transform: translateY(0px); }
 }
 @keyframes pulse-ring {
-    0% { transform: scale(0.8); opacity: 0; }
-    50% { opacity: 0.5; }
-    100% { transform: scale(1.3); opacity: 0; }
+    0% { transform: scale(0.85); opacity: 0; }
+    50% { opacity: 0.6; }
+    100% { transform: scale(1.4); opacity: 0; }
 }
 @keyframes rotate-slow {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
 }
-.animate-float { animation: float 6s ease-in-out infinite; }
-.animate-pulse-ring { animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-.animate-rotate-slow { animation: rotate-slow 20s linear infinite; }
+@keyframes rotate-reverse {
+    from { transform: rotate(360deg); }
+    to { transform: rotate(0deg); }
+}
+@keyframes scan-line {
+    0% { top: 0%; opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { top: 100%; opacity: 0; }
+}
+.animate-float { animation: float 8s ease-in-out infinite; }
+.animate-pulse-ring { animation: pulse-ring 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.animate-rotate-slow { animation: rotate-slow 25s linear infinite; }
+.animate-rotate-reverse { animation: rotate-reverse 20s linear infinite; }
+.animate-scan { animation: scan-line 2.5s ease-in-out infinite; }
 .glass-panel {
-    background: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    background: rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+.glass-button {
+    background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.02) 100%);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: inset 0 0 20px rgba(255,255,255,0.05), 0 10px 40px rgba(0,0,0,0.5);
 }
 .neon-text-glow {
-    text-shadow: 0 0 20px currentColor;
+    text-shadow: 0 0 15px currentColor, 0 0 30px currentColor;
+}
+.text-gradient {
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 `;
 
@@ -112,21 +135,21 @@ const DigitalClock = memo(({ date }: { date: Date }) => {
     const minutes = date.getMinutes().toString().padStart(2, '0');
     const seconds = date.getSeconds().toString().padStart(2, '0');
     const dayName = date.toLocaleDateString('en-US', {weekday: 'long'});
-    const dateStr = date.toLocaleDateString('en-US', {day: 'numeric', month: 'long', year: 'numeric'});
+    const dateStr = date.toLocaleDateString('en-US', {day: 'numeric', month: 'short', year: 'numeric'});
 
     return (
-        <div className="mb-8 relative flex flex-col items-center z-10 select-none pointer-events-none">
+        <div className="mb-10 relative flex flex-col items-center z-10 select-none pointer-events-none">
             <div className="flex items-baseline gap-2">
-                <span className="text-[5rem] md:text-[7.5rem] font-black leading-none tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-white/50 drop-shadow-2xl tabular-nums font-sans">
-                    {hours}:{minutes}
+                <span className="text-[5.5rem] md:text-[8rem] font-light tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white via-white/90 to-white/30 drop-shadow-[0_0_30px_rgba(255,255,255,0.2)] tabular-nums font-mono">
+                    {hours}<span className="animate-pulse opacity-50">:</span>{minutes}
                 </span>
-                <span className="text-xl md:text-2xl font-bold text-white/30 tabular-nums">
+                <span className="text-2xl md:text-3xl font-light text-cyan-400/80 tabular-nums font-mono neon-text-glow ml-2">
                     {seconds}
                 </span>
             </div>
-            <div className="flex items-center gap-4 mt-2 bg-black/20 px-6 py-2 rounded-full backdrop-blur-md border border-white/5">
-                <span className="text-cyan-400 font-bold uppercase tracking-[0.2em] text-xs">{dayName}</span>
-                <span className="w-1 h-1 bg-white/20 rounded-full"></span>
+            <div className="flex items-center gap-4 mt-1 bg-white/5 px-6 py-2.5 rounded-full backdrop-blur-xl border border-white/10 shadow-[0_0_20px_rgba(0,0,0,0.2)]">
+                <span className="text-cyan-400 font-bold uppercase tracking-[0.25em] text-xs">{dayName}</span>
+                <span className="w-1.5 h-1.5 bg-white/30 rounded-full"></span>
                 <span className="text-slate-300 font-medium text-xs tracking-widest uppercase">{dateStr}</span>
             </div>
         </div>
@@ -175,6 +198,7 @@ export const syncOfflinePunches = async () => {
     if (successfulSyncs.length > 0) {
         const remaining = existing.filter((_: any, idx: number) => !successfulSyncs.includes(idx));
         localStorage.setItem(OFFLINE_PUNCHES_KEY, JSON.stringify(remaining));
+        window.dispatchEvent(new Event('offline-sync-complete'));
     }
 };
 
@@ -187,6 +211,7 @@ const AttendancePage: React.FC = () => {
     const [logicTicker, setLogicTicker] = useState(0); 
     const [timeOffset, setTimeOffset] = useState<number>(0);
     const [isTimeSynced, setIsTimeSynced] = useState(false);
+    const [syncTrigger, setSyncTrigger] = useState(0);
     
     const [status, setStatus] = useState<'IDLE' | 'AUTH_DEVICE' | 'SCANNING_LOC' | 'PROCESSING' | 'SUCCESS' | 'ERROR'>('IDLE');
     const [errorDetails, setErrorDetails] = useState<{title: string, msg: string}>({title: '', msg: ''});
@@ -368,14 +393,49 @@ const AttendancePage: React.FC = () => {
         getDocs(qLogs).then((snap) => {
             const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
             
+            // --- ADD OFFLINE PUNCHES TO UI ---
+            const offlinePunches = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
+            const todayOfflinePunches = offlinePunches
+                .filter((p: any) => p.date === todayStr && p.userId === currentUserId)
+                .map((p: any) => ({
+                    id: 'offline_' + p._offlineTimestamp,
+                    ...p,
+                    timestamp: { seconds: Math.floor(p.clientTimestampMs / 1000), nanoseconds: 0 },
+                    isOfflineSync: true // UI flag
+                }));
+
+            const combinedLogs = [...logs, ...todayOfflinePunches];
+
             // Fix: Sort with safe timestamp check to prevent crash on pending writes
-            logs.sort((a, b) => {
+            combinedLogs.sort((a, b) => {
                 const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
                 const tB = b.timestamp?.seconds || b.clientTimestamp?.seconds || 0;
                 return tA - tB;
             });
             
-            setTodayLogs(logs);
+            setTodayLogs(combinedLogs);
+        }).catch(err => {
+            console.warn("Failed to fetch today logs, using offline only", err);
+            setTodayLogs(prev => {
+                const offlinePunches = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
+                const todayOfflinePunches = offlinePunches
+                    .filter((p: any) => p.date === todayStr && p.userId === currentUserId)
+                    .map((p: any) => ({
+                        id: 'offline_' + p._offlineTimestamp,
+                        ...p,
+                        timestamp: { seconds: Math.floor(p.clientTimestampMs / 1000), nanoseconds: 0 },
+                        isOfflineSync: true
+                    }));
+                
+                const onlinePrev = prev.filter(p => !p.id.startsWith('offline_'));
+                const combined = [...onlinePrev, ...todayOfflinePunches];
+                combined.sort((a, b) => {
+                    const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
+                    const tB = b.timestamp?.seconds || b.clientTimestamp?.seconds || 0;
+                    return tA - tB;
+                });
+                return combined;
+            });
         });
 
         const yesterdayDate = new Date(currentTime);
@@ -385,12 +445,48 @@ const AttendancePage: React.FC = () => {
         const qLogsYesterday = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', yesterdayStr));
         getDocs(qLogsYesterday).then((snap) => {
             const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
-            logs.sort((a, b) => {
+            
+            // --- ADD OFFLINE PUNCHES TO UI ---
+            const offlinePunches = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
+            const yesterdayOfflinePunches = offlinePunches
+                .filter((p: any) => p.date === yesterdayStr && p.userId === currentUserId)
+                .map((p: any) => ({
+                    id: 'offline_' + p._offlineTimestamp,
+                    ...p,
+                    timestamp: { seconds: Math.floor(p.clientTimestampMs / 1000), nanoseconds: 0 },
+                    isOfflineSync: true
+                }));
+
+            const combinedLogs = [...logs, ...yesterdayOfflinePunches];
+
+            combinedLogs.sort((a, b) => {
                 const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
                 const tB = b.timestamp?.seconds || b.clientTimestamp?.seconds || 0;
                 return tA - tB;
             });
-            setYesterdayLogs(logs);
+            setYesterdayLogs(combinedLogs);
+        }).catch(err => {
+            console.warn("Failed to fetch yesterday logs, using offline only", err);
+            setYesterdayLogs(prev => {
+                const offlinePunches = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
+                const yesterdayOfflinePunches = offlinePunches
+                    .filter((p: any) => p.date === yesterdayStr && p.userId === currentUserId)
+                    .map((p: any) => ({
+                        id: 'offline_' + p._offlineTimestamp,
+                        ...p,
+                        timestamp: { seconds: Math.floor(p.clientTimestampMs / 1000), nanoseconds: 0 },
+                        isOfflineSync: true
+                    }));
+                
+                const onlinePrev = prev.filter(p => !p.id.startsWith('offline_'));
+                const combined = [...onlinePrev, ...yesterdayOfflinePunches];
+                combined.sort((a, b) => {
+                    const tA = a.timestamp?.seconds || a.clientTimestamp?.seconds || 0;
+                    const tB = b.timestamp?.seconds || b.clientTimestamp?.seconds || 0;
+                    return tA - tB;
+                });
+                return combined;
+            });
         });
 
         // OVERRIDE LISTENER (Robust)
@@ -443,7 +539,7 @@ const AttendancePage: React.FC = () => {
 
         const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
         getDocs(qSch).then((snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
-    }, [currentUserId, isTimeSynced, timeOffset, todayDateKey]); // Depends on todayDateKey to refresh daily
+    }, [currentUserId, isTimeSynced, timeOffset, todayDateKey, syncTrigger]); // Depends on todayDateKey to refresh daily
 
 
     // 4. Calculate Shifts (OPTIMIZED: only runs when schedules change or day changes)
@@ -710,18 +806,15 @@ const AttendancePage: React.FC = () => {
                     };
 
                     if (!navigator.onLine) {
-                        const existing = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
-                        if (existing.length > 0) {
-                            setStatus('ERROR');
-                            setErrorDetails({ title: 'Pending Sync', msg: 'Already have a pending punch. Please wait for sync.' });
-                            playSound('error');
-                            releaseLock();
-                            return;
-                        }
-                        saveOfflinePunch({
+                        const payloadWithTime = {
                             ...payload,
                             clientTimestampMs: Date.now()
-                        });
+                        };
+                        saveOfflinePunch(payloadWithTime);
+                        
+                        // Trigger re-fetch to update UI immediately
+                        setSyncTrigger(prev => prev + 1);
+                        
                         setStatus('SUCCESS');
                         setErrorDetails({ title: 'Offline Punch Saved', msg: 'Will sync when online.' });
                     } else {
@@ -811,11 +904,19 @@ const AttendancePage: React.FC = () => {
         const handleOnline = () => {
             syncOfflinePunches();
         };
+        const handleSyncComplete = () => {
+            setSyncTrigger(prev => prev + 1);
+        };
         window.addEventListener('online', handleOnline);
+        window.addEventListener('offline-sync-complete', handleSyncComplete);
+        
         // Also try syncing on mount in case we are already online
         syncOfflinePunches();
         
-        return () => window.removeEventListener('online', handleOnline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline-sync-complete', handleSyncComplete);
+        };
     }, []);
 
     useEffect(() => {
@@ -1011,36 +1112,37 @@ const AttendancePage: React.FC = () => {
     const strokeDashoffset = circumference - ((displayTime.getSeconds()) / 60) * circumference;
 
     return (
-        <div className="min-h-screen bg-[#050505] text-white font-sans flex flex-col relative overflow-hidden selection:bg-cyan-500/30" dir={dir}>
+        <div className="min-h-screen bg-[#030712] text-white font-sans flex flex-col relative overflow-hidden selection:bg-cyan-500/30" dir={dir}>
             <style>{styles}</style>
             
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                <div className={`absolute top-[-20%] left-[-10%] w-[70vw] h-[70vw] rounded-full mix-blend-screen filter blur-[120px] opacity-20 animate-float transition-colors duration-[2000ms]
+                {/* Immersive Atmospheric Background */}
+                <div className={`absolute top-[-20%] left-[-10%] w-[80vw] h-[80vw] rounded-full mix-blend-screen filter blur-[140px] opacity-20 animate-float transition-colors duration-[3000ms]
                     ${visualState.theme === 'cyan' ? 'bg-cyan-600' : visualState.theme === 'rose' ? 'bg-rose-600' : visualState.theme === 'amber' ? 'bg-amber-600' : visualState.theme === 'purple' ? 'bg-purple-600' : 'bg-slate-800'}`}>
                 </div>
-                <div className={`absolute bottom-[-20%] right-[-10%] w-[60vw] h-[60vw] rounded-full mix-blend-screen filter blur-[100px] opacity-10 animate-float transition-colors duration-[2000ms] delay-1000
+                <div className={`absolute bottom-[-20%] right-[-10%] w-[70vw] h-[70vw] rounded-full mix-blend-screen filter blur-[120px] opacity-15 animate-float transition-colors duration-[3000ms] delay-1000
                     ${visualState.theme === 'cyan' ? 'bg-blue-600' : visualState.theme === 'rose' ? 'bg-orange-600' : 'bg-slate-700'}`}>
                 </div>
-                <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5"></div>
+                <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] mix-blend-overlay"></div>
             </div>
 
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
-            <div className="relative z-30 flex justify-between items-center p-6 glass-panel border-b border-white/5">
-                <button onClick={() => navigate('/user')} className="group flex items-center gap-3 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 transition-all backdrop-blur-md">
+            <div className="relative z-30 flex justify-between items-center p-6 glass-panel border-b border-white/5 shadow-none bg-transparent">
+                <button onClick={() => navigate('/user')} className="group flex items-center gap-3 px-5 py-2.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all backdrop-blur-xl shadow-lg">
                     <i className="fas fa-chevron-left text-white/70 group-hover:text-white transition-colors rtl:rotate-180"></i>
-                    <span className="text-xs font-bold text-white/70 group-hover:text-white uppercase tracking-wider">Dashboard</span>
+                    <span className="text-[11px] font-bold text-white/80 group-hover:text-white uppercase tracking-[0.15em]">Dashboard</span>
                 </button>
                 
                 <div className="flex items-center gap-4">
                     <div className="text-right">
                         <h2 className="text-sm font-bold text-white/90 tracking-wide">{currentUserName}</h2>
-                        <div className="flex items-center justify-end gap-1.5 mt-0.5">
-                            <div className={`w-1.5 h-1.5 rounded-full ${navigator.onLine && isTimeSynced ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-red-500 animate-pulse'}`}></div>
-                            <span className="text-[9px] font-mono text-white/40 tracking-wider uppercase">{isTimeSynced ? 'ONLINE' : 'SYNCING'}</span>
+                        <div className="flex items-center justify-end gap-2 mt-1">
+                            <div className={`w-2 h-2 rounded-full ${navigator.onLine && isTimeSynced ? 'bg-emerald-400 shadow-[0_0_10px_#34d399]' : 'bg-rose-500 animate-pulse shadow-[0_0_10px_#f43f5e]'}`}></div>
+                            <span className={`text-[10px] font-mono tracking-widest uppercase ${navigator.onLine && isTimeSynced ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>{isTimeSynced ? 'ONLINE' : 'SYNCING'}</span>
                         </div>
                     </div>
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-white/10 to-transparent border border-white/10 flex items-center justify-center text-sm font-bold shadow-lg text-white">
+                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-white/10 to-white/5 border border-white/10 flex items-center justify-center text-lg font-bold shadow-xl text-white backdrop-blur-md">
                         {currentUserName.charAt(0)}
                     </div>
                 </div>
@@ -1048,11 +1150,11 @@ const AttendancePage: React.FC = () => {
 
             {/* VISUAL SHIFT INDICATOR */}
             {todayShifts.length > 0 && (
-                <div className="relative z-30 flex justify-center -mt-4 mb-2">
-                    <div className={`backdrop-blur-md px-4 py-1 rounded-full border border-white/10 flex items-center gap-2 shadow-lg ${isSwapShift ? 'bg-purple-900/60 border-purple-500' : 'bg-black/40'}`}>
-                        <span className={`w-2 h-2 rounded-full animate-pulse ${isSwapShift ? 'bg-purple-400' : 'bg-emerald-500'}`}></span>
-                        <span className={`text-[10px] font-bold uppercase tracking-widest ${isSwapShift ? 'text-purple-300' : 'text-emerald-300'}`}>
-                            {isSwapShift ? 'SWAP SHIFT: ' : "Today's Shift: "} {todayShifts.map(s => `${s.start}-${s.end}`).join(', ')}
+                <div className="relative z-30 flex justify-center -mt-5 mb-4">
+                    <div className={`backdrop-blur-xl px-5 py-2 rounded-full border flex items-center gap-3 shadow-2xl ${isSwapShift ? 'bg-purple-900/40 border-purple-500/30' : 'bg-slate-900/60 border-white/10'}`}>
+                        <span className={`w-2 h-2 rounded-full animate-pulse ${isSwapShift ? 'bg-purple-400 shadow-[0_0_8px_#c084fc]' : 'bg-emerald-400 shadow-[0_0_8px_#34d399]'}`}></span>
+                        <span className={`text-[10px] font-bold uppercase tracking-[0.2em] ${isSwapShift ? 'text-purple-300' : 'text-emerald-300'}`}>
+                            {isSwapShift ? 'SWAP SHIFT: ' : "Today's Shift: "} <span className="text-white/90 ml-1">{todayShifts.map(s => `${s.start}-${s.end}`).join(', ')}</span>
                         </span>
                     </div>
                 </div>
@@ -1101,27 +1203,30 @@ const AttendancePage: React.FC = () => {
                     </button>
                 </div>
 
-<div className="relative group scale-90 md:scale-100 transition-transform duration-500 flex items-center justify-center">
+<div className="relative group scale-90 md:scale-100 transition-transform duration-700 flex items-center justify-center mt-4">
     
-    <div className="absolute inset-[-40px] border border-dashed border-white/10 rounded-full animate-rotate-slow pointer-events-none"></div>
-    <div className={`absolute w-[340px] h-[340px] rounded-full border-2 ${visualState.ringClass} transition-all duration-700 pointer-events-none`}></div>
+    {/* High-Tech Outer Rings */}
+    <div className="absolute inset-[-60px] border border-dashed border-white/10 rounded-full animate-rotate-slow pointer-events-none opacity-50"></div>
+    <div className="absolute inset-[-40px] border border-solid border-white/5 rounded-full animate-rotate-reverse pointer-events-none opacity-70"></div>
+    <div className={`absolute w-[360px] h-[360px] rounded-full border-[3px] ${visualState.ringClass} transition-all duration-1000 pointer-events-none opacity-80`}></div>
     
+    {/* SVG Progress Circle */}
     <svg 
-        viewBox="0 0 340 340" 
-        className="absolute w-[340px] h-[340px] -rotate-90 pointer-events-none z-10 overflow-visible"
+        viewBox="0 0 360 360" 
+        className="absolute w-[360px] h-[360px] -rotate-90 pointer-events-none z-10 overflow-visible"
         xmlns="http://www.w3.org/2000/svg"
     >
         <circle
-            cx="170"
-            cy="170"
+            cx="180"
+            cy="180"
             r={radius}
             stroke="currentColor"
-            strokeWidth="3"
+            strokeWidth="4"
             fill="transparent"
             strokeDasharray={circumference}
             strokeDashoffset={strokeDashoffset}
             strokeLinecap="round"
-            className={`transition-all duration-1000 ease-linear ${
+            className={`transition-all duration-1000 ease-linear drop-shadow-[0_0_15px_currentColor] ${
                 visualState.theme === 'cyan' ? 'text-cyan-400' : 
                 visualState.theme === 'rose' ? 'text-rose-500' : 
                 visualState.theme === 'amber' ? 'text-amber-500' : 
@@ -1136,22 +1241,27 @@ const AttendancePage: React.FC = () => {
             onClick={handlePunch}
             disabled={status !== 'IDLE' && status !== 'ERROR' && !activeLiveCheck && !shiftLogic.canPunch}
             className={`
-                relative w-64 h-64 rounded-full flex flex-col items-center justify-center 
-                transition-all duration-500 transform active:scale-95 
-                ${visualState.theme === 'rose' && status === 'ERROR' ? 'bg-red-900/40 text-red-500 border-red-500/50' : visualState.btnClass} 
-                glass-panel border-4 border-white/5 shadow-2xl
-                ${(status !== 'IDLE' && status !== 'ERROR' && !activeLiveCheck && !shiftLogic.canPunch) ? 'opacity-90 cursor-not-allowed' : ''}
+                relative w-[280px] h-[280px] rounded-full flex flex-col items-center justify-center 
+                transition-all duration-500 transform active:scale-[0.97] overflow-hidden
+                ${visualState.theme === 'rose' && status === 'ERROR' ? 'bg-red-950/60 text-red-400 border-red-500/50' : visualState.btnClass} 
+                glass-button border-[3px]
+                ${(status !== 'IDLE' && status !== 'ERROR' && !activeLiveCheck && !shiftLogic.canPunch) ? 'opacity-80 cursor-not-allowed grayscale-[30%]' : 'hover:shadow-[0_0_60px_rgba(255,255,255,0.1)]'}
             `}
         >
-            <i className={`fas ${status === 'ERROR' ? 'fa-exclamation-triangle' : visualState.icon} text-5xl mb-4 neon-text-glow`}></i>
+            {/* Scanning Line Animation */}
+            {(status === 'SCANNING_LOC' || status === 'PROCESSING') && (
+                <div className="absolute left-0 w-full h-1 bg-cyan-400/80 shadow-[0_0_20px_#22d3ee] animate-scan z-0"></div>
+            )}
+
+            <i className={`fas ${status === 'ERROR' ? 'fa-exclamation-triangle' : visualState.icon} text-6xl mb-5 neon-text-glow z-10 ${status === 'IDLE' && shiftLogic.canPunch ? 'animate-breathe' : ''}`}></i>
             
-            <span className="text-2xl font-black tracking-tighter uppercase leading-none text-center px-4">
+            <span className="text-3xl font-black tracking-tighter uppercase leading-none text-center px-4 z-10 drop-shadow-lg">
                 {status === 'IDLE' ? visualState.mainText : 
                 status === 'ERROR' ? errorDetails.title : 
                 status} 
             </span>
 
-            <span className="text-[10px] mt-2 font-bold tracking-[0.2em] opacity-60 uppercase text-center px-4">
+            <span className="text-[11px] mt-3 font-bold tracking-[0.25em] opacity-70 uppercase text-center px-6 z-10">
                 {status === 'ERROR' ? errorDetails.msg : visualState.subText}
             </span>
         </button>
@@ -1183,15 +1293,15 @@ const AttendancePage: React.FC = () => {
             return (
                 <div 
                     key={i} 
-                    className={`glass-panel p-6 rounded-3xl flex flex-col gap-4 transition-all duration-500 border-2 ${borderColor} ${bgColor} ${isCurrent ? 'shadow-2xl scale-[1.03]' : 'opacity-70'}`}
+                    className={`glass-panel p-6 rounded-3xl flex flex-col gap-4 transition-all duration-500 border border-white/10 ${bgColor} ${isCurrent ? 'shadow-[0_10px_40px_rgba(0,0,0,0.5)] scale-[1.02] ring-1 ring-white/20' : 'opacity-60 hover:opacity-100'}`}
                 >
-                    <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                        <span className="text-xs font-black text-white/30 uppercase tracking-[0.3em]">
+                    <div className="flex justify-between items-center border-b border-white/10 pb-3">
+                        <span className="text-[11px] font-black text-white/40 uppercase tracking-[0.3em]">
                             Shift {i + 1} {isOvernight ? '(OVERNIGHT)' : ''}
                         </span>
                         {isCurrent && (
-                            <span className={`flex items-center gap-2 text-[10px] px-3 py-1 rounded-full font-bold ${isSwapShift ? 'bg-purple-500 text-white' : 'bg-cyan-500 text-black'}`}>
-                                <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
+                            <span className={`flex items-center gap-2 text-[10px] px-3 py-1.5 rounded-full font-bold shadow-lg ${isSwapShift ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full animate-ping ${isSwapShift ? 'bg-purple-400' : 'bg-cyan-400'}`} />
                                 {isSwapShift ? 'SWAP ACTIVE' : 'ACTIVE NOW'}
                             </span>
                         )}
@@ -1199,20 +1309,22 @@ const AttendancePage: React.FC = () => {
 
                     <div className={`flex justify-between items-center ${textColor}`}>
                         <div className="flex flex-col">
-                            <span className="text-[10px] text-white/20 mb-1 uppercase">Start</span>
-                            <span className="text-3xl md:text-4xl font-black font-mono tracking-tighter">
+                            <span className="text-[10px] text-white/30 mb-1 uppercase tracking-widest">Start</span>
+                            <span className="text-3xl md:text-4xl font-light font-mono tracking-tighter">
                                 {s.start}
                             </span>
                         </div>
 
-                        <div className="flex-grow mx-8 h-[2px] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+                        <div className="flex-grow mx-8 h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent relative">
+                            {isCurrent && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-cyan-400 rounded-full shadow-[0_0_10px_#22d3ee]"></div>}
+                        </div>
 
                         <div className="flex flex-col items-end">
-                            <span className="text-[10px] text-white/20 mb-1 uppercase">End</span>
-                            <span className="text-3xl md:text-4xl font-black font-mono tracking-tighter">
+                            <span className="text-[10px] text-white/30 mb-1 uppercase tracking-widest">End</span>
+                            <span className="text-3xl md:text-4xl font-light font-mono tracking-tighter">
                                 {s.end}
                             </span>
-                            {isOvernight && <span className="text-[9px] text-white/40 mt-1 uppercase">+1 Day</span>}
+                            {isOvernight && <span className="text-[9px] text-white/40 mt-1 uppercase tracking-widest">+1 Day</span>}
                         </div>
                     </div>
                 </div>
@@ -1222,41 +1334,44 @@ const AttendancePage: React.FC = () => {
 )}
             </div>
 
-            <div className={`fixed bottom-0 left-0 right-0 glass-panel border-t border-white/10 transition-transform duration-500 z-40 flex flex-col rounded-t-[2.5rem] shadow-[0_-10px_60px_rgba(0,0,0,0.5)] ${showHistory ? 'translate-y-0 h-[75vh]' : 'translate-y-[calc(100%-90px)] h-[75vh]'}`}>
+            <div className={`fixed bottom-0 left-0 right-0 glass-panel border-t border-white/10 transition-transform duration-700 ease-in-out z-40 flex flex-col rounded-t-[2.5rem] shadow-[0_-20px_80px_rgba(0,0,0,0.8)] backdrop-blur-3xl ${showHistory ? 'translate-y-0 h-[80vh]' : 'translate-y-[calc(100%-90px)] h-[80vh]'}`}>
                 <div 
                     onClick={() => setShowHistory(!showHistory)}
-                    className="w-full h-[90px] flex flex-col items-center justify-start pt-4 cursor-pointer relative group"
+                    className="w-full h-[90px] flex flex-col items-center justify-start pt-5 cursor-pointer relative group"
                 >
-                    <div className="w-12 h-1.5 rounded-full bg-white/20 group-hover:bg-white/40 transition-colors mb-3"></div>
-                    <span className="text-[10px] font-bold text-white/40 uppercase tracking-[0.2em] group-hover:text-white/70 transition-colors">Pull for History</span>
+                    <div className="w-16 h-1.5 rounded-full bg-white/20 group-hover:bg-white/50 transition-colors mb-3 shadow-[0_0_10px_rgba(255,255,255,0.1)]"></div>
+                    <span className="text-[10px] font-bold text-white/50 uppercase tracking-[0.3em] group-hover:text-white/90 transition-colors">
+                        {showHistory ? 'Close History' : 'Pull for History'}
+                    </span>
                 </div>
                 
-                <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-3 custom-scrollbar-dark bg-black/20">
+                <div className="flex-1 overflow-y-auto px-6 pb-8 space-y-4 custom-scrollbar-dark bg-gradient-to-b from-transparent to-black/40">
+                    <h3 className="text-[11px] font-black text-white/30 uppercase tracking-[0.4em] mb-6 pl-2">Today's Activity</h3>
                     {todayLogs.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-40 text-white/20">
-                            <i className="far fa-clock text-3xl mb-3 opacity-50"></i>
+                        <div className="flex flex-col items-center justify-center h-40 text-white/20 glass-panel rounded-3xl border border-white/5">
+                            <i className="far fa-clock text-4xl mb-4 opacity-40"></i>
                             <p className="text-xs font-bold uppercase tracking-widest">No Activity Yet</p>
                         </div>
                     ) : (
                         todayLogs.map((log, idx) => (
-                            <div key={log.id} className={`flex items-center justify-between bg-white/5 p-4 rounded-2xl border ${log.isSuspicious ? 'border-red-500/50 bg-red-900/10' : 'border-white/5'} hover:bg-white/10 transition-all group`}>
-                                <div className="flex items-center gap-4">
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg shadow-lg ${log.type === 'IN' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}`}>
+                            <div key={log.id} className={`flex items-center justify-between bg-white/5 p-5 rounded-3xl border ${log.isSuspicious ? 'border-red-500/50 bg-red-900/10 shadow-[0_0_20px_rgba(220,38,38,0.1)]' : 'border-white/5'} hover:bg-white/10 transition-all group`}>
+                                <div className="flex items-center gap-5">
+                                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl shadow-inner ${log.type === 'IN' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}`}>
                                         <i className={`fas ${log.type === 'IN' ? 'fa-sign-in-alt' : 'fa-sign-out-alt'}`}></i>
                                     </div>
                                     <div>
-                                        <p className={`font-bold text-sm uppercase tracking-wide ${log.type === 'IN' ? 'text-cyan-100' : 'text-rose-100'}`}>{log.type === 'IN' ? 'Check In' : 'Check Out'}</p>
-                                        <p className="text-[10px] text-white/30 font-mono mt-0.5">Shift {log.shiftIndex || 1} • Seq #{idx+1}</p>
-                                        {log.isSuspicious && <p className="text-[9px] text-red-400 font-bold mt-1 uppercase tracking-wider">⚠️ {log.violationType || 'SUSPICIOUS'}</p>}
+                                        <p className={`font-bold text-sm uppercase tracking-widest ${log.type === 'IN' ? 'text-cyan-100' : 'text-rose-100'}`}>{log.type === 'IN' ? 'Check In' : 'Check Out'}</p>
+                                        <p className="text-[10px] text-white/40 font-mono mt-1 uppercase tracking-widest">Shift {log.shiftIndex || 1} <span className="mx-1 opacity-50">•</span> Seq #{idx+1}</p>
+                                        {log.isSuspicious && <p className="text-[9px] text-red-400 font-bold mt-1.5 uppercase tracking-[0.2em] bg-red-500/10 inline-block px-2 py-0.5 rounded-full">⚠️ {log.violationType || 'SUSPICIOUS'}</p>}
                                     </div>
                                 </div>
-                                <div className="text-right">
-                                    <p className="font-mono font-bold text-white text-lg tracking-tight">
+                                <div className="text-right flex flex-col items-end">
+                                    <p className="font-mono font-light text-white text-2xl tracking-tighter">
                                         {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', hour12: false}) : '--:--'}
                                     </p>
-                                    <div className="flex items-center justify-end gap-1 mt-1 opacity-40">
-                                        <i className="fas fa-check-circle text-[8px]"></i>
-                                        <span className="text-[9px] font-bold">Synced</span>
+                                    <div className={`flex items-center justify-end gap-1.5 mt-1.5 px-2 py-0.5 rounded-full ${log.isOfflineSync ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                                        <i className={`fas ${log.isOfflineSync ? 'fa-wifi text-[8px]' : 'fa-check text-[8px]'}`}></i>
+                                        <span className="text-[9px] font-bold uppercase tracking-widest">{log.isOfflineSync ? 'Offline' : 'Synced'}</span>
                                     </div>
                                 </div>
                             </div>

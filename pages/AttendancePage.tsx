@@ -131,21 +131,30 @@ const styles = `
 // --- MEMOIZED COMPONENTS ---
 
 const DigitalClock = memo(({ date }: { date: Date }) => {
-    const hours = date.getHours().toString().padStart(2, '0');
+    let h = date.getHours();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12;
+    h = h ? h : 12; // the hour '0' should be '12'
+    const hours = h.toString().padStart(2, '0');
     const minutes = date.getMinutes().toString().padStart(2, '0');
     const seconds = date.getSeconds().toString().padStart(2, '0');
     const dayName = date.toLocaleDateString('en-US', {weekday: 'long'});
     const dateStr = date.toLocaleDateString('en-US', {day: 'numeric', month: 'short', year: 'numeric'});
 
     return (
-        <div className="mb-10 relative flex flex-col items-center z-10 select-none pointer-events-none">
+        <div className="mb-6 relative flex flex-col items-center z-10 select-none pointer-events-none">
             <div className="flex items-baseline gap-2">
-                <span className="text-[5.5rem] md:text-[8rem] font-light tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white via-white/90 to-white/30 drop-shadow-[0_0_30px_rgba(255,255,255,0.2)] tabular-nums font-mono">
+                <span className="text-[5rem] md:text-[7rem] font-light tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white via-white/90 to-white/30 drop-shadow-[0_0_30px_rgba(255,255,255,0.2)] tabular-nums font-mono">
                     {hours}<span className="animate-pulse opacity-50">:</span>{minutes}
                 </span>
-                <span className="text-2xl md:text-3xl font-light text-cyan-400/80 tabular-nums font-mono neon-text-glow ml-2">
-                    {seconds}
-                </span>
+                <div className="flex flex-col items-start ml-2">
+                    <span className="text-xl md:text-2xl font-bold text-cyan-400/90 tracking-widest uppercase neon-text-glow">
+                        {ampm}
+                    </span>
+                    <span className="text-lg md:text-xl font-light text-white/50 tabular-nums font-mono">
+                        {seconds}
+                    </span>
+                </div>
             </div>
             <div className="flex items-center gap-4 mt-1 bg-white/5 px-6 py-2.5 rounded-full backdrop-blur-xl border border-white/10 shadow-[0_0_20px_rgba(0,0,0,0.2)]">
                 <span className="text-cyan-400 font-bold uppercase tracking-[0.25em] text-xs">{dayName}</span>
@@ -1203,28 +1212,28 @@ const AttendancePage: React.FC = () => {
                     </button>
                 </div>
 
-<div className="relative group scale-90 md:scale-100 transition-transform duration-700 flex items-center justify-center mt-4">
+<div className="relative group scale-75 md:scale-90 transition-transform duration-700 flex items-center justify-center mt-2">
     
     {/* High-Tech Outer Rings */}
-    <div className="absolute inset-[-60px] border border-dashed border-white/10 rounded-full animate-rotate-slow pointer-events-none opacity-50"></div>
-    <div className="absolute inset-[-40px] border border-solid border-white/5 rounded-full animate-rotate-reverse pointer-events-none opacity-70"></div>
-    <div className={`absolute w-[360px] h-[360px] rounded-full border-[3px] ${visualState.ringClass} transition-all duration-1000 pointer-events-none opacity-80`}></div>
+    <div className="absolute inset-[-50px] border border-dashed border-white/10 rounded-full animate-rotate-slow pointer-events-none opacity-50"></div>
+    <div className="absolute inset-[-30px] border border-solid border-white/5 rounded-full animate-rotate-reverse pointer-events-none opacity-70"></div>
+    <div className={`absolute w-[320px] h-[320px] rounded-full border-[3px] ${visualState.ringClass} transition-all duration-1000 pointer-events-none opacity-80`}></div>
     
     {/* SVG Progress Circle */}
     <svg 
-        viewBox="0 0 360 360" 
-        className="absolute w-[360px] h-[360px] -rotate-90 pointer-events-none z-10 overflow-visible"
+        viewBox="0 0 320 320" 
+        className="absolute w-[320px] h-[320px] -rotate-90 pointer-events-none z-10 overflow-visible"
         xmlns="http://www.w3.org/2000/svg"
     >
         <circle
-            cx="180"
-            cy="180"
-            r={radius}
+            cx="160"
+            cy="160"
+            r={140}
             stroke="currentColor"
             strokeWidth="4"
             fill="transparent"
-            strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
+            strokeDasharray={2 * Math.PI * 140}
+            strokeDashoffset={(2 * Math.PI * 140) - ((displayTime.getSeconds()) / 60) * (2 * Math.PI * 140)}
             strokeLinecap="round"
             className={`transition-all duration-1000 ease-linear drop-shadow-[0_0_15px_currentColor] ${
                 visualState.theme === 'cyan' ? 'text-cyan-400' : 
@@ -1241,7 +1250,7 @@ const AttendancePage: React.FC = () => {
             onClick={handlePunch}
             disabled={status !== 'IDLE' && status !== 'ERROR' && !activeLiveCheck && !shiftLogic.canPunch}
             className={`
-                relative w-[280px] h-[280px] rounded-full flex flex-col items-center justify-center 
+                relative w-[250px] h-[250px] rounded-full flex flex-col items-center justify-center 
                 transition-all duration-500 transform active:scale-[0.97] overflow-hidden
                 ${visualState.theme === 'rose' && status === 'ERROR' ? 'bg-red-950/60 text-red-400 border-red-500/50' : visualState.btnClass} 
                 glass-button border-[3px]
@@ -1267,85 +1276,87 @@ const AttendancePage: React.FC = () => {
         </button>
     </div>
 </div>
-
-{todayShifts.length > 0 && (
-    <div className="mt-10 w-full max-w-2xl flex flex-col gap-6 px-4">
-        {todayShifts.map((s, i) => {
-            const isCurrent = (shiftLogic as any).shiftIdx === (i + 1);
-            const isMissed = (shiftLogic as any).shiftIdx > (i + 1) && todayLogs.length < (i + 1) * 2; 
-            
-            const startH = parseInt(s.start.split(':')[0]);
-            const endH = parseInt(s.end.split(':')[0]);
-            const isOvernight = endH < startH;
-
-            let borderColor = 'border-white/10';
-            let bgColor = 'bg-white/5';
-            let textColor = 'text-white/90';
-
-            if (isCurrent) {
-                borderColor = isSwapShift ? 'border-purple-500/40' : 'border-cyan-500/40';
-                bgColor = isSwapShift ? 'bg-purple-500/10' : 'bg-cyan-500/10';
-                textColor = isSwapShift ? 'text-purple-300 neon-text-glow' : 'text-cyan-300 neon-text-glow';
-            } else if (isMissed) {
-                textColor = 'text-red-400/50 line-through';
-            }
-
-            return (
-                <div 
-                    key={i} 
-                    className={`glass-panel p-6 rounded-3xl flex flex-col gap-4 transition-all duration-500 border border-white/10 ${bgColor} ${isCurrent ? 'shadow-[0_10px_40px_rgba(0,0,0,0.5)] scale-[1.02] ring-1 ring-white/20' : 'opacity-60 hover:opacity-100'}`}
-                >
-                    <div className="flex justify-between items-center border-b border-white/10 pb-3">
-                        <span className="text-[11px] font-black text-white/40 uppercase tracking-[0.3em]">
-                            Shift {i + 1} {isOvernight ? '(OVERNIGHT)' : ''}
-                        </span>
-                        {isCurrent && (
-                            <span className={`flex items-center gap-2 text-[10px] px-3 py-1.5 rounded-full font-bold shadow-lg ${isSwapShift ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full animate-ping ${isSwapShift ? 'bg-purple-400' : 'bg-cyan-400'}`} />
-                                {isSwapShift ? 'SWAP ACTIVE' : 'ACTIVE NOW'}
-                            </span>
-                        )}
-                    </div>
-
-                    <div className={`flex justify-between items-center ${textColor}`}>
-                        <div className="flex flex-col">
-                            <span className="text-[10px] text-white/30 mb-1 uppercase tracking-widest">Start</span>
-                            <span className="text-3xl md:text-4xl font-light font-mono tracking-tighter">
-                                {s.start}
-                            </span>
-                        </div>
-
-                        <div className="flex-grow mx-8 h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent relative">
-                            {isCurrent && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-cyan-400 rounded-full shadow-[0_0_10px_#22d3ee]"></div>}
-                        </div>
-
-                        <div className="flex flex-col items-end">
-                            <span className="text-[10px] text-white/30 mb-1 uppercase tracking-widest">End</span>
-                            <span className="text-3xl md:text-4xl font-light font-mono tracking-tighter">
-                                {s.end}
-                            </span>
-                            {isOvernight && <span className="text-[9px] text-white/40 mt-1 uppercase tracking-widest">+1 Day</span>}
-                        </div>
-                    </div>
-                </div>
-            )
-        })}
-    </div>
-)}
             </div>
 
-            <div className={`fixed bottom-0 left-0 right-0 glass-panel border-t border-white/10 transition-transform duration-700 ease-in-out z-40 flex flex-col rounded-t-[2.5rem] shadow-[0_-20px_80px_rgba(0,0,0,0.8)] backdrop-blur-3xl ${showHistory ? 'translate-y-0 h-[80vh]' : 'translate-y-[calc(100%-90px)] h-[80vh]'}`}>
+            <div className={`fixed bottom-0 left-0 right-0 glass-panel border-t border-white/10 transition-transform duration-700 ease-in-out z-40 flex flex-col rounded-t-[2.5rem] shadow-[0_-20px_80px_rgba(0,0,0,0.8)] backdrop-blur-3xl ${showHistory ? 'translate-y-0 h-[85vh]' : 'translate-y-[calc(100%-90px)] h-[85vh]'}`}>
                 <div 
                     onClick={() => setShowHistory(!showHistory)}
                     className="w-full h-[90px] flex flex-col items-center justify-start pt-5 cursor-pointer relative group"
                 >
                     <div className="w-16 h-1.5 rounded-full bg-white/20 group-hover:bg-white/50 transition-colors mb-3 shadow-[0_0_10px_rgba(255,255,255,0.1)]"></div>
                     <span className="text-[10px] font-bold text-white/50 uppercase tracking-[0.3em] group-hover:text-white/90 transition-colors">
-                        {showHistory ? 'Close History' : 'Pull for History'}
+                        {showHistory ? 'Close Details' : 'Pull for Details'}
                     </span>
                 </div>
                 
                 <div className="flex-1 overflow-y-auto px-6 pb-8 space-y-4 custom-scrollbar-dark bg-gradient-to-b from-transparent to-black/40">
+                    
+                    {todayShifts.length > 0 && (
+                        <div className="mb-8">
+                            <h3 className="text-[11px] font-black text-white/30 uppercase tracking-[0.4em] mb-4 pl-2">Today's Shifts</h3>
+                            <div className="flex flex-col gap-4">
+                                {todayShifts.map((s, i) => {
+                                    const isCurrent = (shiftLogic as any).shiftIdx === (i + 1);
+                                    const isMissed = (shiftLogic as any).shiftIdx > (i + 1) && todayLogs.length < (i + 1) * 2; 
+                                    
+                                    const startH = parseInt(s.start.split(':')[0]);
+                                    const endH = parseInt(s.end.split(':')[0]);
+                                    const isOvernight = endH < startH;
+
+                                    let bgColor = 'bg-white/5';
+                                    let textColor = 'text-white/90';
+
+                                    if (isCurrent) {
+                                        bgColor = isSwapShift ? 'bg-purple-500/10' : 'bg-cyan-500/10';
+                                        textColor = isSwapShift ? 'text-purple-300 neon-text-glow' : 'text-cyan-300 neon-text-glow';
+                                    } else if (isMissed) {
+                                        textColor = 'text-red-400/50 line-through';
+                                    }
+
+                                    return (
+                                        <div 
+                                            key={i} 
+                                            className={`glass-panel p-6 rounded-3xl flex flex-col gap-4 transition-all duration-500 border border-white/10 ${bgColor} ${isCurrent ? 'shadow-[0_10px_40px_rgba(0,0,0,0.5)] scale-[1.02] ring-1 ring-white/20' : 'opacity-60 hover:opacity-100'}`}
+                                        >
+                                            <div className="flex justify-between items-center border-b border-white/10 pb-3">
+                                                <span className="text-[11px] font-black text-white/40 uppercase tracking-[0.3em]">
+                                                    Shift {i + 1} {isOvernight ? '(OVERNIGHT)' : ''}
+                                                </span>
+                                                {isCurrent && (
+                                                    <span className={`flex items-center gap-2 text-[10px] px-3 py-1.5 rounded-full font-bold shadow-lg ${isSwapShift ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'}`}>
+                                                        <span className={`w-1.5 h-1.5 rounded-full animate-ping ${isSwapShift ? 'bg-purple-400' : 'bg-cyan-400'}`} />
+                                                        {isSwapShift ? 'SWAP ACTIVE' : 'ACTIVE NOW'}
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            <div className={`flex justify-between items-center ${textColor}`}>
+                                                <div className="flex flex-col">
+                                                    <span className="text-[10px] text-white/30 mb-1 uppercase tracking-widest">Start</span>
+                                                    <span className="text-3xl md:text-4xl font-light font-mono tracking-tighter">
+                                                        {s.start}
+                                                    </span>
+                                                </div>
+
+                                                <div className="flex-grow mx-8 h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent relative">
+                                                    {isCurrent && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-cyan-400 rounded-full shadow-[0_0_10px_#22d3ee]"></div>}
+                                                </div>
+
+                                                <div className="flex flex-col items-end">
+                                                    <span className="text-[10px] text-white/30 mb-1 uppercase tracking-widest">End</span>
+                                                    <span className="text-3xl md:text-4xl font-light font-mono tracking-tighter">
+                                                        {s.end}
+                                                    </span>
+                                                    {isOvernight && <span className="text-[9px] text-white/40 mt-1 uppercase tracking-widest">+1 Day</span>}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    )}
+
                     <h3 className="text-[11px] font-black text-white/30 uppercase tracking-[0.4em] mb-6 pl-2">Today's Activity</h3>
                     {todayLogs.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-40 text-white/20 glass-panel rounded-3xl border border-white/5">

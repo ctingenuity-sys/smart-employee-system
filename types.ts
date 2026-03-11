@@ -203,6 +203,7 @@ export interface AttendanceLog {
   isSuspicious?: boolean; // NEW: Fraud detection flag
   violationType?: string; // NEW: Description of the violation (Time/Location)
   departmentId?: string; // NEW
+  isOfflineSync?: boolean; // NEW: Flag for offline punches
 }
 
 // --- NEW: Location Check Request (Spot Check) ---

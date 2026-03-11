@@ -134,7 +134,7 @@ const DigitalClock = memo(({ date }: { date: Date }) => {
     let h = date.getHours();
     const ampm = h >= 12 ? 'PM' : 'AM';
     h = h % 12;
-    h = h ? h : 12; // the hour '0' should be '12'
+    h = h ? h : 12; 
     const hours = h.toString().padStart(2, '0');
     const minutes = date.getMinutes().toString().padStart(2, '0');
     const seconds = date.getSeconds().toString().padStart(2, '0');
@@ -142,24 +142,24 @@ const DigitalClock = memo(({ date }: { date: Date }) => {
     const dateStr = date.toLocaleDateString('en-US', {day: 'numeric', month: 'short', year: 'numeric'});
 
     return (
-        <div className="mb-6 relative flex flex-col items-center z-10 select-none pointer-events-none">
-            <div className="flex items-baseline gap-2">
-                <span className="text-[5rem] md:text-[7rem] font-light tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white via-white/90 to-white/30 drop-shadow-[0_0_30px_rgba(255,255,255,0.2)] tabular-nums font-mono">
-                    {hours}<span className="animate-pulse opacity-50">:</span>{minutes}
+        <div className="mb-2 relative flex flex-col items-center z-10 select-none pointer-events-none">
+            <div className="flex items-baseline gap-3">
+                <span className="text-[6rem] md:text-[8rem] font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white via-white/90 to-white/20 drop-shadow-[0_0_40px_rgba(255,255,255,0.3)] tabular-nums leading-none">
+                    {hours}<span className="animate-pulse opacity-40">:</span>{minutes}
                 </span>
-                <div className="flex flex-col items-start ml-2">
-                    <span className="text-xl md:text-2xl font-bold text-cyan-400/90 tracking-widest uppercase neon-text-glow">
+                <div className="flex flex-col items-start">
+                    <span className="text-2xl md:text-3xl font-black text-cyan-400 tracking-widest uppercase neon-text-glow leading-none mb-1">
                         {ampm}
                     </span>
-                    <span className="text-lg md:text-xl font-light text-white/50 tabular-nums font-mono">
+                    <span className="text-xl md:text-2xl font-light text-white/40 tabular-nums font-mono leading-none">
                         {seconds}
                     </span>
                 </div>
             </div>
-            <div className="flex items-center gap-4 mt-1 bg-white/5 px-6 py-2.5 rounded-full backdrop-blur-xl border border-white/10 shadow-[0_0_20px_rgba(0,0,0,0.2)]">
-                <span className="text-cyan-400 font-bold uppercase tracking-[0.25em] text-xs">{dayName}</span>
-                <span className="w-1.5 h-1.5 bg-white/30 rounded-full"></span>
-                <span className="text-slate-300 font-medium text-xs tracking-widest uppercase">{dateStr}</span>
+            <div className="flex items-center gap-3 mt-0 bg-white/5 px-5 py-2 rounded-full backdrop-blur-2xl border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
+                <span className="text-cyan-400 font-black uppercase tracking-[0.3em] text-[10px]">{dayName}</span>
+                <span className="w-1 h-1 bg-white/20 rounded-full"></span>
+                <span className="text-white/60 font-bold text-[10px] tracking-widest uppercase">{dateStr}</span>
             </div>
         </div>
     );
@@ -176,32 +176,39 @@ const saveOfflinePunch = (punchData: any) => {
     localStorage.setItem(OFFLINE_PUNCHES_KEY, JSON.stringify(existing));
 };
 
+let isSyncing = false;
+
 export const syncOfflinePunches = async () => {
-    if (!navigator.onLine) return;
+    if (!navigator.onLine || isSyncing) return;
     const existing = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
     if (existing.length === 0) return;
 
+    isSyncing = true;
     const successfulSyncs: number[] = [];
     
-    for (let i = 0; i < existing.length; i++) {
-        const p = existing[i];
-        try {
-            const payload = { ...p };
-            delete payload._offlineTimestamp;
-            
-            if (payload.clientTimestampMs) {
-                payload.clientTimestamp = Timestamp.fromMillis(payload.clientTimestampMs);
-                delete payload.clientTimestampMs;
-            }
-            
-            payload.timestamp = serverTimestamp();
-            payload.isOfflineSync = true;
+    try {
+        for (let i = 0; i < existing.length; i++) {
+            const p = existing[i];
+            try {
+                const payload = { ...p };
+                delete payload._offlineTimestamp;
+                
+                if (payload.clientTimestampMs) {
+                    payload.clientTimestamp = Timestamp.fromMillis(payload.clientTimestampMs);
+                    delete payload.clientTimestampMs;
+                }
+                
+                payload.timestamp = serverTimestamp();
+                payload.isOfflineSync = true;
 
-            await addDoc(collection(db, 'attendance_logs'), payload);
-            successfulSyncs.push(i);
-        } catch (e) {
-            console.error("Failed to sync offline punch", e);
+                await addDoc(collection(db, 'attendance_logs'), payload);
+                successfulSyncs.push(i);
+            } catch (e) {
+                console.error("Failed to sync offline punch", e);
+            }
         }
+    } finally {
+        isSyncing = false;
     }
     
     if (successfulSyncs.length > 0) {
@@ -406,6 +413,11 @@ const AttendancePage: React.FC = () => {
             const offlinePunches = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
             const todayOfflinePunches = offlinePunches
                 .filter((p: any) => p.date === todayStr && p.userId === currentUserId)
+                // Deduplicate: Don't show offline punch if it already exists in Firestore logs
+                .filter((p: any) => !logs.some(l => {
+                    const lTime = l.clientTimestamp?.toMillis?.() || (l.clientTimestamp?.seconds ? l.clientTimestamp.seconds * 1000 : 0);
+                    return lTime === p.clientTimestampMs;
+                }))
                 .map((p: any) => ({
                     id: 'offline_' + p._offlineTimestamp,
                     ...p,
@@ -429,6 +441,11 @@ const AttendancePage: React.FC = () => {
                 const offlinePunches = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
                 const todayOfflinePunches = offlinePunches
                     .filter((p: any) => p.date === todayStr && p.userId === currentUserId)
+                    // Deduplicate
+                    .filter((p: any) => !prev.some(l => {
+                        const lTime = l.clientTimestamp?.toMillis?.() || (l.clientTimestamp?.seconds ? l.clientTimestamp.seconds * 1000 : 0);
+                        return lTime === p.clientTimestampMs;
+                    }))
                     .map((p: any) => ({
                         id: 'offline_' + p._offlineTimestamp,
                         ...p,
@@ -1157,17 +1174,21 @@ const AttendancePage: React.FC = () => {
                 </div>
             </div>
 
-            {/* VISUAL SHIFT INDICATOR */}
-            {todayShifts.length > 0 && (
-                <div className="relative z-30 flex justify-center -mt-5 mb-4">
-                    <div className={`backdrop-blur-xl px-5 py-2 rounded-full border flex items-center gap-3 shadow-2xl ${isSwapShift ? 'bg-purple-900/40 border-purple-500/30' : 'bg-slate-900/60 border-white/10'}`}>
+            {/* TOP SECTION: SHIFT INFO & CLOCK */}
+            <div className="relative z-30 flex flex-col items-center -mt-5 mb-6 px-4">
+                {todayShifts.length > 0 && (
+                    <div className={`backdrop-blur-xl px-5 py-2 rounded-full border flex items-center gap-3 shadow-2xl mb-6 ${isSwapShift ? 'bg-purple-900/40 border-purple-500/30' : 'bg-slate-900/60 border-white/10'}`}>
                         <span className={`w-2 h-2 rounded-full animate-pulse ${isSwapShift ? 'bg-purple-400 shadow-[0_0_8px_#c084fc]' : 'bg-emerald-400 shadow-[0_0_8px_#34d399]'}`}></span>
                         <span className={`text-[10px] font-bold uppercase tracking-[0.2em] ${isSwapShift ? 'text-purple-300' : 'text-emerald-300'}`}>
                             {isSwapShift ? 'SWAP SHIFT: ' : "Today's Shift: "} <span className="text-white/90 ml-1">{todayShifts.map(s => `${s.start}-${s.end}`).join(', ')}</span>
                         </span>
                     </div>
+                )}
+                
+                <div className="scale-90 md:scale-100">
+                    {currentTime && <DigitalClock date={currentTime} />}
                 </div>
-            )}
+            </div>
 
           {hasOverride && timeLeft !== null && (
             <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 w-full max-w-[280px] transition-all duration-500 ${timeLeft <= 10 ? 'scale-110' : 'scale-100'}`}>
@@ -1190,10 +1211,8 @@ const AttendancePage: React.FC = () => {
                 </div>
             </div>
         )}
-            <div className="flex-1 flex flex-col items-center justify-center relative z-20 px-4 pb-24">
+            <div className="flex-1 flex flex-col items-center justify-center relative z-20 px-4 pb-24 -mt-12">
                 
-                {currentTime && <DigitalClock date={currentTime} />}
-
                 {/* GPS Status & Refresh Button */}
                 <div className="mb-6 flex flex-col items-center gap-2">
                     <div className="flex items-center gap-2 bg-white/5 rounded-full px-4 py-1.5 border border-white/5 backdrop-blur-sm">
@@ -1212,30 +1231,30 @@ const AttendancePage: React.FC = () => {
                     </button>
                 </div>
 
-<div className="relative group scale-75 md:scale-90 transition-transform duration-700 flex items-center justify-center mt-2">
+<div className="relative group scale-90 md:scale-105 transition-transform duration-700 flex items-center justify-center -mt-4">
     
     {/* High-Tech Outer Rings */}
-    <div className="absolute inset-[-50px] border border-dashed border-white/10 rounded-full animate-rotate-slow pointer-events-none opacity-50"></div>
-    <div className="absolute inset-[-30px] border border-solid border-white/5 rounded-full animate-rotate-reverse pointer-events-none opacity-70"></div>
-    <div className={`absolute w-[320px] h-[320px] rounded-full border-[3px] ${visualState.ringClass} transition-all duration-1000 pointer-events-none opacity-80`}></div>
+    <div className="absolute inset-[-60px] border border-dashed border-white/10 rounded-full animate-rotate-slow pointer-events-none opacity-50"></div>
+    <div className="absolute inset-[-40px] border border-solid border-white/5 rounded-full animate-rotate-reverse pointer-events-none opacity-70"></div>
+    <div className={`absolute w-[360px] h-[360px] rounded-full border-[3px] ${visualState.ringClass} transition-all duration-1000 pointer-events-none opacity-80`}></div>
     
     {/* SVG Progress Circle */}
     <svg 
-        viewBox="0 0 320 320" 
-        className="absolute w-[320px] h-[320px] -rotate-90 pointer-events-none z-10 overflow-visible"
+        viewBox="0 0 360 360" 
+        className="absolute w-[360px] h-[360px] -rotate-90 pointer-events-none z-10 overflow-visible"
         xmlns="http://www.w3.org/2000/svg"
     >
         <circle
-            cx="160"
-            cy="160"
-            r={140}
+            cx="180"
+            cy="180"
+            r={160}
             stroke="currentColor"
-            strokeWidth="4"
+            strokeWidth="5"
             fill="transparent"
-            strokeDasharray={2 * Math.PI * 140}
-            strokeDashoffset={(2 * Math.PI * 140) - ((displayTime.getSeconds()) / 60) * (2 * Math.PI * 140)}
+            strokeDasharray={2 * Math.PI * 160}
+            strokeDashoffset={(2 * Math.PI * 160) - ((displayTime.getSeconds()) / 60) * (2 * Math.PI * 160)}
             strokeLinecap="round"
-            className={`transition-all duration-1000 ease-linear drop-shadow-[0_0_15px_currentColor] ${
+            className={`transition-all duration-1000 ease-linear drop-shadow-[0_0_20px_currentColor] ${
                 visualState.theme === 'cyan' ? 'text-cyan-400' : 
                 visualState.theme === 'rose' ? 'text-rose-500' : 
                 visualState.theme === 'amber' ? 'text-amber-500' : 
@@ -1250,11 +1269,11 @@ const AttendancePage: React.FC = () => {
             onClick={handlePunch}
             disabled={status !== 'IDLE' && status !== 'ERROR' && !activeLiveCheck && !shiftLogic.canPunch}
             className={`
-                relative w-[250px] h-[250px] rounded-full flex flex-col items-center justify-center 
+                relative w-[280px] h-[280px] rounded-full flex flex-col items-center justify-center 
                 transition-all duration-500 transform active:scale-[0.97] overflow-hidden
                 ${visualState.theme === 'rose' && status === 'ERROR' ? 'bg-red-950/60 text-red-400 border-red-500/50' : visualState.btnClass} 
                 glass-button border-[3px]
-                ${(status !== 'IDLE' && status !== 'ERROR' && !activeLiveCheck && !shiftLogic.canPunch) ? 'opacity-80 cursor-not-allowed grayscale-[30%]' : 'hover:shadow-[0_0_60px_rgba(255,255,255,0.1)]'}
+                ${(status !== 'IDLE' && status !== 'ERROR' && !activeLiveCheck && !shiftLogic.canPunch) ? 'opacity-80 cursor-not-allowed grayscale-[30%]' : 'hover:shadow-[0_0_80px_rgba(255,255,255,0.2)]'}
             `}
         >
             {/* Scanning Line Animation */}

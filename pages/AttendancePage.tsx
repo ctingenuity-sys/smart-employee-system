@@ -187,19 +187,51 @@ export const syncOfflinePunches = async () => {
     const successfulSyncs: number[] = [];
     
     try {
+        // 1. Get real time to validate device time
+        let realTimeMs = Date.now();
+        try {
+            const response = await fetch('https://worldtimeapi.org/api/timezone/Etc/UTC');
+            if (response.ok) {
+                const data = await response.json();
+                realTimeMs = new Date(data.datetime).getTime();
+            }
+        } catch (e) {
+            console.warn("Could not fetch real time, trusting device time");
+        }
+
+        const currentDeviceTime = Date.now();
+        const timeDiffMinutes = Math.abs(currentDeviceTime - realTimeMs) / (1000 * 60);
+        const isDeviceTimeManipulated = timeDiffMinutes > 5;
+
         for (let i = 0; i < existing.length; i++) {
             const p = existing[i];
             try {
+                // If device time is manipulated, reject the punch
+                if (isDeviceTimeManipulated) {
+                    console.warn("Offline punch rejected due to time manipulation");
+                    successfulSyncs.push(i);
+                    window.dispatchEvent(new CustomEvent('offline-sync-rejected', { 
+                        detail: 'تم إلغاء بصمة أوفلاين بسبب تلاعب في وقت الجهاز' 
+                    }));
+                    continue;
+                }
+
                 const payload = { ...p };
+                const offlineId = payload._offlineTimestamp;
                 delete payload._offlineTimestamp;
                 
                 if (payload.clientTimestampMs) {
                     payload.clientTimestamp = Timestamp.fromMillis(payload.clientTimestampMs);
+                    // Set the main timestamp to the offline punch time!
+                    payload.timestamp = Timestamp.fromMillis(payload.clientTimestampMs);
                     delete payload.clientTimestampMs;
+                } else {
+                    payload.timestamp = serverTimestamp();
                 }
                 
-                payload.timestamp = serverTimestamp();
                 payload.isOfflineSync = true;
+                payload.offlineId = offlineId; // Add this for reliable deduplication
+                payload.syncedAt = serverTimestamp(); // Track when it was actually synced
 
                 await addDoc(collection(db, 'attendance_logs'), payload);
                 successfulSyncs.push(i);
@@ -414,10 +446,7 @@ const AttendancePage: React.FC = () => {
             const todayOfflinePunches = offlinePunches
                 .filter((p: any) => p.date === todayStr && p.userId === currentUserId)
                 // Deduplicate: Don't show offline punch if it already exists in Firestore logs
-                .filter((p: any) => !logs.some(l => {
-                    const lTime = l.clientTimestamp?.toMillis?.() || (l.clientTimestamp?.seconds ? l.clientTimestamp.seconds * 1000 : 0);
-                    return lTime === p.clientTimestampMs;
-                }))
+                .filter((p: any) => !logs.some(l => l.offlineId === p._offlineTimestamp))
                 .map((p: any) => ({
                     id: 'offline_' + p._offlineTimestamp,
                     ...p,
@@ -442,10 +471,7 @@ const AttendancePage: React.FC = () => {
                 const todayOfflinePunches = offlinePunches
                     .filter((p: any) => p.date === todayStr && p.userId === currentUserId)
                     // Deduplicate
-                    .filter((p: any) => !prev.some(l => {
-                        const lTime = l.clientTimestamp?.toMillis?.() || (l.clientTimestamp?.seconds ? l.clientTimestamp.seconds * 1000 : 0);
-                        return lTime === p.clientTimestampMs;
-                    }))
+                    .filter((p: any) => !prev.some(l => l.offlineId === p._offlineTimestamp))
                     .map((p: any) => ({
                         id: 'offline_' + p._offlineTimestamp,
                         ...p,
@@ -476,6 +502,7 @@ const AttendancePage: React.FC = () => {
             const offlinePunches = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
             const yesterdayOfflinePunches = offlinePunches
                 .filter((p: any) => p.date === yesterdayStr && p.userId === currentUserId)
+                .filter((p: any) => !logs.some(l => l.offlineId === p._offlineTimestamp))
                 .map((p: any) => ({
                     id: 'offline_' + p._offlineTimestamp,
                     ...p,
@@ -497,6 +524,7 @@ const AttendancePage: React.FC = () => {
                 const offlinePunches = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
                 const yesterdayOfflinePunches = offlinePunches
                     .filter((p: any) => p.date === yesterdayStr && p.userId === currentUserId)
+                    .filter((p: any) => !prev.some(l => l.offlineId === p._offlineTimestamp))
                     .map((p: any) => ({
                         id: 'offline_' + p._offlineTimestamp,
                         ...p,
@@ -1188,6 +1216,24 @@ const AttendancePage: React.FC = () => {
                 <div className="scale-90 md:scale-100">
                     {currentTime && <DigitalClock date={currentTime} />}
                 </div>
+
+                {/* GPS Status & Refresh Button */}
+                <div className="mt-2 flex flex-col items-center gap-2">
+                    <div className="flex items-center gap-2 bg-white/5 rounded-full px-4 py-1.5 border border-white/5 backdrop-blur-sm">
+                        <div className={`w-2 h-2 rounded-full ${gpsAccuracy && gpsAccuracy < 100 ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
+                        <span className="text-[10px] text-white/70 font-bold uppercase tracking-wide">
+                            GPS ACCURACY: {gpsAccuracy ? `~${gpsAccuracy.toFixed(0)}m` : 'Scanning...'}
+                        </span>
+                    </div>
+                    <button 
+                        onClick={refreshGPS}
+                        disabled={status === 'SCANNING_LOC'}
+                        className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 uppercase tracking-widest flex items-center gap-2 px-3 py-1 hover:bg-white/5 rounded-full transition-all"
+                    >
+                        <i className={`fas fa-sync-alt ${status === 'SCANNING_LOC' ? 'animate-spin' : ''}`}></i>
+                        تحديث الموقع (Refresh GPS)
+                    </button>
+                </div>
             </div>
 
           {hasOverride && timeLeft !== null && (
@@ -1213,24 +1259,6 @@ const AttendancePage: React.FC = () => {
         )}
             <div className="flex-1 flex flex-col items-center justify-center relative z-20 px-4 pb-24 -mt-12">
                 
-                {/* GPS Status & Refresh Button */}
-                <div className="mb-6 flex flex-col items-center gap-2">
-                    <div className="flex items-center gap-2 bg-white/5 rounded-full px-4 py-1.5 border border-white/5 backdrop-blur-sm">
-                        <div className={`w-2 h-2 rounded-full ${gpsAccuracy && gpsAccuracy < 100 ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
-                        <span className="text-[10px] text-white/70 font-bold uppercase tracking-wide">
-                            GPS ACCURACY: {gpsAccuracy ? `~${gpsAccuracy.toFixed(0)}m` : 'Scanning...'}
-                        </span>
-                    </div>
-                    <button 
-                        onClick={refreshGPS}
-                        disabled={status === 'SCANNING_LOC'}
-                        className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 uppercase tracking-widest flex items-center gap-2 px-3 py-1 hover:bg-white/5 rounded-full transition-all"
-                    >
-                        <i className={`fas fa-sync-alt ${status === 'SCANNING_LOC' ? 'animate-spin' : ''}`}></i>
-                        تحديث الموقع (Refresh GPS)
-                    </button>
-                </div>
-
 <div className="relative group scale-90 md:scale-105 transition-transform duration-700 flex items-center justify-center -mt-4">
     
     {/* High-Tech Outer Rings */}

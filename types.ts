@@ -204,6 +204,7 @@ export interface AttendanceLog {
   violationType?: string; // NEW: Description of the violation (Time/Location)
   departmentId?: string; // NEW
   isOfflineSync?: boolean; // NEW: Flag for offline punches
+  offlineId?: string | number; // NEW: Deduplication ID for offline punches
 }
 
 // --- NEW: Location Check Request (Spot Check) ---

@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
 import { Schedule, Announcement, SwapRequest, OpenShift, User, AttendanceLog, ActionLog } from '../types';
 import Toast from '../components/Toast';
@@ -223,15 +223,15 @@ const handleGenerateManualCode = () => {
     // 5. My Logs (Today)
     const todayStr = getLocalDateStr(now);
     const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', todayStr));
-    getDocs(qLogs).then((snap: any) => {
+    const unsubLogs = onSnapshot(qLogs, (snap: any) => {
         setTodayLogs(snap.docs.map((d: any) => d.data()));
     });
 
     // 5b. All Logs (Today) - For "Who is on shift" widget accuracy
     const qAllLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayStr));
-    getDocs(qAllLogs).then((snap: any) => {
+    const unsubAllLogs = onSnapshot(qAllLogs, (snap: any) => {
         setAllTodayLogs(snap.docs.map((d: any) => d.data() as AttendanceLog));
-    }).catch((error) => {
+    }, (error) => {
         console.log("Cannot fetch global logs for widget", error);
     });
     
@@ -247,6 +247,10 @@ const handleGenerateManualCode = () => {
         setUserActions(snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as ActionLog)));
     });
 
+    return () => {
+        unsubLogs();
+        unsubAllLogs();
+    };
   }, [currentUserId, refreshTrigger]);
 
   // --- On Shift Logic (Corrected) ---

@@ -4,7 +4,7 @@ import { db, auth } from '../firebase';
 import { appointmentsDb } from '../firebaseAppointments';
 import { db as certDb } from '../firebaseData';
 // @ts-ignore
-import { collection, query, where, getDocs, orderBy, limit, Timestamp, addDoc, writeBatch, doc, QuerySnapshot, DocumentData } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, limit, Timestamp, addDoc, writeBatch, doc, QuerySnapshot, DocumentData, onSnapshot } from 'firebase/firestore';
 import { User, SwapRequest, LeaveRequest, AttendanceLog, Schedule } from '../types';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
@@ -116,7 +116,7 @@ const SupervisorDashboard: React.FC = () => {
 
       // 4. Live Logs (Fetch ALL for today to calculate presence)
       const qLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayDate)); 
-      getDocs(qLogs).then((snap: QuerySnapshot<DocumentData>) => {
+      const unsubLogs = onSnapshot(qLogs, (snap: QuerySnapshot<DocumentData>) => {
           const logs = snap.docs.map(d => d.data() as AttendanceLog);
           // Sort for the feed
           const sortedLogs = [...logs].sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
@@ -141,6 +141,9 @@ const SupervisorDashboard: React.FC = () => {
           setSchedules(snap.docs.map(d => d.data() as Schedule));
       });
 
+      return () => {
+          unsubLogs();
+      };
   }, []);
 
   // --- Fetch Expiry Alerts ---

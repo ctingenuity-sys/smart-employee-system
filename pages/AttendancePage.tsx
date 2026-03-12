@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef, memo } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, addDoc, getDocs, query, where, Timestamp, serverTimestamp, doc, updateDoc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, Timestamp, serverTimestamp, doc, updateDoc, setDoc, getDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { AttendanceLog, Schedule, LocationCheckRequest, ActionLog } from '../types';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -438,7 +438,7 @@ const AttendancePage: React.FC = () => {
         // Use todayDateKey to ensure it refreshes if the day changes
         const todayStr = getLocalDateKey(currentTime);
         const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', todayStr));
-        getDocs(qLogs).then((snap) => {
+        const unsubLogs = onSnapshot(qLogs, (snap) => {
             const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
             
             // --- ADD OFFLINE PUNCHES TO UI ---
@@ -464,7 +464,7 @@ const AttendancePage: React.FC = () => {
             });
             
             setTodayLogs(combinedLogs);
-        }).catch(err => {
+        }, (err) => {
             console.warn("Failed to fetch today logs, using offline only", err);
             setTodayLogs(prev => {
                 const offlinePunches = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
@@ -495,7 +495,7 @@ const AttendancePage: React.FC = () => {
         const yesterdayStr = getLocalDateKey(yesterdayDate);
         
         const qLogsYesterday = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', yesterdayStr));
-        getDocs(qLogsYesterday).then((snap) => {
+        const unsubYesterday = onSnapshot(qLogsYesterday, (snap) => {
             const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
             
             // --- ADD OFFLINE PUNCHES TO UI ---
@@ -518,7 +518,7 @@ const AttendancePage: React.FC = () => {
                 return tA - tB;
             });
             setYesterdayLogs(combinedLogs);
-        }).catch(err => {
+        }, (err) => {
             console.warn("Failed to fetch yesterday logs, using offline only", err);
             setYesterdayLogs(prev => {
                 const offlinePunches = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
@@ -545,7 +545,7 @@ const AttendancePage: React.FC = () => {
 
         // OVERRIDE LISTENER (Robust)
         const qOverride = query(collection(db, 'attendance_overrides'), where('userId', '==', currentUserId));
-        getDocs(qOverride).then((snap) => {
+        const unsubOverride = onSnapshot(qOverride, (snap) => {
             // Find any valid override based on server time logic
             // We do the time check in the interval to handle expiration smoothly
             const validDoc = snap.docs.find(d => {
@@ -567,7 +567,7 @@ const AttendancePage: React.FC = () => {
 
         // NEW: Fetch Actions/Leaves for Today to Lock Attendance
         const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
-        getDocs(qActions).then((snap) => {
+        const unsubActions = onSnapshot(qActions, (snap) => {
             const actions = snap.docs.map(d => d.data() as ActionLog);
             // Check if any active action covers today
             const active = actions.find(a => a.fromDate <= todayStr && a.toDate >= todayStr);
@@ -592,7 +592,15 @@ const AttendancePage: React.FC = () => {
         const nextMonth = nextDate.toISOString().slice(0, 7);
 
         const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
-        getDocs(qSch).then((snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
+        const unsubSch = onSnapshot(qSch, (snap) => setSchedules(snap.docs.map(d => d.data() as Schedule)));
+
+        return () => {
+            unsubLogs();
+            unsubYesterday();
+            unsubOverride();
+            unsubActions();
+            unsubSch();
+        };
     }, [currentUserId, isTimeSynced, timeOffset, todayDateKey, syncTrigger]); // Depends on todayDateKey to refresh daily
 
 

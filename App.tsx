@@ -96,6 +96,7 @@ const AppointmentsPage = React.lazy(() => import('./pages/AppointmentsPage'));
 const PatientTicket = React.lazy(() => import('./pages/PatientTicket'));
 const DataArchiver = React.lazy(() => import('./pages/DataArchiver')); 
 const DepartmentBookings = React.lazy(() => import('./pages/DepartmentBookings'));
+const CTConsentPage = React.lazy(() => import('./pages/CTConsentPage'));
 
 const ModalityLogbook = React.lazy(() => import('./pages/ModalityLogbook'));
 
@@ -334,6 +335,7 @@ const AppRoutes: React.FC = () => {
           <Route path="/hr-assistant" element={<ProtectedRoute requiredPermission="hr_assistant"><HRAssistantPage /></ProtectedRoute>} />
           <Route path="/appointments" element={<ProtectedRoute requiredPermission="appointments"><AppointmentsPage /></ProtectedRoute>} />
           <Route path="/department-bookings" element={<ProtectedRoute requiredPermission="appointments"><DepartmentBookings /></ProtectedRoute>} />
+          <Route path="/ct-consent" element={<ProtectedRoute requiredPermission="appointments"><CTConsentPage /></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

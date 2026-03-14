@@ -2045,6 +2045,10 @@ const AppointmentsPage: React.FC = () => {
                             <i className="fas fa-archive"></i>
                         </button>
 
+                        <button onClick={() => window.open('#/ct-consent', '_blank')} className="bg-emerald-600 text-white w-fit px-4 h-9 rounded-lg flex items-center justify-center font-bold shadow-lg hover:bg-emerald-500 transition-all gap-2" title="Consent Form">
+                            <i className="fas fa-file-medical"></i> <span className="hidden md:inline">Consent Form</span>
+                        </button>
+
                         <button onClick={() => setIsAddModalOpen(true)} className="bg-white text-slate-900 w-fit px-4 h-9 rounded-lg flex items-center justify-center font-bold shadow-lg hover:bg-slate-200 transition-all gap-2">
                             <i className="fas fa-plus"></i> <span className="hidden md:inline">{t('appt.new')}</span>
                         </button>
@@ -2243,15 +2247,37 @@ const AppointmentsPage: React.FC = () => {
                                         {appt.status === 'pending' || appt.status === 'scheduled' ? (
                                             <>
                                                 {appt.status === 'pending' && <button onClick={() => handleOpenBooking(appt)} disabled={processingId === appt.id} className="flex-1 bg-white border border-blue-200 text-blue-600 py-2 rounded-lg font-bold text-xs hover:bg-blue-50 transition-colors disabled:opacity-50 cursor-pointer"><i className="fas fa-calendar-alt"></i> {t('appt.book')}</button>}
+                                                
+                                                {['CT', 'MRI', 'FLUO'].includes(appt.examType) && (
+                                                    <button 
+                                                        onClick={() => window.open(`#/ct-consent?name=${encodeURIComponent(appt.patientName)}&mrn=${encodeURIComponent(appt.fileNumber)}&age=${encodeURIComponent(appt.patientAge || '')}&gender=${encodeURIComponent(appt.gender || '')}&ref=${encodeURIComponent(appt.doctorName || '')}&proc=${encodeURIComponent(appt.examList?.[0] || appt.examType)}&type=${appt.examType === 'FLUO' ? 'Fluoro' : appt.examType}`, '_blank')} 
+                                                        className="flex-1 bg-emerald-50 border border-emerald-200 text-emerald-600 py-2 rounded-lg font-bold text-xs hover:bg-emerald-100 transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                                        title="Consent"
+                                                    >
+                                                        <i className="fas fa-file-medical"></i> Consent
+                                                    </button>
+                                                )}
+
                                                 <button onClick={() => handleStartExam(appt)} disabled={processingId === appt.id} className="flex-[2] bg-slate-800 text-white py-2 rounded-lg font-bold text-xs hover:bg-blue-600 transition-colors shadow-sm flex items-center justify-center gap-1 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer">
                                                     {processingId === appt.id ? <i className="fas fa-spinner fa-spin"></i> : <span>{t('appt.startExam')} <i className="fas fa-play"></i></span>}
                                                 </button>
                                             </>
                                         ) : appt.status === 'processing' ? (
-                                            <div className="w-full flex gap-2 items-center">
+                                            <div className="w-full flex gap-2 items-center flex-wrap">
                                                 <div className="flex-1 bg-blue-50 text-blue-700 px-2 py-2 rounded-lg text-xs font-bold text-center border border-blue-100">
                                                     <i className="fas fa-user-clock"></i> {appt.startedByName || 'Unknown'}
                                                 </div>
+                                                
+                                                {['CT', 'MRI', 'FLUO'].includes(appt.examType) && (
+                                                    <button 
+                                                        onClick={() => window.open(`#/ct-consent?name=${encodeURIComponent(appt.patientName)}&mrn=${encodeURIComponent(appt.fileNumber)}&age=${encodeURIComponent(appt.patientAge || '')}&gender=${encodeURIComponent(appt.gender || '')}&ref=${encodeURIComponent(appt.doctorName || '')}&proc=${encodeURIComponent(appt.examList?.[0] || appt.examType)}&type=${appt.examType === 'FLUO' ? 'Fluoro' : appt.examType}`, '_blank')} 
+                                                        className="flex-1 bg-emerald-50 border border-emerald-200 text-emerald-600 py-2 rounded-lg font-bold text-xs hover:bg-emerald-100 transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                                        title="Consent"
+                                                    >
+                                                        <i className="fas fa-file-medical"></i> Consent
+                                                    </button>
+                                                )}
+
                                                 <button onClick={() => handleFinishClick(appt)} className="flex-[2] bg-emerald-500 text-white py-2 rounded-lg font-bold text-xs hover:bg-emerald-600 transition-colors shadow-md flex items-center justify-center gap-1 cursor-pointer">
                                                     <span>{t('appt.finish')}</span> <i className="fas fa-check-double"></i>
                                                 </button>
@@ -2476,9 +2502,14 @@ const AppointmentsPage: React.FC = () => {
                         
                         <textarea className="w-full bg-slate-50 border-none rounded-xl p-3" placeholder="ملاحظات إضافية" value={notes} onChange={e=>setNotes(e.target.value)} />
                         
-                        <button className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition-all shadow-lg cursor-pointer">
-                            {t('appt.savePrint')}
-                        </button>
+                        <div className="flex gap-2">
+                            <button type="button" onClick={() => window.open('#/ct-consent', '_blank')} className="w-1/3 bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-500 transition-all shadow-lg cursor-pointer flex items-center justify-center gap-2">
+                                <i className="fas fa-file-medical"></i> Consent Form
+                            </button>
+                            <button type="submit" className="w-2/3 bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition-all shadow-lg cursor-pointer">
+                                {t('appt.savePrint')}
+                            </button>
+                        </div>
                     </form>
                 </div>
             </Modal>

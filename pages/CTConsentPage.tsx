@@ -201,7 +201,12 @@ const CTConsentPage: React.FC = () => {
             <div style="padding: 40px; font-family: 'Cairo', sans-serif; background: white; color: black; position: relative; min-height: 1100px;" dir="rtl">
                 <!-- Watermark -->
                 <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.05; pointer-events: none; z-index: 0;">
-                <img src="assets/logo.png" style="width: 600px; max-width: 90vw; object-fit: contain;" alt="شعار العصا المجنحة الطبي" />
+                    <img 
+                        src="/logo.png" 
+                        style="width: 600px; max-width: 90vw; object-fit: contain;" 
+                        alt="شعار المستشفى"
+                        referrerpolicy="no-referrer"
+                    />
                 </div>
 
                 <div style="position: relative; z-index: 10;">
@@ -368,9 +373,9 @@ const CTConsentPage: React.FC = () => {
                 <div class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0 opacity-[0.05] pointer-events-none">
                     <!-- لتغيير العلامة المائية، قم بتغيير الرابط في السطر التالي -->
                     <img 
-                        src="assets/logo.png" 
-                        style="width: 600px; max-width: 90vw; object-fit: contain;" 
-                        alt="شعار العصا المجنحة الطبي"
+                        src="/logo.png" 
+                        style="width: 600px; max-width: 80vw; object-fit: contain;" 
+                        alt="شعار المستشفى"
                         referrerpolicy="no-referrer"
                     />
                 </div>

@@ -194,7 +194,7 @@ const CTConsentPage: React.FC = () => {
     const saveAsPDF = async () => {
         const patientSignature = patientPadRef.current && !patientPadRef.current.isEmpty() ? patientPadRef.current.toDataURL() : '';
         const repSignature = repPadRef.current && !repPadRef.current.isEmpty() ? repPadRef.current.toDataURL() : '';
-        const watermarkBase64 = await getBase64ImageFromUrl('/logo.png');
+        const watermarkBase64 = await getBase64ImageFromUrl(`${window.location.origin}/logo.png`);
 
         const renderPrintQuestion = (text: string, value: string) => {
             const isYes = value === 'yes';
@@ -342,7 +342,7 @@ const CTConsentPage: React.FC = () => {
     const printAsHTML = async () => {
         const patientSignature = patientPadRef.current && !patientPadRef.current.isEmpty() ? patientPadRef.current.toDataURL() : '';
         const repSignature = repPadRef.current && !repPadRef.current.isEmpty() ? repPadRef.current.toDataURL() : '';
-        const watermarkBase64 = await getBase64ImageFromUrl('/logo.png');
+        const watermarkBase64 = await getBase64ImageFromUrl(`${window.location.origin}/logo.png`);
 
         const renderPrintQuestion = (text: string, value: string) => {
             const isYes = value === 'yes';

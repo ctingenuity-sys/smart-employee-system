@@ -219,7 +219,7 @@ const CTConsentPage: React.FC = () => {
             <div style="padding: 40px; font-family: 'Cairo', sans-serif; background: white; color: black; position: relative; min-height: 1100px;" dir="rtl">
                 <!-- Watermark -->
                 <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.05; pointer-events: none; z-index: 0;">
-                    ${watermarkBase64 ? `<img src="${watermarkBase64}" style="width: 600px; max-width: 90vw; object-fit: contain;" alt="شعار المستشفى" />` : ''}
+                    ${watermarkBase64 ? `<img src="${watermarkBase64}" style="width: 400px; max-width: 90vw; object-fit: contain;" alt="شعار المستشفى" />` : ''}
                 </div>
 
                 <div style="position: relative; z-index: 10;">
@@ -385,7 +385,7 @@ const CTConsentPage: React.FC = () => {
             <body class="p-8 text-sm relative flex flex-col h-screen box-border">
                 <!-- Watermark -->
                 <div class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0 opacity-[0.05] pointer-events-none">
-                    ${watermarkBase64 ? `<img src="${watermarkBase64}" style="width: 600px; max-width: 80vw; object-fit: contain;" alt="شعار المستشفى" />` : ''}
+                    ${watermarkBase64 ? `<img src="${watermarkBase64}" style="width: 400px; max-width: 80vw; object-fit: contain;" alt="شعار المستشفى" />` : ''}
                 </div>
 
                 <div class="relative z-10 flex flex-col h-full">

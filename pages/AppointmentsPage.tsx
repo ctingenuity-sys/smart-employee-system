@@ -2410,6 +2410,7 @@ const AppointmentsPage: React.FC = () => {
                             src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(window.location.origin + '/#/ticket/' + bookedTicketId)}`}
                             alt="Appointment QR"
                             className="w-48 h-48 rounded-lg shadow-sm mb-4"
+                            referrerPolicy="no-referrer"
                         />
                         <p className="text-sm text-slate-500 font-bold">{t('appt.scanTicket')}</p>
                     </div>

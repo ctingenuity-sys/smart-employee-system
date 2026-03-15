@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, addDoc, updateDoc, deleteDoc, doc, query, orderBy, limit, onSnapshot, Timestamp, arrayUnion, where, getDocs } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, query, orderBy, limit, Timestamp, arrayUnion, where, getDocs } from 'firebase/firestore';
 import { ShiftLog, Announcement, User, Location } from '../types';
 import Loading from '../components/Loading';
 import SkeletonLoader from '../components/SkeletonLoader';

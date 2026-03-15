@@ -370,21 +370,14 @@ const SupervisorAttendance: React.FC = () => {
                 
                 let allRelevantLogs = [...dayLogs, ...earlyNextDayOuts].sort((a, b) => getLogSeconds(a) - getLogSeconds(b));
                 
-                const prevD = new Date(d);
-                prevD.setDate(d.getDate() - 1);
-                const prevDateStr = prevD.toISOString().split('T')[0];
-                const prevLogs = [...(logsMap.get(`${user.id}_${prevDateStr}`) || [])].sort((a, b) => getLogSeconds(a) - getLogSeconds(b));
-                const lastInPrev = prevLogs.filter(l => l.type === 'IN').pop();
-                
-                if (lastInPrev) {
-                    while (allRelevantLogs.length > 0 && allRelevantLogs[0].type === 'OUT') {
-                        const firstOut = allRelevantLogs[0];
-                        const logDate = firstOut.timestamp?.toDate() || firstOut.clientTimestamp?.toDate();
-                        if (logDate && logDate.getHours() < 12 && (getLogSeconds(firstOut) - getLogSeconds(lastInPrev)) < 57600) {
-                            allRelevantLogs.shift();
-                        } else {
-                            break;
-                        }
+                // Remove early morning OUTs that belong to the previous day
+                while (allRelevantLogs.length > 0 && allRelevantLogs[0].type === 'OUT') {
+                    const firstOut = allRelevantLogs[0];
+                    const logDate = firstOut.timestamp?.toDate() || firstOut.clientTimestamp?.toDate();
+                    if (logDate && logDate.getHours() < 12 && firstOut.date === dateStr) {
+                        allRelevantLogs.shift();
+                    } else {
+                        break;
                     }
                 }
                 

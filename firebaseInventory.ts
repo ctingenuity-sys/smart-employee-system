@@ -1,21 +1,27 @@
+
+// @ts-ignore
 import { initializeApp, getApp, getApps } from "firebase/app";
+// @ts-ignore
 import { getFirestore } from "firebase/firestore";
+// @ts-ignore
 import { getStorage } from "firebase/storage";
 
 const inventoryConfig = {
-  apiKey: (import.meta as any).env.VITE_INVENTORY_API_KEY,
-  authDomain: (import.meta as any).env.VITE_INVENTORY_AUTH_DOMAIN,
-  projectId: (import.meta as any).env.VITE_INVENTORY_PROJECT_ID,
-  storageBucket: (import.meta as any).env.VITE_INVENTORY_STORAGE_BUCKET,
-  messagingSenderId: (import.meta as any).env.VITE_INVENTORY_MESSAGING_SENDER_ID,
-  appId: (import.meta as any).env.VITE_INVENTORY_APP_ID,
+  apiKey: "AIzaSyAvPJezfCpQnGIgSXMUL_MuJskJKjTWBtE",
+  authDomain: "radiology-inventory.appspot.com",
+  projectId: "radiology-inventory",
+  storageBucket: "radiology-inventory.appspot.com",
+  messagingSenderId: "62836498953",
+  appId: "1:62836498953:web:85899db40356c26cb30ed8", // Adapted for web based on provided android ID structure
 };
 
-// Initialize a secondary app instance for Inventory
+// Initialize a secondary app instance for Inventory to avoid conflict with the main app
 let inventoryApp;
-if (getApps().find(app => app.name === "inventoryApp")) {
+try {
+    // Check if named app already exists
     inventoryApp = getApp("inventoryApp");
-} else {
+} catch (e) {
+    // Initialize if not exists
     inventoryApp = initializeApp(inventoryConfig, "inventoryApp");
 }
 

@@ -13,6 +13,12 @@
   }
 }
 
+@supports (height: 100dvh) {
+  .h-screen {
+    height: 100dvh;
+  }
+}
+
 /* Glassmorphism Refined */
 .glass-morphism {
   background: rgba(255, 255, 255, 0.03);
@@ -46,20 +52,6 @@
 
 .animate-float-slow {
   animation: float-slow 8s ease-in-out infinite;
-}
-
-/* Orb Pulse Glow */
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 20px rgba(0,0,0,0.2); }
-  50% { box-shadow: 0 0 40px rgba(255,255,255,0.3); }
-}
-.animate-pulse-glow {
-  animation: pulse-glow 3s infinite;
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-20px); }
 }
 
 /* Custom Scrollbar for dark theme */

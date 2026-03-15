@@ -1626,6 +1626,7 @@ const SupervisorEmployees: React.FC = () => {
                                                 src={getAvatar(user)} 
                                                 alt={user.name} 
                                                 className="w-full h-full rounded-full object-cover bg-white shadow-md" 
+                                                referrerPolicy="no-referrer"
                                             />
                                         </div>
                                         <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full flex items-center justify-center text-sm text-slate-700 shadow-lg border-2 border-white bg-white">

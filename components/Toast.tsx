@@ -8,24 +8,20 @@ interface ToastProps {
   onClose: () => void;
 }
 
-// Sound Synthesis Logic (Instant, Offline, No Errors)
+// Sound Synthesis Logic (Safe Mode)
 const playSystemSound = (type: 'success' | 'error' | 'info') => {
+  // Check if browser supports AudioContext
+  const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContext) return;
+
   try {
-    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContext) return;
-    
-    // Create context only when needed
     const ctx = new AudioContext();
-    
-    // Only proceed if context is running or suspended (and can resume)
-    if (ctx.state === 'closed') return;
-    
-    // Resume if suspended (browsers block autoplay until interaction)
+
+    // Prevent "The AudioContext was not allowed to start" warning
+    // If state is suspended (no user interaction yet), simply return and don't try to play
     if (ctx.state === 'suspended') {
-        ctx.resume().catch(() => {
-            // If resume fails (no user interaction yet), just exit silently
-            return;
-        });
+        ctx.close().catch(() => {});
+        return; 
     }
 
     const osc = ctx.createOscillator();
@@ -40,8 +36,8 @@ const playSystemSound = (type: 'success' | 'error' | 'info') => {
       osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
       osc.frequency.exponentialRampToValueAtTime(1174.66, ctx.currentTime + 0.1); // D6
       
-      gain.gain.setValueAtTime(0.1, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+      gain.gain.setValueAtTime(0.05, ctx.currentTime); // Lower volume
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
       
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.5);
@@ -50,8 +46,8 @@ const playSystemSound = (type: 'success' | 'error' | 'info') => {
       osc.type = 'sawtooth';
       osc.frequency.setValueAtTime(150, ctx.currentTime);
       
-      gain.gain.setValueAtTime(0.1, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+      gain.gain.setValueAtTime(0.05, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + 0.3);
       
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.3);
@@ -60,20 +56,20 @@ const playSystemSound = (type: 'success' | 'error' | 'info') => {
       osc.type = 'sine';
       osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
       
-      gain.gain.setValueAtTime(0.05, ctx.currentTime);
+      gain.gain.setValueAtTime(0.02, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
       
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.5);
     }
   } catch (e) {
-    // Silently ignore audio context errors
+    // Silently fail if audio is blocked or creates an error
   }
 };
 
 const Toast: React.FC<ToastProps> = ({ message, type, duration = 4000, onClose }) => {
   useEffect(() => {
-    // Attempt to play sound, but don't crash if it fails
+    // Attempt to play sound
     playSystemSound(type);
     
     const timer = setTimeout(onClose, duration);

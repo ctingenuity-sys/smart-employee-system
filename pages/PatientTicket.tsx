@@ -170,7 +170,7 @@ const PatientTicket: React.FC = () => {
                             <div className="bg-white rounded-[1.8rem] p-4 flex flex-col items-center">
                                 <h3 className="text-[10px] font-black text-amber-600 uppercase mb-3 tracking-widest">⚠️ Scan for Details</h3>
                                 <div className="relative p-2 bg-slate-50 rounded-2xl border-2 border-dashed border-amber-200">
-                                    <img src={instructionQrUrl} alt="Instructions" className="w-24 h-24" />
+                                    <img src={instructionQrUrl} alt="Instructions" className="w-24 h-24" referrerPolicy="no-referrer" />
                                     <div className="absolute -bottom-2 -right-2 bg-amber-500 text-white text-[8px] font-black px-2 py-1 rounded-lg shadow-lg rotate-12">SCAN ME</div>
                                 </div>
                             </div>
@@ -193,7 +193,7 @@ const PatientTicket: React.FC = () => {
                         <p className="text-[8px] text-slate-400 mt-2 font-mono">#{id?.substring(0,12).toUpperCase()}</p>
                     </div>
                     <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
-                        <img src={ticketQrUrl} alt="Verification" className="w-16 h-16" />
+                        <img src={ticketQrUrl} alt="Verification" className="w-16 h-16" referrerPolicy="no-referrer" />
                     </div>
                 </div>
             </div>

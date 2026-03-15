@@ -1,62 +1,51 @@
-// --- TRUE HARDWARE FINGERPRINT (Persistent & Unified) ---
 
+/**
+ * نظام بصمة الجهاز المستقر (Stable Device Fingerprint V2)
+ * يعتمد على إنشاء معرف فريد يتم تخزينه في LocalStorage لضمان عدم تغيره
+ * مع تحديثات المتصفح البسيطة.
+ */
 export const getStableDeviceFingerprint = async (): Promise<string> => {
     try {
-        const nav = window.navigator as any;
-        const screen = window.screen;
+        // 1. المحاولة الأولى: استرجاع المعرف المخزن مسبقاً (الأسرع والأكثر ثباتاً)
+        const storedId = localStorage.getItem('aj_stable_device_id_v2');
+        if (storedId) {
+            return storedId;
+        }
+
+        // 2. إذا لم يوجد (أول مرة أو تم مسح البيانات)، نقوم بإنشاء معرف جديد قوي
+        // نستخدم معلومات الهاردوير كـ "بذرة" (Seed) لتقليل العشوائية المفرطة
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        let gpuInfo = 'generic_gpu';
         
-        // 1. البيانات الأساسية (تم استبدال userAgent بـ platform لضمان الثبات)
-        const basicInfo = [
-            nav.platform, // يعطي نوع النظام (مثل iPhone أو Win32) وهو ثابت تماماً
-            nav.language,
-            nav.hardwareConcurrency || 'x', 
-            nav.deviceMemory || 'x',        
-            screen.colorDepth,
-            screen.width + 'x' + screen.height, 
-            Intl.DateTimeFormat().resolvedOptions().timeZone 
-        ].join('|');
-
-        // 2. Canvas Fingerprint (يعتمد على كيفية معالجة الجهاز للرسوم)
-        let canvasHash = '';
-        try {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-                canvas.width = 280;
-                canvas.height = 60;
-                ctx.textBaseline = "alphabetic";
-                ctx.fillStyle = "#f60";
-                ctx.fillRect(125, 1, 62, 20);
-                ctx.font = "11pt Arial";
-                ctx.fillText("AJ_SMART_SYSTEM_STABLE", 2, 15);
-                canvasHash = canvas.toDataURL(); // يولد كوداً فريداً بناءً على كرت الشاشة والمعالج
+        if (gl) {
+            const debugInfo = (gl as any).getExtension('WEBGL_debug_renderer_info');
+            if (debugInfo) {
+                const renderer = (gl as any).getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                gpuInfo = renderer.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20);
             }
-        } catch (e) { canvasHash = 'canvas-error'; }
+        }
 
-        // 3. WebGL (اسم كرت الشاشة الفعلي)
-        let webglInfo = '';
-        try {
-            const canvas = document.createElement('canvas');
-            const gl = canvas.getContext('webgl');
-            if (gl) {
-                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-                if (debugInfo) {
-                    webglInfo = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
-                }
-            }
-        } catch (e) { webglInfo = 'webgl-error'; }
+        // إنشاء جزء عشوائي فريد جداً
+        const randomPart = Array.from(crypto.getRandomValues(new Uint8Array(8)))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('')
+            .toUpperCase();
 
-        // 4. دمج وتوليد الهاش النهائي باستخدام SHA-256
-        const finalString = `${basicInfo}__${canvasHash}__${webglInfo}`;
-        const msgBuffer = new TextEncoder().encode(finalString);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        // التنسيق النهائي: DEV_GPU_RANDOM
+        // مثال: DEV_APPLEGU_A1B2C3D4
+        const newId = `DEV_${gpuInfo}_${randomPart}`.toUpperCase();
 
-        // بادئة موحدة لجميع الصفحات
-        return `DEV_${hashHex.substring(0, 16).toUpperCase()}`;
+        // 3. تخزين المعرف بشكل دائم
+        localStorage.setItem('aj_stable_device_id_v2', newId);
+
+        return newId;
 
     } catch (e) {
-        return 'FALLBACK_DEVICE_ID';
+        console.error("Device ID Generation Error", e);
+        // Fallback في حالة حدوث خطأ كارثي
+        const fallbackId = `FALLBACK_${Math.random().toString(36).substring(7)}`.toUpperCase();
+        localStorage.setItem('aj_stable_device_id_v2', fallbackId);
+        return fallbackId;
     }
 };

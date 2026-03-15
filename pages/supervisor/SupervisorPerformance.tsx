@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { appointmentsDb } from '../../firebaseAppointments';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db, auth } from '../../firebase';
 // @ts-ignore
 import { collection, addDoc, query, where, getDocs, Timestamp, orderBy } from 'firebase/firestore';

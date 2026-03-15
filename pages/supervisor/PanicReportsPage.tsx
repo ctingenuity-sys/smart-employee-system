@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../supabaseClient';
+import { appointmentsDb } from '../../firebaseAppointments';
+import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { ExtendedAppointment } from '../../types';
 import Loading from '../../components/Loading';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -28,13 +29,10 @@ const PanicReportsPage: React.FC = () => {
                 const endOfMonth = nextMonthDate.toISOString();
 
                 // Fetch appointments where isPanic is true within the selected range
-                const { data, error } = await supabase
-                    .from('appointments')
-                    .select('*')
-                    .eq('isPanic', true)
-                    .gte('completedAt', startOfMonth)
-                    .lt('completedAt', endOfMonth)
-                    .order('completedAt', { ascending: true }); // Chronological order for reports
+                const qData = query(collection(appointmentsDb, 'appointments'), where('isPanic', '==', true), where('completedAt', '>=', startOfMonth), where('completedAt', '<', endOfMonth), orderBy('completedAt', 'asc'));
+                const dataSnap = await getDocs(qData);
+                const data = dataSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                const error = null;
 
                 if (error) throw error;
                 if (data) {

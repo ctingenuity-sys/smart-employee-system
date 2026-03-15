@@ -68,6 +68,13 @@ export const useAttendanceStatus = (userId: string | undefined) => {
     const [hasOverride, setHasOverride] = useState(false);
     const [logicTicker, setLogicTicker] = useState(0);
 
+    // Loading States
+    const [loadingSchedules, setLoadingSchedules] = useState(true);
+    const [loadingLogsToday, setLoadingLogsToday] = useState(true);
+    const [loadingLogsYesterday, setLoadingLogsYesterday] = useState(true);
+    const [loadingActions, setLoadingActions] = useState(true);
+    const [loadingOverrides, setLoadingOverrides] = useState(true);
+
     // Time ticker
     useEffect(() => {
         const timer = setInterval(() => {
@@ -78,38 +85,60 @@ export const useAttendanceStatus = (userId: string | undefined) => {
     }, []);
 
     useEffect(() => {
-        if (!userId) return;
+        if (!userId) {
+            setLoadingSchedules(false);
+            setLoadingLogsToday(false);
+            setLoadingLogsYesterday(false);
+            setLoadingActions(false);
+            setLoadingOverrides(false);
+            return;
+        }
 
         const todayDate = new Date();
         const todayStr = getLocalDateKey(todayDate);
         const yesterdayDate = new Date(todayDate);
         yesterdayDate.setDate(yesterdayDate.getDate() - 1);
         const yesterdayStr = getLocalDateKey(yesterdayDate);
+        
+        // Calculate a date 30 days ago for limiting queries
+        const thirtyDaysAgo = new Date(todayDate);
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const thirtyDaysAgoStr = getLocalDateKey(thirtyDaysAgo);
 
-        // 1. Fetch Schedules
-        const qSchedules = query(collection(db, 'schedules'), where('userId', '==', userId));
+        // 1. Fetch Schedules (Limit to recent or future)
+        const qSchedules = query(
+            collection(db, 'schedules'), 
+            where('userId', '==', userId)
+        );
         const unsubSchedules = onSnapshot(qSchedules, snap => {
             setSchedules(snap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule)));
+            setLoadingSchedules(false);
         });
 
         // 2. Fetch Today Logs
         const qLogsToday = query(collection(db, 'attendance_logs'), where('userId', '==', userId), where('date', '==', todayStr));
         const unsubLogsToday = onSnapshot(qLogsToday, snap => {
             setTodayLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog)));
+            setLoadingLogsToday(false);
         });
 
         // 3. Fetch Yesterday Logs
         const qLogsYesterday = query(collection(db, 'attendance_logs'), where('userId', '==', userId), where('date', '==', yesterdayStr));
         const unsubLogsYesterday = onSnapshot(qLogsYesterday, snap => {
             setYesterdayLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog)));
+            setLoadingLogsYesterday(false);
         });
 
-        // 4. Fetch Actions
-        const qActions = query(collection(db, 'action_logs'), where('userId', '==', userId));
+        // 4. Fetch Actions (Limit to recent)
+        const qActions = query(
+            collection(db, 'action_logs'), 
+            where('userId', '==', userId)
+        );
         const unsubActions = onSnapshot(qActions, snap => {
             const actions = snap.docs.map(d => ({ id: d.id, ...d.data() } as ActionLog));
             const active = actions.find(a => a.fromDate <= todayStr && a.toDate >= todayStr);
             setTodayAction(active ? active.type : null);
+            setLoadingActions(false);
         });
 
         // 5. Fetch Overrides
@@ -121,6 +150,7 @@ export const useAttendanceStatus = (userId: string | undefined) => {
                 return expiry && expiry > new Date();
             });
             setHasOverride(!!validDoc);
+            setLoadingOverrides(false);
         });
 
         return () => {
@@ -133,6 +163,7 @@ export const useAttendanceStatus = (userId: string | undefined) => {
     }, [userId]);
 
     const getShiftsForDate = (targetDate: Date) => {
+        // ... (existing implementation) ...
         const dateStr = getLocalDateKey(targetDate);
         const dayOfWeek = targetDate.getDay();
         
@@ -186,5 +217,7 @@ export const useAttendanceStatus = (userId: string | undefined) => {
         return calculateShiftStatus(currentTime, todayLogs, yesterdayLogs, todayShifts, hasOverride, yesterdayShifts, todayAction);
     }, [todayLogs, yesterdayLogs, schedules, hasOverride, logicTicker, currentTime, todayAction]);
 
-    return shiftLogic;
+    const loading = loadingSchedules || loadingLogsToday || loadingLogsYesterday || loadingActions || loadingOverrides;
+
+    return { ...shiftLogic, loading };
 };

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 // @ts-ignore
-import { collection, addDoc, deleteDoc, doc, onSnapshot } from 'firebase/firestore';
+import { collection, addDoc, deleteDoc, doc, getDocs } from 'firebase/firestore';
 import { Location } from '../../types';
 import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -15,11 +15,13 @@ const SupervisorLocations: React.FC = () => {
     const [newLocationName, setNewLocationName] = useState('');
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'} | null>(null);
 
+    const fetchLocations = async () => {
+        const snap = await getDocs(collection(db, 'locations'));
+        setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
+    };
+
     useEffect(() => {
-        const unsub = onSnapshot(collection(db, 'locations'), snap => {
-            setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
-        });
-        return () => unsub();
+        fetchLocations();
     }, []);
 
     const handleAddLocation = async () => {
@@ -28,6 +30,7 @@ const SupervisorLocations: React.FC = () => {
             await addDoc(collection(db, 'locations'), { name: newLocationName });
             setToast({ msg: 'Location Added', type: 'success' });
             setNewLocationName('');
+            fetchLocations();
         } catch (e) { setToast({ msg: 'Error', type: 'error' }); }
     };
 
@@ -36,6 +39,7 @@ const SupervisorLocations: React.FC = () => {
         try {
             await deleteDoc(doc(db, 'locations', id));
             setToast({ msg: 'Location Deleted', type: 'success' });
+            fetchLocations();
         } catch (e) { setToast({ msg: 'Error', type: 'error' }); }
     };
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { inventoryDb, inventoryStorage } from '../firebaseInventory';
 // @ts-ignore
-import { collection, addDoc, doc, updateDoc, onSnapshot, Timestamp, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, onSnapshot, Timestamp, deleteDoc, writeBatch, getDocs, query, where } from 'firebase/firestore';
 // @ts-ignore
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Material, Invoice, MaterialUsage, ForecastResult } from '../types';
@@ -96,7 +96,10 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     }, [usages]);
 
     const stats = useMemo(() => {
-        const lowStock = materials.filter(m => m.quantity <= 10).length;
+        const lowStock = materials.filter(m => m.quantity <= 10 && m.quantity >= 0).length;
+        // Check for NEGATIVE stock (Over-usage)
+        const negativeStock = materials.filter(m => m.quantity < 0).length;
+        
         const totalItems = materials.reduce((acc, curr) => acc + curr.quantity, 0);
         const totalUsages = usages.length;
         const recentIncomings = invoices.length;
@@ -111,7 +114,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             return exp >= today && exp <= nextMonth;
         }).length;
 
-        return { lowStock, totalItems, totalUsages, recentIncomings, expiringSoon };
+        return { lowStock, negativeStock, totalItems, totalUsages, recentIncomings, expiringSoon };
     }, [materials, usages, invoices]);
 
     // --- AI FORECASTING LOGIC ---
@@ -200,8 +203,10 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         if (!mat) return;
 
         const amount = parseFloat(usageAmount);
+        
+        // STRICT CHECK: Prevent Over Usage
         if (mat.quantity < amount) {
-            setToast({ msg: 'Not enough stock', type: 'error' });
+            setToast({ msg: `❌ خطأ: الرصيد غير كافٍ! المتاح: ${mat.quantity}`, type: 'error' });
             return;
         }
 
@@ -328,6 +333,46 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         }
     };
 
+    // --- NEW: Purge Correction History Function ---
+    const handlePurgeCorrections = async () => {
+        if(!confirm("⚠️ تحذير: سيتم حذف جميع سجلات 'تعديل المخزون' القديمة.\nالرصيد الحالي لن يتأثر، ولكن سجل التعديلات سيتم مسحه.\nهل أنت متأكد؟")) return;
+        
+        setLoading(true);
+        try {
+            const batch = writeBatch(inventoryDb);
+            let count = 0;
+
+            // 1. Find Correction Usages
+            const qUsages = query(collection(inventoryDb, 'usages'), where('patientFileNumber', '==', 'STOCK CORRECTION'));
+            const uSnap = await getDocs(qUsages);
+            uSnap.docs.forEach(d => {
+                batch.delete(d.ref);
+                count++;
+            });
+
+            // 2. Find Correction Invoices (using the flag isCorrection)
+            const qInvoices = query(collection(inventoryDb, 'invoices'), where('isCorrection', '==', true));
+            const iSnap = await getDocs(qInvoices);
+            iSnap.docs.forEach(d => {
+                batch.delete(d.ref);
+                count++;
+            });
+
+            if (count > 0) {
+                await batch.commit();
+                setToast({ msg: `تم تنظيف ${count} سجل تصحيح قديم بنجاح ✅`, type: 'success' });
+            } else {
+                setToast({ msg: 'لا توجد سجلات تصحيح لحذفها', type: 'info' });
+            }
+
+        } catch (e: any) {
+            console.error(e);
+            setToast({ msg: 'خطأ في عملية التنظيف: ' + e.message, type: 'error' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleDeleteUsage = async (usage: MaterialUsage) => {
         if(!confirm(t('confirm') + ' (سيتم استرجاع الكمية للمخزن)؟')) return;
         try {
@@ -430,21 +475,8 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                     // In Period
                     if (!isCorrection) {
                         stats[mat.name].periodIn += inv.quantityAdded;
-                    } else {
-                        // It's a correction in the period. We count it mathematically for the start balance derivation
-                        // but we DO NOT add it to 'periodIn' visual stat.
-                        // Instead, we treat it as a ghost movement.
-                        // To make the math work: Opening + In - Out = Closing.
-                        // If we hide the correction from 'In', the 'Opening' must adjust automatically.
-                        // This logic handles itself in the final step.
-                    }
+                    } 
                     
-                    // We need to track the NET change of corrections to adjust Opening Balance correctly
-                    if (isCorrection) {
-                        // Correction adds to stock, so effective "In" for math
-                        // We will add this to a temporary tracker if we want exact math, 
-                        // but the Reverse Calc handles it naturally.
-                    }
                 }
             });
 
@@ -470,21 +502,6 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             });
 
             // 3. Calculate Closing Balance at End of Selected Period
-            // Current Stock (Now) - Future In + Future Out
-            // Actually: Current Stock is the result of ALL transactions.
-            // Balance @ End of Period = Current Stock - (Sum of ALL transactions AFTER period)
-            // If future invoice (+10), we subtract 10. If future usage (-5), we add 5.
-            // Wait, logic check:
-            // Stock Now = Stock End Period + Future In - Future Out
-            // Stock End Period = Stock Now - Future In + Future Out
-            // futureNetChange above calculated (FutureIn - FutureOut).
-            // So: Stock End Period = Stock Now - futureNetChange.
-            
-            // Correction handling in Future: If there was a correction in future, it affected Current Stock.
-            // We must reverse it too. My loops above included corrections in `futureNetChange` calculation (I didn't filter them there).
-            // Let's ensure the future loop counts corrections.
-            // Ah, I filtered invoice loop above logic. I should perform a separate pass for accurate Reverse Calc.
-
             // RE-RUN for strict mathematical accuracy (Reverse Calculation)
             let balanceAtEndOfPeriod = mat.quantity;
             
@@ -509,15 +526,6 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             stats[mat.name].endBalance = balanceAtEndOfPeriod;
 
             // 4. Calculate Opening Balance
-            // Opening = Closing - In + Out
-            // But 'In' and 'Out' here must include ALL transactions (even corrections) to get the math right,
-            // OR we derive Opening from the displayed In/Out and force it.
-            // User wants "Net Balance to equal Manager". That is `endBalance`.
-            // User doesn't want "Corrections" shown in In/Out columns.
-            // So displayed In = Real In - Corrections. Displayed Out = Real Out - Corrections.
-            // Equation: Opening (Displayed) + Displayed In - Displayed Out = End Balance.
-            // Therefore: Opening (Displayed) = End Balance - Displayed In + Displayed Out.
-            
             stats[mat.name].startBalance = stats[mat.name].endBalance - stats[mat.name].periodIn + stats[mat.name].periodOut;
         });
 
@@ -613,6 +621,24 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                             </button>
                         </header>
 
+                        {/* NEGATIVE STOCK ALERT */}
+                        {stats.negativeStock > 0 && (
+                            <div className="bg-red-100 border-l-4 border-red-500 text-red-800 p-4 rounded-xl shadow-md mb-6 animate-pulse">
+                                <div className="flex items-center gap-3">
+                                    <i className="fas fa-exclamation-circle text-2xl"></i>
+                                    <div>
+                                        <h3 className="font-bold text-lg">تحذير هام للمشرف</h3>
+                                        <p className="text-sm font-bold">يوجد {stats.negativeStock} مواد برصيد سالب (الاستهلاك تجاوز المخزون!). يرجى تصحيح الأرصدة فوراً.</p>
+                                    </div>
+                                </div>
+                                <ul className="mt-2 text-xs list-disc list-inside font-bold">
+                                    {materials.filter(m => m.quantity < 0).map(m => (
+                                        <li key={m.id}>{m.name} (R: {m.quantity})</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
                         {/* AI Forecast Results Widget */}
                         {forecasts.length > 0 && (
                             <div className="bg-white rounded-[2rem] p-6 shadow-xl border border-purple-100 relative overflow-hidden animate-fade-in">
@@ -699,7 +725,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                             <div className="flex-1">
                                                 <h4 className="font-bold text-slate-800 truncate">{m.name}</h4>
                                                 <div className="w-full bg-slate-100 h-1.5 rounded-full mt-2">
-                                                    <div className="bg-red-500 h-1.5 rounded-full" style={{ width: `${(m.quantity/20)*100}%` }}></div>
+                                                    <div className="bg-red-500 h-1.5 rounded-full" style={{ width: `${(Math.max(0, m.quantity)/20)*100}%` }}></div>
                                                 </div>
                                             </div>
                                         </div>
@@ -1025,7 +1051,18 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                         <PrintHeader title={t('inv.rep.title')} subtitle="TRANSACTION LOG" />
 
                         <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100 print:hidden">
-                            <h2 className="text-xl font-black text-slate-800">{t('inv.rep.title')}</h2>
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-xl font-black text-slate-800">{t('inv.rep.title')}</h2>
+                                {isAdmin && (
+                                    <button 
+                                        onClick={handlePurgeCorrections}
+                                        className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-100 flex items-center gap-2 ml-4"
+                                        title="Clean old stock corrections history"
+                                    >
+                                        <i className="fas fa-broom"></i> تنظيف التصحيحات
+                                    </button>
+                                )}
+                            </div>
                             <div className="flex gap-2 items-center">
                                 <select className="bg-slate-50 border-none rounded-lg p-2 text-sm font-bold text-slate-600" value={reportFilter} onChange={e => setReportFilter(e.target.value as any)}>
                                     <option value="all">All Time</option>
@@ -1097,9 +1134,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                     {Object.entries(stat.staffUsage).length === 0 ? (
                                                         <p className="text-xs text-slate-400 italic text-center py-2">No usage recorded</p>
                                                     ) : (
-                                                        Object.entries(stat.staffUsage)
-  .sort(([, amountA], [, amountB]) => (amountB as number) - (amountA as number))
-  .map(([staff, amount]) => (
+                                                        Object.entries(stat.staffUsage).sort((a,b)=>b[1]-a[1]).map(([staff, amount]) => (
                                                             <div key={staff} className="flex justify-between items-center text-xs">
                                                                 <span className="text-slate-600 font-medium truncate w-2/3" title={staff}>{staff}</span>
                                                                 <span className="font-bold text-slate-800 bg-slate-100 px-1.5 rounded">{amount}</span>

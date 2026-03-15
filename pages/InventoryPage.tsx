@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import InventorySystem from '../components/InventorySystem';
 import { auth, db } from '../firebase';
@@ -16,9 +15,10 @@ const InventoryPage: React.FC = () => {
                 try {
                     const snap = await getDoc(doc(db, 'users', auth.currentUser.uid));
                     if (snap.exists()) {
+                        const data = snap.data() as any;
                         setUserData({
-                            role: snap.data().role,
-                            name: snap.data().name || auth.currentUser.email || 'User'
+                            role: data.role,
+                            name: data.name || auth.currentUser.email || 'User'
                         });
                     }
                 } catch (e) {

@@ -174,9 +174,26 @@ const CTConsentPage: React.FC = () => {
         Fluoro: { ar: '✅ موافقه علي فحص الباريوم', en: 'Consent For Barium ✅' }
     };
 
-    const saveAsPDF = () => {
+    const getBase64ImageFromUrl = async (imageUrl: string) => {
+        try {
+            const res = await fetch(imageUrl);
+            const blob = await res.blob();
+            return new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.addEventListener("load", () => resolve(reader.result as string), false);
+                reader.addEventListener("error", () => reject("Error loading image"));
+                reader.readAsDataURL(blob);
+            });
+        } catch (e) {
+            console.error("Failed to load watermark image", e);
+            return null;
+        }
+    };
+
+    const saveAsPDF = async () => {
         const patientSignature = patientPadRef.current && !patientPadRef.current.isEmpty() ? patientPadRef.current.toDataURL() : '';
         const repSignature = repPadRef.current && !repPadRef.current.isEmpty() ? repPadRef.current.toDataURL() : '';
+        const watermarkBase64 = await getBase64ImageFromUrl(`${window.location.origin}/logo.png`);
 
         const renderPrintQuestion = (text: string, value: string) => {
             const isYes = value === 'yes';
@@ -201,13 +218,7 @@ const CTConsentPage: React.FC = () => {
             <div style="padding: 40px; font-family: 'Cairo', sans-serif; background: white; color: black; position: relative; min-height: 1100px;" dir="rtl">
                 <!-- Watermark -->
                 <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.05; pointer-events: none; z-index: 0;">
-                    <img 
-                        src="${window.location.origin}/logo.png" 
-                        style="width: 400px; max-width: 90vw; object-fit: contain;" 
-                        alt="شعار المستشفى"
-                        referrerpolicy="no-referrer"
-                        crossorigin="anonymous"
-                    />
+                    ${watermarkBase64 ? `<img src="${watermarkBase64}" style="width: 600px; max-width: 90vw; object-fit: contain;" alt="شعار المستشفى" />` : ''}
                 </div>
 
                 <div style="position: relative; z-index: 10;">
@@ -327,9 +338,10 @@ const CTConsentPage: React.FC = () => {
         const worker = html2pdf().from(htmlContent).set(opt).save();
     };
 
-    const printAsHTML = () => {
+    const printAsHTML = async () => {
         const patientSignature = patientPadRef.current && !patientPadRef.current.isEmpty() ? patientPadRef.current.toDataURL() : '';
         const repSignature = repPadRef.current && !repPadRef.current.isEmpty() ? repPadRef.current.toDataURL() : '';
+        const watermarkBase64 = await getBase64ImageFromUrl(`${window.location.origin}/logo.png`);
 
         const renderPrintQuestion = (text: string, value: string) => {
             const isYes = value === 'yes';
@@ -372,14 +384,7 @@ const CTConsentPage: React.FC = () => {
             <body class="p-8 text-sm relative flex flex-col h-screen box-border">
                 <!-- Watermark -->
                 <div class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0 opacity-[0.05] pointer-events-none">
-                    <!-- لتغيير العلامة المائية، قم بتغيير الرابط في السطر التالي -->
-                    <img 
-                        src="${window.location.origin}/logo.png" 
-                        style="width: 400px; max-width: 80vw; object-fit: contain;" 
-                        alt="شعار المستشفى"
-                        referrerpolicy="no-referrer"
-                        crossorigin="anonymous"
-                    />
+                    ${watermarkBase64 ? `<img src="${watermarkBase64}" style="width: 600px; max-width: 80vw; object-fit: contain;" alt="شعار المستشفى" />` : ''}
                 </div>
 
                 <div class="relative z-10 flex flex-col h-full">

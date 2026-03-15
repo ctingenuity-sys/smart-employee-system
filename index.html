@@ -8,6 +8,28 @@
     <link rel="manifest" href="/manifest.json">
     <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/3135/3135715.png">
     
+    <!-- PWA Auto-Update Script for Chunk Errors -->
+    <script>
+      window.addEventListener('error', function(e) {
+        if (e.target && e.target.tagName === 'SCRIPT') {
+          const src = e.target.src || '';
+          if (src.includes('/assets/')) {
+            console.error('Failed to load script chunk. Unregistering service worker and reloading...');
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                for(let registration of registrations) {
+                  registration.unregister();
+                }
+                setTimeout(function() { window.location.reload(); }, 500);
+              });
+            } else {
+              setTimeout(function() { window.location.reload(); }, 500);
+            }
+          }
+        }
+      }, true);
+    </script>
+
     <!-- Suppress Tailwind Production Warning -->
     <script>
       (function() {

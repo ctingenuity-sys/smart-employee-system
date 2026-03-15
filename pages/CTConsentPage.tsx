@@ -202,10 +202,11 @@ const CTConsentPage: React.FC = () => {
                 <!-- Watermark -->
                 <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.05; pointer-events: none; z-index: 0;">
                     <img 
-                        src="/logo.png" 
-                        style="width: 600px; max-width: 90vw; object-fit: contain;" 
+                        src="${window.location.origin}/logo.png" 
+                        style="width: 400px; max-width: 90vw; object-fit: contain;" 
                         alt="شعار المستشفى"
                         referrerpolicy="no-referrer"
+                        crossorigin="anonymous"
                     />
                 </div>
 
@@ -373,10 +374,11 @@ const CTConsentPage: React.FC = () => {
                 <div class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0 opacity-[0.05] pointer-events-none">
                     <!-- لتغيير العلامة المائية، قم بتغيير الرابط في السطر التالي -->
                     <img 
-                        src="/logo.png" 
-                        style="width: 600px; max-width: 80vw; object-fit: contain;" 
+                        src="${window.location.origin}/logo.png" 
+                        style="width: 400px; max-width: 80vw; object-fit: contain;" 
                         alt="شعار المستشفى"
                         referrerpolicy="no-referrer"
+                        crossorigin="anonymous"
                     />
                 </div>
 

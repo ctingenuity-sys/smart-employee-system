@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SignaturePad from 'signature_pad';
+// @ts-ignore
+import html2pdf from 'html2pdf.js';
 
 const CTConsentPage: React.FC = () => {
     const navigate = useNavigate();
@@ -172,6 +174,153 @@ const CTConsentPage: React.FC = () => {
         Fluoro: { ar: '✅ موافقه علي فحص الباريوم', en: 'Consent For Barium ✅' }
     };
 
+    const saveAsPDF = () => {
+        const patientSignature = patientPadRef.current && !patientPadRef.current.isEmpty() ? patientPadRef.current.toDataURL() : '';
+        const repSignature = repPadRef.current && !repPadRef.current.isEmpty() ? repPadRef.current.toDataURL() : '';
+
+        const renderPrintQuestion = (text: string, value: string) => {
+            const isYes = value === 'yes';
+            const isNo = value === 'no';
+            const checkedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="black" stroke-width="1.5" fill="white"/><circle cx="7" cy="7" r="3.5" fill="black"/></svg>`);
+            const uncheckedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="black" stroke-width="1.5" fill="white"/></svg>`);
+            const radioYes = `<img src="data:image/svg+xml;charset=utf-8,${isYes ? checkedSvg : uncheckedSvg}" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-top: -2px;" />`;
+            const radioNo = `<img src="data:image/svg+xml;charset=utf-8,${isNo ? checkedSvg : uncheckedSvg}" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-top: -2px;" />`;
+
+            return `
+            <div class="flex justify-between items-center border-b border-gray-300 border-dashed pb-1 pt-1">
+                <div class="font-bold text-right flex-1 ml-4">${text}</div>
+                <div class="flex gap-4" dir="ltr">
+                    <div class="flex items-center gap-1">No ${radioNo}</div>
+                    <div class="flex items-center gap-1">Yes ${radioYes}</div>
+                </div>
+            </div>
+            `;
+        };
+
+        const htmlContent = `
+            <div style="padding: 40px; font-family: 'Cairo', sans-serif; background: white; color: black; position: relative; min-height: 1100px;" dir="rtl">
+                <!-- Watermark -->
+                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.05; pointer-events: none; z-index: 0;">
+                <img src="assets/logo.png" style="width: 600px; max-width: 90vw; object-fit: contain;" alt="شعار العصا المجنحة الطبي" />
+                </div>
+
+                <div style="position: relative; z-index: 10;">
+                    <div style="height: 80px;"></div>
+                    <div style="text-align: center; font-weight: bold; font-size: 16px; margin-bottom: 20px;">
+                        ${consentTitles[consentType as keyof typeof consentTitles].en}
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 12px;">
+                        <div style="width: 25%; padding: 0 4px;">
+                            <div style="font-weight: bold; text-align: right;">Name</div>
+                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px;">${patientName}</div>
+                        </div>
+                        <div style="width: 15%; padding: 0 4px;">
+                            <div style="font-weight: bold; text-align: right;">MRN</div>
+                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px;">${mrn}</div>
+                        </div>
+                        <div style="width: 15%; padding: 0 4px;">
+                            <div style="font-weight: bold; text-align: right;">Age</div>
+                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px;">${patientAge}</div>
+                        </div>
+                        <div style="width: 20%; padding: 0 4px;">
+                            <div style="font-weight: bold; text-align: right;">Gender</div>
+                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px;">${patientGender === 'male' ? 'Male / ذكر' : patientGender === 'female' ? 'Female / أنثى' : ''}</div>
+                        </div>
+                        <div style="width: 25%; padding: 0 4px;">
+                            <div style="font-weight: bold; text-align: right;">Date</div>
+                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px;">${date}</div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 12px;">
+                        <div style="width: 33%; padding: 0 4px;">
+                            <div style="font-weight: bold; text-align: right;">Referred by Dr.</div>
+                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px; text-transform: uppercase;">${referral}</div>
+                        </div>
+                        <div style="width: 33%; padding: 0 4px;">
+                            <div style="font-weight: bold; text-align: right;">Radiologist</div>
+                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px; text-transform: uppercase;">${radiologist}</div>
+                        </div>
+                        <div style="width: 33%; padding: 0 4px;">
+                            <div style="font-weight: bold; text-align: right;">Procedure</div>
+                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px;">${procedure}</div>
+                        </div>
+                    </div>
+
+                    <div style="text-align: center; font-weight: bold; font-size: 14px; margin-bottom: 10px;">Clinical Questions</div>
+                    <div style="font-size: 12px; margin-bottom: 20px;">
+                        ${renderPrintQuestion('Previous contrast CT scan?', clinicalAnswers.prevContrast)}
+                        ${clinicalAnswers.prevContrast === 'yes' ? renderPrintQuestion('Contrast allergy?', clinicalAnswers.contrastAllergy) : ''}
+                        ${renderPrintQuestion('Any allergies?', clinicalAnswers.allergy)}
+                        ${renderPrintQuestion('Kidney disease or failure?', clinicalAnswers.kidneyDisease)}
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #ccc; padding: 4px 0;">
+                            <div style="width: 50%; display: flex; align-items: center;">
+                                <span style="font-weight: bold; margin-left: 8px;">Creatinine:</span>
+                                <div style="border-bottom: 1px solid black; flex: 1; text-align: center;">${clinicalAnswers.creatinine || ''}</div>
+                            </div>
+                            <div style="width: 50%; display: flex; align-items: center;" dir="ltr">
+                                <span style="font-weight: bold; margin-right: 8px;">eGFR:</span>
+                                <div style="border-bottom: 1px solid black; flex: 1; text-align: center;">${clinicalAnswers.egfr || ''}</div>
+                            </div>
+                        </div>
+                        ${renderPrintQuestion('Asthma or respiratory diseases?', clinicalAnswers.asthma)}
+                        ${renderPrintQuestion('Diabetes?', clinicalAnswers.diabetes)}
+                        ${clinicalAnswers.diabetes === 'yes' ? renderPrintQuestion('Taking Metformin?', clinicalAnswers.metformin) : ''}
+                        ${renderPrintQuestion('Cardiac issues?', clinicalAnswers.cardiac)}
+                        ${patientGender !== 'male' ? renderPrintQuestion('Pregnant or breastfeeding?', clinicalAnswers.pregnancy) : ''}
+                    </div>
+
+                    <div style="text-align: center; font-weight: bold; font-size: 14px; margin-bottom: 5px;">Diagnosis</div>
+                    <div style="border: 1px solid #444; padding: 8px; font-size: 12px; font-weight: bold; text-align: center; text-transform: uppercase; margin-bottom: 20px;">
+                        ${diagnosis}
+                    </div>
+
+                    <div style="text-align: center; font-weight: bold; font-size: 14px; margin-bottom: 10px;">Doctor Signature</div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 12px;">
+                        <div style="width: 33%; padding: 0 4px;">
+                            <div style="font-weight: bold; text-align: right;">Name</div>
+                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px; text-transform: uppercase;">${radiologist}</div>
+                        </div>
+                        <div style="width: 33%; padding: 0 4px;">
+                            <div style="font-weight: bold; text-align: right;">Signature</div>
+                            <div style="border-bottom: 1px solid black; height: 20px;"></div>
+                        </div>
+                    </div>
+
+                    <div style="text-align: center; font-weight: bold; font-size: 14px; margin-bottom: 10px;">Patient Consent</div>
+                    <div style="font-size: 11px; text-align: justify; margin-bottom: 20px;" dir="ltr">
+                        I confirm that I have accurately completed this form and I consent and authorize Dr. <strong>${radiologist || '_________________'}</strong> to perform the procedure <strong>${procedure || '_________________'}</strong>, which is either essential or recommended by Dr. <strong>${referral || '_________________'}</strong>. The nature, purpose, risks, and possible complications of the procedure have been fully explained to me by Dr. <strong>${radiologist || '_________________'}</strong>.
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 12px;">
+                        <div style="width: 33%; padding: 0 4px;">
+                            <div style="font-weight: bold; text-align: right;">${isRep ? 'Representative Name' : 'Patient Name'}</div>
+                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px;">${isRep ? repName : patientName}</div>
+                        </div>
+                        <div style="width: 33%; padding: 0 4px;">
+                            <div style="font-weight: bold; text-align: right;">${isRep ? 'Representative Signature' : 'Patient Signature'}</div>
+                            <div style="border-bottom: 1px solid black; height: 40px; position: relative; text-align: center;">
+                                ${patientSignature && !isRep ? `<img src="${patientSignature}" style="max-height: 35px; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);" />` : ''}
+                                ${repSignature && isRep ? `<img src="${repSignature}" style="max-height: 35px; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);" />` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const opt = {
+            margin: 0,
+            filename: `Consent-${patientName || 'Patient'}.pdf`,
+            image: { type: 'jpeg' as const, quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true },
+            jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' as const }
+        };
+
+        const worker = html2pdf().from(htmlContent).set(opt).save();
+    };
+
     const printAsHTML = () => {
         const patientSignature = patientPadRef.current && !patientPadRef.current.isEmpty() ? patientPadRef.current.toDataURL() : '';
         const repSignature = repPadRef.current && !repPadRef.current.isEmpty() ? repPadRef.current.toDataURL() : '';
@@ -218,8 +367,13 @@ const CTConsentPage: React.FC = () => {
                 <!-- Watermark -->
                 <div class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0 opacity-[0.05] pointer-events-none">
                     <!-- لتغيير العلامة المائية، قم بتغيير الرابط في السطر التالي -->
-                <img src="assets/logo.png" style="width: 600px; max-width: 90vw; object-fit: contain;" alt="شعار العصا المجنحة الطبي" />
-                                </div>
+                    <img 
+                        src="assets/logo.png" 
+                        style="width: 600px; max-width: 90vw; object-fit: contain;" 
+                        alt="شعار العصا المجنحة الطبي"
+                        referrerpolicy="no-referrer"
+                    />
+                </div>
 
                 <div class="relative z-10 flex flex-col h-full">
                     
@@ -389,6 +543,9 @@ const CTConsentPage: React.FC = () => {
                 <div className="flex gap-2">
                     <button onClick={() => setLang(lang === 'ar' ? 'en' : 'ar')} className="bg-indigo-600 text-white px-4 py-2 rounded-lg shadow font-bold hover:bg-indigo-700">
                         🌐 {t('English', 'العربية')}
+                    </button>
+                    <button onClick={saveAsPDF} className="bg-emerald-600 text-white px-4 py-2 rounded-lg shadow font-bold hover:bg-emerald-700">
+                        📄 {t('حفظ PDF', 'Save PDF')}
                     </button>
                     <button onClick={printAsHTML} className="bg-slate-800 text-white px-4 py-2 rounded-lg shadow font-bold hover:bg-slate-700">
                         🖨️ {t('طباعة', 'Print')}

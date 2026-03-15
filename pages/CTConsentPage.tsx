@@ -177,6 +177,7 @@ const CTConsentPage: React.FC = () => {
     const getBase64ImageFromUrl = async (imageUrl: string) => {
         try {
             const res = await fetch(imageUrl);
+            if (!res.ok) throw new Error("Network response was not ok");
             const blob = await res.blob();
             return new Promise<string>((resolve, reject) => {
                 const reader = new FileReader();
@@ -186,14 +187,14 @@ const CTConsentPage: React.FC = () => {
             });
         } catch (e) {
             console.error("Failed to load watermark image", e);
-            return null;
+            return imageUrl;
         }
     };
 
     const saveAsPDF = async () => {
         const patientSignature = patientPadRef.current && !patientPadRef.current.isEmpty() ? patientPadRef.current.toDataURL() : '';
         const repSignature = repPadRef.current && !repPadRef.current.isEmpty() ? repPadRef.current.toDataURL() : '';
-        const watermarkBase64 = await getBase64ImageFromUrl(`${window.location.origin}/logo.png`);
+        const watermarkBase64 = await getBase64ImageFromUrl('/logo.png');
 
         const renderPrintQuestion = (text: string, value: string) => {
             const isYes = value === 'yes';
@@ -341,7 +342,7 @@ const CTConsentPage: React.FC = () => {
     const printAsHTML = async () => {
         const patientSignature = patientPadRef.current && !patientPadRef.current.isEmpty() ? patientPadRef.current.toDataURL() : '';
         const repSignature = repPadRef.current && !repPadRef.current.isEmpty() ? repPadRef.current.toDataURL() : '';
-        const watermarkBase64 = await getBase64ImageFromUrl(`${window.location.origin}/logo.png`);
+        const watermarkBase64 = await getBase64ImageFromUrl('/logo.png');
 
         const renderPrintQuestion = (text: string, value: string) => {
             const isYes = value === 'yes';
@@ -524,21 +525,45 @@ const CTConsentPage: React.FC = () => {
                     </div>
 
                 </div>
-                <script>
-                    setTimeout(() => {
-                        window.print();
-                        window.close();
-                    }, 1000);
-                </script>
             </body>
             </html>
         `;
 
-        const printWindow = window.open('', '_blank');
-        if (printWindow) {
-            printWindow.document.write(htmlContent);
-            printWindow.document.close();
-            printWindow.focus();
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = '0';
+        document.body.appendChild(iframe);
+
+        const iframeDoc = iframe.contentWindow?.document;
+        if (iframeDoc) {
+            iframeDoc.open();
+            iframeDoc.write(htmlContent);
+            iframeDoc.close();
+
+            setTimeout(() => {
+                iframe.contentWindow?.focus();
+                iframe.contentWindow?.print();
+                setTimeout(() => {
+                    document.body.removeChild(iframe);
+                }, 2000);
+            }, 1000);
+        } else {
+            const printWindow = window.open('', '_blank');
+            if (printWindow) {
+                printWindow.document.write(htmlContent);
+                printWindow.document.close();
+                printWindow.focus();
+                setTimeout(() => {
+                    printWindow.print();
+                    printWindow.close();
+                }, 1000);
+            } else {
+                alert('Please allow popups to print.');
+            }
         }
     };
 

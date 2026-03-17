@@ -196,24 +196,25 @@ const UserHistory: React.FC = () => {
                 return loc;
             };
 
+            const getJobTitle = (uData: any) => {
+                const JOB_CATEGORIES = [
+                    { id: 'doctor', title: 'Doctors' },
+                    { id: 'technologist', title: 'Specialists' },
+                    { id: 'usg', title: 'Ultrasound' },
+                    { id: 'technician', title: 'Technicians' },
+                    { id: 'nurse', title: 'Nurses' },
+                    { id: 'rso', title: 'R S O' },
+                ];
+                const jobCat = JOB_CATEGORIES.find(c => c.id === uData?.jobCategory);
+                return jobCat ? jobCat.title : (uData?.section || uData?.role || uData?.jobCategory || '-');
+            };
+
             // Fetch the user's details
             const uDoc = await getDoc(doc(db, 'users', leave.from));
             const userData = uDoc.exists() ? uDoc.data() : null;
             const userName = userData?.name || leave.from;
-            const workLocation = await fetchWorkLocation(leave.from);
-            const userStampPosition = workLocation;
-            
-            // Map jobCategory to title using JOB_CATEGORIES
-            const JOB_CATEGORIES = [
-                { id: 'doctor', title: 'Doctors' },
-                { id: 'technologist', title: 'Specialists' },
-                { id: 'usg', title: 'Ultrasound' },
-                { id: 'technician', title: 'Technicians' },
-                { id: 'nurse', title: 'Nurses' },
-                { id: 'rso', title: 'R S O' },
-            ];
-            const jobCat = JOB_CATEGORIES.find(c => c.id === userData?.jobCategory);
-            const userTablePosition = jobCat ? jobCat.title : (userData?.section || userData?.role || userData?.jobCategory || '-');
+            const userStampPosition = getJobTitle(userData);
+            const userTablePosition = userStampPosition;
 
             const userStamp = userData?.stamp || '';
             
@@ -229,8 +230,7 @@ const UserHistory: React.FC = () => {
                     if (rDoc.exists()) {
                         const rData = rDoc.data();
                         rName = rData.name || id;
-                        const rLoc = await fetchWorkLocation(id);
-                        rJob = rLoc;
+                        rJob = getJobTitle(rData);
                     }
                     return { name: rName, job: rJob };
                 })
@@ -244,8 +244,7 @@ const UserHistory: React.FC = () => {
                 const sDoc = await getDoc(doc(db, 'users', supApp.uid));
                 if (sDoc.exists()) {
                     const sData = sDoc.data();
-                    const sLoc = await fetchWorkLocation(supApp.uid);
-                    supervisorJob = sLoc;
+                    supervisorJob = sData.role || getJobTitle(sData);
                     supervisorDept = sData.department || '-';
                     if (sData.departmentId) {
                         const sdDoc = await getDoc(doc(db, 'departments', sData.departmentId));
@@ -262,8 +261,7 @@ const UserHistory: React.FC = () => {
                 const mDoc = await getDoc(doc(db, 'users', manApp.uid));
                 if (mDoc.exists()) {
                     const mData = mDoc.data();
-                    const mLoc = await fetchWorkLocation(manApp.uid);
-                    managerJob = mLoc;
+                    managerJob = mData.role || getJobTitle(mData);
                     managerDept = mData.department || '-';
                     if (mData.departmentId) {
                         const mdDoc = await getDoc(doc(db, 'departments', mData.departmentId));

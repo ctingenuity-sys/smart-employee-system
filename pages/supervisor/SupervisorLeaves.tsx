@@ -206,25 +206,26 @@ const SupervisorLeaves: React.FC = () => {
 
     const handlePrintLeave = async (leave: LeaveRequest) => {
         try {
+            const getJobTitle = (uData: any) => {
+                const JOB_CATEGORIES = [
+                    { id: 'doctor', title: 'Doctors' },
+                    { id: 'technologist', title: 'Specialists' },
+                    { id: 'usg', title: 'Ultrasound' },
+                    { id: 'technician', title: 'Technicians' },
+                    { id: 'nurse', title: 'Nurses' },
+                    { id: 'rso', title: 'R S O' },
+                ];
+                const jobCat = JOB_CATEGORIES.find(c => c.id === uData?.jobCategory);
+                return jobCat ? jobCat.title : (uData?.section || uData?.role || uData?.jobCategory || '-');
+            };
+
             // Fetch the user's details
             const uDoc = await getDoc(doc(db, 'users', leave.from));
             const userData = uDoc.exists() ? uDoc.data() : null;
             console.log("userData:", userData);
             const userName = userData?.name || leave.from;
-            const workLocation = await fetchWorkLocation(leave.from);
-            const userStampPosition = workLocation;
-            
-            // Map jobCategory to title using JOB_CATEGORIES
-            const JOB_CATEGORIES = [
-                { id: 'doctor', title: 'Doctors' },
-                { id: 'technologist', title: 'Specialists' },
-                { id: 'usg', title: 'Ultrasound' },
-                { id: 'technician', title: 'Technicians' },
-                { id: 'nurse', title: 'Nurses' },
-                { id: 'rso', title: 'R S O' },
-            ];
-            const jobCat = JOB_CATEGORIES.find(c => c.id === userData?.jobCategory);
-            const userTablePosition = jobCat ? jobCat.title : (userData?.section || userData?.role || userData?.jobCategory || '-');
+            const userStampPosition = getJobTitle(userData);
+            const userTablePosition = userStampPosition;
 
             const userStamp = userData?.stamp || '';
             
@@ -240,8 +241,7 @@ const SupervisorLeaves: React.FC = () => {
                     if (rDoc.exists()) {
                         const rData = rDoc.data();
                         rName = rData.name || id;
-                        const rLoc = await fetchWorkLocation(id);
-                        rJob = rLoc;
+                        rJob = getJobTitle(rData);
                     }
                     return { name: rName, job: rJob };
                 })
@@ -255,8 +255,7 @@ const SupervisorLeaves: React.FC = () => {
                 const sDoc = await getDoc(doc(db, 'users', supApp.uid));
                 if (sDoc.exists()) {
                     const sData = sDoc.data();
-                    const sLoc = await fetchWorkLocation(supApp.uid);
-                    supervisorJob = sLoc;
+                    supervisorJob = sData.role || getJobTitle(sData);
                     supervisorDept = sData.department || '-';
                     if (sData.departmentId) {
                         const sdDoc = await getDoc(doc(db, 'departments', sData.departmentId));
@@ -273,8 +272,7 @@ const SupervisorLeaves: React.FC = () => {
                 const mDoc = await getDoc(doc(db, 'users', manApp.uid));
                 if (mDoc.exists()) {
                     const mData = mDoc.data();
-                    const mLoc = await fetchWorkLocation(manApp.uid);
-                    managerJob = mLoc;
+                    managerJob = mData.role || getJobTitle(mData);
                     managerDept = mData.department || '-';
                     if (mData.departmentId) {
                         const mdDoc = await getDoc(doc(db, 'departments', mData.departmentId));
@@ -485,7 +483,7 @@ const SupervisorLeaves: React.FC = () => {
                         <div class="header-section" style="display: flex; align-items: center; justify-content: space-between;">
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 <img src="${logoUrl}" alt="Logo" style="max-height: 80px;" crossOrigin="anonymous" />
-                                ${leave.supervisorApproval?.uid ? renderStampInline(leave.supervisorApproval.name, supervisorJob, 'Al Jedaani Hospital') : ''}
+                                ${leave.supervisorApproval?.uid ? renderStampInline(leave.supervisorApproval.name, supervisorJob, 'AL JEDAANI HOSPITAL') : ''}
                             </div>
                             <div class="title-box">
                                 <div class="title-ar">طلب اجازة</div>

@@ -162,20 +162,27 @@ const UserIncoming: React.FC = () => {
                 const uDoc = await getDoc(doc(db, 'users', currentUserId));
                 const userData = uDoc.exists() ? uDoc.data() : { name: 'Unknown', role: 'Employee', department: '' };
                 
-                // Fetch work location for the current month
-                let workLocation = 'AL JEDAANI HOSPITAL';
-                const currentMonth = new Date().toISOString().slice(0, 7);
-                const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', '==', currentMonth));
-                const schSnap = await getDocs(qSch);
-                if (!schSnap.empty) {
-                    const locId = schSnap.docs[0].data().locationId;
-                    if (locId) {
-                        const locDoc = await getDoc(doc(db, 'locations', locId));
-                        if (locDoc.exists()) workLocation = locDoc.data().name;
-                    }
+                const getJobTitle = (uData: any) => {
+                    const JOB_CATEGORIES = [
+                        { id: 'doctor', title: 'Doctors' },
+                        { id: 'technologist', title: 'Specialists' },
+                        { id: 'usg', title: 'Ultrasound' },
+                        { id: 'technician', title: 'Technicians' },
+                        { id: 'nurse', title: 'Nurses' },
+                        { id: 'rso', title: 'R S O' },
+                    ];
+                    const jobCat = JOB_CATEGORIES.find(c => c.id === uData?.jobCategory);
+                    return jobCat ? jobCat.title : (uData?.section || uData?.role || uData?.jobCategory || '-');
+                };
+                const userJobTitle = getJobTitle(userData);
+                let stampTitle = userJobTitle;
+                if (req.status === 'pending_supervisor') {
+                    stampTitle = userData.role || 'Supervisor';
+                } else if (req.status === 'pending_manager') {
+                    stampTitle = userData.role || 'Manager';
                 }
 
-                const stamp = `AL JEDAANI HOSPITAL\nRADIOLOGY DEPARTMENT\n${workLocation}\n${userData?.name || userData?.email || 'Unknown'}\n${new Date().toLocaleDateString()}`;
+                const stamp = `AL JEDAANI HOSPITAL\nRADIOLOGY DEPARTMENT\n${stampTitle}\n${userData?.name || userData?.email || 'Unknown'}\n${new Date().toLocaleDateString()}`;
 
                 let newStatus = req.status;
                 let updateData: any = {};
@@ -187,7 +194,7 @@ const UserIncoming: React.FC = () => {
                         stamp: stamp,
                         name: userData.name || userData.email,
                         uid: currentUserId,
-                        jobTitle: workLocation,
+                        jobTitle: userJobTitle,
                         timestamp: Timestamp.now()
                     };
                     updateData.relieverApprovals = currentApprovals;
@@ -209,7 +216,7 @@ const UserIncoming: React.FC = () => {
                         stamp: stamp,
                         name: userData.name || userData.email,
                         uid: currentUserId,
-                        jobTitle: workLocation,
+                        jobTitle: stampTitle,
                         timestamp: Timestamp.now()
                     };
                     updateData.supervisorApproval = approvalData;
@@ -220,7 +227,7 @@ const UserIncoming: React.FC = () => {
                         stamp: stamp,
                         name: userData.name || userData.email,
                         uid: currentUserId,
-                        jobTitle: workLocation,
+                        jobTitle: stampTitle,
                         timestamp: Timestamp.now()
                     };
                     updateData.managerApproval = approvalData;

@@ -144,8 +144,8 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
   const transformDirection = dir === 'rtl' ? 'translate-x-full' : '-translate-x-full';
 
   const canAccess = (feature: string) => {
-      if (userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR) return true;
-      if (!permissions || permissions.length === 0) return true;
+      if (userRole === UserRole.ADMIN) return true;
+      if (!permissions) return true; // Legacy users
       return permissions.includes(feature);
   };
 
@@ -187,33 +187,43 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
               <span className="font-medium">{language === 'ar' ? 'English' : 'العربية'}</span>
           </button>
 
-          {(userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR) && (
+          {(userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR || userRole === UserRole.MANAGER) && (
             <>
               <Link to="/supervisor" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor')}`}>
                 <i className="fas fa-chart-line w-6"></i>
                 <span className="font-medium">{t('nav.dashboard')}</span>
               </Link>
-              <Link to="/schedule-builder" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/schedule-builder')}`}>
-                <i className="fas fa-calendar-alt w-6"></i>
-                <span className="font-medium">{t('nav.scheduleBuilder')}</span>
-              </Link>
+              {canAccess('sup_schedule_builder') && (
+                  <Link to="/schedule-builder" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/schedule-builder')}`}>
+                    <i className="fas fa-calendar-alt w-6"></i>
+                    <span className="font-medium">{t('nav.scheduleBuilder')}</span>
+                  </Link>
+              )}
               
-              <Link to="/supervisor/rotation" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/rotation')}`}>
-                <i className="fas fa-sync-alt w-6"></i>
-                <span className="font-medium">{t('nav.rotation')}</span>
-              </Link>
-              <Link to="/reports" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/reports')}`}>
-                <i className="fas fa-file-contract w-6"></i>
-                <span className="font-medium">{t('nav.reports')}</span>
-              </Link>
-              <Link to="/attendance" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/attendance')}`}>
-                <i className="fas fa-robot w-6"></i>
-                <span className="font-medium">{t('nav.attendance')}</span>
-              </Link>
-              <Link to="/supervisor/archive" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/archive')}`}>
-                <i className="fas fa-archive w-6"></i>
-                <span className="font-medium">أرشيف البيانات</span>
-              </Link>
+              {canAccess('sup_rotation') && (
+                  <Link to="/supervisor/rotation" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/rotation')}`}>
+                    <i className="fas fa-sync-alt w-6"></i>
+                    <span className="font-medium">{t('nav.rotation')}</span>
+                  </Link>
+              )}
+              {canAccess('sup_reports') && (
+                  <Link to="/reports" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/reports')}`}>
+                    <i className="fas fa-file-contract w-6"></i>
+                    <span className="font-medium">{t('nav.reports')}</span>
+                  </Link>
+              )}
+              {canAccess('sup_attendance') && (
+                  <Link to="/attendance" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/attendance')}`}>
+                    <i className="fas fa-robot w-6"></i>
+                    <span className="font-medium">{t('nav.attendance')}</span>
+                  </Link>
+              )}
+              {canAccess('sup_archive') && (
+                  <Link to="/supervisor/archive" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/archive')}`}>
+                    <i className="fas fa-archive w-6"></i>
+                    <span className="font-medium">أرشيف البيانات</span>
+                  </Link>
+              )}
             </>
           )}
 

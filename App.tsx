@@ -211,11 +211,12 @@ const ProtectedRoute = ({ children, allowedRoles, requiredPermission }: Protecte
         if (!role || !allowedRoles.includes(role)) {
             if (role === UserRole.USER) return <Navigate to="/user" replace />;
             if (role === UserRole.DOCTOR) return <Navigate to="/doctor" replace />;
+            if (role === UserRole.MANAGER || role === UserRole.SUPERVISOR) return <Navigate to="/supervisor" replace />;
             return <Navigate to="/login" replace />;
         }
     }
 
-    if (role === UserRole.USER && requiredPermission && permissions && permissions.length > 0) {
+    if ((role === UserRole.USER || role === UserRole.SUPERVISOR || role === UserRole.MANAGER) && requiredPermission && permissions) {
         if (!permissions.includes(requiredPermission)) {
              return (
                  <Layout userRole={role || ''} userName={userName} permissions={permissions}>
@@ -224,7 +225,7 @@ const ProtectedRoute = ({ children, allowedRoles, requiredPermission }: Protecte
                             <i className="fas fa-lock text-3xl text-slate-400"></i>
                         </div>
                         <h2 className="text-xl font-bold text-slate-700">Access Restricted</h2>
-                        <p className="text-slate-500 mt-2">You do not have permission to view this page. Contact your supervisor.</p>
+                        <p className="text-slate-500 mt-2">You do not have permission to view this page. Contact your administrator.</p>
                     </div>
                  </Layout>
              );
@@ -258,7 +259,7 @@ const AppRoutes: React.FC = () => {
                   {!user ? <Login /> : 
                   role === UserRole.DOCTOR ? <Navigate to="/doctor" replace /> :
                   role === UserRole.USER ? <Navigate to="/user" replace /> :
-                  role === UserRole.ADMIN || role === UserRole.SUPERVISOR ? <Navigate to="/supervisor" replace /> :
+                  role === UserRole.ADMIN || role === UserRole.SUPERVISOR || role === UserRole.MANAGER ? <Navigate to="/supervisor" replace /> :
                   <div className="flex items-center justify-center h-screen bg-slate-100">
                       <div className="text-center p-8 bg-white rounded-2xl shadow-xl">
                           <i className="fas fa-user-slash text-4xl text-red-500 mb-4"></i>
@@ -275,34 +276,34 @@ const AppRoutes: React.FC = () => {
           />
 
           {/* Supervisor Routes */}
-          <Route path="/supervisor" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorDashboard /></ProtectedRoute>} />
-          <Route path="/supervisor/attendance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorAttendance /></ProtectedRoute>} />
-          <Route path="/supervisor/employees" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorEmployees /></ProtectedRoute>} />
-          <Route path="/supervisor/swaps" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorSwaps /></ProtectedRoute>} />
-          <Route path="/supervisor/leaves" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorLeaves /></ProtectedRoute>} />
-          <Route path="/supervisor/market" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorMarket /></ProtectedRoute>} />
-          <Route path="/supervisor/locations" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorLocations /></ProtectedRoute>} />
-          <Route path="/supervisor/history" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorHistory /></ProtectedRoute>} />
-          <Route path="/supervisor/performance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorPerformance /></ProtectedRoute>} />
-          <Route path="/supervisor/panic-reports" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><PanicReportsPage /></ProtectedRoute>} />
-          <Route path="/supervisor/rotation" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><SupervisorRotation /></ProtectedRoute>} />
+          <Route path="/supervisor" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]}><SupervisorDashboard /></ProtectedRoute>} />
+          <Route path="/supervisor/attendance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_attendance"><SupervisorAttendance /></ProtectedRoute>} />
+          <Route path="/supervisor/employees" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_employees"><SupervisorEmployees /></ProtectedRoute>} />
+          <Route path="/supervisor/swaps" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_swaps"><SupervisorSwaps /></ProtectedRoute>} />
+          <Route path="/supervisor/leaves" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_leaves"><SupervisorLeaves /></ProtectedRoute>} />
+          <Route path="/supervisor/market" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_market"><SupervisorMarket /></ProtectedRoute>} />
+          <Route path="/supervisor/locations" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_locations"><SupervisorLocations /></ProtectedRoute>} />
+          <Route path="/supervisor/history" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_history"><SupervisorHistory /></ProtectedRoute>} />
+          <Route path="/supervisor/performance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_performance"><SupervisorPerformance /></ProtectedRoute>} />
+          <Route path="/supervisor/panic-reports" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_panic"><PanicReportsPage /></ProtectedRoute>} />
+          <Route path="/supervisor/rotation" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_rotation"><SupervisorRotation /></ProtectedRoute>} />
           
           {/* --- Departments Management (ADMIN ONLY) --- */}
           <Route path="/admin/departments" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN]}><DepartmentsPage /></ProtectedRoute>} />
 
           {/* NEW ROUTES FOR DEVICES, FMS, ROOMS */}
-          <Route path="/supervisor/devices" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><DeviceInventory /></ProtectedRoute>} />
-          <Route path="/supervisor/fms" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><FMSReports /></ProtectedRoute>} />
-          <Route path="/supervisor/rooms" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><RoomReports /></ProtectedRoute>} />
+          <Route path="/supervisor/devices" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_devices"><DeviceInventory /></ProtectedRoute>} />
+          <Route path="/supervisor/fms" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_fms"><FMSReports /></ProtectedRoute>} />
+          <Route path="/supervisor/rooms" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_rooms"><RoomReports /></ProtectedRoute>} />
 
           {/* NEW: Data Archiver Route */}
-          <Route path="/supervisor/archive" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><DataArchiver /></ProtectedRoute>} />
+          <Route path="/supervisor/archive" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_archive"><DataArchiver /></ProtectedRoute>} />
 
           {/* --- MODALITY LOGBOOKS (New Pages) --- */}
-          <Route path="/logbook/mri" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ModalityLogbook type="MRI" title="MRI Department" colorTheme="blue" /></ProtectedRoute>} />
-          <Route path="/logbook/ct" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ModalityLogbook type="CT" title="CT Department" colorTheme="emerald" /></ProtectedRoute>} />
-          <Route path="/logbook/us" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ModalityLogbook type="US" title="Ultrasound" colorTheme="indigo" /></ProtectedRoute>} />
-          <Route path="/logbook/xray" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ModalityLogbook type="X-RAY" title="X-Ray & General" colorTheme="slate" /></ProtectedRoute>} />
+          <Route path="/logbook/mri" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_logbooks"><ModalityLogbook type="MRI" title="MRI Department" colorTheme="blue" /></ProtectedRoute>} />
+          <Route path="/logbook/ct" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_logbooks"><ModalityLogbook type="CT" title="CT Department" colorTheme="emerald" /></ProtectedRoute>} />
+          <Route path="/logbook/us" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_logbooks"><ModalityLogbook type="US" title="Ultrasound" colorTheme="indigo" /></ProtectedRoute>} />
+          <Route path="/logbook/xray" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_logbooks"><ModalityLogbook type="X-RAY" title="X-Ray & General" colorTheme="slate" /></ProtectedRoute>} />
 
           {/* User Routes */}
           <Route path="/user" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><UserDashboard /></ProtectedRoute>} />
@@ -315,9 +316,9 @@ const AppRoutes: React.FC = () => {
           <Route path="/user/performance" element={<ProtectedRoute allowedRoles={[UserRole.USER]} requiredPermission="performance"><UserPerformance /></ProtectedRoute>} />
 
           {/* Other Routes */}
-          <Route path="/schedule-builder" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><ScheduleBuilder /></ProtectedRoute>} />
-          <Route path="/reports" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><Reports /></ProtectedRoute>} />
-          <Route path="/attendance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR]}><AttendanceAnalyzer /></ProtectedRoute>} />
+          <Route path="/schedule-builder" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_schedule_builder"><ScheduleBuilder /></ProtectedRoute>} />
+          <Route path="/reports" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_reports"><Reports /></ProtectedRoute>} />
+          <Route path="/attendance" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_attendance"><AttendanceAnalyzer /></ProtectedRoute>} />
 
           <Route path="/attendance-punch" element={
               <Suspense fallback={<Loading />}>

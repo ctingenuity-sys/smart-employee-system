@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, getDocs, orderBy, limit, Timestamp, addDoc, writeBatch, doc, QuerySnapshot, DocumentData } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, limit, Timestamp, addDoc, writeBatch, doc, QuerySnapshot, DocumentData, onSnapshot } from 'firebase/firestore';
 import { User, SwapRequest, LeaveRequest, AttendanceLog, Schedule } from '../types';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
@@ -11,6 +11,8 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { PrintHeader } from '../components/PrintLayout';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../App';
+import { UserRole } from '../types';
 
 const convertTo24Hour = (timeStr: string): string | null => {
     if (!timeStr) return null;
@@ -56,7 +58,14 @@ const ppRegex = /(?:\(|\[|\{)\s*pp\s*(?:\)|\]|\})|(?:\bPP\b)/i;
 const SupervisorDashboard: React.FC = () => {
   const { t, dir } = useLanguage();
   const navigate = useNavigate();
+  const { role: authRole, permissions } = useAuth();
   
+  const canAccess = (feature: string) => {
+      if (authRole === UserRole.ADMIN) return true;
+      if (!permissions) return true; // Legacy users
+      return permissions.includes(feature);
+  };
+
   const [users, setUsers] = useState<User[]>([]);
   const [swapRequestsCount, setSwapRequestsCount] = useState(0);
   const [leaveRequestsCount, setLeaveRequestsCount] = useState(0);
@@ -90,19 +99,52 @@ const SupervisorDashboard: React.FC = () => {
       getDocs(qUsers).then(snap => setUsers(snap.docs.map(d => ({id: d.id, ...d.data()} as User))));
 
       // 2. Pending Requests Counts
-      const qSwaps = query(collection(db, 'swapRequests'), where('status', 'in', ['pending', 'approvedByUser']));
-      getDocs(qSwaps).then((snap: QuerySnapshot<DocumentData>) => setSwapRequestsCount(snap.size));
+      let unsubSwaps: any;
+      let unsubLeavesSup: any;
+      let unsubLeavesMan: any;
+      let unsubMarket: any;
+      let unsubAppt: any;
 
-      const qLeaves = query(collection(db, 'leaveRequests'), where('status', '==', 'pending'));
-      getDocs(qLeaves).then((snap: QuerySnapshot<DocumentData>) => setLeaveRequestsCount(snap.size));
+      const qSwaps = query(collection(db, 'swapRequests'), where('status', 'in', ['pending', 'approvedByUser']));
+      unsubSwaps = onSnapshot(qSwaps, (snap: QuerySnapshot<DocumentData>) => setSwapRequestsCount(snap.size));
+
+      const role = localStorage.getItem('role');
+      
+      let qLeavesSup;
+      if (role === 'admin') {
+          qLeavesSup = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_supervisor'));
+      } else {
+          qLeavesSup = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_supervisor'), where('supervisorId', '==', currentAdminId));
+      }
+
+      let supCount = 0;
+      let manCount = 0;
+      const updateLeaveCount = () => setLeaveRequestsCount(supCount + manCount);
+
+      unsubLeavesSup = onSnapshot(qLeavesSup, (snap: QuerySnapshot<DocumentData>) => {
+          supCount = snap.size;
+          updateLeaveCount();
+      });
+
+      let qLeavesMan;
+      if (role === 'admin') {
+          qLeavesMan = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_manager'));
+      } else {
+          qLeavesMan = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_manager'), where('managerId', '==', currentAdminId));
+      }
+      
+      unsubLeavesMan = onSnapshot(qLeavesMan, (snap: QuerySnapshot<DocumentData>) => {
+          manCount = snap.size;
+          updateLeaveCount();
+      });
 
       const qMarket = query(collection(db, 'openShifts'), where('status', '==', 'claimed'));
-      getDocs(qMarket).then((snap: QuerySnapshot<DocumentData>) => setOpenShiftsCount(snap.size));
+      unsubMarket = onSnapshot(qMarket, (snap: QuerySnapshot<DocumentData>) => setOpenShiftsCount(snap.size));
 
       // 3. Today's Appointments
       const todayDate = new Date().toISOString().split('T')[0];
       const qAppt = query(collection(db, 'appointments'), where('date', '==', todayDate));
-      getDocs(qAppt).then((snap: QuerySnapshot<DocumentData>) => setTodayApptCount(snap.size));
+      unsubAppt = onSnapshot(qAppt, (snap: QuerySnapshot<DocumentData>) => setTodayApptCount(snap.size));
 
       // 4. Live Logs (Fetch ALL for today to calculate presence)
       const qLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayDate)); 
@@ -131,7 +173,14 @@ const SupervisorDashboard: React.FC = () => {
           setSchedules(snap.docs.map(d => d.data() as Schedule));
       });
 
-  }, [refreshTrigger]);
+      return () => {
+          if (unsubSwaps) unsubSwaps();
+          if (unsubLeavesSup) unsubLeavesSup();
+          if (unsubLeavesMan) unsubLeavesMan();
+          if (unsubMarket) unsubMarket();
+          if (unsubAppt) unsubAppt();
+      };
+  }, [refreshTrigger, currentAdminId]);
 
   // --- On Shift Logic (Updated for Presence) ---
   useEffect(() => {
@@ -287,33 +336,33 @@ const SupervisorDashboard: React.FC = () => {
   };
 
   const menuItems = [
-      { id: 'attendance', title: 'Smart Analyzer', icon: 'fa-chart-pie', path: '/supervisor/attendance', color: 'bg-indigo-600' },
-      { id: 'appointments', title: t('nav.appointments'), icon: 'fa-calendar-check', path: '/appointments', badge: todayApptCount, color: 'bg-cyan-600' },
-      { id: 'employees', title: t('sup.tab.users'), icon: 'fa-users', path: '/supervisor/employees', color: 'bg-blue-600' },
-      { id: 'rotations', title: 'Rotations', icon: 'fa-sync-alt', path: '/supervisor/rotation', color: 'bg-teal-600' }, // NEW: Rotation Button
-      { id: 'swaps', title: t('sup.tab.swaps'), icon: 'fa-exchange-alt', path: '/supervisor/swaps', badge: swapRequestsCount, color: 'bg-purple-600' },
-      { id: 'leaves', title: t('sup.tab.leaves'), icon: 'fa-umbrella-beach', path: '/supervisor/leaves', badge: leaveRequestsCount, color: 'bg-rose-600' },
-      { id: 'market', title: t('sup.tab.market'), icon: 'fa-store', path: '/supervisor/market', badge: openShiftsCount, color: 'bg-amber-500' },
-      { id: 'panic', title: 'Panic Reports', icon: 'fa-exclamation-triangle', path: '/supervisor/panic-reports', color: 'bg-red-600' },
-      { id: 'locations', title: t('sup.tab.locations'), icon: 'fa-map-marker-alt', path: '/supervisor/locations', color: 'bg-emerald-600' },
-      { id: 'history', title: 'History', icon: 'fa-history', path: '/supervisor/history', color: 'bg-slate-600' },
-      { id: 'performance', title: 'Performance', icon: 'fa-chart-bar', path: '/supervisor/performance', color: 'bg-violet-600' },
-      { id: 'archive', title: 'Data Archiver', icon: 'fa-box-archive', path: '/supervisor/archive', color: 'bg-slate-800' },
-  ];
+      { id: 'attendance', title: 'Smart Analyzer', icon: 'fa-chart-pie', path: '/supervisor/attendance', color: 'bg-indigo-600', permission: 'sup_attendance' },
+      { id: 'appointments', title: t('nav.appointments'), icon: 'fa-calendar-check', path: '/appointments', badge: todayApptCount, color: 'bg-cyan-600', permission: 'appointments' },
+      { id: 'employees', title: t('sup.tab.users'), icon: 'fa-users', path: '/supervisor/employees', color: 'bg-blue-600', permission: 'sup_employees' },
+      { id: 'rotations', title: 'Rotations', icon: 'fa-sync-alt', path: '/supervisor/rotation', color: 'bg-teal-600', permission: 'sup_rotation' },
+      { id: 'swaps', title: t('sup.tab.swaps'), icon: 'fa-exchange-alt', path: '/supervisor/swaps', badge: swapRequestsCount, color: 'bg-purple-600', permission: 'sup_swaps' },
+      { id: 'leaves', title: t('sup.tab.leaves'), icon: 'fa-umbrella-beach', path: '/supervisor/leaves', badge: leaveRequestsCount, color: 'bg-rose-600', permission: 'sup_leaves' },
+      { id: 'market', title: t('sup.tab.market'), icon: 'fa-store', path: '/supervisor/market', badge: openShiftsCount, color: 'bg-amber-500', permission: 'sup_market' },
+      { id: 'panic', title: 'Panic Reports', icon: 'fa-exclamation-triangle', path: '/supervisor/panic-reports', color: 'bg-red-600', permission: 'sup_panic' },
+      { id: 'locations', title: t('sup.tab.locations'), icon: 'fa-map-marker-alt', path: '/supervisor/locations', color: 'bg-emerald-600', permission: 'sup_locations' },
+      { id: 'history', title: 'History', icon: 'fa-history', path: '/supervisor/history', color: 'bg-slate-600', permission: 'sup_history' },
+      { id: 'performance', title: 'Performance', icon: 'fa-chart-bar', path: '/supervisor/performance', color: 'bg-violet-600', permission: 'sup_performance' },
+      { id: 'archive', title: 'Data Archiver', icon: 'fa-box-archive', path: '/supervisor/archive', color: 'bg-slate-800', permission: 'sup_archive' },
+  ].filter(item => canAccess(item.permission));
 
   // New Buttons for Safety & Facility Management
   const safetyItems = [
-      { id: 'devices', title: 'Device Inventory', icon: 'fa-microscope', path: '/supervisor/devices', color: 'bg-sky-600' },
-      { id: 'fms', title: 'FMS Reports', icon: 'fa-fire-extinguisher', path: '/supervisor/fms', color: 'bg-orange-600' },
-      { id: 'rooms', title: 'Room Reports', icon: 'fa-door-open', path: '/supervisor/rooms', color: 'bg-indigo-600' },
-  ];
+      { id: 'devices', title: 'Device Inventory', icon: 'fa-microscope', path: '/supervisor/devices', color: 'bg-sky-600', permission: 'sup_devices' },
+      { id: 'fms', title: 'FMS Reports', icon: 'fa-fire-extinguisher', path: '/supervisor/fms', color: 'bg-orange-600', permission: 'sup_fms' },
+      { id: 'rooms', title: 'Room Reports', icon: 'fa-door-open', path: '/supervisor/rooms', color: 'bg-indigo-600', permission: 'sup_rooms' },
+  ].filter(item => canAccess(item.permission));
 
   const logbookItems = [
-      { id: 'mri', title: 'MRI Log', icon: 'fa-magnet', path: '/logbook/mri', color: 'bg-blue-700' },
-      { id: 'ct', title: 'CT Log', icon: 'fa-ring', path: '/logbook/ct', color: 'bg-emerald-600' },
-      { id: 'us', title: 'Ultrasound Log', icon: 'fa-wave-square', path: '/logbook/us', color: 'bg-indigo-600' },
-      { id: 'xray', title: 'X-Ray / Gen Log', icon: 'fa-x-ray', path: '/logbook/xray', color: 'bg-slate-600' },
-  ];
+      { id: 'mri', title: 'MRI Log', icon: 'fa-magnet', path: '/logbook/mri', color: 'bg-blue-700', permission: 'sup_logbooks' },
+      { id: 'ct', title: 'CT Log', icon: 'fa-ring', path: '/logbook/ct', color: 'bg-emerald-600', permission: 'sup_logbooks' },
+      { id: 'us', title: 'Ultrasound Log', icon: 'fa-wave-square', path: '/logbook/us', color: 'bg-indigo-600', permission: 'sup_logbooks' },
+      { id: 'xray', title: 'X-Ray / Gen Log', icon: 'fa-x-ray', path: '/logbook/xray', color: 'bg-slate-600', permission: 'sup_logbooks' },
+  ].filter(item => canAccess(item.permission));
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans pb-20" dir={dir}>
@@ -388,6 +437,7 @@ const SupervisorDashboard: React.FC = () => {
             </div>
             
             {/* Safety & Facility Management Section (NEW) */}
+            {safetyItems.length > 0 && (
             <div className="mb-8">
                  <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
                     <i className="fas fa-hard-hat text-orange-500"></i> Facility & Safety Management
@@ -410,8 +460,10 @@ const SupervisorDashboard: React.FC = () => {
                      ))}
                  </div>
             </div>
+            )}
             
             {/* Logbooks Shortcut Section */}
+            {logbookItems.length > 0 && (
             <div className="mb-8">
                  <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
                     <i className="fas fa-book-medical text-indigo-500"></i> Department Logbooks
@@ -432,6 +484,7 @@ const SupervisorDashboard: React.FC = () => {
                      ))}
                  </div>
             </div>
+            )}
 
             {/* 2. Navigation Menu */}
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-4 mb-8">
@@ -495,13 +548,39 @@ const SupervisorDashboard: React.FC = () => {
 
                 {/* Live Feed */}
                 <div className="bg-slate-900 rounded-[2rem] p-6 text-white shadow-xl flex flex-col h-[300px]">
-                    <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-                        <span className="relative flex h-3 w-3">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                        </span>
-                        Live Activity
-                    </h3>
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="font-bold text-lg flex items-center gap-2">
+                            <span className="relative flex h-3 w-3">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                            </span>
+                            {t('dash.liveActivity')}
+                        </h3>
+                        <button 
+                            onClick={() => {
+                                if (allTodayLogs.length === 0) return;
+                                const dataToExport = allTodayLogs.map(log => ({
+                                    Employee: log.userName,
+                                    Type: log.type,
+                                    Time: log.timestamp?.toDate ? log.timestamp.toDate().toLocaleTimeString() : '',
+                                    Date: log.date
+                                }));
+                                const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
+                                    + Object.keys(dataToExport[0]).join(",") + "\n"
+                                    + dataToExport.map(e => Object.values(e).map(v => `"${v || ''}"`).join(",")).join("\n");
+                                const encodedUri = encodeURI(csvContent);
+                                const link = document.createElement("a");
+                                link.setAttribute("href", encodedUri);
+                                link.setAttribute("download", `live_activity_${new Date().toISOString().split('T')[0]}.csv`);
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                            }}
+                            className="bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-2"
+                        >
+                            <i className="fas fa-file-excel"></i> {t('export')}
+                        </button>
+                    </div>
                     <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar-dark space-y-3">
                         {todayLogs.map((log, i) => (
                             <div key={i} className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition-colors">
@@ -516,7 +595,7 @@ const SupervisorDashboard: React.FC = () => {
                                 </div>
                             </div>
                         ))}
-                        {todayLogs.length === 0 && <p className="text-center text-slate-500 text-xs py-10">No activity yet.</p>}
+                        {todayLogs.length === 0 && <p className="text-center text-slate-500 text-xs py-10">{t('dash.noActivity')}</p>}
                     </div>
                 </div>
             </div>

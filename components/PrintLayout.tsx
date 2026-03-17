@@ -25,7 +25,15 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({ title, subtitle, month
     const bgColor = colors[themeColor] || colors.slate;
 
     return (
-        <div className="hidden print:flex flex-col mb-4 font-sans text-black" dir={dir}>
+        <>
+            {/* Print Watermark */}
+            <img 
+                src="/logo.png" 
+                className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-[0.12] w-[70%] z-[-1] pointer-events-none hidden print:block rotate-[-45deg]" 
+                alt="Watermark" 
+            />
+            
+            <div className="hidden print:flex flex-col mb-4 font-sans text-black" dir={dir}>
             {/* Header Row */}
             <div className="flex justify-between items-end border-b-4 border-black pb-2 mb-2">
                 <div className="flex items-center gap-4">
@@ -54,6 +62,7 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({ title, subtitle, month
                 </div>
             )}
         </div>
+        </>
     );
 };
 

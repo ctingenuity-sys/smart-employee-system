@@ -20,6 +20,7 @@ const UserRequests: React.FC = () => {
     });
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const [currentUserData, setCurrentUserData] = useState<User | null>(null);
 
     // Swap Form
     const [targetUser, setTargetUser] = useState('');
@@ -30,10 +31,17 @@ const UserRequests: React.FC = () => {
     const [swapErrors, setSwapErrors] = useState<{target?: string, date?: string, endDate?: string}>({});
 
     // Leave Form
+    const [leaveType, setLeaveType] = useState('Annual');
     const [leaveStart, setLeaveStart] = useState('');
     const [leaveEnd, setLeaveEnd] = useState('');
+    const [leaveDuration, setLeaveDuration] = useState('');
     const [leaveReason, setLeaveReason] = useState('');
-    const [leaveErrors, setLeaveErrors] = useState<{start?: string, end?: string, reason?: string}>({});
+    const [relieverIds, setRelieverIds] = useState<string[]>([]);
+    const [selectedManagerId, setSelectedManagerId] = useState('');
+    const [selectedSupervisorId, setSelectedSupervisorId] = useState('');
+    const [dateHired, setDateHired] = useState('');
+    const [dueDateForLeave, setDueDateForLeave] = useState('');
+    const [leaveErrors, setLeaveErrors] = useState<{start?: string, end?: string, reason?: string, relievers?: string, manager?: string, supervisor?: string}>({});
 
     useEffect(() => {
         localStorage.setItem('usr_cached_users', JSON.stringify(users));
@@ -41,9 +49,23 @@ const UserRequests: React.FC = () => {
 
     useEffect(() => {
         getDocs(collection(db, 'users')).then((snap) => {
-            setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
+            const allUsers = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
+            setUsers(allUsers);
+            
+            if (currentUserId) {
+                const me = allUsers.find(u => u.id === currentUserId);
+                if (me) {
+                    setCurrentUserData(me);
+                    if (me.managerId) {
+                        setSelectedManagerId(me.managerId);
+                    }
+                    if (me.supervisorId) {
+                        setSelectedSupervisorId(me.supervisorId);
+                    }
+                }
+            }
         });
-    }, [refreshTrigger]);
+    }, [refreshTrigger, currentUserId]);
 
     const validateSwap = () => {
         const errs: any = {};
@@ -59,6 +81,9 @@ const UserRequests: React.FC = () => {
         if (!leaveStart) errs.start = 'Start date required';
         if (!leaveEnd) errs.end = 'End date required';
         if (!leaveReason) errs.reason = 'Reason is required';
+        if (relieverIds.length === 0) errs.relievers = 'Please select at least one reliever';
+        if (!selectedManagerId && !currentUserData?.managerId) errs.manager = 'Please select a manager';
+        if (!selectedSupervisorId && !currentUserData?.supervisorId) errs.supervisor = 'Please select a supervisor';
         if (leaveStart && leaveEnd && leaveStart > leaveEnd) errs.end = 'End date cannot be before start date';
         setLeaveErrors(errs);
         return Object.keys(errs).length === 0;
@@ -96,14 +121,21 @@ const UserRequests: React.FC = () => {
         try {
           await addDoc(collection(db, 'leaveRequests'), { 
               from: currentUserId, 
+              typeOfLeave: leaveType,
               startDate: leaveStart, 
               endDate: leaveEnd, 
+              duration: leaveDuration,
               reason: leaveReason, 
-              status: 'pending', 
+              relieverIds: relieverIds,
+              supervisorId: selectedSupervisorId || currentUserData?.supervisorId || null,
+              managerId: selectedManagerId || currentUserData?.managerId || null,
+              dateHired: dateHired,
+              dueDateForLeave: dueDateForLeave,
+              status: 'pending_reliever', 
               createdAt: Timestamp.now() 
           });
           setToast({ msg: t('save'), type: 'success' });
-          setLeaveStart(''); setLeaveEnd(''); setLeaveReason('');
+          setLeaveStart(''); setLeaveEnd(''); setLeaveReason(''); setLeaveDuration(''); setRelieverIds([]); setDateHired(''); setDueDateForLeave(''); setSelectedManagerId(''); setSelectedSupervisorId('');
           setTimeout(() => navigate('/user/history'), 1500);
         } catch (e) { 
             setToast({ msg: 'Error sending request', type: 'error' }); 
@@ -202,6 +234,17 @@ const UserRequests: React.FC = () => {
                     </h3>
                     <form onSubmit={handleLeaveSubmit} className="space-y-4">
                         <div className="grid grid-cols-2 gap-4">
+                            <div className="col-span-2">
+                                <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.leaveType')}</label>
+                                <select className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={leaveType} onChange={e => setLeaveType(e.target.value)}>
+                                    <option value="Annual">{t('action.annual_leave')}</option>
+                                    <option value="Sick">{t('action.sick_leave')}</option>
+                                    <option value="Emergency">Emergency Leave</option>
+                                    <option value="Unpaid">Unpaid Leave</option>
+                                    <option value="1-hour-exit">1-hour exit permission</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.from')}</label>
                                 <input type="date" className={`w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100 ${leaveErrors.start ? 'ring-2 ring-red-200' : ''}`} value={leaveStart} onChange={e => {setLeaveStart(e.target.value); setLeaveErrors({...leaveErrors, start:''})}} />
@@ -211,6 +254,67 @@ const UserRequests: React.FC = () => {
                                 <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.to')}</label>
                                 <input type="date" className={`w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100 ${leaveErrors.end ? 'ring-2 ring-red-200' : ''}`} value={leaveEnd} onChange={e => {setLeaveEnd(e.target.value); setLeaveErrors({...leaveErrors, end:''})}} />
                                 {leaveErrors.end && <p className="text-[10px] text-red-500 mt-1">{leaveErrors.end}</p>}
+                            </div>
+                            <div className="col-span-2">
+                                <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.duration')}</label>
+                                <input type="text" placeholder="e.g., 5 days" className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={leaveDuration} onChange={e => setLeaveDuration(e.target.value)} />
+                            </div>
+                            <div className="col-span-2">
+                                <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.relievers')}</label>
+                                <select multiple className={`w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100 min-h-[100px] ${leaveErrors.relievers ? 'ring-2 ring-red-200' : ''}`} value={relieverIds} onChange={e => {
+                                    const selected = Array.from(e.target.selectedOptions, option => option.value);
+                                    setRelieverIds(selected);
+                                    setLeaveErrors({...leaveErrors, relievers:''});
+                                }}>
+                                    {users.filter(u => u.id !== currentUserId).map(u => (
+                                        <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                                    ))}
+                                </select>
+                                <p className="text-[10px] text-slate-400 mt-1">{t('user.req.holdCtrl')}</p>
+                                {leaveErrors.relievers && <p className="text-[10px] text-red-500 mt-1">{leaveErrors.relievers}</p>}
+                            </div>
+                            <div className="col-span-2">
+                                <label className="block text-xs font-bold text-slate-400 mb-1">Select Manager</label>
+                                {currentUserData?.managerId ? (
+                                    <div className="bg-slate-50 p-3 rounded-xl text-sm font-bold text-slate-600 border border-slate-100 flex items-center justify-between">
+                                        <span>{users.find(u => u.id === currentUserData.managerId)?.name || 'Assigned Manager'}</span>
+                                        <span className="text-[10px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full">Assigned</span>
+                                    </div>
+                                ) : (
+                                    <select className={`w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100 ${leaveErrors.manager ? 'ring-2 ring-red-200' : ''}`} value={selectedManagerId} onChange={e => {setSelectedManagerId(e.target.value); setLeaveErrors({...leaveErrors, manager:''})}}>
+                                        <option value="">Select Manager...</option>
+                                        {users.filter(u => u.role === 'supervisor' || u.role === 'admin' || u.role === 'manager').map(u => (
+                                            <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                                        ))}
+                                    </select>
+                                )}
+                                {leaveErrors.manager && <p className="text-[10px] text-red-500 mt-1">{leaveErrors.manager}</p>}
+                            </div>
+
+                            <div className="col-span-2">
+                                <label className="block text-xs font-bold text-slate-400 mb-1">Select Supervisor</label>
+                                {currentUserData?.supervisorId ? (
+                                    <div className="bg-slate-50 p-3 rounded-xl text-sm font-bold text-slate-600 border border-slate-100 flex items-center justify-between">
+                                        <span>{users.find(u => u.id === currentUserData.supervisorId)?.name || 'Assigned Supervisor'}</span>
+                                        <span className="text-[10px] bg-emerald-100 text-emerald-600 px-2 py-0.5 rounded-full">Assigned</span>
+                                    </div>
+                                ) : (
+                                    <select className={`w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100 ${leaveErrors.supervisor ? 'ring-2 ring-red-200' : ''}`} value={selectedSupervisorId} onChange={e => {setSelectedSupervisorId(e.target.value); setLeaveErrors({...leaveErrors, supervisor:''})}}>
+                                        <option value="">Select Supervisor...</option>
+                                        {users.filter(u => u.role === 'supervisor' || u.role === 'admin' || u.role === 'manager').map(u => (
+                                            <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                                        ))}
+                                    </select>
+                                )}
+                                {leaveErrors.supervisor && <p className="text-[10px] text-red-500 mt-1">{leaveErrors.supervisor}</p>}
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.dateHired')}</label>
+                                <input type="date" className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={dateHired} onChange={e => setDateHired(e.target.value)} />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.dueDateForLeave')}</label>
+                                <input type="date" className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={dueDateForLeave} onChange={e => setDueDateForLeave(e.target.value)} />
                             </div>
                         </div>
                         <div>

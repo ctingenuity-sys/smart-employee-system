@@ -3,6 +3,7 @@
 export enum UserRole {
   ADMIN = 'admin',
   SUPERVISOR = 'supervisor',
+  MANAGER = 'manager',
   USER = 'user',
   DOCTOR = 'doctor'
 }
@@ -41,6 +42,9 @@ export interface User {
   // NEW: Department Link
   departmentId?: string; 
   
+  // NEW: Supervisor/Manager Links
+  supervisorId?: string;
+  managerId?: string;
   // New Fields for Compliance Visuals
   jobCategory?: 'doctor' | 'technologist' | 'technician' | 'nurse' | 'rso' | 'admin' | 'reception' | 'usg' | 'maintenance' | 'other';
   licenseExpiry?: string; // YYYY-MM-DD
@@ -52,6 +56,7 @@ export interface User {
   gender?: 'male' | 'female';
   hireDate?: string; // YYYY-MM-DD
   isHidden?: boolean; // For secret hiding
+  stamp?: string; // URL to user's personal stamp image
   
   // Documents
   documents?: UserDocument[];
@@ -110,24 +115,63 @@ export interface SwapHistory {
 export interface LeaveRequest {
   id: string;
   from: string; // User ID
+  typeOfLeave?: string; // e.g., 'Annual', 'Sick', 'Permission'
   startDate: string;
   endDate: string;
+  duration?: string;
   reason: string;
-  status: 'pending' | 'approved' | 'rejected';
-  supervisorComment?: string;
+  status: 'pending_reliever' | 'pending_supervisor' | 'pending_manager' | 'approved' | 'rejected';
+  
+  relieverIds?: string[];
+  relieverApprovals?: Record<string, {
+    approved: boolean;
+    stamp: string;
+    name: string;
+    uid?: string;
+    jobTitle: string;
+    timestamp: any;
+  }>;
+
+  supervisorApproval?: {
+    approved: boolean;
+    stamp: string;
+    name: string;
+    uid?: string;
+    timestamp: any;
+    comment?: string;
+  };
+
+  managerApproval?: {
+    approved: boolean;
+    stamp: string;
+    name: string;
+    uid?: string;
+    timestamp: any;
+    comment?: string;
+  };
+
+  dateHired?: string;
+  dueDateForLeave?: string;
+
   createdAt?: any;
   departmentId?: string; // NEW
+  supervisorId?: string;
+  managerId?: string;
 }
 
 export interface LeaveHistory {
   id: string;
   userId?: string;
   from?: string;
+  typeOfLeave?: string;
   startDate: any;
   endDate: any;
+  duration?: string;
   reason: string;
   status: string;
-  supervisorComment?: string;
+  relieverApprovals?: any;
+  supervisorApproval?: any;
+  managerApproval?: any;
   approvedAt?: any;
 }
 

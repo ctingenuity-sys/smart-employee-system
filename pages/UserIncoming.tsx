@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
 import { collection, query, where, getDocs, updateDoc, doc, Timestamp, getDoc } from 'firebase/firestore';
-import { SwapRequest } from '../types';
+import { SwapRequest, LeaveRequest } from '../types';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -10,6 +10,11 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useNavigate } from 'react-router-dom';
 
 interface SwapRequestWithUser extends SwapRequest {
+    id: string;
+    fromUser: { id: string, name: string };
+}
+
+interface LeaveRequestWithUser extends LeaveRequest {
     id: string;
     fromUser: { id: string, name: string };
 }
@@ -22,6 +27,11 @@ const UserIncoming: React.FC = () => {
         const cached = localStorage.getItem('usr_cached_incoming');
         return cached ? JSON.parse(cached) : [];
     });
+    const [incomingLeaves, setIncomingLeaves] = useState<LeaveRequestWithUser[]>(() => {
+        const cached = localStorage.getItem('usr_cached_incoming_leaves');
+        return cached ? JSON.parse(cached) : [];
+    });
+    const [myPendingLeaves, setMyPendingLeaves] = useState<LeaveRequest[]>([]);
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
     const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, title: string, message: string, onConfirm: () => void}>({
         isOpen: false, title: '', message: '', onConfirm: () => {}
@@ -30,7 +40,8 @@ const UserIncoming: React.FC = () => {
 
     useEffect(() => {
         localStorage.setItem('usr_cached_incoming', JSON.stringify(incomingSwaps));
-    }, [incomingSwaps]);
+        localStorage.setItem('usr_cached_incoming_leaves', JSON.stringify(incomingLeaves));
+    }, [incomingSwaps, incomingLeaves]);
 
     useEffect(() => {
         if (!currentUserId) return;
@@ -45,9 +56,78 @@ const UserIncoming: React.FC = () => {
                     if (uDoc.exists()) fromName = uDoc.data().name || uDoc.data().email;
                 } catch(e){}
                 
-                return { id: d.id, ...data, fromUser: { id: data.from, name: fromName } };
+                return { ...data, id: d.id, fromUser: { id: data.from, name: fromName } };
             }));
             setIncomingSwaps(reqs);
+        });
+
+        const qLeaves = query(collection(db, 'leaveRequests'), where('relieverIds', 'array-contains', currentUserId), where('status', '==', 'pending_reliever'));
+        getDocs(qLeaves).then(async (snap) => {
+            const reqs = await Promise.all(snap.docs.map(async d => {
+                const data = d.data() as LeaveRequest;
+                let fromName = "Unknown";
+                try {
+                    const uDoc = await getDoc(doc(db, 'users', data.from));
+                    if (uDoc.exists()) fromName = uDoc.data().name || uDoc.data().email;
+                } catch(e){}
+                
+                if (data.relieverApprovals && data.relieverApprovals[currentUserId]) return null;
+                return { ...data, id: d.id, fromUser: { id: data.from, name: fromName } };
+            }));
+            const filtered = reqs.filter(r => r !== null) as LeaveRequestWithUser[];
+            setIncomingLeaves(prev => {
+                const existingIds = new Set(prev.map(r => r.id));
+                const newOnes = filtered.filter(r => !existingIds.has(r.id));
+                return [...prev, ...newOnes];
+            });
+        });
+
+        // NEW: Supervisor Approvals in Inbox
+        const qSupLeaves = query(collection(db, 'leaveRequests'), where('supervisorId', '==', currentUserId), where('status', '==', 'pending_supervisor'));
+        getDocs(qSupLeaves).then(async (snap) => {
+            const reqs = await Promise.all(snap.docs.map(async d => {
+                const data = d.data() as LeaveRequest;
+                let fromName = "Unknown";
+                try {
+                    const uDoc = await getDoc(doc(db, 'users', data.from));
+                    if (uDoc.exists()) fromName = uDoc.data().name || uDoc.data().email;
+                } catch(e){}
+                return { ...data, id: d.id, fromUser: { id: data.from, name: fromName } };
+            }));
+            setIncomingLeaves(prev => {
+                const existingIds = new Set(prev.map(r => r.id));
+                const newOnes = reqs.filter(r => !existingIds.has(r.id));
+                return [...prev, ...newOnes];
+            });
+        });
+
+        // NEW: Manager Approvals in Inbox
+        const qManLeaves = query(collection(db, 'leaveRequests'), where('managerId', '==', currentUserId), where('status', '==', 'pending_manager'));
+        getDocs(qManLeaves).then(async (snap) => {
+            const reqs = await Promise.all(snap.docs.map(async d => {
+                const data = d.data() as LeaveRequest;
+                let fromName = "Unknown";
+                try {
+                    const uDoc = await getDoc(doc(db, 'users', data.from));
+                    if (uDoc.exists()) fromName = uDoc.data().name || uDoc.data().email;
+                } catch(e){}
+                return { ...data, id: d.id, fromUser: { id: data.from, name: fromName } };
+            }));
+            setIncomingLeaves(prev => {
+                const existingIds = new Set(prev.map(r => r.id));
+                const newOnes = reqs.filter(r => !existingIds.has(r.id));
+                return [...prev, ...newOnes];
+            });
+        });
+
+        // Fetch my own pending leave requests
+        const qMyLeaves = query(
+            collection(db, 'leaveRequests'), 
+            where('from', '==', currentUserId), 
+            where('status', 'in', ['pending_reliever', 'pending_supervisor', 'pending_manager'])
+        );
+        getDocs(qMyLeaves).then(snap => {
+            setMyPendingLeaves(snap.docs.map(d => ({ ...d.data(), id: d.id } as LeaveRequest)));
         });
     }, [currentUserId, refreshTrigger]);
 
@@ -62,6 +142,95 @@ const UserIncoming: React.FC = () => {
                 const newStatus = action === 'approved' ? 'approvedByUser' : 'rejected'; 
                 await updateDoc(doc(db, 'swapRequests', requestId), { status: newStatus, processedAt: Timestamp.now() }); 
                 setToast({ msg: 'Success', type: 'success' }); 
+                setRefreshTrigger(prev => prev + 1);
+            } catch (e) { 
+                setToast({ msg: 'Error processing request', type: 'error' }); 
+            }
+          }
+        });
+    };
+
+    const handleLeaveAction = async (req: LeaveRequestWithUser, action: 'approved' | 'rejected') => {
+        if (!currentUserId) return;
+        setConfirmModal({
+          isOpen: true, 
+          title: action === 'approved' ? t('user.incoming.accept') : t('sup.reject'), 
+          message: t('confirm') + '?',
+          onConfirm: async () => {
+            setConfirmModal(prev => ({...prev, isOpen: false}));
+            try { 
+                const uDoc = await getDoc(doc(db, 'users', currentUserId));
+                const userData = uDoc.exists() ? uDoc.data() : { name: 'Unknown', role: 'Employee', department: '' };
+                
+                // Fetch work location for the current month
+                let workLocation = 'AL JEDAANI HOSPITAL';
+                const currentMonth = new Date().toISOString().slice(0, 7);
+                const qSch = query(collection(db, 'schedules'), where('userId', '==', currentUserId), where('month', '==', currentMonth));
+                const schSnap = await getDocs(qSch);
+                if (!schSnap.empty) {
+                    const locId = schSnap.docs[0].data().locationId;
+                    if (locId) {
+                        const locDoc = await getDoc(doc(db, 'locations', locId));
+                        if (locDoc.exists()) workLocation = locDoc.data().name;
+                    }
+                }
+
+                const stamp = `AL JEDAANI HOSPITAL\nRADIOLOGY DEPARTMENT\n${workLocation}\n${userData?.name || userData?.email || 'Unknown'}\n${new Date().toLocaleDateString()}`;
+
+                let newStatus = req.status;
+                let updateData: any = {};
+
+                if (req.status === 'pending_reliever') {
+                    const currentApprovals = req.relieverApprovals || {};
+                    currentApprovals[currentUserId] = {
+                        approved: action === 'approved',
+                        stamp: stamp,
+                        name: userData.name || userData.email,
+                        uid: currentUserId,
+                        jobTitle: workLocation,
+                        timestamp: Timestamp.now()
+                    };
+                    updateData.relieverApprovals = currentApprovals;
+
+                    if (action === 'rejected') {
+                        newStatus = 'rejected';
+                    } else {
+                        const allRelieversApproved = req.relieverIds?.every(id => 
+                            id === currentUserId || (currentApprovals[id] && currentApprovals[id].approved)
+                        );
+                        if (allRelieversApproved) {
+                            const skipSupervisor = !req.supervisorId || req.supervisorId === req.managerId;
+                            newStatus = skipSupervisor ? 'pending_manager' : 'pending_supervisor';
+                        }
+                    }
+                } else if (req.status === 'pending_supervisor') {
+                    const approvalData = {
+                        approved: action === 'approved',
+                        stamp: stamp,
+                        name: userData.name || userData.email,
+                        uid: currentUserId,
+                        jobTitle: workLocation,
+                        timestamp: Timestamp.now()
+                    };
+                    updateData.supervisorApproval = approvalData;
+                    newStatus = action === 'approved' ? 'pending_manager' : 'rejected';
+                } else if (req.status === 'pending_manager') {
+                    const approvalData = {
+                        approved: action === 'approved',
+                        stamp: stamp,
+                        name: userData.name || userData.email,
+                        uid: currentUserId,
+                        jobTitle: workLocation,
+                        timestamp: Timestamp.now()
+                    };
+                    updateData.managerApproval = approvalData;
+                    newStatus = action === 'approved' ? 'approved' : 'rejected';
+                }
+
+                updateData.status = newStatus;
+                await updateDoc(doc(db, 'leaveRequests', req.id), updateData);
+                setToast({ msg: 'Success', type: 'success' }); 
+                setRefreshTrigger(prev => prev + 1);
             } catch (e) { 
                 setToast({ msg: 'Error processing request', type: 'error' }); 
             }
@@ -81,7 +250,7 @@ const UserIncoming: React.FC = () => {
             </div>
 
             <div className="space-y-4">
-                {incomingSwaps.length === 0 ? (
+                {incomingSwaps.length === 0 && incomingLeaves.length === 0 && myPendingLeaves.length === 0 ? (
                 <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-slate-100">
                     <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
                         <i className="fas fa-inbox text-3xl"></i>
@@ -89,7 +258,8 @@ const UserIncoming: React.FC = () => {
                     <p className="text-slate-400 font-bold">{t('user.incoming.empty')}</p>
                 </div>
                 ) : (
-                incomingSwaps.map(req => (
+                <>
+                {incomingSwaps.map(req => (
                     <div key={req.id} className="bg-white p-6 rounded-3xl shadow-sm border border-indigo-50 flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden group">
                     <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500 group-hover:w-2 transition-all"></div>
                     <div className="flex items-center gap-4 pl-4">
@@ -111,7 +281,64 @@ const UserIncoming: React.FC = () => {
                         </button>
                     </div>
                     </div>
-                ))
+                ))}
+                
+                {incomingLeaves.map(req => (
+                    <div key={req.id} className="bg-white p-6 rounded-3xl shadow-sm border border-rose-50 flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden group">
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-rose-500 group-hover:w-2 transition-all"></div>
+                    <div className="flex items-center gap-4 pl-4">
+                        <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center text-xl font-bold shadow-sm">
+                            {req.fromUser.name.charAt(0)}
+                        </div>
+                        <div>
+                            <h4 className="font-bold text-slate-800 text-lg">{req.fromUser.name}</h4>
+                            <p className="text-sm text-slate-500 font-medium">{t('user.req.leave')} • {req.typeOfLeave}</p>
+                            <p className="text-xs text-slate-400 mt-1"><i className="far fa-calendar-alt mr-1"></i> {req.startDate} {t('to')} {req.endDate} ({req.duration} {t('user.req.duration')})</p>
+                            {req.reason && <p className="text-sm text-slate-600 mt-2 bg-slate-50 p-2 rounded-lg italic border-l-2 border-rose-200">"{req.reason}"</p>}
+                        </div>
+                    </div>
+                    <div className="flex gap-3 w-full md:w-auto">
+                        <button onClick={() => handleLeaveAction(req, 'approved')} className="flex-1 md:flex-none bg-emerald-500 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-600 transition-all">
+                            {t('user.incoming.accept')} <i className="fas fa-check ml-2"></i>
+                        </button>
+                        <button onClick={() => handleLeaveAction(req, 'rejected')} className="flex-1 md:flex-none bg-white border border-red-200 text-red-500 px-6 py-2.5 rounded-xl font-bold hover:bg-red-50 transition-all">
+                            {t('sup.reject')} <i className="fas fa-times ml-2"></i>
+                        </button>
+                    </div>
+                    </div>
+                ))}
+
+                {/* My Own Pending Requests */}
+                {myPendingLeaves.length > 0 && (
+                    <div className="mt-8">
+                        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 px-2">{t('user.tab.history')} (Pending)</h3>
+                        <div className="space-y-4">
+                            {myPendingLeaves.map(req => (
+                                <div key={req.id} className="bg-slate-50 p-6 rounded-3xl border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden group opacity-80">
+                                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-slate-400"></div>
+                                    <div className="flex items-center gap-4 pl-4">
+                                        <div className="w-12 h-12 rounded-2xl bg-white text-slate-400 flex items-center justify-center text-xl font-bold shadow-sm">
+                                            <i className="fas fa-clock"></i>
+                                        </div>
+                                        <div>
+                                            <h4 className="font-bold text-slate-700 text-lg">{t('user.req.leave')} • {req.typeOfLeave}</h4>
+                                            <p className="text-xs text-slate-500 mt-1"><i className="far fa-calendar-alt mr-1"></i> {req.startDate} {t('to')} {req.endDate}</p>
+                                            <div className="mt-2 flex items-center gap-2">
+                                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-700 uppercase">
+                                                    {req.status.replace('_', ' ')}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-xs font-bold text-slate-400 italic">{t('sup.pending')}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+                </>
                 )}
             </div>
 

@@ -12,6 +12,8 @@ import { User, LocationCheckRequest, UserDocument } from '../../types';
 import Modal from '../../components/Modal';
 import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useAuth } from '../../App';
+import { UserRole } from '../../types';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 // Import the new storage service
@@ -35,6 +37,23 @@ const ALL_PERMISSIONS = [
     { key: 'tasks', label: 'المهام (Tasks)' },
     { key: 'tech_support', label: 'الدعم الفني (Tech)' },
     { key: 'hr_assistant', label: 'HR Assistant' },
+    { key: 'sup_schedule_builder', label: 'بناء الجدول (Schedule Builder)' },
+    { key: 'sup_rotation', label: 'التدوير (Rotation)' },
+    { key: 'sup_reports', label: 'التقارير (Reports)' },
+    { key: 'sup_attendance', label: 'الحضور (Attendance)' },
+    { key: 'sup_employees', label: 'الموظفين (Employees)' },
+    { key: 'sup_swaps', label: 'التبديلات (Swaps)' },
+    { key: 'sup_leaves', label: 'الإجازات (Leaves)' },
+    { key: 'sup_market', label: 'سوق المشرف (Sup Market)' },
+    { key: 'sup_locations', label: 'المواقع (Locations)' },
+    { key: 'sup_history', label: 'سجل المشرف (Sup History)' },
+    { key: 'sup_performance', label: 'أداء المشرف (Sup Performance)' },
+    { key: 'sup_panic', label: 'تقارير الطوارئ (Panic Reports)' },
+    { key: 'sup_archive', label: 'الأرشيف (Archive)' },
+    { key: 'sup_devices', label: 'الأجهزة (Devices)' },
+    { key: 'sup_fms', label: 'FMS' },
+    { key: 'sup_rooms', label: 'الغرف (Rooms)' },
+    { key: 'sup_logbooks', label: 'السجلات (Logbooks)' },
 ];
 
 // Mapped to match the specific CSS classes requested
@@ -221,6 +240,7 @@ const styles = `
 const SupervisorEmployees: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
+    const { role: authRole } = useAuth();
     const [users, setUsers] = useState<User[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
@@ -460,7 +480,7 @@ const SupervisorEmployees: React.FC = () => {
             const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
             const newUserId = userCredential.user.uid;
             
-            const defaultPermissions = ALL_PERMISSIONS.map(p => p.key);
+            const defaultPermissions = ['schedule', 'requests', 'market', 'incoming', 'history', 'profile', 'performance', 'appointments', 'communications', 'inventory', 'tasks', 'tech_support'];
 
             await setDoc(doc(mainDb, 'users', newUserId), {
                 uid: newUserId,
@@ -693,6 +713,7 @@ const SupervisorEmployees: React.FC = () => {
     };
 
     const togglePermission = (key: string) => {
+        if (authRole !== UserRole.ADMIN) return;
         const currentPerms = editForm.permissions || [];
         if (currentPerms.includes(key)) {
             setEditForm({ ...editForm, permissions: currentPerms.filter(p => p !== key) });
@@ -1117,6 +1138,8 @@ const SupervisorEmployees: React.FC = () => {
                                                     <option value="user">User</option>
                                                     <option value="doctor">Doctor</option>
                                                     <option value="supervisor">Supervisor</option>
+                                                    <option value="manager">Manager</option>
+                                                    {authRole === UserRole.ADMIN && <option value="admin">Admin</option>}
                                                 </select>
                                             </div>
                                             <div className="input-group-modern">
@@ -1350,11 +1373,13 @@ const SupervisorEmployees: React.FC = () => {
                                     className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-200 outline-none" 
                                     value={editForm.role || 'user'} 
                                     onChange={e => setEditForm({...editForm, role: e.target.value})}
+                                    disabled={authRole !== UserRole.ADMIN && editForm.role === UserRole.ADMIN}
                                 >
                                     <option value="user">User</option>
                                     <option value="doctor">Doctor</option>
                                     <option value="supervisor">Supervisor</option>
-                                    <option value="admin">Admin</option>
+                                    <option value="manager">Manager</option>
+                                    {authRole === UserRole.ADMIN && <option value="admin">Admin</option>}
                                 </select>
                             </div>
                         </div>
@@ -1508,17 +1533,18 @@ const SupervisorEmployees: React.FC = () => {
                     </label>
 
                     <div className="border-t border-slate-100 pt-4">
-                        <label className="text-xs font-bold text-slate-500 block mb-3">Permissions</label>
+                        <label className="text-xs font-bold text-slate-500 block mb-3">Permissions {authRole !== UserRole.ADMIN && <span className="text-red-500 font-normal">(View Only)</span>}</label>
                         <div className="grid grid-cols-2 gap-2">
                             {ALL_PERMISSIONS.map(p => (
                                 <button
                                     key={p.key}
                                     onClick={() => togglePermission(p.key)}
+                                    disabled={authRole !== UserRole.ADMIN}
                                     className={`px-3 py-2 rounded-lg text-xs font-bold text-left flex items-center justify-between border transition-all ${
                                         editForm.permissions?.includes(p.key) 
                                         ? 'bg-blue-50 text-blue-700 border-blue-200' 
                                         : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
-                                    }`}
+                                    } ${authRole !== UserRole.ADMIN ? 'opacity-70 cursor-not-allowed' : ''}`}
                                 >
                                     <span>{p.label}</span>
                                     {editForm.permissions?.includes(p.key) && <i className="fas fa-check"></i>}

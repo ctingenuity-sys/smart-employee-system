@@ -174,27 +174,10 @@ const CTConsentPage: React.FC = () => {
         Fluoro: { ar: '✅ موافقه علي فحص الباريوم', en: 'Consent For Barium ✅' }
     };
 
-    const getBase64ImageFromUrl = async (imageUrl: string) => {
-        try {
-            const res = await fetch(imageUrl);
-            if (!res.ok) throw new Error("Network response was not ok");
-            const blob = await res.blob();
-            return new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.addEventListener("load", () => resolve(reader.result as string), false);
-                reader.addEventListener("error", () => reject("Error loading image"));
-                reader.readAsDataURL(blob);
-            });
-        } catch (e) {
-            console.error("Failed to load watermark image", e);
-            return imageUrl;
-        }
-    };
-
     const saveAsPDF = async () => {
         const patientSignature = patientPadRef.current && !patientPadRef.current.isEmpty() ? patientPadRef.current.toDataURL() : '';
         const repSignature = repPadRef.current && !repPadRef.current.isEmpty() ? repPadRef.current.toDataURL() : '';
-        const watermarkBase64 = await getBase64ImageFromUrl(`${window.location.origin}/logo.png`);
+        const logoUrl = new URL('/logo.png', window.location.origin).href;
 
         const renderPrintQuestion = (text: string, value: string) => {
             const isYes = value === 'yes';
@@ -218,8 +201,8 @@ const CTConsentPage: React.FC = () => {
         const htmlContent = `
             <div style="padding: 40px; font-family: 'Cairo', sans-serif; background: white; color: black; position: relative; min-height: 1100px;" dir="rtl">
                 <!-- Watermark -->
-                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.05; pointer-events: none; z-index: 0;">
-                    ${watermarkBase64 ? `<img src="${watermarkBase64}" style="width: 400px; max-width: 90vw; object-fit: contain;" alt="شعار المستشفى" />` : ''}
+                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.15; pointer-events: none; z-index: 0;">
+                    <img src="${logoUrl}" style="width: 400px; max-width: 90vw; object-fit: contain;" alt="شعار المستشفى" crossOrigin="anonymous" />
                 </div>
 
                 <div style="position: relative; z-index: 10;">
@@ -342,7 +325,7 @@ const CTConsentPage: React.FC = () => {
     const printAsHTML = async () => {
         const patientSignature = patientPadRef.current && !patientPadRef.current.isEmpty() ? patientPadRef.current.toDataURL() : '';
         const repSignature = repPadRef.current && !repPadRef.current.isEmpty() ? repPadRef.current.toDataURL() : '';
-        const watermarkBase64 = await getBase64ImageFromUrl(`${window.location.origin}/logo.png`);
+        const logoUrl = new URL('/logo.png', window.location.origin).href;
 
         const renderPrintQuestion = (text: string, value: string) => {
             const isYes = value === 'yes';
@@ -384,8 +367,8 @@ const CTConsentPage: React.FC = () => {
             </head>
             <body class="p-8 text-sm relative flex flex-col h-screen box-border">
                 <!-- Watermark -->
-                <div class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0 opacity-[0.05] pointer-events-none">
-                    ${watermarkBase64 ? `<img src="${watermarkBase64}" style="width: 400px; max-width: 80vw; object-fit: contain;" alt="شعار المستشفى" />` : ''}
+                <div class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0 opacity-[0.15] pointer-events-none">
+                    <img src="${logoUrl}" style="width: 400px; max-width: 80vw; object-fit: contain;" alt="شعار المستشفى" crossOrigin="anonymous" />
                 </div>
 
                 <div class="relative z-10 flex flex-col h-full">
@@ -529,41 +512,47 @@ const CTConsentPage: React.FC = () => {
             </html>
         `;
 
-        const iframe = document.createElement('iframe');
-        iframe.style.position = 'fixed';
-        iframe.style.right = '0';
-        iframe.style.bottom = '0';
-        iframe.style.width = '0';
-        iframe.style.height = '0';
-        iframe.style.border = '0';
-        document.body.appendChild(iframe);
-
-        const iframeDoc = iframe.contentWindow?.document;
-        if (iframeDoc) {
-            iframeDoc.open();
-            iframeDoc.write(htmlContent);
-            iframeDoc.close();
-
+        // For mobile compatibility, opening a new window is often more reliable than an iframe
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+            printWindow.document.open();
+            printWindow.document.write(htmlContent);
+            printWindow.document.close();
+            
+            // Wait for images to load before printing
             setTimeout(() => {
-                iframe.contentWindow?.focus();
-                iframe.contentWindow?.print();
-                setTimeout(() => {
-                    document.body.removeChild(iframe);
-                }, 2000);
-            }, 1000);
-        } else {
-            const printWindow = window.open('', '_blank');
-            if (printWindow) {
-                printWindow.document.write(htmlContent);
-                printWindow.document.close();
-                printWindow.focus();
-                setTimeout(() => {
+                const images = printWindow.document.getElementsByTagName('img');
+                let loadedCount = 0;
+                const totalImages = images.length;
+                
+                const doPrint = () => {
+                    printWindow.focus();
                     printWindow.print();
-                    printWindow.close();
-                }, 1000);
-            } else {
-                alert('Please allow popups to print.');
-            }
+                };
+
+                if (totalImages === 0) {
+                    doPrint();
+                } else {
+                    for (let i = 0; i < totalImages; i++) {
+                        if (images[i].complete) {
+                            loadedCount++;
+                        } else {
+                            images[i].onload = () => {
+                                loadedCount++;
+                                if (loadedCount === totalImages) doPrint();
+                            };
+                            images[i].onerror = () => {
+                                loadedCount++;
+                                if (loadedCount === totalImages) doPrint();
+                            };
+                        }
+                    }
+                    if (loadedCount === totalImages) doPrint();
+                }
+            }, 500);
+        } else {
+            // Fallback if popup blocker prevents opening a new window
+            alert('Please allow popups to print the document.');
         }
     };
 

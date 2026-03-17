@@ -174,7 +174,7 @@ const handleGenerateManualCode = () => {
         const now = new Date();
         const cutoffTime = new Date(now.getTime() - 24 * 60 * 60 * 1000); 
         
-        const list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Announcement)).filter((ann: any) => {
+        const list = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as Announcement)).filter((ann: any) => {
             if (!ann.createdAt) return false;
             const createdDate = ann.createdAt.toDate ? ann.createdAt.toDate() : new Date(ann.createdAt);
             return createdDate >= cutoffTime; 
@@ -216,7 +216,7 @@ const handleGenerateManualCode = () => {
     // Filter by IN array of 3 months
     const qSchedule = query(collection(db, 'schedules'), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
     getDocs(qSchedule).then((snap: any) => {
-        const data = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Schedule));
+        const data = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as Schedule));
         setCurrentSchedules(data); // Stores *all* schedules for logic
     });
 
@@ -237,19 +237,74 @@ const handleGenerateManualCode = () => {
     
     // 6. Fetch Users for names
     getDocs(collection(db, 'users')).then(snap => {
-        setAllUsers(snap.docs.map((d: any) => ({ id: d.id, ...d.data() as any } as User)));
+        setAllUsers(snap.docs.map((d: any) => ({ ...d.data() as any, id: d.id } as User)));
     });
+
+    // 7. Calculate Incoming Count (Real-time)
+    let unsubSwaps: any;
+    let unsubLeavesReliever: any;
+    let unsubLeavesSup: any;
+    let unsubLeavesMan: any;
+
+    const setupIncomingListeners = () => {
+        let swapsCount = 0;
+        let relieverCount = 0;
+        let supCount = 0;
+        let manCount = 0;
+
+        const updateTotal = () => setIncomingCount(swapsCount + relieverCount + supCount + manCount);
+
+        // Swaps
+        const qSwaps = query(collection(db, 'swapRequests'), where('to', '==', currentUserId), where('status', '==', 'pending'));
+        unsubSwaps = onSnapshot(qSwaps, snap => {
+            swapsCount = snap.size;
+            updateTotal();
+        });
+        
+        // Leaves (Reliever)
+        const qLeavesReliever = query(collection(db, 'leaveRequests'), where('relieverIds', 'array-contains', currentUserId), where('status', '==', 'pending_reliever'));
+        unsubLeavesReliever = onSnapshot(qLeavesReliever, snap => {
+            let c = 0;
+            snap.docs.forEach(d => {
+                const data = d.data();
+                if (!data.relieverApprovals || !data.relieverApprovals[currentUserId]) {
+                    c++;
+                }
+            });
+            relieverCount = c;
+            updateTotal();
+        });
+
+        // Leaves (Supervisor)
+        const qLeavesSup = query(collection(db, 'leaveRequests'), where('supervisorId', '==', currentUserId), where('status', '==', 'pending_supervisor'));
+        unsubLeavesSup = onSnapshot(qLeavesSup, snap => {
+            supCount = snap.size;
+            updateTotal();
+        });
+
+        // Leaves (Manager)
+        const qLeavesMan = query(collection(db, 'leaveRequests'), where('managerId', '==', currentUserId), where('status', '==', 'pending_manager'));
+        unsubLeavesMan = onSnapshot(qLeavesMan, snap => {
+            manCount = snap.size;
+            updateTotal();
+        });
+    };
+    setupIncomingListeners();
 
     // NEW: Fetch Actions/Leaves for current user
     // We fetch broader range or all to simplify, or last 30 days
     const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
     getDocs(qActions).then((snap: any) => {
-        setUserActions(snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as ActionLog)));
+        setUserActions(snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as ActionLog)));
     });
 
     return () => {
         unsubLogs();
         unsubAllLogs();
+        if (unsubSwaps) unsubSwaps();
+        if (unsubLeavesReliever) unsubLeavesReliever();
+        if (unsubLeavesSup) unsubLeavesSup();
+        if (unsubLeavesMan) unsubLeavesMan();
     };
   }, [currentUserId, refreshTrigger]);
 

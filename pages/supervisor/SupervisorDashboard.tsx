@@ -1,10 +1,9 @@
 
+// ... existing imports
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
-import { appointmentsDb } from '../firebaseAppointments';
-import { db as certDb } from '../firebaseData';
 // @ts-ignore
-import { collection, query, where, getDocs, orderBy, limit, Timestamp, addDoc, writeBatch, doc, QuerySnapshot, DocumentData, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, limit, Timestamp, addDoc, writeBatch, doc, QuerySnapshot, DocumentData } from 'firebase/firestore';
 import { User, SwapRequest, LeaveRequest, AttendanceLog, Schedule } from '../types';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
@@ -12,16 +11,8 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { PrintHeader } from '../components/PrintLayout';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
-
-interface DashboardAlert {
-    id: string;
-    title: string;
-    subtitle: string;
-    date: string;
-    type: 'warning' | 'danger';
-    link: string;
-    icon: string;
-}
+import { useAuth } from '../App';
+import { UserRole } from '../types';
 
 const convertTo24Hour = (timeStr: string): string | null => {
     if (!timeStr) return null;
@@ -67,7 +58,14 @@ const ppRegex = /(?:\(|\[|\{)\s*pp\s*(?:\)|\]|\})|(?:\bPP\b)/i;
 const SupervisorDashboard: React.FC = () => {
   const { t, dir } = useLanguage();
   const navigate = useNavigate();
+  const { role: authRole, permissions } = useAuth();
   
+  const canAccess = (feature: string) => {
+      if (authRole === UserRole.ADMIN) return true;
+      if (!permissions) return true; // Legacy users
+      return permissions.includes(feature);
+  };
+
   const [users, setUsers] = useState<User[]>([]);
   const [swapRequestsCount, setSwapRequestsCount] = useState(0);
   const [leaveRequestsCount, setLeaveRequestsCount] = useState(0);
@@ -88,10 +86,11 @@ const SupervisorDashboard: React.FC = () => {
   });
   const [feedbackForm, setFeedbackForm] = useState({ message: '', category: '' });
   const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error', duration?: number} | null>(null);
-  const [alerts, setAlerts] = useState<DashboardAlert[]>([]);
 
   const currentAdminName = localStorage.getItem('username') || 'Admin';
   const currentAdminId = auth.currentUser?.uid;
+
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // --- Data Loading (Overview Only) ---
   useEffect(() => {
@@ -103,20 +102,31 @@ const SupervisorDashboard: React.FC = () => {
       const qSwaps = query(collection(db, 'swapRequests'), where('status', 'in', ['pending', 'approvedByUser']));
       getDocs(qSwaps).then((snap: QuerySnapshot<DocumentData>) => setSwapRequestsCount(snap.size));
 
-      const qLeaves = query(collection(db, 'leaveRequests'), where('status', '==', 'pending'));
-      getDocs(qLeaves).then((snap: QuerySnapshot<DocumentData>) => setLeaveRequestsCount(snap.size));
+      const role = localStorage.getItem('role');
+      const qLeavesSup = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_supervisor'));
+      getDocs(qLeavesSup).then((snap: QuerySnapshot<DocumentData>) => {
+          let count = snap.size;
+          if (role === 'admin') {
+              const qLeavesMan = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_manager'));
+              getDocs(qLeavesMan).then((snapMan: QuerySnapshot<DocumentData>) => {
+                  setLeaveRequestsCount(count + snapMan.size);
+              });
+          } else {
+              setLeaveRequestsCount(count);
+          }
+      });
 
       const qMarket = query(collection(db, 'openShifts'), where('status', '==', 'claimed'));
       getDocs(qMarket).then((snap: QuerySnapshot<DocumentData>) => setOpenShiftsCount(snap.size));
 
       // 3. Today's Appointments
       const todayDate = new Date().toISOString().split('T')[0];
-      const qAppt = query(collection(appointmentsDb, 'appointments'), where('date', '==', todayDate));
+      const qAppt = query(collection(db, 'appointments'), where('date', '==', todayDate));
       getDocs(qAppt).then((snap: QuerySnapshot<DocumentData>) => setTodayApptCount(snap.size));
 
       // 4. Live Logs (Fetch ALL for today to calculate presence)
       const qLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayDate)); 
-      const unsubLogs = onSnapshot(qLogs, (snap: QuerySnapshot<DocumentData>) => {
+      getDocs(qLogs).then((snap: QuerySnapshot<DocumentData>) => {
           const logs = snap.docs.map(d => d.data() as AttendanceLog);
           // Sort for the feed
           const sortedLogs = [...logs].sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
@@ -141,95 +151,7 @@ const SupervisorDashboard: React.FC = () => {
           setSchedules(snap.docs.map(d => d.data() as Schedule));
       });
 
-      return () => {
-          unsubLogs();
-      };
-  }, []);
-
-  // --- Fetch Expiry Alerts ---
-  useEffect(() => {
-      if (users.length === 0) return;
-
-      const fetchAlerts = async () => {
-          const newAlerts: DashboardAlert[] = [];
-          const today = new Date();
-          const thirtyDaysFromNow = new Date();
-          thirtyDaysFromNow.setDate(today.getDate() + 30);
-
-          const checkExpiry = (dateStr: string | undefined, title: string, subtitle: string, link: string, icon: string) => {
-              if (!dateStr) return;
-              const expiry = new Date(dateStr);
-              if (isNaN(expiry.getTime())) return;
-
-              if (expiry < today) {
-                  newAlerts.push({ id: Math.random().toString(), title, subtitle, date: dateStr, type: 'danger', link, icon });
-              } else if (expiry <= thirtyDaysFromNow) {
-                  newAlerts.push({ id: Math.random().toString(), title, subtitle, date: dateStr, type: 'warning', link, icon });
-              }
-          };
-
-          try {
-              // 1. Employee Certificates
-              const empSnap = await getDocs(collection(certDb, 'employee_records'));
-              empSnap.forEach(doc => {
-                  const data = doc.data();
-                  const userName = users.find(u => u.id === doc.id)?.name || 'Employee';
-                  
-                  checkExpiry(data.licenseExpiry, 'License Expiry', userName, '/supervisor/employees', 'fa-id-card');
-                  checkExpiry(data.registrationExpiry, 'Registration Expiry', userName, '/supervisor/employees', 'fa-file-contract');
-                  checkExpiry(data.nrrcExpiry, 'NRRC Expiry', userName, '/supervisor/employees', 'fa-radiation');
-                  
-                  if (data.documents && Array.isArray(data.documents)) {
-                      data.documents.forEach((d: any) => {
-                          if (d.expiryDate) {
-                              checkExpiry(d.expiryDate, `Document: ${d.name}`, userName, '/supervisor/employees', 'fa-file-alt');
-                          }
-                      });
-                  }
-              });
-
-              // 2. Device Inventory
-              const devSnap = await getDocs(collection(certDb, 'inventory_devices'));
-              devSnap.forEach(doc => {
-                  const data = doc.data();
-                  checkExpiry(data.maintDate, 'PPM Expiry', data.name || 'Device', '/supervisor/devices', 'fa-tools');
-                  checkExpiry(data.qualDate, 'QC Expiry', data.name || 'Device', '/supervisor/devices', 'fa-check-circle');
-              });
-
-              // 3. FMS Reports
-              const fmsSnap = await getDocs(collection(certDb, 'fms_reports'));
-              fmsSnap.forEach(doc => {
-                  const data = doc.data();
-                  if (data.items && Array.isArray(data.items)) {
-                      const sortedItems = [...data.items].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
-                      if (sortedItems.length > 0) {
-                          checkExpiry(sortedItems[0].date, 'FMS Report Expiry', data.name || 'Report', '/supervisor/fms', 'fa-file-medical-alt');
-                      }
-                  }
-              });
-
-              // 4. Room Reports
-              const roomSnap = await getDocs(collection(certDb, 'room_reports'));
-              roomSnap.forEach(doc => {
-                  const data = doc.data();
-                  checkExpiry(data.surveyDate, 'Room Survey Expiry', `Room ${data.number}`, '/supervisor/rooms', 'fa-door-open');
-              });
-
-              // Sort alerts: danger first, then warning, then by date
-              newAlerts.sort((a, b) => {
-                  if (a.type === 'danger' && b.type === 'warning') return -1;
-                  if (a.type === 'warning' && b.type === 'danger') return 1;
-                  return new Date(a.date).getTime() - new Date(b.date).getTime();
-              });
-
-              setAlerts(newAlerts);
-          } catch (error) {
-              console.error("Error fetching alerts:", error);
-          }
-      };
-
-      fetchAlerts();
-  }, [users]);
+  }, [refreshTrigger]);
 
   // --- On Shift Logic (Updated for Presence) ---
   useEffect(() => {
@@ -385,15 +307,33 @@ const SupervisorDashboard: React.FC = () => {
   };
 
   const menuItems = [
-      { id: 'attendance', title: 'Smart Analyzer', icon: 'fa-chart-pie', path: '/supervisor/attendance', color: 'bg-indigo-600' },
-      { id: 'appointments', title: t('nav.appointments'), icon: 'fa-calendar-check', path: '/appointments', badge: todayApptCount, color: 'bg-cyan-600' },
-      { id: 'employees', title: t('sup.tab.users'), icon: 'fa-users', path: '/supervisor/employees', color: 'bg-blue-600' },
-      { id: 'swaps', title: t('sup.tab.swaps'), icon: 'fa-exchange-alt', path: '/supervisor/swaps', badge: swapRequestsCount, color: 'bg-purple-600' },
-      { id: 'leaves', title: t('sup.tab.leaves'), icon: 'fa-umbrella-beach', path: '/supervisor/leaves', badge: leaveRequestsCount, color: 'bg-rose-600' },
-      { id: 'market', title: t('sup.tab.market'), icon: 'fa-store', path: '/supervisor/market', badge: openShiftsCount, color: 'bg-amber-500' },
-      { id: 'locations', title: t('sup.tab.locations'), icon: 'fa-map-marker-alt', path: '/supervisor/locations', color: 'bg-emerald-600' },
-      { id: 'history', title: 'History', icon: 'fa-history', path: '/supervisor/history', color: 'bg-slate-600' },
-  ];
+      { id: 'attendance', title: 'Smart Analyzer', icon: 'fa-chart-pie', path: '/supervisor/attendance', color: 'bg-indigo-600', permission: 'sup_attendance' },
+      { id: 'appointments', title: t('nav.appointments'), icon: 'fa-calendar-check', path: '/appointments', badge: todayApptCount, color: 'bg-cyan-600', permission: 'appointments' },
+      { id: 'employees', title: t('sup.tab.users'), icon: 'fa-users', path: '/supervisor/employees', color: 'bg-blue-600', permission: 'sup_employees' },
+      { id: 'rotations', title: 'Rotations', icon: 'fa-sync-alt', path: '/supervisor/rotation', color: 'bg-teal-600', permission: 'sup_rotation' },
+      { id: 'swaps', title: t('sup.tab.swaps'), icon: 'fa-exchange-alt', path: '/supervisor/swaps', badge: swapRequestsCount, color: 'bg-purple-600', permission: 'sup_swaps' },
+      { id: 'leaves', title: t('sup.tab.leaves'), icon: 'fa-umbrella-beach', path: '/supervisor/leaves', badge: leaveRequestsCount, color: 'bg-rose-600', permission: 'sup_leaves' },
+      { id: 'market', title: t('sup.tab.market'), icon: 'fa-store', path: '/supervisor/market', badge: openShiftsCount, color: 'bg-amber-500', permission: 'sup_market' },
+      { id: 'panic', title: 'Panic Reports', icon: 'fa-exclamation-triangle', path: '/supervisor/panic-reports', color: 'bg-red-600', permission: 'sup_panic' },
+      { id: 'locations', title: t('sup.tab.locations'), icon: 'fa-map-marker-alt', path: '/supervisor/locations', color: 'bg-emerald-600', permission: 'sup_locations' },
+      { id: 'history', title: 'History', icon: 'fa-history', path: '/supervisor/history', color: 'bg-slate-600', permission: 'sup_history' },
+      { id: 'performance', title: 'Performance', icon: 'fa-chart-bar', path: '/supervisor/performance', color: 'bg-violet-600', permission: 'sup_performance' },
+      { id: 'archive', title: 'Data Archiver', icon: 'fa-box-archive', path: '/supervisor/archive', color: 'bg-slate-800', permission: 'sup_archive' },
+  ].filter(item => canAccess(item.permission));
+
+  // New Buttons for Safety & Facility Management
+  const safetyItems = [
+      { id: 'devices', title: 'Device Inventory', icon: 'fa-microscope', path: '/supervisor/devices', color: 'bg-sky-600', permission: 'sup_devices' },
+      { id: 'fms', title: 'FMS Reports', icon: 'fa-fire-extinguisher', path: '/supervisor/fms', color: 'bg-orange-600', permission: 'sup_fms' },
+      { id: 'rooms', title: 'Room Reports', icon: 'fa-door-open', path: '/supervisor/rooms', color: 'bg-indigo-600', permission: 'sup_rooms' },
+  ].filter(item => canAccess(item.permission));
+
+  const logbookItems = [
+      { id: 'mri', title: 'MRI Log', icon: 'fa-magnet', path: '/logbook/mri', color: 'bg-blue-700', permission: 'sup_logbooks' },
+      { id: 'ct', title: 'CT Log', icon: 'fa-ring', path: '/logbook/ct', color: 'bg-emerald-600', permission: 'sup_logbooks' },
+      { id: 'us', title: 'Ultrasound Log', icon: 'fa-wave-square', path: '/logbook/us', color: 'bg-indigo-600', permission: 'sup_logbooks' },
+      { id: 'xray', title: 'X-Ray / Gen Log', icon: 'fa-x-ray', path: '/logbook/xray', color: 'bg-slate-600', permission: 'sup_logbooks' },
+  ].filter(item => canAccess(item.permission));
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans pb-20" dir={dir}>
@@ -466,6 +406,56 @@ const SupervisorDashboard: React.FC = () => {
                     </div>
                 </div>
             </div>
+            
+            {/* Safety & Facility Management Section (NEW) */}
+            {safetyItems.length > 0 && (
+            <div className="mb-8">
+                 <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
+                    <i className="fas fa-hard-hat text-orange-500"></i> Facility & Safety Management
+                 </h3>
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                     {safetyItems.map(item => (
+                         <button 
+                             key={item.id}
+                             onClick={() => navigate(item.path)}
+                             className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-row items-center gap-4 transition-all hover:shadow-md hover:-translate-y-1 group relative overflow-hidden text-left"
+                         >
+                            <div className={`w-12 h-12 ${item.color} rounded-xl flex items-center justify-center text-white text-xl shadow-lg`}>
+                                <i className={`fas ${item.icon}`}></i>
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-slate-700 text-lg">{item.title}</h3>
+                                <p className="text-xs text-slate-400 font-bold uppercase">View Reports</p>
+                            </div>
+                         </button>
+                     ))}
+                 </div>
+            </div>
+            )}
+            
+            {/* Logbooks Shortcut Section */}
+            {logbookItems.length > 0 && (
+            <div className="mb-8">
+                 <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
+                    <i className="fas fa-book-medical text-indigo-500"></i> Department Logbooks
+                 </h3>
+                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                     {logbookItems.map(item => (
+                         <button 
+                             key={item.id}
+                             onClick={() => navigate(item.path)}
+                             className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center gap-3 transition-all hover:shadow-md hover:-translate-y-1 group relative overflow-hidden"
+                         >
+                            <div className={`absolute top-0 left-0 w-1 h-full ${item.color}`}></div>
+                            <div className={`w-12 h-12 ${item.color} rounded-xl flex items-center justify-center text-white text-xl shadow-lg`}>
+                                <i className={`fas ${item.icon}`}></i>
+                            </div>
+                            <h3 className="font-bold text-slate-700 text-sm">{item.title}</h3>
+                         </button>
+                     ))}
+                 </div>
+            </div>
+            )}
 
             {/* 2. Navigation Menu */}
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-4 mb-8">
@@ -529,13 +519,39 @@ const SupervisorDashboard: React.FC = () => {
 
                 {/* Live Feed */}
                 <div className="bg-slate-900 rounded-[2rem] p-6 text-white shadow-xl flex flex-col h-[300px]">
-                    <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-                        <span className="relative flex h-3 w-3">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                        </span>
-                        Live Activity
-                    </h3>
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="font-bold text-lg flex items-center gap-2">
+                            <span className="relative flex h-3 w-3">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                            </span>
+                            {t('dash.liveActivity')}
+                        </h3>
+                        <button 
+                            onClick={() => {
+                                if (allTodayLogs.length === 0) return;
+                                const dataToExport = allTodayLogs.map(log => ({
+                                    Employee: log.userName,
+                                    Type: log.type,
+                                    Time: log.timestamp?.toDate ? log.timestamp.toDate().toLocaleTimeString() : '',
+                                    Date: log.date
+                                }));
+                                const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
+                                    + Object.keys(dataToExport[0]).join(",") + "\n"
+                                    + dataToExport.map(e => Object.values(e).map(v => `"${v || ''}"`).join(",")).join("\n");
+                                const encodedUri = encodeURI(csvContent);
+                                const link = document.createElement("a");
+                                link.setAttribute("href", encodedUri);
+                                link.setAttribute("download", `live_activity_${new Date().toISOString().split('T')[0]}.csv`);
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                            }}
+                            className="bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-2"
+                        >
+                            <i className="fas fa-file-excel"></i> {t('export')}
+                        </button>
+                    </div>
                     <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar-dark space-y-3">
                         {todayLogs.map((log, i) => (
                             <div key={i} className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition-colors">
@@ -550,39 +566,10 @@ const SupervisorDashboard: React.FC = () => {
                                 </div>
                             </div>
                         ))}
-                        {todayLogs.length === 0 && <p className="text-center text-slate-500 text-xs py-10">No activity yet.</p>}
+                        {todayLogs.length === 0 && <p className="text-center text-slate-500 text-xs py-10">{t('dash.noActivity')}</p>}
                     </div>
                 </div>
             </div>
-
-            {/* 4. Expiry Alerts */}
-            {alerts.length > 0 && (
-                <div className="mt-8 bg-white rounded-[2rem] shadow-sm border border-slate-200 p-8 relative overflow-hidden">
-                    <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2 relative z-10">
-                        <i className="fas fa-exclamation-triangle text-red-500"></i> Expiry Alerts
-                        <span className="bg-red-100 text-red-600 text-xs px-2 py-1 rounded-full">{alerts.length}</span>
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
-                        {alerts.map(alert => (
-                            <div key={alert.id} onClick={() => navigate(alert.link)} className={`cursor-pointer p-4 rounded-xl border ${alert.type === 'danger' ? 'bg-red-50 border-red-200 hover:bg-red-100' : 'bg-amber-50 border-amber-200 hover:bg-amber-100'} transition-colors flex items-start gap-3`}>
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0 ${alert.type === 'danger' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'}`}>
-                                    <i className={`fas ${alert.icon}`}></i>
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <h4 className={`font-bold text-sm truncate ${alert.type === 'danger' ? 'text-red-900' : 'text-amber-900'}`}>{alert.title}</h4>
-                                    <p className={`text-xs truncate ${alert.type === 'danger' ? 'text-red-700' : 'text-amber-700'}`}>{alert.subtitle}</p>
-                                    <div className="mt-2 flex items-center gap-1">
-                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${alert.type === 'danger' ? 'bg-red-200 text-red-800' : 'bg-amber-200 text-amber-800'}`}>
-                                            {alert.type === 'danger' ? 'EXPIRED' : 'DUE SOON'}
-                                        </span>
-                                        <span className={`text-[10px] font-mono ${alert.type === 'danger' ? 'text-red-600' : 'text-amber-600'}`}>{alert.date}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
 
             {/* Floating On Shift Widget */}
             {/* Floating On Shift Widget */}
@@ -635,12 +622,13 @@ const SupervisorDashboard: React.FC = () => {
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-center gap-1">
                                                     {p.role !== 'doctor' && (
-                                                        <div
-                                                            className={`w-2 h-2 rounded-full mr-1 ${
-                                                            p.isPresent ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
-                                                            }`}
-                                                        ></div>
-                                                        )}
+                                                    <div
+                                                        className={`w-2 h-2 rounded-full mr-1 ${
+                                                        p.isPresent ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
+                                                        }`}
+                                                    ></div>
+                                                    )}
+
                                                     <span className={`font-bold text-xs truncate max-w-[100px] ${p.role === 'doctor' ? 'text-cyan-900' : 'text-slate-700'}`}>
                                                         {p.name}
                                                     </span>
@@ -658,19 +646,17 @@ const SupervisorDashboard: React.FC = () => {
                                                     {p.time}
                                                 </div>
                                                 {/* VISIBLE STATUS INDICATOR */}
-                                                {p.role !== 'doctor' && (
-                                                    p.isPresent ? (
-                                                        <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
+                                                {p.isPresent ? (
+                                                    <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
                                                         <i className="fas fa-check-circle text-[8px]"></i> {t('status.in')}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
                                                         {t('status.notyet')}
-                                                        </span>
-                                                    )
-                                                    )}
+                                                    </span>
+                                                )}
                                                 {p.phone && (
-                                                     <a 
+                                                    <a 
                                                         href={`tel:${p.phone}`}
                                                         className="ml-1 w-5 h-5 flex items-center justify-center rounded-full bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors shadow-sm"
                                                         title={t('dash.call')}

@@ -183,6 +183,14 @@ const DoctorDashboard: React.FC = () => {
   const [leaveStart, setLeaveStart] = useState('');
   const [leaveEnd, setLeaveEnd] = useState('');
   const [leaveReason, setLeaveReason] = useState('');
+  const [leaveType, setLeaveType] = useState('Annual');
+  const [leaveDuration, setLeaveDuration] = useState('');
+  const [relieverIds, setRelieverIds] = useState<string[]>([]);
+  const [selectedManagerId, setSelectedManagerId] = useState('');
+  const [selectedSupervisorId, setSelectedSupervisorId] = useState('');
+  const [dateHired, setDateHired] = useState('');
+  const [dueDateForLeave, setDueDateForLeave] = useState('');
+  const [currentUserData, setCurrentUserData] = useState<User | null>(null);
 
   const [onShiftNow, setOnShiftNow] = useState<{name: string, location: string, time: string, phone?: string, role?: string, isPP: boolean, isPresent: boolean}[]>([]);
   const [currentSchedules, setCurrentSchedules] = useState<Schedule[]>([]);
@@ -226,18 +234,24 @@ const DoctorDashboard: React.FC = () => {
     // ... (Initial Data loading - users, locations, announcements) ...
     setLoading(true);
     getDocs(collection(db, 'users')).then((snap) => {
-        const userList = snap.docs.map(d => ({ id: d.id, ...d.data() } as User));
+        const userList = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
         setUsers(userList);
+        const me = userList.find(u => u.uid === currentUserId || u.id === currentUserId);
+        if (me) {
+            setCurrentUserData(me);
+            if (me.managerId) setSelectedManagerId(me.managerId);
+            if (me.supervisorId) setSelectedSupervisorId(me.supervisorId);
+        }
     });
     getDocs(collection(db, 'locations')).then((snap) => {
-        setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as LocationData)));
+        setLocations(snap.docs.map(d => ({ ...d.data(), id: d.id } as LocationData)));
     });
     const qAnnounce = query(collection(db, 'announcements'), where('isActive', '==', true));
     getDocs(qAnnounce).then((snap) => {
       const now = new Date();
       const cutoffTime = new Date(now.getTime() - 48 * 60 * 60 * 1000); 
       const list = snap.docs
-        .map(d => ({ id: d.id, ...d.data() } as Announcement))
+        .map(d => ({ ...d.data(), id: d.id } as Announcement))
         .filter(ann => {
           if (!ann.createdAt) return false;
           const createdDate = ann.createdAt.toDate ? ann.createdAt.toDate() : new Date(ann.createdAt);
@@ -266,7 +280,7 @@ const DoctorDashboard: React.FC = () => {
       where('month', 'in', [prevMonth, currentMonth, nextMonth])
     );
     getDocs(q).then(snap => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule));
+      const data = snap.docs.map(d => ({ ...d.data(), id: d.id } as Schedule));
       data.sort((a, b) => {
         const aIsSwap = a.locationId === 'Swap' || (a.note && a.note.startsWith('Swap'));
         const bIsSwap = b.locationId === 'Swap' || (b.note && b.note.startsWith('Swap'));
@@ -310,23 +324,23 @@ const DoctorDashboard: React.FC = () => {
     getDocs(qIncoming).then((snap) => {
       const reqs = snap.docs.map(d => {
         const data = d.data() as SwapRequest;
-        return { id: d.id, ...data, fromUser: { id: data.from, name: getUserName(data.from) } };
+        return { ...data, id: d.id, fromUser: { id: data.from, name: getUserName(data.from) } };
       });
       setIncomingSwaps(reqs);
     });
     const qSent = query(collection(db, 'swapRequests'), where('from', '==', currentUserId));
     getDocs(qSent).then((snap) => {
-      const list = snap.docs.map(d => { const data = d.data() as SwapRequest; return { id: d.id, ...data, isOutgoing: true, otherUserName: getUserName(data.to) }; });
+      const list = snap.docs.map(d => { const data = d.data() as SwapRequest; return { ...data, id: d.id, isOutgoing: true, otherUserName: getUserName(data.to) }; });
       setSentHistory(list);
     });
     const qReceived = query(collection(db, 'swapRequests'), where('to', '==', currentUserId));
     getDocs(qReceived).then((snap) => {
-      const list = snap.docs.filter(d => d.data().status !== 'pending').map(d => { const data = d.data() as SwapRequest; return { id: d.id, ...data, isOutgoing: false, otherUserName: getUserName(data.from) }; });
+      const list = snap.docs.filter(d => d.data().status !== 'pending').map(d => { const data = d.data() as SwapRequest; return { ...data, id: d.id, isOutgoing: false, otherUserName: getUserName(data.from) }; });
       setReceivedHistory(list);
     });
     const qLeaves = query(collection(db, 'leaveRequests'), where('from', '==', currentUserId));
     getDocs(qLeaves).then((snap) => {
-      setLeaveHistory(snap.docs.map(d => ({ id: d.id, ...d.data() } as LeaveRequestWithId)).reverse());
+      setLeaveHistory(snap.docs.map(d => ({ ...d.data(), id: d.id } as LeaveRequestWithId)).reverse());
     });
   }, [currentUserId, users, refreshTrigger]);
 
@@ -636,17 +650,46 @@ const DoctorDashboard: React.FC = () => {
   const handleLeaveSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUserId) return;
+    
+    const targetManagerId = selectedManagerId || currentUserData?.managerId || null;
+    const targetSupervisorId = selectedSupervisorId || currentUserData?.supervisorId || null;
+
+    if (!targetManagerId) {
+        setToast({ msg: 'Please select a manager', type: 'error' });
+        return;
+    }
+    if (!targetSupervisorId) {
+        setToast({ msg: 'Please select a supervisor', type: 'error' });
+        return;
+    }
+    if (relieverIds.length === 0) {
+        setToast({ msg: 'Please select at least one reliever', type: 'error' });
+        return;
+    }
+
     try {
+      // If supervisor and manager are the same, skip supervisor step
+      const skipSupervisor = !targetSupervisorId || targetSupervisorId === targetManagerId;
+      
+      const status = relieverIds.length > 0 ? 'pending_reliever' : (skipSupervisor ? 'pending_manager' : 'pending_supervisor');
+      
       await addDoc(collection(db, 'leaveRequests'), { 
           from: currentUserId, 
+          typeOfLeave: leaveType,
           startDate: leaveStart, 
           endDate: leaveEnd, 
+          duration: leaveDuration,
           reason: leaveReason, 
-          status: 'pending', 
+          relieverIds: relieverIds,
+          supervisorId: targetSupervisorId,
+          managerId: targetManagerId,
+          dateHired: dateHired,
+          dueDateForLeave: dueDateForLeave,
+          status: status, 
           createdAt: Timestamp.now() 
       });
       setToast({ msg: t('save'), type: 'success' });
-      setLeaveStart(''); setLeaveEnd(''); setLeaveReason('');
+      setLeaveStart(''); setLeaveEnd(''); setLeaveReason(''); setLeaveDuration(''); setRelieverIds([]); setDateHired(''); setDueDateForLeave(''); setSelectedManagerId(''); setSelectedSupervisorId('');
     } catch (e) { 
         setToast({ msg: 'Error sending request', type: 'error' }); 
     }
@@ -1012,7 +1055,6 @@ const DoctorDashboard: React.FC = () => {
                             </form>
                         </div>
 
-                        {/* Leave Request Form */}
                         <div className="bg-white p-6 rounded-3xl shadow-lg border border-red-50 relative overflow-hidden">
                              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-rose-500 to-orange-500"></div>
                             <h3 className="font-bold text-slate-800 text-lg mb-6 flex items-center gap-2">
@@ -1021,6 +1063,17 @@ const DoctorDashboard: React.FC = () => {
                             </h3>
                             <form onSubmit={handleLeaveSubmit} className="space-y-4">
                                 <div className="grid grid-cols-2 gap-4">
+                                    <div className="col-span-2">
+                                        <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.leaveType')}</label>
+                                        <select className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={leaveType} onChange={e => setLeaveType(e.target.value)}>
+                                            <option value="Annual">{t('action.annual_leave')}</option>
+                                            <option value="Sick">{t('action.sick_leave')}</option>
+                                            <option value="Emergency">Emergency Leave</option>
+                                            <option value="Unpaid">Unpaid Leave</option>
+                                            <option value="1-hour-exit">1-hour exit permission</option>
+                                            <option value="Other">Other</option>
+                                        </select>
+                                    </div>
                                     <div>
                                         <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.from')}</label>
                                         <input type="date" className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={leaveStart} onChange={e => setLeaveStart(e.target.value)} required />
@@ -1028,6 +1081,62 @@ const DoctorDashboard: React.FC = () => {
                                     <div>
                                         <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.to')}</label>
                                         <input type="date" className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={leaveEnd} onChange={e => setLeaveEnd(e.target.value)} required />
+                                    </div>
+                                    <div className="col-span-2">
+                                        <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.duration')}</label>
+                                        <input type="text" placeholder="e.g., 5 days" className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={leaveDuration} onChange={e => setLeaveDuration(e.target.value)} />
+                                    </div>
+                                    <div className="col-span-2">
+                                        <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.relievers')}</label>
+                                        <select multiple className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100 min-h-[100px]" value={relieverIds} onChange={e => {
+                                            const selected = Array.from(e.target.selectedOptions, option => option.value);
+                                            setRelieverIds(selected);
+                                        }}>
+                                            {users.filter(u => u.id !== currentUserId).map(u => (
+                                                <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                                            ))}
+                                        </select>
+                                        <p className="text-[10px] text-slate-400 mt-1">{t('user.req.holdCtrl')}</p>
+                                    </div>
+                                    <div className="col-span-2">
+                                        <label className="block text-xs font-bold text-slate-400 mb-1">Select Manager</label>
+                                        {currentUserData?.managerId ? (
+                                            <div className="bg-slate-50 p-3 rounded-xl text-sm font-bold text-slate-600 border border-slate-100 flex items-center justify-between">
+                                                <span>{users.find(u => u.id === currentUserData.managerId)?.name || 'Assigned Manager'}</span>
+                                                <span className="text-[10px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full">Assigned</span>
+                                            </div>
+                                        ) : (
+                                            <select className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={selectedManagerId} onChange={e => setSelectedManagerId(e.target.value)}>
+                                                <option value="">Select Manager...</option>
+                                                {users.filter(u => u.role === 'supervisor' || u.role === 'admin' || u.role === 'manager').map(u => (
+                                                    <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                                                ))}
+                                            </select>
+                                        )}
+                                    </div>
+                                    <div className="col-span-2">
+                                        <label className="block text-xs font-bold text-slate-400 mb-1">Select Supervisor</label>
+                                        {currentUserData?.supervisorId ? (
+                                            <div className="bg-slate-50 p-3 rounded-xl text-sm font-bold text-slate-600 border border-slate-100 flex items-center justify-between">
+                                                <span>{users.find(u => u.id === currentUserData.supervisorId)?.name || 'Assigned Supervisor'}</span>
+                                                <span className="text-[10px] bg-emerald-100 text-emerald-600 px-2 py-0.5 rounded-full">Assigned</span>
+                                            </div>
+                                        ) : (
+                                            <select className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={selectedSupervisorId} onChange={e => setSelectedSupervisorId(e.target.value)}>
+                                                <option value="">Select Supervisor...</option>
+                                                {users.filter(u => u.role === 'supervisor' || u.role === 'admin' || u.role === 'manager').map(u => (
+                                                    <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                                                ))}
+                                            </select>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.dateHired')}</label>
+                                        <input type="date" className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={dateHired} onChange={e => setDateHired(e.target.value)} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.dueDateForLeave')}</label>
+                                        <input type="date" className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={dueDateForLeave} onChange={e => setDueDateForLeave(e.target.value)} />
                                     </div>
                                 </div>
                                 <div>

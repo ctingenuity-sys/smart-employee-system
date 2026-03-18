@@ -60,6 +60,12 @@ const translations: Record<string, { ar: string; en: string }> = {
   // --- Doctor Station ---
   'doc.station': { ar: 'محطة طبيب الأشعة', en: 'Radiologist Station' },
   
+  'rot.filter.general': { ar: 'الشهور', en: 'Months' },
+
+'rot.filter.friday':{ar:'الجمع',en:'Fridays'},
+'rot.filter.months':{ar:'الفتره',en:'Range'},
+'nav.rotation':{ar:'تدوير الجدول',en:'rotation'},
+
   // --- Sidebar Links ---
   'nav.dashboard': { ar: 'لوحة التحكم', en: 'Dashboard' },
   'nav.scheduleBuilder': { ar: 'إعداد الجداول', en: 'Schedule Builder' },
@@ -261,6 +267,7 @@ const translations: Record<string, { ar: string; en: string }> = {
   'sup.tab.market': { ar: 'سوق الورديات', en: 'Shift Market' },
   'sup.tab.leaves': { ar: 'الغيابات', en: 'Leaves' },
   'sup.tab.locations': { ar: 'الأماكن', en: 'Locations' },
+  'sup.tab.reports': { ar: 'التقارير', en: 'Reports' },
 
   'sup.user.add': { ar: 'إضافة موظف جديد', en: 'Add New Employee' },
   'sup.user.name': { ar: 'الاسم الكامل', en: 'Full Name' },

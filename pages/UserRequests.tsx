@@ -119,6 +119,13 @@ const UserRequests: React.FC = () => {
         if (!currentUserId) return;
         
         try {
+          // Determine initial status based on whether relievers are selected
+          let initialStatus = 'pending_reliever';
+          if (!relieverIds || relieverIds.length === 0) {
+              const skipSupervisor = !selectedSupervisorId || selectedSupervisorId === selectedManagerId;
+              initialStatus = skipSupervisor ? 'pending_manager' : 'pending_supervisor';
+          }
+
           await addDoc(collection(db, 'leaveRequests'), { 
               from: currentUserId, 
               typeOfLeave: leaveType,
@@ -131,7 +138,7 @@ const UserRequests: React.FC = () => {
               managerId: selectedManagerId || currentUserData?.managerId || null,
               dateHired: dateHired,
               dueDateForLeave: dueDateForLeave,
-              status: 'pending_reliever', 
+              status: initialStatus, 
               createdAt: Timestamp.now() 
           });
           setToast({ msg: t('save'), type: 'success' });

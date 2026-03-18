@@ -10,7 +10,7 @@ import Modal from '../components/Modal';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 import { appointmentsDb } from '../firebaseAppointments';
-import { collection, query, where, getCountFromServer } from 'firebase/firestore';
+import {getCountFromServer } from 'firebase/firestore';
 
 // Helper for safe dates
 const safeDate = (val: any) => {

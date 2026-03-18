@@ -925,6 +925,7 @@ const SupervisorEmployees: React.FC = () => {
         const filtered = users.filter(u => {
              // Check for hidden state
              if (u.isHidden && !hiddenEmployeesVisible) return false;
+             if (['admin', 'supervisor', 'manager'].includes(u.role)) return false;
              return (u.jobCategory || 'technician') === catId;
         });
         const categoryData = JOB_CATEGORIES.find(c => c.id === catId);
@@ -1306,6 +1307,7 @@ const SupervisorEmployees: React.FC = () => {
                                  // Check for hidden state
                                  const isHidden = (u as any).isHidden;
                                  if (isHidden && !hiddenEmployeesVisible) return false;
+                                 if (['admin', 'supervisor', 'manager'].includes(u.role)) return false;
                                  return (u.jobCategory || 'technician') === cat.id;
                             });
                             const warningCounts = getWarningCounts(catUsers, cat.id);

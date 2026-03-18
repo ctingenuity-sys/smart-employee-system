@@ -136,13 +136,13 @@ const Reports: React.FC = () => {
         const init = async () => {
             try {
                 const aSnap = await getDocs(collection(db, 'actions'));
-                setActions(aSnap.docs.map(d => ({ id: d.id, ...d.data() } as ActionLog)));
+                setActions(aSnap.docs.map(d => ({ ...d.data(), id: d.id } as ActionLog)));
 
                 const uSnap = await getDocs(collection(db, 'users'));
-                setEmployees(uSnap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
+                setEmployees(uSnap.docs.map(d => ({ ...d.data(), id: d.id } as User)));
 
                 const sSnap = await getDocs(collection(db, 'swapRequests'));
-                setSwaps(sSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+                setSwaps(sSnap.docs.map(d => ({ ...d.data(), id: d.id })));
             } catch (err) {
                 console.error(err);
             } finally {
@@ -184,8 +184,8 @@ const Reports: React.FC = () => {
                 }
 
                 const allSchedules = [
-                    ...schDateSnap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule)),
-                    ...schMonthDocs.map(d => ({ id: d.id, ...d.data() } as Schedule))
+                    ...schDateSnap.docs.map(d => ({ ...d.data(), id: d.id } as Schedule)),
+                    ...schMonthDocs.map(d => ({ ...d.data(), id: d.id } as Schedule))
                 ];
                 
                 // Deduplicate by ID
@@ -200,7 +200,7 @@ const Reports: React.FC = () => {
                     where('timestamp', '<=', Timestamp.fromDate(endDate))
                 );
                 const logsSnap = await getDocs(qLogs);
-                setAttendanceLogs(logsSnap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog)));
+                setAttendanceLogs(logsSnap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceLog)));
             } catch (err) {
                 console.error("Error fetching attendance data for reports:", err);
             }
@@ -217,7 +217,7 @@ const Reports: React.FC = () => {
             try {
                 const qData = query(collection(appointmentsDb, 'appointments'), where('date', '>=', start), where('date', '<=', end), where('status', '==', 'done'), orderBy('date', 'asc'), orderBy('time', 'asc'));
                 const dataSnap = await getDocs(qData);
-                const data = dataSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                const data = dataSnap.docs.map(d => ({ ...d.data(), id: d.id }));
                 const error = null;
 
                 if (error) throw error;

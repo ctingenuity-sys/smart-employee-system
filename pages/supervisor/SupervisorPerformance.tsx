@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { appointmentsDb } from '../../firebaseAppointments';
-import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db, auth } from '../../firebase';
 // @ts-ignore
 import { collection, addDoc, query, where, getDocs, Timestamp, orderBy } from 'firebase/firestore';
@@ -128,7 +127,7 @@ const SupervisorPerformance: React.FC = () => {
         try {
             const q = query(collection(db, 'performance_archives'), orderBy('month', 'desc'));
             const snap = await getDocs(q);
-            const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as ArchivedReport));
+            const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as ArchivedReport));
             setArchivedReports(list);
         } catch (e) {
             console.error(e);

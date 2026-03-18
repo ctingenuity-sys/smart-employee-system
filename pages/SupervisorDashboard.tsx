@@ -2,6 +2,7 @@
 // ... existing imports
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
+import { db as certDb } from '../firebaseData';
 // @ts-ignore
 import { collection, query, where, getDocs, orderBy, limit, Timestamp, addDoc, writeBatch, doc, QuerySnapshot, DocumentData, onSnapshot } from 'firebase/firestore';
 import { User, SwapRequest, LeaveRequest, AttendanceLog, Schedule } from '../types';
@@ -13,6 +14,16 @@ import { PrintHeader } from '../components/PrintLayout';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../App';
 import { UserRole } from '../types';
+
+interface DashboardAlert {
+    id: string;
+    title: string;
+    subtitle: string;
+    date: string;
+    type: 'warning' | 'danger';
+    link: string;
+    icon: string;
+}
 
 const convertTo24Hour = (timeStr: string): string | null => {
     if (!timeStr) return null;
@@ -86,6 +97,7 @@ const SupervisorDashboard: React.FC = () => {
   });
   const [feedbackForm, setFeedbackForm] = useState({ message: '', category: '' });
   const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error', duration?: number} | null>(null);
+  const [alerts, setAlerts] = useState<DashboardAlert[]>([]);
 
   const currentAdminName = localStorage.getItem('username') || 'Admin';
   const currentAdminId = auth.currentUser?.uid;
@@ -105,7 +117,7 @@ const SupervisorDashboard: React.FC = () => {
       let unsubMarket: any;
       let unsubAppt: any;
 
-      const qSwaps = query(collection(db, 'swapRequests'), where('status', 'in', ['pending', 'approvedByUser']));
+      const qSwaps = query(collection(db, 'swapRequests'), where('status', '==', 'approvedByUser'));
       unsubSwaps = onSnapshot(qSwaps, (snap: QuerySnapshot<DocumentData>) => setSwapRequestsCount(snap.size));
 
       const role = localStorage.getItem('role');
@@ -181,6 +193,94 @@ const SupervisorDashboard: React.FC = () => {
           if (unsubAppt) unsubAppt();
       };
   }, [refreshTrigger, currentAdminId]);
+
+  // --- Fetch Expiry Alerts ---
+  useEffect(() => {
+      if (users.length === 0) return;
+
+      const fetchAlerts = async () => {
+          const newAlerts: DashboardAlert[] = [];
+          const today = new Date();
+          const thirtyDaysFromNow = new Date();
+          thirtyDaysFromNow.setDate(today.getDate() + 30);
+
+          const checkExpiry = (dateStr: string | undefined, title: string, subtitle: string, link: string, icon: string) => {
+              if (!dateStr) return;
+              const expiry = new Date(dateStr);
+              if (isNaN(expiry.getTime())) return;
+
+              if (expiry < today) {
+                  newAlerts.push({ id: Math.random().toString(), title, subtitle, date: dateStr, type: 'danger', link, icon });
+              } else if (expiry <= thirtyDaysFromNow) {
+                  newAlerts.push({ id: Math.random().toString(), title, subtitle, date: dateStr, type: 'warning', link, icon });
+              }
+          };
+
+          try {
+              // 1. Employee Certificates
+              const empSnap = await getDocs(collection(certDb, 'employee_records'));
+              empSnap.forEach(doc => {
+                  const data = doc.data();
+                  const userName = users.find(u => u.id === doc.id)?.name || 'Employee';
+                  
+                  checkExpiry(data.licenseExpiry, 'License Expiry', userName, '/supervisor/employees', 'fa-id-card');
+                  checkExpiry(data.registrationExpiry, 'Registration Expiry', userName, '/supervisor/employees', 'fa-file-contract');
+                  checkExpiry(data.nrrcExpiry, 'NRRC Expiry', userName, '/supervisor/employees', 'fa-radiation');
+                  
+                  if (data.documents && Array.isArray(data.documents)) {
+                      data.documents.forEach((d: any) => {
+                          if (d.expiryDate) {
+                              checkExpiry(d.expiryDate, `Document: ${d.name}`, userName, '/supervisor/employees', 'fa-file-alt');
+                          }
+                      });
+                  }
+              });
+
+              // 2. Device Inventory
+              const devSnap = await getDocs(collection(certDb, 'inventory_devices'));
+              devSnap.forEach(doc => {
+                  const data = doc.data();
+                  checkExpiry(data.maintDate, 'Device PPM Expiry', data.name || `Device ${data.serial}`, '/supervisor/devices', 'fa-tools');
+                  checkExpiry(data.qualDate, 'Device QC Expiry', data.name || `Device ${data.serial}`, '/supervisor/devices', 'fa-microscope');
+              });
+
+              // 3. FMS Reports
+              const fmsSnap = await getDocs(collection(certDb, 'fms_reports'));
+              fmsSnap.forEach(doc => {
+                  const data = doc.data();
+                  if (data.items && data.items.length > 0) {
+                      const sortedItems = data.items.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                      const latestDate = sortedItems[0].date;
+                      checkExpiry(latestDate, 'FMS Report Expiry', data.name || 'Report', '/supervisor/fms', 'fa-fire-extinguisher');
+                  }
+              });
+
+              // 4. Room Reports
+              const roomSnap = await getDocs(collection(certDb, 'room_reports'));
+              roomSnap.forEach(doc => {
+                  const data = doc.data();
+                  if (data.surveyDate) {
+                      const expiry = new Date(data.surveyDate);
+                      expiry.setFullYear(expiry.getFullYear() + 1); // 1 year validity
+                      checkExpiry(expiry.toISOString().split('T')[0], 'Room Survey Expiry', `Room ${data.number}`, '/supervisor/rooms', 'fa-door-open');
+                  }
+              });
+
+              // Sort alerts: danger first, then warning, then by date
+              newAlerts.sort((a, b) => {
+                  if (a.type === 'danger' && b.type === 'warning') return -1;
+                  if (a.type === 'warning' && b.type === 'danger') return 1;
+                  return new Date(a.date).getTime() - new Date(b.date).getTime();
+              });
+
+              setAlerts(newAlerts);
+          } catch (error) {
+              console.error("Error fetching alerts:", error);
+          }
+      };
+
+      fetchAlerts();
+  }, [users]);
 
   // --- On Shift Logic (Updated for Presence) ---
   useEffect(() => {
@@ -348,6 +448,7 @@ const SupervisorDashboard: React.FC = () => {
       { id: 'history', title: 'History', icon: 'fa-history', path: '/supervisor/history', color: 'bg-slate-600', permission: 'sup_history' },
       { id: 'performance', title: 'Performance', icon: 'fa-chart-bar', path: '/supervisor/performance', color: 'bg-violet-600', permission: 'sup_performance' },
       { id: 'archive', title: 'Data Archiver', icon: 'fa-box-archive', path: '/supervisor/archive', color: 'bg-slate-800', permission: 'sup_archive' },
+      { id: 'reports', title: t('sup.tab.reports'), icon: 'fa-file-alt', path: '/reports', color: 'bg-emerald-600', permission: 'sup_reports' },
   ].filter(item => canAccess(item.permission));
 
   // New Buttons for Safety & Facility Management
@@ -388,7 +489,7 @@ const SupervisorDashboard: React.FC = () => {
                     <div className="flex justify-between items-start relative z-10">
                         <div>
                             <p className="text-indigo-100 font-bold text-xs uppercase tracking-widest mb-1">{t('sup.totalEmp')}</p>
-                            <h3 className="text-4xl font-black">{users.length}</h3>
+                            <h3 className="text-4xl font-black">{users.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)).length}</h3>
                         </div>
                         <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-2xl backdrop-blur-md">
                             <i className="fas fa-users"></i>
@@ -599,6 +700,32 @@ const SupervisorDashboard: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Expiry Alerts */}
+            {alerts.length > 0 && (
+                <div className="mt-8 bg-white rounded-[2rem] shadow-sm border border-slate-200 p-8 relative overflow-hidden">
+                    <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2 relative z-10">
+                        <i className="fas fa-exclamation-triangle text-red-500"></i> Expiry Alerts
+                        <span className="bg-red-100 text-red-600 text-xs px-2 py-1 rounded-full">{alerts.length}</span>
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                        {alerts.map(alert => (
+                            <div key={alert.id} onClick={() => navigate(alert.link)} className={`cursor-pointer p-4 rounded-xl border ${alert.type === 'danger' ? 'bg-red-50 border-red-200 hover:bg-red-100' : 'bg-amber-50 border-amber-200 hover:bg-amber-100'} transition-colors flex items-start gap-3`}>
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0 ${alert.type === 'danger' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'}`}>
+                                    <i className={`fas ${alert.icon}`}></i>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <h4 className={`font-bold text-sm truncate ${alert.type === 'danger' ? 'text-red-800' : 'text-amber-800'}`}>{alert.title}</h4>
+                                    <p className={`text-xs truncate ${alert.type === 'danger' ? 'text-red-600' : 'text-amber-600'}`}>{alert.subtitle}</p>
+                                    <p className={`text-[10px] font-mono mt-1 ${alert.type === 'danger' ? 'text-red-500' : 'text-amber-500'}`}>
+                                        {alert.type === 'danger' ? 'Expired: ' : 'Expires: '} {alert.date}
+                                    </p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Floating On Shift Widget */}
             {/* Floating On Shift Widget */}

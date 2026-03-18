@@ -61,64 +61,52 @@ const UserIncoming: React.FC = () => {
             setIncomingSwaps(reqs);
         });
 
-        const qLeaves = query(collection(db, 'leaveRequests'), where('relieverIds', 'array-contains', currentUserId), where('status', '==', 'pending_reliever'));
-        getDocs(qLeaves).then(async (snap) => {
-            const reqs = await Promise.all(snap.docs.map(async d => {
-                const data = d.data() as LeaveRequest;
-                let fromName = "Unknown";
-                try {
-                    const uDoc = await getDoc(doc(db, 'users', data.from));
-                    if (uDoc.exists()) fromName = uDoc.data().name || uDoc.data().email;
-                } catch(e){}
-                
-                if (data.relieverApprovals && data.relieverApprovals[currentUserId]) return null;
-                return { ...data, id: d.id, fromUser: { id: data.from, name: fromName } };
-            }));
-            const filtered = reqs.filter(r => r !== null) as LeaveRequestWithUser[];
-            setIncomingLeaves(prev => {
-                const existingIds = new Set(prev.map(r => r.id));
-                const newOnes = filtered.filter(r => !existingIds.has(r.id));
-                return [...prev, ...newOnes];
-            });
-        });
+        const fetchLeaves = async () => {
+            const leaves: LeaveRequestWithUser[] = [];
 
-        // NEW: Supervisor Approvals in Inbox
-        const qSupLeaves = query(collection(db, 'leaveRequests'), where('supervisorId', '==', currentUserId), where('status', '==', 'pending_supervisor'));
-        getDocs(qSupLeaves).then(async (snap) => {
-            const reqs = await Promise.all(snap.docs.map(async d => {
+            // 1. Reliever Approvals
+            const qLeaves = query(collection(db, 'leaveRequests'), where('relieverIds', 'array-contains', currentUserId), where('status', '==', 'pending_reliever'));
+            const snap1 = await getDocs(qLeaves);
+            for (const d of snap1.docs) {
                 const data = d.data() as LeaveRequest;
+                if (data.relieverApprovals && data.relieverApprovals[currentUserId]) continue;
                 let fromName = "Unknown";
                 try {
                     const uDoc = await getDoc(doc(db, 'users', data.from));
                     if (uDoc.exists()) fromName = uDoc.data().name || uDoc.data().email;
                 } catch(e){}
-                return { ...data, id: d.id, fromUser: { id: data.from, name: fromName } };
-            }));
-            setIncomingLeaves(prev => {
-                const existingIds = new Set(prev.map(r => r.id));
-                const newOnes = reqs.filter(r => !existingIds.has(r.id));
-                return [...prev, ...newOnes];
-            });
-        });
+                leaves.push({ ...data, id: d.id, fromUser: { id: data.from, name: fromName } });
+            }
 
-        // NEW: Manager Approvals in Inbox
-        const qManLeaves = query(collection(db, 'leaveRequests'), where('managerId', '==', currentUserId), where('status', '==', 'pending_manager'));
-        getDocs(qManLeaves).then(async (snap) => {
-            const reqs = await Promise.all(snap.docs.map(async d => {
+            // 2. Supervisor Approvals
+            const qSupLeaves = query(collection(db, 'leaveRequests'), where('supervisorId', '==', currentUserId), where('status', '==', 'pending_supervisor'));
+            const snap2 = await getDocs(qSupLeaves);
+            for (const d of snap2.docs) {
                 const data = d.data() as LeaveRequest;
                 let fromName = "Unknown";
                 try {
                     const uDoc = await getDoc(doc(db, 'users', data.from));
                     if (uDoc.exists()) fromName = uDoc.data().name || uDoc.data().email;
                 } catch(e){}
-                return { ...data, id: d.id, fromUser: { id: data.from, name: fromName } };
-            }));
-            setIncomingLeaves(prev => {
-                const existingIds = new Set(prev.map(r => r.id));
-                const newOnes = reqs.filter(r => !existingIds.has(r.id));
-                return [...prev, ...newOnes];
-            });
-        });
+                leaves.push({ ...data, id: d.id, fromUser: { id: data.from, name: fromName } });
+            }
+
+            // 3. Manager Approvals
+            const qManLeaves = query(collection(db, 'leaveRequests'), where('managerId', '==', currentUserId), where('status', '==', 'pending_manager'));
+            const snap3 = await getDocs(qManLeaves);
+            for (const d of snap3.docs) {
+                const data = d.data() as LeaveRequest;
+                let fromName = "Unknown";
+                try {
+                    const uDoc = await getDoc(doc(db, 'users', data.from));
+                    if (uDoc.exists()) fromName = uDoc.data().name || uDoc.data().email;
+                } catch(e){}
+                leaves.push({ ...data, id: d.id, fromUser: { id: data.from, name: fromName } });
+            }
+
+            setIncomingLeaves(leaves);
+        };
+        fetchLeaves();
 
         // Fetch my own pending leave requests
         const qMyLeaves = query(

@@ -847,7 +847,7 @@ const handleGenerateManualCode = () => {
                                 ) : (
                                     <i className="fas fa-shield-check text-lg group-hover:rotate-12 transition-transform"></i>
                                 )}
-                                <span>{generatedCode ? t('update') : t('dash.locationCode')}</span>
+                                <span>{generatedCode ? t('update') : t('user.generate')}</span>
                             </button>
                         </div>
                     </div>

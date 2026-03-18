@@ -526,7 +526,7 @@ const UserHistory: React.FC = () => {
                                 <td colspan="3">
                                     <div class="section-title-flex">
                                         <span>AUTHORIZATION</span>
-                                        <span>المصدقة</span>
+                                        <span>المصادقة</span>
                                     </div>
                                 </td>
                             </tr>

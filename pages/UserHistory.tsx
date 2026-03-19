@@ -531,7 +531,20 @@ const UserHistory: React.FC = () => {
                                 </td>
                             </tr>
                             
+                          
                             <tr>
+                                <td class="label-en">Reliever:</td>
+                                <td class="value">${relieverDataList.map(r => r.name).join(', ')}</td>
+                                <td class="label-ar">الاسم البديل:</td>
+                            </tr>
+                            <tr>
+                                <td class="label-en">Signature of Reliever:</td>
+                                <td class="value" style="position: relative; height: 60px;">
+                                    ${relieverDataList.map((r, idx) => renderStamp(r.name, r.job, 'AL JEDAANI HOSPITAL', idx, relieverDataList.length)).join('')}
+                                </td>
+                                <td class="label-ar">توقيع البديل:</td>
+                            </tr>
+                              <tr>
                                 <td class="label-en">Head of Department:</td>
                                 <td class="value" style="position: relative; height: 60px;">
                                     <div style="font-size: 11px; margin-bottom: 2px;"></div>
@@ -540,9 +553,9 @@ const UserHistory: React.FC = () => {
                                 <td class="label-ar">رئيس القسم:</td>
                             </tr>
                             <tr>
-                                <td class="label-en">Manager:</td>
+                                <td class="label-en">APPROVAL:</td>
                                 <td class="value"></td>
-                                <td class="label-ar">المدير:</td>
+                                <td class="label-ar">الموافقه:</td>
                             </tr>
                             <tr>
                                 <td colspan="3">
@@ -557,18 +570,6 @@ const UserHistory: React.FC = () => {
                                         </div>
                                     </div>
                                 </td>
-                            </tr>
-                            <tr>
-                                <td class="label-en">Reliever:</td>
-                                <td class="value">${relieverDataList.map(r => r.name).join(', ')}</td>
-                                <td class="label-ar">الاسم البديل:</td>
-                            </tr>
-                            <tr>
-                                <td class="label-en">Signature of Reliever:</td>
-                                <td class="value" style="position: relative; height: 60px;">
-                                    ${relieverDataList.map((r, idx) => renderStamp(r.name, r.job, 'AL JEDAANI HOSPITAL', idx, relieverDataList.length)).join('')}
-                                </td>
-                                <td class="label-ar">توقيع البديل:</td>
                             </tr>
                             <tr>
                                 <td class="label-en">Signature, Head of Department:</td>

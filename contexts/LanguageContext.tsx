@@ -292,6 +292,8 @@ const translations: Record<string, { ar: string; en: string }> = {
   'user.code': { ar: 'كود الموقع', en: 'Location Code' },
   'user.generate': { ar: 'توليد الكود', en: 'Generate Code' },
   'user.copy': { ar: 'نسخ وإغلاق', en: 'Copy & Close' },
+  'user.female': { ar: 'أنثى', en: 'Female' },
+  'user.male': { ar: 'ذكر', en: 'Male' },
   
   'user.tab.schedule': { ar: 'التذاكر (الجدول)', en: 'My Tickets' },
   'user.tab.market': { ar: 'تغطية وردية', en: 'Cover Shift' },

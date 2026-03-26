@@ -59,6 +59,8 @@ interface FridayScheduleViewProps {
   onRemoveColumn: (colId: string) => void;
 }
 
+type HeaderColor = 'teal' | 'blue' | 'purple' | 'rose' | 'indigo' | 'amber' | 'cyan' | 'emerald' | 'slate' | 'violet';
+
 const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({ 
     searchTerm, 
     data, 
@@ -73,7 +75,7 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
     onRemoveColumn
 }) => {
     const [editDragItem, setEditDragItem] = useState<{ rowIndex: number, column: string, index: number } | null>(null);
-    const [headerColor, setHeaderColor] = useState<any>('teal');
+    const [headerColor, setHeaderColor] = useState<HeaderColor>('teal');
     const [customTitle, setCustomTitle] = useState('');
 
     useEffect(() => {
@@ -286,17 +288,31 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                             </div>
                             
                             {/* Extra Fields in Edit Mode */}
-                            <div className="flex gap-1 pl-5">
-                                <input
-                                    value={s.time || ''}
-                                    onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'time', e.target.value)}
-                                    className="w-1/2 text-[10px] p-1 bg-slate-50 border border-slate-200 rounded outline-none focus:border-blue-300"
-                                    placeholder="Time"
-                                />
+                            <div className="flex flex-col gap-1 pl-5">
+                                <div className="flex gap-1">
+                                    <input
+                                        value={s.time || ''}
+                                        onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'time', e.target.value)}
+                                        className="w-1/2 text-[10px] p-1 bg-slate-50 border border-slate-200 rounded outline-none focus:border-blue-300"
+                                        placeholder="Time"
+                                    />
+                                    <select
+                                        value={s.shiftType || 'morning'}
+                                        onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'shiftType', e.target.value)}
+                                        className="w-1/2 text-[10px] p-1 bg-slate-50 border border-slate-200 rounded outline-none focus:border-blue-300 font-bold"
+                                    >
+                                        <option value="morning">Morning</option>
+                                        <option value="evening">Evening</option>
+                                        <option value="night">Night</option>
+                                        <option value="broken">Broken</option>
+                                        <option value="high_broken">High Broken</option>
+                                        <option value="long_duty">Long Duty</option>
+                                    </select>
+                                </div>
                                 <input
                                     value={s.note || ''}
                                     onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'note', e.target.value)}
-                                    className="w-1/2 text-[10px] p-1 bg-yellow-50 border border-yellow-200 rounded outline-none focus:border-yellow-400 text-yellow-800"
+                                    className="w-full text-[10px] p-1 bg-yellow-50 border border-yellow-200 rounded outline-none focus:border-yellow-400 text-yellow-800"
                                     placeholder="Note"
                                 />
                             </div>
@@ -324,9 +340,17 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                             print:shadow-none print:px-1 print:py-0.5 print:rounded-md print:border-transparent`}
                             dir="ltr"
                         >
-                            <span className="font-bold print:text-[10px] leading-tight">
-                                {highlightMatch(s.name)}
-                            </span>
+                            <div className="flex items-center gap-1 justify-center w-full">
+                                {s.shiftType === 'morning' && <i className="fas fa-sun text-[10px] text-amber-500 print:hidden"></i>}
+                                {s.shiftType === 'evening' && <i className="fas fa-moon text-[10px] text-indigo-500 print:hidden"></i>}
+                                {s.shiftType === 'night' && <i className="fas fa-star text-[10px] text-purple-500 print:hidden"></i>}
+                                {s.shiftType === 'broken' && <i className="fas fa-cut text-[10px] text-red-500 print:hidden"></i>}
+                                {s.shiftType === 'high_broken' && <i className="fas fa-bolt text-[10px] text-red-700 print:hidden"></i>}
+                                {s.shiftType === 'long_duty' && <i className="fas fa-arrow-right text-[10px] text-emerald-500 print:hidden"></i>}
+                                <span className="font-bold print:text-[10px] leading-tight">
+                                    {highlightMatch(s.name)}
+                                </span>
+                            </div>
                             
                             {s.time && (
                                 <span className="text-[10px] font-mono bg-white/50 px-1 rounded mt-0.5 print:text-[9px] print:bg-transparent print:p-0 print:mt-0 leading-none">
@@ -375,10 +399,10 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                     />
                     
                     <div className="flex gap-1 bg-white/10 p-1 rounded-full">
-                        {['teal', 'blue', 'purple', 'rose', 'indigo', 'amber', 'cyan', 'emerald'].map(c => (
+                        {['teal', 'blue', 'purple', 'rose', 'indigo', 'amber', 'cyan', 'emerald', 'slate', 'violet'].map(c => (
                             <button 
                                 key={c}
-                                onClick={() => setHeaderColor(c)}
+                                onClick={() => setHeaderColor(c as HeaderColor)}
                                 className={`w-6 h-6 rounded-full border-2 border-white/50 hover:scale-110 transition-transform ${
                                     c === 'teal' ? 'bg-teal-600' :
                                     c === 'blue' ? 'bg-blue-600' :
@@ -387,7 +411,9 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                                     c === 'indigo' ? 'bg-indigo-600' :
                                     c === 'amber' ? 'bg-amber-600' :
                                     c === 'cyan' ? 'bg-cyan-600' :
-                                    'bg-emerald-600'
+                                    c === 'emerald' ? 'bg-emerald-600' :
+                                    c === 'slate' ? 'bg-slate-600' :
+                                    'bg-violet-600'
                                 } ${headerColor === c ? 'ring-2 ring-white scale-110' : ''}`}
                                 title={c}
                             />

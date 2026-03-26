@@ -140,7 +140,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
   }
 
   // --- Logic Handlers ---
-  const handleStaffChange = (colIndex: number, staffIndex: number, field: 'name' | 'time' | 'startDate' | 'endDate' | 'note', value: string) => {
+  const handleStaffChange = (colIndex: number, staffIndex: number, field: 'name' | 'time' | 'startDate' | 'endDate' | 'note' | 'shiftType', value: string) => {
       const newCols = [...data];
       const newStaff = [...newCols[colIndex].staff];
       newStaff[staffIndex] = { ...newStaff[staffIndex], [field]: value };
@@ -254,7 +254,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
       } catch (err) { console.error("Duty Drop error", err); }
   };
 
-  const handleDutyStaffChange = (dutyIndex: number, staffIndex: number, field: 'name' | 'time' | 'startDate' | 'endDate' | 'note', val: string) => {
+  const handleDutyStaffChange = (dutyIndex: number, staffIndex: number, field: 'name' | 'time' | 'startDate' | 'endDate' | 'note' | 'shiftType', val: string) => {
      const newDuties = [...commonDuties];
      const newStaffList = [...newDuties[dutyIndex].staff];
      newStaffList[staffIndex] = { ...newStaffList[staffIndex], [field]: val };
@@ -274,7 +274,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
       onUpdateDuty(dutyIndex, newDuties[dutyIndex]);
   };
 
-  const renderCard = (column: ModalityColumn, colIndex: number) => {
+    const renderCard = (column: ModalityColumn, colIndex: number) => {
     // Select fixed color based on column index
     const fixedColorClass = fixedHeaderColors[colIndex % fixedHeaderColors.length];
     
@@ -282,6 +282,12 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
     const bgClass = fixedColorClass.split(' ').find(c => c.startsWith('bg-')) || 'bg-slate-800';
     const textClass = 'text-white';
     const borderClass = fixedColorClass.split(' ').find(c => c.startsWith('border-')) || 'border-slate-900';
+
+    const morningCount = column.staff.filter(s => s.shiftType === 'morning').length;
+    const eveningCount = column.staff.filter(s => s.shiftType === 'evening').length;
+    const nightCount = column.staff.filter(s => s.shiftType === 'night').length;
+    const brokenCount = column.staff.filter(s => s.shiftType === 'broken').length;
+    const longDutyCount = column.staff.filter(s => s.shiftType === 'long_duty').length;
 
     return (
         <div 
@@ -343,6 +349,16 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                     <span dir="ltr" className="hidden print:block font-sans">{column.defaultTime}</span>
                 </div>
             )}
+            
+            {/* Shift Counts */}
+            {(morningCount > 0 || eveningCount > 0 || nightCount > 0 || brokenCount > 0 || longDutyCount > 0) && (
+                <div className="flex items-center justify-center gap-3 mt-2 text-[10px] font-bold bg-black/20 px-2 py-1 rounded-full print:hidden">
+                    {morningCount > 0 && <span className="flex items-center gap-1"><i className="fas fa-sun text-amber-300"></i> {morningCount}</span>}
+                    {eveningCount > 0 && <span className="flex items-center gap-1"><i className="fas fa-cloud-sun text-orange-300"></i> {eveningCount}</span>}
+                    {nightCount > 0 && <span className="flex items-center gap-1"><i className="fas fa-moon text-indigo-300"></i> {nightCount}</span>}
+                    {brokenCount > 0 && <span className="flex items-center gap-1"><i className="fas fa-unlink text-red-300"></i> {brokenCount}</span>}
+                    {longDutyCount > 0 && <span className="flex items-center gap-1"><i className="fas fa-clock text-green-300"></i> {longDutyCount}</span>}                </div>
+            )}
         </div>
 
         <div 
@@ -380,23 +396,42 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
 
                 <div className={`flex flex-col items-center gap-0 w-full justify-center`}>
                     {isEditing ? (
-                        <input 
-                            value={staff.name} 
-                            onChange={(e) => handleStaffChange(colIndex, staffIndex, 'name', e.target.value)}
-                            onMouseDown={(e) => e.stopPropagation()} 
-                            className="w-full bg-white border border-slate-200 rounded px-1 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-blue-300 mb-1 print:hidden font-oswald"
-                            placeholder="Name"
-                        />
+                        <div className="w-full flex items-center gap-1 mb-1">
+                            {staff.shiftType === 'morning' && <i className="fas fa-sun text-amber-500 text-xs"></i>}
+                            {staff.shiftType === 'evening' && <i className="fas fa-cloud-sun text-orange-500 text-xs"></i>}
+                            {staff.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-xs"></i>}
+                            {staff.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-xs"></i>}
+                            {staff.shiftType === 'long_duty' && <i className="fas fa-clock text-green-500 text-sm" title="Long Duty"></i>}
+                            <input 
+                                value={staff.name} 
+                                onChange={(e) => handleStaffChange(colIndex, staffIndex, 'name', e.target.value)}
+                                onMouseDown={(e) => e.stopPropagation()} 
+                                className="w-full bg-white border border-slate-200 rounded px-1 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-blue-300 print:hidden font-oswald"
+                                placeholder="Name"
+                            />
+                        </div>
                     ) : (
-                        <span className={`text-lg font-medium text-center whitespace-nowrap overflow-hidden text-ellipsis w-full print:hidden font-oswald tracking-wide`}>
-                                {staff.name}
-                        </span>
+                        <div className={`text-lg font-medium text-center whitespace-nowrap overflow-hidden text-ellipsis w-full print:hidden font-oswald tracking-wide flex items-center justify-center gap-1.5`}>
+                                {staff.shiftType === 'morning' && <i className="fas fa-sun text-amber-500 text-sm" title="Morning Shift"></i>}
+                                {staff.shiftType === 'evening' && <i className="fas fa-cloud-sun text-orange-500 text-sm" title="Evening Shift"></i>}
+                                {staff.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-sm" title="Night Shift"></i>}
+                                {staff.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-sm" title="Broken Shift"></i>}
+                                {staff.shiftType === 'high_broken' && <i className="fas fa-bolt text-red-700 text-sm" title="High Broken Shift"></i>}
+                                {staff.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-sm" title="Long duty Shift"></i>}
+                                <span>{staff.name}</span>
+                        </div>
                     )}
                     
                     {/* View/Print Name - OSWALD FONT */}
-                    <span className={`hidden print:block text-lg font-medium font-oswald tracking-wide print:text-black print:text-[15px] md:print:text-[16px] print:leading-tight text-center whitespace-nowrap overflow-hidden text-ellipsis w-full`}>
-                        {staff.name}
-                    </span>
+                    <div className={`hidden print:flex items-center justify-center gap-1 text-lg font-medium font-oswald tracking-wide print:text-black print:text-[15px] md:print:text-[16px] print:leading-tight text-center whitespace-nowrap overflow-hidden text-ellipsis w-full`}>
+                        {staff.shiftType === 'morning' && <i className="fas fa-sun text-amber-500 text-xs"></i>}
+                        {staff.shiftType === 'evening' && <i className="fas fa-cloud-sun text-orange-500 text-xs"></i>}
+                        {staff.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-xs"></i>}
+                        {staff.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-xs"></i>}
+                        {staff.shiftType === 'high_broken' && <i className="fas fa-bolt text-red-700 text-xs"></i>}
+                        {staff.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-xs"></i>}
+                        <span>{staff.name}</span>
+                    </div>
 
                      {staff.time && (
                         <span className="hidden print:block text-[11px] font-mono font-bold text-slate-800 whitespace-nowrap print:text-[11px] print:leading-none print:mt-0" dir="ltr">{staff.time}</span>
@@ -420,13 +455,29 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                 {/* --- EDITING EXTRA FIELDS (Time, Note, Start, End) --- */}
                 {isEditing && (
                     <div className="flex flex-col w-full gap-1 mt-1 print:hidden">
-                        <input 
-                            placeholder="Time (Optional)"
-                            value={staff.time || ''} 
-                            onChange={(e) => handleStaffChange(colIndex, staffIndex, 'time', e.target.value)}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            className="w-full text-xs text-slate-500 bg-white border border-slate-200 rounded px-1 focus:outline-none"
-                        />
+                        <div className="flex gap-1">
+                            <input 
+                                placeholder="Time"
+                                value={staff.time || ''} 
+                                onChange={(e) => handleStaffChange(colIndex, staffIndex, 'time', e.target.value)}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="w-1/2 text-xs text-slate-500 bg-white border border-slate-200 rounded px-1 focus:outline-none"
+                            />
+                            <select
+                                value={staff.shiftType || ''}
+                                onChange={(e) => handleStaffChange(colIndex, staffIndex, 'shiftType', e.target.value)}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="w-1/2 text-xs text-slate-500 bg-white border border-slate-200 rounded px-1 focus:outline-none"
+                            >
+                                <option value="">Type</option>
+                                <option value="morning">Morning</option>
+                                <option value="evening">Evening</option>
+                                <option value="night">Night</option>
+                                <option value="broken">Broken</option>
+                                <option value="high_broken">High Broken</option>
+                                <option value="long_duty">Long Duty</option> {/* تم التغيير هنا */}
+                            </select>
+                        </div>
                         <input 
                             placeholder="Note (e.g. 4PM-12AM)"
                             value={staff.note || ''} 
@@ -509,6 +560,83 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
           />
       </div>
 
+      {/* Global Shift Counts Summary */}
+      {(() => {
+          let totalMorning = 0;
+          let totalEvening = 0;
+          let totalNight = 0;
+          let totalBroken = 0;
+          let totalHighBroken = 0;
+          let totalLongDuty = 0;
+          
+          data.forEach(col => {
+              col.staff.forEach(s => {
+                  if (s.shiftType === 'morning') totalMorning++;
+                  if (s.shiftType === 'evening') totalEvening++;
+                  if (s.shiftType === 'night') totalNight++;
+                  if (s.shiftType === 'broken') totalBroken++;
+                  if (s.shiftType === 'high_broken') totalHighBroken++;
+                  if (s.shiftType === 'long_duty') totalLongDuty++;
+              });
+          });
+          
+          commonDuties.forEach(duty => {
+              duty.staff.forEach(s => {
+                  if (s.shiftType === 'morning') totalMorning++;
+                  if (s.shiftType === 'evening') totalEvening++;
+                  if (s.shiftType === 'night') totalNight++;
+                  if (s.shiftType === 'broken') totalBroken++;
+                  if (s.shiftType === 'high_broken') totalHighBroken++;
+                  if (s.shiftType === 'long_duty') totalLongDuty++;
+              });
+          });
+
+          if (totalMorning > 0 || totalEvening > 0 || totalNight > 0 || totalBroken > 0 || totalHighBroken > 0 || totalLongDuty > 0) {
+              return (
+                  <div className="flex flex-wrap items-center justify-center gap-4 mb-4 bg-slate-50 border border-slate-200 p-3 rounded-xl shadow-sm print:flex print:bg-white print:border-none print:p-0 print:mb-2 print:shadow-none">
+                      <span className="font-bold text-slate-600 uppercase text-xs tracking-wider mr-2 print:text-black">Total Shifts:</span>
+                      {totalMorning > 0 && (
+                          <div className="flex items-center gap-2 bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg border border-amber-200 print:bg-white print:border-none print:p-0 print:text-black">
+                              <i className="fas fa-sun text-amber-500"></i>
+                              <span className="font-bold text-sm print:text-xs">Morning: {totalMorning}</span>
+                          </div>
+                      )}
+                      {totalEvening > 0 && (
+                          <div className="flex items-center gap-2 bg-orange-50 text-orange-700 px-3 py-1.5 rounded-lg border border-orange-200 print:bg-white print:border-none print:p-0 print:text-black">
+                              <i className="fas fa-cloud-sun text-orange-500"></i>
+                              <span className="font-bold text-sm print:text-xs">Evening: {totalEvening}</span>
+                          </div>
+                      )}
+                      {totalNight > 0 && (
+                          <div className="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-200 print:bg-white print:border-none print:p-0 print:text-black">
+                              <i className="fas fa-moon text-indigo-500"></i>
+                              <span className="font-bold text-sm print:text-xs">Night: {totalNight}</span>
+                          </div>
+                      )}
+                      {totalBroken > 0 && (
+                          <div className="flex items-center gap-2 bg-red-50 text-red-700 px-3 py-1.5 rounded-lg border border-red-200 print:bg-white print:border-none print:p-0 print:text-black">
+                              <i className="fas fa-unlink text-red-500"></i>
+                              <span className="font-bold text-sm print:text-xs">Broken: {totalBroken}</span>
+                          </div>
+                      )}
+                      {totalHighBroken > 0 && (
+                          <div className="flex items-center gap-2 bg-red-100 text-red-800 px-3 py-1.5 rounded-lg border border-red-300 print:bg-white print:border-none print:p-0 print:text-black">
+                              <i className="fas fa-bolt text-red-700"></i>
+                              <span className="font-bold text-sm print:text-xs">High Broken: {totalHighBroken}</span>
+                          </div>
+                      )}
+                      {totalLongDuty > 0 && (
+                          <div className="flex items-center gap-2 bg-green-50 text-green-700 px-3 py-1.5 rounded-lg border border-green-200 print:bg-white print:border-none print:p-0 print:text-black">
+                              <i className="fas fa-minus text-green-500"></i>
+                              <span className="font-bold text-sm print:text-xs">Long Duty: {totalLongDuty}</span>
+                          </div>
+                      )}
+                  </div>
+              );
+          }
+          return null;
+      })()}
+
       <div 
         className="columns-1 md:columns-2 lg:columns-3 xl:columns-5 gap-4 w-full print:columns-4 print:gap-1 print:w-full" 
         dir="ltr"
@@ -571,6 +699,27 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                 
                 {/* Print Time */}
                 {duty.time && <span className="hidden print:block text-[10px] bg-white/20 px-2 py-0.5 rounded text-white font-mono print:text-white/80 print:bg-white/10 print:p-0.5 print:rounded print:font-bold print:text-[11px]" dir="ltr">{duty.time}</span>}
+                
+                {/* Shift Counts */}
+                {(() => {
+                    const morningCount = duty.staff.filter(s => s.shiftType === 'morning').length;
+                    const eveningCount = duty.staff.filter(s => s.shiftType === 'evening').length;
+                    const nightCount = duty.staff.filter(s => s.shiftType === 'night').length;
+                    const brokenCount = duty.staff.filter(s => s.shiftType === 'broken').length;
+                    const long_dutyCount = duty.staff.filter(s => s.shiftType === 'long_duty').length;
+                    if (morningCount > 0 || eveningCount > 0 || nightCount > 0 || brokenCount > 0 || long_dutyCount > 0) {
+                        return (
+                            <div className="flex items-center justify-center gap-3 mt-1 text-[10px] font-bold bg-white/10 px-2 py-0.5 rounded-full print:hidden">
+                                {morningCount > 0 && <span className="flex items-center gap-1"><i className="fas fa-sun text-amber-300"></i> {morningCount}</span>}
+                                {eveningCount > 0 && <span className="flex items-center gap-1"><i className="fas fa-cloud-sun text-orange-300"></i> {eveningCount}</span>}
+                                {nightCount > 0 && <span className="flex items-center gap-1"><i className="fas fa-moon text-indigo-300"></i> {nightCount}</span>}
+                                {brokenCount > 0 && <span className="flex items-center gap-1"><i className="fas fa-unlink text-red-300"></i> {brokenCount}</span>}
+                                {long_dutyCount > 0 && <span className="flex items-center gap-1"><i className="fas fa-minus text-green-300"></i> {long_dutyCount}</span>}
+                            </div>
+                        );
+                    }
+                    return null;
+                })()}
             </div>
             
             <div 
@@ -585,6 +734,11 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                             {isEditing ? (
                                 <div className="flex flex-col gap-1 bg-white p-1 rounded border border-slate-200 shadow-sm print:hidden">
                                     <div className="flex items-center gap-1">
+                                        {s.shiftType === 'morning' && <i className="fas fa-sun text-amber-500 text-xs"></i>}
+                                        {s.shiftType === 'evening' && <i className="fas fa-cloud-sun text-orange-500 text-xs"></i>}
+                                        {s.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-xs"></i>}
+                                        {s.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-xs"></i>}
+                                        {s.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-xs"></i>}
                                         <input 
                                             value={s.name}
                                             onChange={(e) => handleDutyStaffChange(dutyIndex, sIndex, 'name', e.target.value)}
@@ -593,12 +747,27 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                                         />
                                         <button onClick={() => removeDutyStaff(dutyIndex, sIndex)} className="text-red-400 hover:text-red-600"><i className="fas fa-times"></i></button>
                                     </div>
-                                    <input 
-                                        value={s.time || ''}
-                                        onChange={(e) => handleDutyStaffChange(dutyIndex, sIndex, 'time', e.target.value)}
-                                        className="px-2 py-1 rounded text-xs w-full outline-none bg-slate-50 border border-slate-100 text-slate-500"
-                                        placeholder="Time (Optional)"
-                                    />
+                                    <div className="flex gap-1">
+                                        <input 
+                                            value={s.time || ''}
+                                            onChange={(e) => handleDutyStaffChange(dutyIndex, sIndex, 'time', e.target.value)}
+                                            className="px-2 py-1 rounded text-xs w-1/2 outline-none bg-slate-50 border border-slate-100 text-slate-500"
+                                            placeholder="Time"
+                                        />
+                                        <select
+                                            value={s.shiftType || ''}
+                                            onChange={(e) => handleDutyStaffChange(dutyIndex, sIndex, 'shiftType', e.target.value)}
+                                            className="px-2 py-1 rounded text-xs w-1/2 outline-none bg-slate-50 border border-slate-100 text-slate-500"
+                                        >
+                                                                          <option value="">Type</option>
+                                <option value="morning">Morning</option>
+                                <option value="evening">Evening</option>
+                                <option value="night">Night</option>
+                                <option value="broken">Broken</option>
+                                <option value="high_broken">High Broken</option>
+                                <option value="long_duty">Long Duty</option> {/* تم التغيير هنا */}
+                                        </select>
+                                    </div>
                                     <input 
                                         value={s.note || ''}
                                         onChange={(e) => handleDutyStaffChange(dutyIndex, sIndex, 'note', e.target.value)}
@@ -625,7 +794,14 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                                     className={`px-3 py-2 rounded-xl text-sm font-semibold border flex flex-col justify-center items-center text-center shadow-sm w-full print-color-adjust-exact print:hidden
                                         ${isMatched(s.name) ? 'bg-yellow-100 text-yellow-900 border-yellow-300' : dutyStaffColor}`}
                                 >
-                                    <span className="font-oswald tracking-wide text-xl">{highlightMatch(s.name)}</span>
+                                    <div className="flex items-center justify-center gap-1.5">
+                                        {s.shiftType === 'morning' && <i className="fas fa-sun text-amber-500 text-sm" title="Morning Shift"></i>}
+                                        {s.shiftType === 'evening' && <i className="fas fa-cloud-sun text-orange-500 text-sm" title="Evening Shift"></i>}
+                                        {s.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-sm" title="Night Shift"></i>}
+                                        {s.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-sm" title="Broken Shift"></i>}
+                                        {s.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-sm" title="Long Duty Shift"></i>}
+                                        <span className="font-oswald tracking-wide text-xl">{highlightMatch(s.name)}</span>
+                                    </div>
                                     {s.time && <span className="text-[11px] bg-white/50 px-1 py-0 rounded mt-1 font-mono border border-black/5" dir="ltr">{s.time}</span>}
                                     {s.note && <span className="text-[10px] text-amber-800 bg-amber-100 px-1 py-0.5 rounded mt-1 w-full italic">{s.note}</span>}
                                 </div>
@@ -637,7 +813,14 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                                     ${dutyStaffColor}
                                     print:rounded-lg print:border-none print:px-1 print:py-0.5 print:text-[12px] print:w-full print:gap-0 print:shadow-none print:h-full`}
                             >
-                                <span className="font-oswald font-medium text-xl print:text-[15px] print:font-medium print:leading-tight">{s.name}</span>
+                                <div className="flex items-center justify-center gap-1">
+                                    {s.shiftType === 'morning' && <i className="fas fa-sun text-amber-500 text-xs"></i>}
+                                    {s.shiftType === 'evening' && <i className="fas fa-cloud-sun text-orange-500 text-xs"></i>}
+                                    {s.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-xs"></i>}
+                                    {s.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-xs"></i>}
+                                    {s.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-xs"></i>}
+                                    <span className="font-oswald font-medium text-xl print:text-[15px] print:font-medium print:leading-tight">{s.name}</span>
+                                </div>
                                 {s.time && <span className="text-[11px] bg-white/50 px-1 py-0 rounded mt-1 font-mono border border-black/5 print:bg-white/50 print:mt-0.5 print:border-none print:text-[11px] print:font-bold print:text-black" dir="ltr">{s.time}</span>}
                                 {s.note && <span className="text-[9px] text-amber-900 bg-amber-100/50 px-1 rounded mt-0.5 print:text-[9px] print:border-0 print:bg-white/50 print:text-black font-bold print:mt-0 leading-none text-center italic">{s.note}</span>}
                                 {(s.startDate && s.endDate) && (

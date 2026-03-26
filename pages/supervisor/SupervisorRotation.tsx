@@ -146,8 +146,11 @@ const SupervisorRotation: React.FC = () => {
                               (sch.note && sch.note.toLowerCase().includes('holiday')) ||
                               (sch.periodName && sch.periodName.toLowerCase().includes('holiday'));
             const isException = sch.isException === true;
+            
+            const isCTScanSpecial = (sch.locationId && sch.locationId.toLowerCase().includes('ct scan') && sch.shifts.some(s => s.start === '09:00' && s.end === '20:00')) ||
+                                    (sch.note && sch.note.toLowerCase().includes('ct scan') && sch.note.includes('09:00 - 20:00'));
 
-            if (viewType === 'general' && (isFriday || isHoliday || isException)) {
+            if (viewType === 'general' && (isFriday || isHoliday || isException || isCTScanSpecial)) {
                 return;
             }
 
@@ -173,13 +176,8 @@ const SupervisorRotation: React.FC = () => {
                 
                 // Include shift time if available
                 let timeStr = '';
-                if (sch.shiftTime) {
-                    timeStr = ` (${sch.shiftTime})`;
-                } else if (sch.shifts && sch.shifts.length > 0) {
-                    const firstShift = sch.shifts[0];
-                    if (firstShift.start && firstShift.end) {
-                        timeStr = ` (${firstShift.start} - ${firstShift.end})`;
-                    }
+                if (sch.shifts && sch.shifts.length > 0) {
+                    timeStr = ` (${sch.shifts.map(s => `${s.start}-${s.end}`).join(', ')})`;
                 }
                 matrix[sch.userId][sch.month].departments.add(`${finalName}${timeStr}`);
             }

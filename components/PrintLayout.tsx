@@ -7,7 +7,7 @@ interface PrintHeaderProps {
   dateRange?: string;
   month?: string;
   note?: string; // NEW PROP
-  themeColor?: 'slate' | 'teal' | 'purple' | 'rose' | 'indigo'; 
+  themeColor?: 'slate' | 'teal' | 'purple' | 'rose' | 'indigo' | 'violet' | 'blue' | 'amber' | 'cyan' | 'emerald'; 
   hideCoverageBadge?: boolean; 
   compact?: boolean; 
 }
@@ -38,6 +38,11 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
         purple: { primary: 'text-purple-900', border: 'border-purple-900', bg: 'bg-purple-900', light: 'bg-purple-50' },
         rose: { primary: 'text-rose-900', border: 'border-rose-900', bg: 'bg-rose-900', light: 'bg-rose-50' },
         indigo: { primary: 'text-indigo-900', border: 'border-indigo-900', bg: 'bg-indigo-900', light: 'bg-indigo-50' },
+        violet: { primary: 'text-violet-900', border: 'border-violet-900', bg: 'bg-violet-900', light: 'bg-violet-50' },
+        blue: { primary: 'text-blue-900', border: 'border-blue-900', bg: 'bg-blue-900', light: 'bg-blue-50' },
+        amber: { primary: 'text-amber-900', border: 'border-amber-900', bg: 'bg-amber-900', light: 'bg-amber-50' },
+        cyan: { primary: 'text-cyan-900', border: 'border-cyan-900', bg: 'bg-cyan-900', light: 'bg-cyan-50' },
+        emerald: { primary: 'text-emerald-900', border: 'border-emerald-900', bg: 'bg-emerald-900', light: 'bg-emerald-50' },
     };
 
     const c = colors[themeColor] || colors.slate;
@@ -101,7 +106,7 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
     );
 };
 
-export const PrintFooter: React.FC<{ themeColor?: 'slate' | 'teal' | 'purple' | 'rose' | 'indigo' }> = ({ themeColor = 'slate' }) => {
+export const PrintFooter: React.FC<{ themeColor?: 'slate' | 'teal' | 'purple' | 'rose' | 'indigo' | 'violet' | 'blue' | 'amber' | 'cyan' | 'emerald' }> = ({ themeColor = 'slate' }) => {
     
     const colors = {
         slate: { text: 'text-slate-900', bg: 'bg-slate-900' },
@@ -109,6 +114,11 @@ export const PrintFooter: React.FC<{ themeColor?: 'slate' | 'teal' | 'purple' | 
         purple: { text: 'text-purple-900', bg: 'bg-purple-800' },
         rose: { text: 'text-rose-900', bg: 'bg-rose-800' },
         indigo: { text: 'text-indigo-900', bg: 'bg-indigo-800' },
+        violet: { text: 'text-violet-900', bg: 'bg-violet-800' },
+        blue: { text: 'text-blue-900', bg: 'bg-blue-800' },
+        amber: { text: 'text-amber-900', bg: 'bg-amber-800' },
+        cyan: { text: 'text-cyan-900', bg: 'bg-cyan-800' },
+        emerald: { text: 'text-emerald-900', bg: 'bg-emerald-800' },
     };
     const c = colors[themeColor] || colors.slate;
 

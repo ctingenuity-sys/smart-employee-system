@@ -77,6 +77,7 @@ export interface Schedule {
   month?: string; // YYYY-MM
   userType: string;
   shifts: { start: string; end: string }[];
+  shiftTime?: string; // NEW: For compatibility with some views
   note?: string;
   periodName?: string; // NEW: Custom name for the schedule period (e.g. "Ramadan 2026")
   week?: string;
@@ -87,7 +88,7 @@ export interface Schedule {
   swapRequestId?: string;
   isRamadan?: boolean; // NEW: Explicit flag to force Ramadan theme regardless of dates
   isException?: boolean; // NEW: Explicit flag for Exception days
-}
+shiftType?: 'morning' | 'evening' | 'night' | 'broken' | 'long_duty' | 'high_broken';}
 
 export interface SwapRequest {
   id: string;
@@ -334,6 +335,7 @@ export interface VisualStaff {
     startDate?: string;
     endDate?: string;
     note?: string; // Added: Note specific to this shift
+    shiftType?: 'morning' | 'evening' | 'night' | 'broken' | 'long_duty' | 'high_broken'; // NEW: Explicit shift type indicator
 }
 
 export interface ModalityColumn {
@@ -570,6 +572,7 @@ export interface OpenShift {
   id: string;
   date: string; // YYYY-MM-DD
   shiftTime: string; // e.g. "08:00 - 16:00"
+  shiftType?: 'morning' | 'evening' | 'night' | 'broken' | 'long_duty' | 'high_broken'; // NEW: Explicit shift type indicator
   locationId: string;
   notes?: string;
   status: 'open' | 'claimed' | 'approved';

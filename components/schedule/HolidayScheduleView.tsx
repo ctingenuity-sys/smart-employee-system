@@ -8,6 +8,7 @@ interface StaffMember {
     color: string;
     time?: string;
     note?: string;
+    shiftType?: 'morning' | 'evening' | 'night' | 'broken' | 'long_duty' | 'high_broken';
 }
 
 const staffColorMap = new Map<string, string>();
@@ -48,7 +49,8 @@ const mapVisualToStaff = (list: VisualStaff[]): StaffMember[] => {
             name: s.name.trim(),
             color: getStaffColor(s.name.trim()),
             time: s.time,
-            note: s.note
+            note: s.note,
+            shiftType: s.shiftType
         }));
 };
 
@@ -264,19 +266,33 @@ const renderHeader = (col: ScheduleColumn, index: number) => {
                                 </button>
                             </div>
                             
-                            <div className="flex gap-1 pl-5">
-                                <input
-                                    value={s.time || ''}
-                                    onChange={(e) => handleStaffFieldChange(rowIndex, columnId, i, 'time', e.target.value)}
-                                    className="w-1/2 text-[10px] p-1 bg-slate-50 border border-slate-200 rounded outline-none focus:border-blue-300"
-                                    placeholder="Time"
-                                />
-                                <input
-                                    value={s.note || ''}
-                                    onChange={(e) => handleStaffFieldChange(rowIndex, columnId, i, 'note', e.target.value)}
-                                    className="w-1/2 text-[10px] p-1 bg-yellow-50 border border-yellow-200 rounded outline-none focus:border-yellow-400 text-yellow-800"
-                                    placeholder="Note"
-                                />
+                            <div className="flex flex-col gap-1 pl-5">
+                                <div className="flex gap-1">
+                                    <input
+                                        value={s.time || ''}
+                                        onChange={(e) => handleStaffFieldChange(rowIndex, columnId, i, 'time', e.target.value)}
+                                        className="w-1/2 text-[10px] p-1 bg-slate-50 border border-slate-200 rounded outline-none focus:border-blue-300"
+                                        placeholder="Time"
+                                    />
+                                    <input
+                                        value={s.note || ''}
+                                        onChange={(e) => handleStaffFieldChange(rowIndex, columnId, i, 'note', e.target.value)}
+                                        className="w-1/2 text-[10px] p-1 bg-yellow-50 border border-yellow-200 rounded outline-none focus:border-yellow-400 text-yellow-800"
+                                        placeholder="Note"
+                                    />
+                                </div>
+                                <select
+                                    value={s.shiftType || 'morning'}
+                                    onChange={(e) => handleStaffFieldChange(rowIndex, columnId, i, 'shiftType', e.target.value)}
+                                    className="w-full text-[10px] p-1 bg-white border border-slate-200 rounded outline-none focus:border-blue-300"
+                                >
+                                    <option value="morning">Morning</option>
+                                    <option value="evening">Evening</option>
+                                    <option value="night">Night</option>
+                                    <option value="broken">Broken</option>
+                                    <option value="high_broken">High Broken</option>
+                                    <option value="long_duty">Long Duty</option>
+                                </select>
                             </div>
                         </div>
                     ))}
@@ -292,21 +308,29 @@ const renderHeader = (col: ScheduleColumn, index: number) => {
         return (
             <div className="flex flex-col gap-1 w-full items-center">
                 {safeList.map((s, idx) => (
-                    <div 
-                        key={idx} 
-                        className={`text-sm px-2 py-1.5 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center break-words w-full print-color-adjust-exact ${s.color} 
-                        print:shadow-none print:px-1 print:py-0.5 print:rounded print:border-transparent font-sans`}
-                        dir="ltr"
-                    >
-                        <span className="font-bold print:text-[11px] leading-tight">
-                            {highlightMatch(s.name)}
-                        </span>
-                        
-                        {s.time && (
-                            <span className="text-[10px] font-mono bg-white/50 px-1 rounded mt-0.5 print:text-[9px] print:bg-transparent print:p-0 print:mt-0 leading-none">
-                                {s.time}
-                            </span>
-                        )}
+                        <div 
+                            key={idx} 
+                            className={`text-sm px-2 py-1.5 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center break-words w-full print-color-adjust-exact ${s.color} 
+                            print:shadow-none print:px-1 print:py-0.5 print:rounded print:border-transparent font-sans`}
+                            dir="ltr"
+                        >
+                            <div className="flex items-center gap-1 justify-center w-full">
+                                {s.shiftType === 'morning' && <i className="fas fa-sun text-[10px] text-amber-500 print:hidden"></i>}
+                                {s.shiftType === 'evening' && <i className="fas fa-moon text-[10px] text-indigo-500 print:hidden"></i>}
+                                {s.shiftType === 'night' && <i className="fas fa-star text-[10px] text-purple-500 print:hidden"></i>}
+                                {s.shiftType === 'broken' && <i className="fas fa-cut text-[10px] text-red-500 print:hidden"></i>}
+                                {s.shiftType === 'high_broken' && <i className="fas fa-bolt text-[10px] text-red-700 print:hidden"></i>}
+                                {s.shiftType === 'long_duty' && <i className="fas fa-arrow-right text-[10px] text-emerald-500 print:hidden"></i>}
+                                <span className="font-bold print:text-[11px] leading-tight">
+                                    {highlightMatch(s.name)}
+                                </span>
+                            </div>
+                            
+                            {s.time && (
+                                <span className="text-[10px] font-mono bg-white/50 px-1 rounded mt-0.5 print:text-[9px] print:bg-transparent print:p-0 print:mt-0 leading-none">
+                                    {s.time}
+                                </span>
+                            )}
                         
                         {s.note && (
                             <span className="text-[9px] text-slate-900 bg-yellow-200/50 border border-yellow-200 px-1.5 py-0.5 rounded-md mt-1 w-full font-semibold print:text-[8px] print:bg-yellow-100 print:border-none print:mt-0.5 print:leading-none whitespace-pre-wrap">
@@ -348,7 +372,7 @@ const renderHeader = (col: ScheduleColumn, index: number) => {
                         <div className="flex justify-between items-center">
                             <label className="text-[10px] uppercase font-bold opacity-80">Print Theme Configuration</label>
                             <div className="flex gap-1 bg-white/10 p-1 rounded-full">
-                                {['rose', 'purple', 'indigo', 'teal', 'slate', 'violet'].map(c => (
+                                {['rose', 'purple', 'indigo', 'teal', 'slate'].map(c => (
                                     <button 
                                         key={c}
                                         onClick={() => setHeaderColor(c)}
@@ -357,8 +381,7 @@ const renderHeader = (col: ScheduleColumn, index: number) => {
                                             c === 'purple' ? 'bg-purple-600' :
                                             c === 'indigo' ? 'bg-indigo-600' :
                                             c === 'teal' ? 'bg-teal-600' :
-                                            c === 'slate' ? 'bg-slate-600' :
-                                            'bg-violet-600'
+                                            'bg-slate-600'
                                         } ${headerColor === c ? 'ring-2 ring-white scale-110' : ''}`}
                                         title={c}
                                     />

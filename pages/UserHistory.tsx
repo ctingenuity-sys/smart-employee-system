@@ -32,6 +32,16 @@ const UserHistory: React.FC = () => {
     const [histFilterStatus, setHistFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
 
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const [isManager, setIsManager] = useState(false);
+
+    useEffect(() => {
+        if (!currentUserId) return;
+        getDoc(doc(db, 'users', currentUserId)).then(uDoc => {
+            if (uDoc.exists()) {
+                setIsManager(uDoc.data().role === 'manager');
+            }
+        });
+    }, [currentUserId]);
 
     useEffect(() => {
         if (!currentUserId) return;
@@ -227,12 +237,16 @@ const UserHistory: React.FC = () => {
                     const rDoc = await getDoc(doc(db, 'users', id));
                     let rJob = '-';
                     let rName = id;
+                    let rApproved = true; // Default
                     if (rDoc.exists()) {
                         const rData = rDoc.data();
                         rName = rData.name || id;
                         rJob = getJobTitle(rData);
                     }
-                    return { name: rName, job: rJob };
+                    if (leave.relieverApprovals && leave.relieverApprovals[id]) {
+                        rApproved = leave.relieverApprovals[id].approved;
+                    }
+                    return { name: rName, job: rJob, approved: rApproved };
                 })
             );
 
@@ -244,7 +258,7 @@ const UserHistory: React.FC = () => {
                 const sDoc = await getDoc(doc(db, 'users', supApp.uid));
                 if (sDoc.exists()) {
                     const sData = sDoc.data();
-                    supervisorJob = sData.role || getJobTitle(sData);
+                    supervisorJob = sData.role || supApp.jobTitle || getJobTitle(sData);
                     supervisorDept = sData.department || '-';
                     if (sData.departmentId) {
                         const sdDoc = await getDoc(doc(db, 'departments', sData.departmentId));
@@ -261,7 +275,7 @@ const UserHistory: React.FC = () => {
                 const mDoc = await getDoc(doc(db, 'users', manApp.uid));
                 if (mDoc.exists()) {
                     const mData = mDoc.data();
-                    managerJob = mData.role || getJobTitle(mData);
+                    managerJob = mData.role || manApp.jobTitle || getJobTitle(mData);
                     managerDept = mData.department || '-';
                     if (mData.departmentId) {
                         const mdDoc = await getDoc(doc(db, 'departments', mData.departmentId));
@@ -286,17 +300,20 @@ const UserHistory: React.FC = () => {
                 `;
             };
 
-            const renderStamp = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', index: number = 0, total: number = 1) => {
+            const renderStamp = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', index: number = 0, total: number = 1, approved: boolean = true) => {
                 const rotation = (Math.random() * 6 - 3).toFixed(1);
                 // Spread out stamps if there are multiple (especially for relievers)
                 const offset = total > 1 ? (index - (total - 1) / 2) * 140 : 0;
                 return `
-                    <div class="stamp-box" style="transform: rotate(${rotation}deg); position: absolute; top: -15px; left: calc(50% + ${offset}px); transform: translateX(-50%) rotate(${rotation}deg); z-index: 50; pointer-events: none;">
-                        <div class="stamp-inner">
+                    <div class="stamp-box" style="transform: rotate(${rotation}deg); position: absolute; top: -15px; left: calc(50% + ${offset}px); transform: translateX(-50%) rotate(${rotation}deg); z-index: 50; pointer-events: none; ${!approved ? 'border-color: red; color: red;' : ''}">
+                        <div class="stamp-inner" style="${!approved ? 'border-color: red;' : ''}">
                             <div class="stamp-hospital">AL JEDAANI HOSPITAL</div>
-                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">RADIOLOGY DEPARTMENT</div>
-                            <div class="stamp-dept">${jobTitle}</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed ${!approved ? 'red' : 'rgba(30, 58, 138, 0.4)'}; margin-top: 1px; padding-top: 1px;">RADIOLOGY DEPARTMENT</div>
+                            <div class="stamp-dept" style="${!approved ? 'color: red;' : ''}">${jobTitle}</div>
                             <div class="stamp-name">${name}</div>
+                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: ${approved ? 'green' : 'red'}; opacity: 0.7; transform: rotate(-10deg);">
+                                ${approved ? 'APPROVED' : 'NOT APPROVED'}
+                            </div>
                         </div>
                     </div>
                 `;
@@ -465,7 +482,6 @@ const UserHistory: React.FC = () => {
                         <div class="header-section" style="display: flex; align-items: center; justify-content: space-between;">
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 <img src="${logoUrl}" alt="Logo" style="max-height: 80px;" crossOrigin="anonymous" />
-                                ${leave.supervisorApproval?.uid ? renderStampInline(leave.supervisorApproval.name, supervisorJob, 'AL JEDAANI HOSPITAL') : ''}
                             </div>
                             <div class="title-box">
                                 <div class="title-ar">طلب اجازة</div>
@@ -474,7 +490,7 @@ const UserHistory: React.FC = () => {
                         </div>
 
                         <div class="date-line">
-                            Date: ____________________
+                            Date: ${leave.createdAt ? new Date(leave.createdAt.seconds * 1000).toLocaleDateString() : ''}
                         </div>
 
                         <table>
@@ -526,37 +542,11 @@ const UserHistory: React.FC = () => {
                                 <td colspan="3">
                                     <div class="section-title-flex">
                                         <span>AUTHORIZATION</span>
-                                        <span>المصادقة</span>
+                                        <span>المصدقة</span>
                                     </div>
                                 </td>
                             </tr>
                             
-                          
-                            <tr>
-                                <td class="label-en">Reliever:</td>
-                                <td class="value">${relieverDataList.map(r => r.name).join(', ')}</td>
-                                <td class="label-ar">الاسم البديل:</td>
-                            </tr>
-                            <tr>
-                                <td class="label-en">Signature of Reliever:</td>
-                                <td class="value" style="position: relative; height: 60px;">
-                                    ${relieverDataList.map((r, idx) => renderStamp(r.name, r.job, 'AL JEDAANI HOSPITAL', idx, relieverDataList.length)).join('')}
-                                </td>
-                                <td class="label-ar">توقيع البديل:</td>
-                            </tr>
-                              <tr>
-                                <td class="label-en">Head of Department:</td>
-                                <td class="value" style="position: relative; height: 60px;">
-                                    <div style="font-size: 11px; margin-bottom: 2px;"></div>
-                                    ${manApp?.status === 'approved' ? renderStamp(manApp.userName || 'Manager', managerJob, 'AL JEDAANI HOSPITAL') : ''}
-                                </td>
-                                <td class="label-ar">رئيس القسم:</td>
-                            </tr>
-                            <tr>
-                                <td class="label-en">APPROVAL:</td>
-                                <td class="value"></td>
-                                <td class="label-ar">الموافقه:</td>
-                            </tr>
                             <tr>
                                 <td colspan="3">
                                     <div style="display: flex; justify-content: space-between; padding: 0 30px;">
@@ -572,11 +562,54 @@ const UserHistory: React.FC = () => {
                                 </td>
                             </tr>
                             <tr>
-                                <td class="label-en">Signature, Head of Department:</td>
+                                <td class="label-en">Reliever:</td>
+                                <td class="value">${relieverDataList.map(r => r.name).join(', ')}</td>
+                                <td class="label-ar">الاسم البديل:</td>
+                            </tr>
+                            <tr>
+                                <td class="label-en">Signature of Reliever:</td>
                                 <td class="value" style="position: relative; height: 60px;">
-                                    ${leave.managerApproval ? renderStamp(leave.managerApproval.name, managerJob, 'AL JEDAANI HOSPITAL') : ''}
+                                    ${relieverDataList.map((r, idx) => renderStamp(r.name, r.job, 'AL JEDAANI HOSPITAL', idx, relieverDataList.length, r.approved)).join('')}
                                 </td>
-                                <td class="label-ar">توقيع رئيس القسم :</td>
+                                <td class="label-ar">توقيع البديل:</td>
+                            </tr>
+                            <tr>
+                                <td class="label-en">Supervisor :</td>
+                                <td class="value"></td>
+                                <td class="label-ar">المشرف:</td>
+                            </tr>
+                            <tr>
+                                <td colspan="3">
+                                    <div style="display: flex; justify-content: space-between; padding: 0 30px; font-weight: bold;">
+                                        ${leave.supervisorApproval?.approved ? `
+                                            <div class="checkbox-container">
+                                                <div class="checkbox checked"></div>
+                                                <span>Approved</span>
+                                            </div>
+                                            <div class="checkbox-container">
+                                                <span>موافق</span>
+                                                <div class="checkbox checked"></div>
+                                            </div>
+                                        ` : `
+                                            <div class="checkbox-container">
+                                                <div class="checkbox ${leave.supervisorApproval?.approved === false ? 'checked' : ''}"></div>
+                                                <span>Disapproved</span>
+                                            </div>
+                                            <div class="checkbox-container">
+                                                <span>غير موافق</span>
+                                                <div class="checkbox ${leave.supervisorApproval?.approved === false ? 'checked' : ''}"></div>
+                                            </div>
+                                        `}
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="label-en">Signature, Supervisor:</td>
+                                <td class="value" style="position: relative; height: 60px; display: flex; align-items: center; gap: 10px; min-width: 350px;">
+                                    ${leave.supervisorApproval ? renderStamp(leave.supervisorApproval.name, supervisorJob, 'AL JEDAANI HOSPITAL', 0, 1, leave.supervisorApproval.approved) : ''}
+                                    ${leave.supervisorApproval ? `<span style="font-weight: bold;">${leave.supervisorApproval.name}</span>` : ''}
+                                </td>
+                                <td class="label-ar">توقيع المشرف:</td>
                             </tr>
                             <tr>
                                 <td class="label-en">Date:</td>
@@ -584,16 +617,33 @@ const UserHistory: React.FC = () => {
                                 <td class="label-ar">التاريخ:</td>
                             </tr>
                             <tr>
+                                <td class="label-en">Head of Dept :</td>
+                                <td class="value"></td>
+                                <td class="label-ar"> رئيس القسم:</td>
+                            </tr>
+                            <tr>
                                 <td colspan="3">
-                                    <div style="display: flex; justify-content: space-between; padding: 0 30px;">
-                                        <div class="checkbox-container">
-                                            <div class="checkbox ${leave.status === 'rejected' ? 'checked' : ''}"></div>
-                                            <span>Disapproved</span>
-                                        </div>
-                                        <div class="checkbox-container">
-                                            <span>غير موافق</span>
-                                            <div class="checkbox ${leave.status === 'rejected' ? 'checked' : ''}"></div>
-                                        </div>
+                                    <div style="display: flex; justify-content: space-between; padding: 0 30px; font-weight: bold;">
+                                        ${leave.status === 'approved' ? `
+                                            <div class="checkbox-container">
+                                                <div class="checkbox checked"></div>
+                                                <span>Approved</span>
+                                            </div>
+                                            <div class="checkbox-container">
+                                                <span>موافق</span>
+                                                <div class="checkbox checked"></div>
+                                            </div>
+                                        ` : ''}
+                                        ${leave.status === 'rejected' ? `
+                                            <div class="checkbox-container">
+                                                <div class="checkbox checked"></div>
+                                                <span>Disapproved</span>
+                                            </div>
+                                            <div class="checkbox-container">
+                                                <span>غير موافق</span>
+                                                <div class="checkbox checked"></div>
+                                            </div>
+                                        ` : ''}
                                     </div>
                                 </td>
                             </tr>
@@ -604,8 +654,9 @@ const UserHistory: React.FC = () => {
                             </tr>
                             <tr>
                                 <td class="label-en">Signature, Head of Department:</td>
-                                <td class="value" style="position: relative; height: 60px;">
-                                    ${leave.status === 'rejected' && leave.managerApproval ? renderStamp(leave.managerApproval.name, managerJob, 'AL JEDAANI HOSPITAL') : ''}
+                                <td class="value" style="position: relative; height: 60px; display: flex; align-items: center; gap: 10px; min-width: 350px;">
+                                    ${(leave.status === 'approved' || leave.status === 'rejected') && leave.managerApproval ? renderStamp(leave.managerApproval.name, managerJob, 'AL JEDAANI HOSPITAL', 0, 1, leave.status === 'approved') : ''}
+                                    ${(leave.status === 'approved' || leave.status === 'rejected') && leave.managerApproval ? `<span style="font-weight: bold;">${leave.managerApproval.name}</span>` : ''}
                                 </td>
                                 <td class="label-ar">توقيع رئيس القسم :</td>
                             </tr>
@@ -773,11 +824,14 @@ const UserHistory: React.FC = () => {
                                         </span>
                                     </td>
                                     <td className="p-4 text-center">
-                                        {item.rawType === 'leave' && item.originalData && (
+                                        {item.rawType === 'leave' && item.originalData && !isManager && (
                                             <button 
                                                 onClick={() => handlePrintLeave(item.originalData)}
-                                                className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors flex items-center justify-center mx-auto"
+                                                className={`w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors flex items-center justify-center mx-auto ${
+                                                    (item.originalData.managerId === currentUserId && item.status === 'pending_manager') ? 'opacity-50 cursor-not-allowed' : ''
+                                                }`}
                                                 title={t('print')}
+                                                disabled={item.originalData.managerId === currentUserId && item.status === 'pending_manager'}
                                             >
                                                 <i className="fas fa-print"></i>
                                             </button>

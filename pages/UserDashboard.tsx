@@ -802,7 +802,7 @@ const handleGenerateManualCode = () => {
                     <div>
                         <h2 className={`text-xl font-medium mb-2 tracking-wide ${currentStyle.subText}`}>{t('user.hero.welcome')}</h2>
                         <h1 className="text-6xl lg:text-7xl font-black text-white leading-[0.9] drop-shadow-2xl tracking-tight">
-                            {currentUserName.split(' ')[0]}
+                            {currentUserName}
                             <span className={`text-transparent bg-clip-text bg-gradient-to-tr from-white to-white/50`}>.</span>
                         </h1>
                     </div>
@@ -847,7 +847,7 @@ const handleGenerateManualCode = () => {
                                 ) : (
                                     <i className="fas fa-shield-check text-lg group-hover:rotate-12 transition-transform"></i>
                                 )}
-                                <span>{generatedCode ? t('update') : t('user.generate')}</span>
+                                <span>{generatedCode ? t('update') : t('dash.locationCode')}</span>
                             </button>
                         </div>
                     </div>

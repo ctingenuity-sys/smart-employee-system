@@ -61,6 +61,11 @@ const translations: Record<string, { ar: string; en: string }> = {
   'doc.station': { ar: 'محطة طبيب الأشعة', en: 'Radiologist Station' },
   
   'rot.filter.general': { ar: 'الشهور', en: 'Months' },
+  'rot.suggest.stay': { ar: 'بقاء', en: 'Stay' },
+  'rot.suggest': { ar: 'اقتراحات التدوير', en: 'Rotation Suggestions' },
+  'rot.legend': { ar: 'دليل الألوان', en: 'Legend' },
+  'rot.staff': { ar: 'الموظف', en: 'Staff' },
+  'rot.subtitle': { ar: 'مصفوفة التدوير التاريخية', en: 'Historical Rotation Matrix' },
 
 'rot.filter.friday':{ar:'الجمع',en:'Fridays'},
 'rot.filter.months':{ar:'الفتره',en:'Range'},
@@ -501,6 +506,9 @@ const translations: Record<string, { ar: string; en: string }> = {
   'sb.unpublish': { ar: 'حذف الجدول (الشهر المحدد)', en: 'Unpublish (Clear Month)' },
   'sb.btn.saved': { ar: 'القوالب المحفوظة', en: 'Saved Templates' },
   'sb.empty': { ar: 'لا توجد قوالب محفوظة', en: 'No saved templates found' },
+  'sb.updateExisting': { ar: 'تحديث القالب الحالي', en: 'Update Existing Template' },
+  'sb.saveAsNew': { ar: 'حفظ كقالب جديد', en: 'Save as New Template' },
+  'sb.newTemplateName': { ar: 'اسم القالب الجديد', en: 'New Template Name' },
 };
 
 export const LanguageContext = createContext<LanguageContextType>({

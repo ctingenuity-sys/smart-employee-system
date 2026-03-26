@@ -117,10 +117,10 @@ const SupervisorRotation: React.FC = () => {
     useEffect(() => {
         setLoading(true);
         getDocs(collection(db, 'users')).then((snap) => {
-            setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
+            setUsers(snap.docs.map(d => ({ ...d.data(), id: d.id } as User)));
         });
         getDocs(collection(db, 'locations')).then((snap) => {
-            setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
+            setLocations(snap.docs.map(d => ({ ...d.data(), id: d.id } as Location)));
         });
         const oldestMonth = months[0];
         const qSch = query(collection(db, 'schedules'), where('month', '>=', oldestMonth));
@@ -137,6 +137,19 @@ const SupervisorRotation: React.FC = () => {
         
         schedules.forEach(sch => {
             if (!sch.month || !months.includes(sch.month)) return;
+
+            // Exclude Fridays, Holidays, and Exceptions in general view
+            const isFriday = (sch.locationId && sch.locationId.toLowerCase().includes('friday')) || 
+                             (sch.note && sch.note.toLowerCase().includes('friday')) || 
+                             (sch.periodName && sch.periodName.toLowerCase().includes('friday'));
+            const isHoliday = (sch.locationId && sch.locationId.toLowerCase().includes('holiday')) || 
+                              (sch.note && sch.note.toLowerCase().includes('holiday')) ||
+                              (sch.periodName && sch.periodName.toLowerCase().includes('holiday'));
+            const isException = sch.isException === true;
+
+            if (viewType === 'general' && (isFriday || isHoliday || isException)) {
+                return;
+            }
 
             if (!matrix[sch.userId]) matrix[sch.userId] = {};
             if (!matrix[sch.userId][sch.month]) {
@@ -157,11 +170,22 @@ const SupervisorRotation: React.FC = () => {
                 
                 const resolvedLoc = locations.find(l => l.id === locName);
                 const finalName = resolvedLoc ? resolvedLoc.name : locName;
-                matrix[sch.userId][sch.month].departments.add(finalName);
+                
+                // Include shift time if available
+                let timeStr = '';
+                if (sch.shiftTime) {
+                    timeStr = ` (${sch.shiftTime})`;
+                } else if (sch.shifts && sch.shifts.length > 0) {
+                    const firstShift = sch.shifts[0];
+                    if (firstShift.start && firstShift.end) {
+                        timeStr = ` (${firstShift.start} - ${firstShift.end})`;
+                    }
+                }
+                matrix[sch.userId][sch.month].departments.add(`${finalName}${timeStr}`);
             }
         });
         return matrix;
-    }, [schedules, locations, months]);
+    }, [schedules, locations, months, viewType]);
 
     const filteredAndSortedUsers = useMemo(() => {
         return users
@@ -188,7 +212,9 @@ const SupervisorRotation: React.FC = () => {
     const formatGeneralCell = (userId: string, month: string) => {
         const data = rotationMatrix[userId]?.[month];
         if (!data || data.departments.size === 0) return '-';
-        return Array.from(data.departments).join(' + ');
+        
+        // Return an array of strings, each representing a location + time
+        return Array.from(data.departments);
     };
 
     const formatFridayCell = (userId: string, month: string) => {
@@ -197,12 +223,15 @@ const SupervisorRotation: React.FC = () => {
         return data.fridayCount.toString();
     };
 
-    const getCellColor = (text: string) => {
-        if (text === '-' || text === '0') return 'bg-slate-50 text-slate-300';
-        const lower = text.toLowerCase();
+    const getCellColor = (text: string | string[]) => {
+        if (viewType !== 'friday' && (text === '-' || text === '0' || (Array.isArray(text) && text.length === 0))) return 'bg-slate-50 text-slate-300';
+        
+        // If it's an array, base the color on the first item
+        const textToEvaluate = Array.isArray(text) ? text[0] : text;
+        const lower = textToEvaluate.toLowerCase();
         
         if (viewType === 'friday') {
-            const count = parseInt(text);
+            const count = parseInt(textToEvaluate);
             if (count >= 4) return 'bg-teal-700 text-white shadow-md';
             if (count >= 2) return 'bg-teal-500 text-white shadow-sm';
             return 'bg-teal-50 text-teal-700 border-teal-200';
@@ -409,7 +438,17 @@ const SupervisorRotation: React.FC = () => {
                                                             </div>
                                                         ) : (
                                                             <div className={`px-2 py-3 rounded-2xl font-black text-[10px] leading-tight tracking-tight transition-all duration-300 transform group-hover:scale-[1.03] border border-transparent ${content !== '-' ? 'shadow-lg shadow-slate-200' : ''} ${colorClass} print:border-black print:bg-transparent print:text-black print:shadow-none`}>
-                                                                {content}
+                                                                {Array.isArray(content) ? (
+                                                                    <div className="flex flex-col gap-1">
+                                                                        {content.map((item, i) => (
+                                                                            <span key={i} className={i > 0 ? "border-t border-white/20 pt-1 mt-1" : ""}>
+                                                                                {item}
+                                                                            </span>
+                                                                        ))}
+                                                                    </div>
+                                                                ) : (
+                                                                    content
+                                                                )}
                                                             </div>
                                                         )}
                                                     </td>

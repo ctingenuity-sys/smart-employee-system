@@ -47,7 +47,10 @@ const SupervisorHistory: React.FC = () => {
     }, [users]);
 
     useEffect(() => {
-        getDocs(collection(db, 'users')).then(snap => setUsers(snap.docs.map(d => ({id:d.id, ...d.data()} as User))));
+        getDocs(collection(db, 'users')).then(snap => {
+            const fetchedUsers = snap.docs.map(d => ({id:d.id, ...d.data()} as User));
+            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
+        });
         
         const qSwaps = query(collection(db, 'swapRequests'), where('status', 'in', ['approvedBySupervisor', 'rejectedBySupervisor', 'rejected']));
         getDocs(qSwaps).then(snap => {

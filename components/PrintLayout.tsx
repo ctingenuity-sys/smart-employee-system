@@ -136,8 +136,7 @@ export const PrintFooter: React.FC<{ themeColor?: 'slate' | 'teal' | 'purple' | 
                  {/* Right - Head of Dept */}
                  <div className="text-center w-40">
                      <div className="h-6 border-b border-gray-800 mb-0.5"></div>
-                     <h3 className={`font-black text-[9px] ${c.text} uppercase leading-none`}>DR. MOHAMED SHAFEE</h3>
-                     <p className="font-bold text-[7px] text-gray-500 uppercase tracking-wider">Head of Department</p>
+                     <p className="font-bold text-[8px] text-gray-900 uppercase tracking-wider">Head of Department</p>
                  </div>
              </div>
              

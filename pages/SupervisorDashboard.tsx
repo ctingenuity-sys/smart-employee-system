@@ -108,7 +108,10 @@ const SupervisorDashboard: React.FC = () => {
   useEffect(() => {
       // 1. Users Count & List
       const qUsers = query(collection(db, 'users'));
-      getDocs(qUsers).then(snap => setUsers(snap.docs.map(d => ({id: d.id, ...d.data()} as User))));
+      getDocs(qUsers).then(snap => {
+          const fetchedUsers = snap.docs.map(d => ({id: d.id, ...d.data()} as User));
+          setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
+      });
 
       // 2. Pending Requests Counts
       let unsubSwaps: any;
@@ -489,7 +492,7 @@ const SupervisorDashboard: React.FC = () => {
                     <div className="flex justify-between items-start relative z-10">
                         <div>
                             <p className="text-indigo-100 font-bold text-xs uppercase tracking-widest mb-1">{t('sup.totalEmp')}</p>
-                            <h3 className="text-4xl font-black">{users.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)).length}</h3>
+                            <h3 className="text-4xl font-black">{users.length}</h3>
                         </div>
                         <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-2xl backdrop-blur-md">
                             <i className="fas fa-users"></i>

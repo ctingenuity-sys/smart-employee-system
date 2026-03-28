@@ -117,7 +117,8 @@ const SupervisorRotation: React.FC = () => {
     useEffect(() => {
         setLoading(true);
         getDocs(collection(db, 'users')).then((snap) => {
-            setUsers(snap.docs.map(d => ({ ...d.data(), id: d.id } as User)));
+            const fetchedUsers = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
+            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
         });
         getDocs(collection(db, 'locations')).then((snap) => {
             setLocations(snap.docs.map(d => ({ ...d.data(), id: d.id } as Location)));

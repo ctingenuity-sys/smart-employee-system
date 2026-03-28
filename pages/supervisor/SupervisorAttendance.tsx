@@ -181,7 +181,10 @@ const SupervisorAttendance: React.FC = () => {
     const [manualTime, setManualTime] = useState('08:00');
 
     useEffect(() => {
-        getDocs(collection(db, 'users')).then(snap => setUsers(snap.docs.map(d => ({id:d.id, ...d.data()} as User))));
+        getDocs(collection(db, 'users')).then(snap => {
+            const fetchedUsers = snap.docs.map(d => ({id:d.id, ...d.data()} as User));
+            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
+        });
     }, []);
 
     const handleImportArchive = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -211,7 +211,7 @@ const UserRequests: React.FC = () => {
                                 onChange={e => { setTargetUser(e.target.value); setSwapErrors({...swapErrors, target:''}) }}
                             >
                                 <option value="">{t('user.req.colleague')}...</option>
-                                {users.filter(u => u.id !== currentUserId).map(u => (
+                                {users.filter(u => u.id !== currentUserId && !['admin', 'supervisor', 'manager'].includes(u.role)).map(u => (
                                     <option key={u.id} value={u.id}>{u.name || u.email}</option>
                                 ))}
                             </select>
@@ -273,7 +273,7 @@ const UserRequests: React.FC = () => {
                                     setRelieverIds(selected);
                                     setLeaveErrors({...leaveErrors, relievers:''});
                                 }}>
-                                    {users.filter(u => u.id !== currentUserId).map(u => (
+                                    {users.filter(u => u.id !== currentUserId && !['admin', 'supervisor', 'manager'].includes(u.role)).map(u => (
                                         <option key={u.id} value={u.id}>{u.name || u.email}</option>
                                     ))}
                                 </select>

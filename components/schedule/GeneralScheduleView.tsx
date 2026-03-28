@@ -417,7 +417,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                                 {staff.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-sm" title="Night Shift"></i>}
                                 {staff.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-sm" title="Broken Shift"></i>}
                                 {staff.shiftType === 'high_broken' && <i className="fas fa-bolt text-red-700 text-sm" title="High Broken Shift"></i>}
-                                {staff.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-sm" title="Long duty Shift"></i>}
+                                {staff.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-sm" title="Straight Shift"></i>}
                                 <span>{staff.name}</span>
                         </div>
                     )}
@@ -593,8 +593,8 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
 
           if (totalMorning > 0 || totalEvening > 0 || totalNight > 0 || totalBroken > 0 || totalHighBroken > 0 || totalLongDuty > 0) {
               return (
-                  <div className="flex flex-wrap items-center justify-center gap-4 mb-4 bg-slate-50 border border-slate-200 p-3 rounded-xl shadow-sm print:flex print:bg-white print:border-none print:p-0 print:mb-2 print:shadow-none">
-                      <span className="font-bold text-slate-600 uppercase text-xs tracking-wider mr-2 print:text-black">Total Shifts:</span>
+                  <div className="flex flex-wrap items-center justify-center gap-4 mb-4 bg-slate-50 border border-slate-200 p-3 rounded-xl shadow-sm print:hidden">
+                      <span className="font-bold text-slate-600 uppercase text-xs tracking-wider mr-2">Total Shifts:</span>
                       {totalMorning > 0 && (
                           <div className="flex items-center gap-2 bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg border border-amber-200 print:bg-white print:border-none print:p-0 print:text-black">
                               <i className="fas fa-sun text-amber-500"></i>
@@ -628,7 +628,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                       {totalLongDuty > 0 && (
                           <div className="flex items-center gap-2 bg-green-50 text-green-700 px-3 py-1.5 rounded-lg border border-green-200 print:bg-white print:border-none print:p-0 print:text-black">
                               <i className="fas fa-minus text-green-500"></i>
-                              <span className="font-bold text-sm print:text-xs">Long Duty: {totalLongDuty}</span>
+                              <span className="font-bold text-sm print:text-xs">Straight: {totalLongDuty}</span>
                           </div>
                       )}
                   </div>
@@ -759,13 +759,10 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                                             onChange={(e) => handleDutyStaffChange(dutyIndex, sIndex, 'shiftType', e.target.value)}
                                             className="px-2 py-1 rounded text-xs w-1/2 outline-none bg-slate-50 border border-slate-100 text-slate-500"
                                         >
-                                                                          <option value="">Type</option>
-                                <option value="morning">Morning</option>
-                                <option value="evening">Evening</option>
-                                <option value="night">Night</option>
-                                <option value="broken">Broken</option>
-                                <option value="high_broken">High Broken</option>
-                                <option value="long_duty">Long Duty</option> {/* تم التغيير هنا */}
+                                            <option value="">Type</option>
+                                            <option value="morning">Morning</option>
+                                            <option value="evening">Evening</option>
+                                            <option value="night">Night</option>
                                         </select>
                                     </div>
                                     <input 
@@ -799,7 +796,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                                         {s.shiftType === 'evening' && <i className="fas fa-cloud-sun text-orange-500 text-sm" title="Evening Shift"></i>}
                                         {s.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-sm" title="Night Shift"></i>}
                                         {s.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-sm" title="Broken Shift"></i>}
-                                        {s.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-sm" title="Long Duty Shift"></i>}
+                                        {s.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-sm" title="Straight Shift"></i>}
                                         <span className="font-oswald tracking-wide text-xl">{highlightMatch(s.name)}</span>
                                     </div>
                                     {s.time && <span className="text-[11px] bg-white/50 px-1 py-0 rounded mt-1 font-mono border border-black/5" dir="ltr">{s.time}</span>}

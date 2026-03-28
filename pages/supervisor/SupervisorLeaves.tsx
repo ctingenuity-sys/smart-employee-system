@@ -70,7 +70,8 @@ const SupervisorLeaves: React.FC = () => {
         if (!currentUserId) return;
 
         getDocs(collection(db, 'users')).then(snap => {
-            setUsers(snap.docs.map(d => ({ ...d.data(), id: d.id } as User)));
+            const fetchedUsers = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
+            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
         });
         
         // Supervisor Tab: Show requests where I am the assigned supervisor

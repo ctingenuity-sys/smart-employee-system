@@ -139,7 +139,8 @@ const Reports: React.FC = () => {
                 setActions(aSnap.docs.map(d => ({ ...d.data(), id: d.id } as ActionLog)));
 
                 const uSnap = await getDocs(collection(db, 'users'));
-                setEmployees(uSnap.docs.map(d => ({ ...d.data(), id: d.id } as User)));
+                const fetchedUsers = uSnap.docs.map(d => ({ ...d.data(), id: d.id } as User));
+                setEmployees(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
 
                 const sSnap = await getDocs(collection(db, 'swapRequests'));
                 setSwaps(sSnap.docs.map(d => ({ ...d.data(), id: d.id })));

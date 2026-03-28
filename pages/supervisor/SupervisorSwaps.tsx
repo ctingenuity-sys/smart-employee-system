@@ -33,13 +33,14 @@ const SupervisorSwaps: React.FC = () => {
 
     useEffect(() => {
         const unsubUsers = onSnapshot(collection(db, 'users'), snap => {
-            setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
+            const fetchedUsers = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
+            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
         });
         
         // Pending Requests
         const qPending = query(collection(db, 'swapRequests'), where('status', '==', 'approvedByUser'));
         const unsubPending = onSnapshot(qPending, snap => {
-            const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as SwapRequest));
+            const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as SwapRequest));
             // Sort Pending by newest as well
             list.sort((a: any, b: any) => {
                 const tA = a.createdAt?.seconds || 0;
@@ -52,7 +53,7 @@ const SupervisorSwaps: React.FC = () => {
         // History/Active Requests (Approved Month Swaps for Revert capability)
         const qHistory = query(collection(db, 'swapRequests'), where('status', '==', 'approvedBySupervisor'));
         const unsubHistory = onSnapshot(qHistory, snap => {
-            const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as SwapRequest));
+            const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as SwapRequest));
             
             // SORTING LOGIC: Newest First
             list.sort((a: any, b: any) => {

@@ -237,7 +237,8 @@ const handleGenerateManualCode = () => {
     
     // 6. Fetch Users for names
     getDocs(collection(db, 'users')).then(snap => {
-        setAllUsers(snap.docs.map((d: any) => ({ ...d.data() as any, id: d.id } as User)));
+        const fetchedUsers = snap.docs.map((d: any) => ({ ...d.data() as any, id: d.id } as User));
+        setAllUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
     });
 
     // 7. Calculate Incoming Count (Real-time)

@@ -1035,7 +1035,7 @@ const DoctorDashboard: React.FC = () => {
                                         required
                                     >
                                         <option value="">{t('user.req.colleague')}...</option>
-                                        {users.filter(u => u.id !== currentUserId).map(u => (
+                                        {users.filter(u => u.id !== currentUserId && !['admin', 'supervisor', 'manager'].includes(u.role)).map(u => (
                                             <option key={u.id} value={u.id}>{u.name || u.email}</option>
                                         ))}
                                     </select>
@@ -1092,7 +1092,7 @@ const DoctorDashboard: React.FC = () => {
                                             const selected = Array.from(e.target.selectedOptions, option => option.value);
                                             setRelieverIds(selected);
                                         }}>
-                                            {users.filter(u => u.id !== currentUserId).map(u => (
+                                            {users.filter(u => u.id !== currentUserId && !['admin', 'supervisor', 'manager'].includes(u.role)).map(u => (
                                                 <option key={u.id} value={u.id}>{u.name || u.email}</option>
                                             ))}
                                         </select>

@@ -20,9 +20,9 @@ import Modal from '../components/Modal';
 import { useNavigate } from 'react-router-dom';
 
 // ... (Keep existing Helper Functions: convertTo24Hour, parseMultiShifts, normalizeDigits, extractDateFromText)
-const convertTo24Hour = (timeStr: string): string | null => {
-    if (!timeStr) return null;
-    let s = timeStr.toLowerCase().trim();
+const convertTo24Hour = (timeStr: string): string | undefined => {
+    if (!timeStr) return undefined; // بدلاً من null
+    let s = String(timeStr).toLowerCase().trim();
     
     s = s.replace(/12mn0/g, '24:00'); 
     s = s.replace(/12mn/g, '24:00');
@@ -38,7 +38,7 @@ const convertTo24Hour = (timeStr: string): string | null => {
     const cleanTime = s.replace(/[^\d:]/g, ''); 
     const parts = cleanTime.split(':');
     
-    if (parts.length === 0 || parts[0] === '') return null;
+    if (parts.length === 0 || parts[0] === '') return undefined;
     
     let h = parseInt(parts[0], 10);
     let m = parts[1] ? parseInt(parts[1], 10) : 0;
@@ -48,11 +48,10 @@ const convertTo24Hour = (timeStr: string): string | null => {
         if (modifier === 'am' && h === 12) h = 0;
     }
     
-    if (h === 24) return '24:00';
-    if (h > 24) return null;
-    
+    if (h > 24) return undefined; // بدلاً من null
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 };
+    
 
 const parseMultiShifts = (text: string) => {
     if (!text) return [];
@@ -81,8 +80,8 @@ const normalizeDigits = (str: string) => {
     return str.replace(/[٠-٩]/g, d => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
 };
 
-const extractDateFromText = (input: string, defaultYear?: number): string | null => {
-    if (!input) return null;
+const extractDateFromText = (input: string, defaultYear?: number): string | undefined => {
+    if (!input) return undefined; // بدلاً من null
     let text = normalizeDigits(input).trim();
     const year = defaultYear || new Date().getFullYear();
 
@@ -105,7 +104,7 @@ const extractDateFromText = (input: string, defaultYear?: number): string | null
         }
     }
 
-    return null;
+    return undefined;
 };
 
 // ... (Keep Default Columns definitions)
@@ -160,9 +159,9 @@ const ScheduleBuilder: React.FC = () => {
     const [visualSubTab, setVisualSubTab] = useState<'general' | 'friday' | 'holiday' | 'ramadan' | 'doctor' | 'doctor_friday' | 'exceptions'>('general');
     const [isEditingVisual, setIsEditingVisual] = useState(true);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-    const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
+    const [activeTemplateId, setActiveTemplateId] = useState<string | undefined>(undefined);
     const [activeTemplateName, setActiveTemplateName] = useState<string>('');
-    const [activePublishId, setActivePublishId] = useState<string | null>(null);
+    const [activePublishId, setActivePublishId] = useState<string | undefined>(undefined);
     const [generalData, setGeneralData] = useState<ModalityColumn[]>([
         { id: '1', title: 'MRI', defaultTime: '8 AM - 8 PM', colorClass: 'bg-blue-100 text-blue-900', staff: [] },
         { id: '2', title: 'CT Scan', defaultTime: '24 Hours', colorClass: 'bg-green-100 text-green-900', staff: [] }
@@ -219,11 +218,18 @@ const ScheduleBuilder: React.FC = () => {
             setLoading(true);
             try {
                 const uSnap = await getDocs(collection(db, "users"));
-                setAllUsers(uSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) } as User)));
+                const fetchedUsers = uSnap.docs.map((d: any) => ({ ...(d.data() as any), id: d.id } as User));
+                setAllUsers(fetchedUsers.filter(u => {
+                    const role = u.role || '';
+                    if (Array.isArray(role)) {
+                        return !role.some(r => ['admin', 'supervisor', 'manager'].includes(r));
+                    }
+                    return !['admin', 'supervisor', 'manager'].includes(role);
+                }));
                 const lSnap = await getDocs(collection(db, "locations"));
-                setAllLocations(lSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) } as Location)));
+                setAllLocations(lSnap.docs.map((d: any) => ({ ...(d.data() as any), id: d.id } as Location)));
                 const tSnap = await getDocs(collection(db, "schedule_templates"));
-                setSavedTemplates(tSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) } as SavedTemplate)));
+                setSavedTemplates(tSnap.docs.map((d: any) => ({ ...(d.data() as any), id: d.id } as SavedTemplate)));
             } catch (error: any) {
                 setToast({ msg: 'Error loading data: ' + error.message, type: 'error' });
             } finally {
@@ -325,7 +331,7 @@ const ScheduleBuilder: React.FC = () => {
             await deleteDoc(doc(db, 'schedule_templates', id));
             setSavedTemplates(prev => prev.filter(t => t.id !== id));
             if (activeTemplateId === id) {
-                setActiveTemplateId(null);
+                setActiveTemplateId(undefined);
                 setActiveTemplateName('');
             }
             setToast({ msg: t('delete'), type: 'success' });
@@ -369,7 +375,7 @@ const ScheduleBuilder: React.FC = () => {
             onConfirm: () => {
                 setActiveTemplateId(tpl.id);
                 setActiveTemplateName(tpl.name);
-                setActivePublishId(null);
+                setActivePublishId(undefined);
                 loadStateFromTemplate(tpl);
                 setConfirmation(prev => ({ ...prev, isOpen: false }));
                 setIsTemplatesOpen(false); 
@@ -399,7 +405,7 @@ const ScheduleBuilder: React.FC = () => {
                         const data = docSnap.data() as SavedTemplate;
                         loadStateFromTemplate(data);
                         setActivePublishId(publishMonth);
-                        setActiveTemplateId(null);
+                        setActiveTemplateId(undefined);
                         setActiveTemplateName('');
                         setToast({ msg: `Successfully loaded published schedule for ${publishMonth}`, type: 'success' });
                     } else {
@@ -596,7 +602,7 @@ const ScheduleBuilder: React.FC = () => {
                 let id = staff.userId;
                 if (!id) {
                     const cleanName = staff.name.replace(/[（(].*?[）)]/g, '').trim().toLowerCase();
-                    const found = allUsers.find(u => (u.name && u.name.toLowerCase().trim() === cleanName) || (u.email && u.email.toLowerCase().trim() === cleanName));
+                    const found = allUsers.find(u => (u.name && String(u.name).toLowerCase().trim() === cleanName) || (u.email && String(u.email).toLowerCase().trim() === cleanName));
                     if (found) id = found.id;
                 }
                 if (!id) id = `unlinked_${staff.name.replace(/\s+/g, '_').toLowerCase()}_${Date.now()}`;
@@ -1053,7 +1059,7 @@ const ScheduleBuilder: React.FC = () => {
                             </div>
                             {savedTemplates.length === 0 ? <p className="text-xs text-slate-400 text-center py-4">{t('sb.empty')}</p> : (
                                 <div className="space-y-2">
-                                    {savedTemplates.filter(tpl => tpl.name.toLowerCase().includes(templateSearch.toLowerCase()) || (tpl.targetMonth && tpl.targetMonth.includes(templateSearch))).map(tpl => (
+                                    {savedTemplates.filter(tpl => (tpl.name && String(tpl.name).toLowerCase().includes(templateSearch.toLowerCase())) || (tpl.targetMonth && tpl.targetMonth.includes(templateSearch))).map(tpl => (
                                         <div key={tpl.id} className={`p-3 rounded-xl border transition-all group ${activeTemplateId === tpl.id ? 'bg-blue-50 border-blue-300' : 'bg-slate-50 border-slate-100 hover:bg-blue-50 hover:border-blue-200'}`}>
                                             <div className="flex justify-between items-start">
                                                 <div onClick={() => handleLoadTemplate(tpl)} className="cursor-pointer flex-1">

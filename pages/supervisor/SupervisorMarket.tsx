@@ -55,7 +55,10 @@ const SupervisorMarket: React.FC = () => {
 
     useEffect(() => {
         const unsubLocs = onSnapshot(collection(db, 'locations'), snap => setLocations(snap.docs.map(d => ({id:d.id, ...d.data()} as Location))));
-        const unsubUsers = onSnapshot(collection(db, 'users'), snap => setUsers(snap.docs.map(d => ({id:d.id, ...d.data()} as User))));
+        const unsubUsers = onSnapshot(collection(db, 'users'), snap => {
+            const fetchedUsers = snap.docs.map(d => ({id:d.id, ...d.data()} as User));
+            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
+        });
         const unsubShifts = onSnapshot(collection(db, 'openShifts'), snap => setOpenShifts(snap.docs.map(d => ({id:d.id, ...d.data()} as OpenShift))));
         return () => { unsubLocs(); unsubUsers(); unsubShifts(); };
     }, []);

@@ -986,7 +986,7 @@ const UserSchedule: React.FC = () => {
                                             
                                             <div className="flex flex-wrap gap-2 mt-3">
                                                 {customNote && ( 
-                                                    <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] font-bold border border-white/10 hover:bg-white/20 transition-colors">
+                                                    <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm px-10 py-1 rounded-full text-[18px] font-bold border border-white/10 hover:bg-white/20 transition-colors">
                                                         <i className="fas fa-info-circle text-sky-300"></i> {customNote}
                                                     </div> 
                                                 )}

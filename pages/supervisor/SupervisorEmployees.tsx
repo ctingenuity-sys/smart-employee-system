@@ -1419,14 +1419,25 @@ const SupervisorEmployees: React.FC = () => {
                             />
                         </div>
                         <div>
-                            <label className="text-xs font-bold text-slate-500 block mb-1">تاريخ التعيين</label>
-                            <input 
-                                type="date" 
+                            <label className="text-xs font-bold text-slate-500 block mb-1">الجنس (Gender)</label>
+                            <select 
                                 className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
-                                value={editForm.hireDate || ''} 
-                                onChange={e => setEditForm({...editForm, hireDate: e.target.value})} 
-                            />
+                                value={editForm.gender || 'male'} 
+                                onChange={e => setEditForm({...editForm, gender: e.target.value as 'male' | 'female'})}
+                            >
+                                <option value="male">Male</option>
+                                <option value="female">Female</option>
+                            </select>
                         </div>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 block mb-1">تاريخ التعيين</label>
+                        <input 
+                            type="date" 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
+                            value={editForm.hireDate || ''} 
+                            onChange={e => setEditForm({...editForm, hireDate: e.target.value})} 
+                        />
                     </div>
                     
                     <div>

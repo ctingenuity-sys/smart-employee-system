@@ -8,7 +8,7 @@ interface StaffMember {
     color: string;
     time?: string;
     note?: string;
-    shiftType?: 'morning' | 'evening' | 'night' | 'broken' | 'long_duty' | 'high_broken';
+    shiftType?: 'morning' | 'evening' | 'night' | 'broken' | 'straight' | 'long_duty' | 'high_broken';
 }
 
 const staffColorMap = new Map<string, string>();

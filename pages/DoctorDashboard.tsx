@@ -1,14 +1,21 @@
 
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
-import { Schedule, User, SwapRequest, LeaveRequest, Location, Announcement, OpenShift, ActionLog, PeerRecognition, AttendanceLog } from '../types';
+import { Schedule, User, SwapRequest, LeaveRequest, Location, Announcement, OpenShift, ActionLog, PeerRecognition, AttendanceLog, SavedTemplate } from '../types';
 import Loading from '../components/Loading';
 import Modal from '../components/Modal';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
+import GeneralScheduleView from '../components/schedule/GeneralScheduleView';
+import FridayScheduleView from '../components/schedule/FridayScheduleView';
+import HolidayScheduleView from '../components/schedule/HolidayScheduleView';
+import DoctorScheduleView from '../components/schedule/DoctorScheduleView';
+import DoctorFridayScheduleView from '../components/schedule/DoctorFridayScheduleView';
+import ExceptionScheduleView from '../components/schedule/ExceptionScheduleView';
+import RamadanScheduleView from '../components/schedule/RamadanScheduleView';
 
 // @ts-ignore
-import { collection, getDocs, addDoc, query, where, doc, updateDoc, Timestamp, orderBy, limit } from 'firebase/firestore';
+import { collection, getDocs, addDoc, query, where, doc, getDoc, updateDoc, Timestamp, orderBy, limit } from 'firebase/firestore';
 
 interface SwapRequestWithUser extends SwapRequest {
   id: string;
@@ -197,6 +204,8 @@ const DoctorDashboard: React.FC = () => {
   const [todayAbsences, setTodayAbsences] = useState<Set<string>>(new Set());
   const [isShiftWidgetOpen, setIsShiftWidgetOpen] = useState(false);
   const [isNoteOpen, setIsNoteOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'cards' | 'full'>('cards');
+  const [publishedData, setPublishedData] = useState<SavedTemplate | null>(null);
   const [shiftFilterMode, setShiftFilterMode] = useState<'present' | 'all'>('present');
   
   // NEW: State for all logs today
@@ -262,6 +271,24 @@ const DoctorDashboard: React.FC = () => {
     });
   }, [refreshTrigger]);
 
+  useEffect(() => {
+      if (viewMode === 'full') {
+          setLoading(true);
+          const docRef = doc(db, 'monthly_publishes', selectedMonth);
+          getDoc(docRef).then((docSnap) => {
+              if (docSnap.exists()) {
+                  setPublishedData(docSnap.data() as SavedTemplate);
+              } else {
+                  setPublishedData(null);
+              }
+              setLoading(false);
+          }).catch((error) => {
+              console.error("Error watching published schedule", error);
+              setLoading(false);
+          });
+      }
+  }, [viewMode, selectedMonth, refreshTrigger]);
+
   // ... (Schedules loading useEffect) ...
   useEffect(() => {
     if (!currentUserId) return;
@@ -280,7 +307,24 @@ const DoctorDashboard: React.FC = () => {
       where('month', 'in', [prevMonth, currentMonth, nextMonth])
     );
     getDocs(q).then(snap => {
-      const data = snap.docs.map(d => ({ ...d.data(), id: d.id } as Schedule));
+      const fetchedData = snap.docs.map(d => ({ ...d.data(), id: d.id } as Schedule));
+      
+      const [selY, selM] = selectedMonth.split('-').map(Number);
+      const lastDay = new Date(selY, selM, 0).getDate(); 
+      const monthStart = `${selectedMonth}-01`;
+      const monthEnd = `${selectedMonth}-${lastDay}`;
+      
+      const data = fetchedData.filter(sch => {
+          if (sch.month === selectedMonth) return true;
+          if (sch.date) return sch.date.startsWith(selectedMonth);
+          if (sch.validFrom) {
+              const vFrom = sch.validFrom;
+              const vTo = sch.validTo || '9999-99-99';
+              return vFrom <= monthEnd && vTo >= monthStart;
+          }
+          return false;
+      });
+
       data.sort((a, b) => {
         const aIsSwap = a.locationId === 'Swap' || (a.note && a.note.startsWith('Swap'));
         const bIsSwap = b.locationId === 'Swap' || (b.note && b.note.startsWith('Swap'));
@@ -740,6 +784,118 @@ const DoctorDashboard: React.FC = () => {
       return t;
   };
 
+    const RenderFullVisualSchedule = () => {
+        if (!publishedData) {
+            return (
+                <div className="text-center py-20 text-slate-400">
+                    <i className="fas fa-file-excel text-4xl mb-4 opacity-50"></i>
+                    <p className="font-bold">No Published Schedule found for {selectedMonth}</p>
+                    <p className="text-xs mt-2">The supervisor hasn't published the official schedule yet.</p>
+                </div>
+            );
+        }
+
+        const hasRamadan = publishedData.ramadanData && publishedData.ramadanData.some((c: any) => c.staff.length > 0);
+
+        return (
+            <div className="space-y-12">
+                <div className="break-after-page">
+                    <GeneralScheduleView 
+                        data={publishedData.generalData} 
+                        commonDuties={publishedData.commonDuties} 
+                        isEditing={false} 
+                        publishMonth={publishedData.targetMonth || selectedMonth} 
+                        globalStartDate={publishedData.globalStartDate || ''} 
+                        globalEndDate={publishedData.globalEndDate || ''}
+                        setGlobalStartDate={()=>{}} setGlobalEndDate={()=>{}}
+                        scheduleNote={publishedData.scheduleNote || ''} setScheduleNote={()=>{}}
+                        onUpdateColumn={()=>{}} onUpdateDuty={()=>{}} onAddColumn={()=>{}} onRemoveColumn={()=>{}} onReorderColumns={()=>{}} onAddDuty={()=>{}} onRemoveDuty={()=>{}}
+                        locations={[]} allUsers={[]} searchTerm=""
+                    />
+                </div>
+                {hasRamadan && (
+                     <div className="break-after-page">
+                         <RamadanScheduleView
+                            ramadanData={publishedData.ramadanData || []}
+                            setRamadanData={()=>{}}
+                            ramadanCommonDuties={publishedData.ramadanCommonDuties || []}
+                            setRamadanCommonDuties={()=>{}}
+                            ramadanFridayData={publishedData.ramadanFridayData || []}
+                            setRamadanFridayData={()=>{}}
+                            ramadanFridayColumns={publishedData.ramadanFridayColumns || []}
+                            setRamadanFridayColumns={()=>{}}
+                            ramadanStartDate="" setRamadanStartDate={()=>{}}
+                            ramadanEndDate="" setRamadanEndDate={()=>{}}
+                            scheduleNote={publishedData.ramadanScheduleNote || ''} setScheduleNote={()=>{}}
+                            isEditing={false}
+                            allUsers={[]} locations={[]} savedTemplates={[]}
+                         />
+                     </div>
+                )}
+                <div className="break-after-page">
+                     <FridayScheduleView 
+                        data={publishedData.fridayData} 
+                        isEditing={false} 
+                        allUsers={[]} 
+                        publishMonth={publishedData.targetMonth || selectedMonth}
+                        onUpdateRow={()=>{}} onAddRow={()=>{}} onRemoveRow={()=>{}}
+                        columns={publishedData.fridayColumns || []}
+                        onUpdateColumn={()=>{}} onRemoveColumn={()=>{}}
+                        searchTerm=""
+                    />
+                </div>
+                <div className="break-after-page">
+                     <HolidayScheduleView 
+                        data={publishedData.holidayData} 
+                        isEditing={false} 
+                        allUsers={[]} 
+                        publishMonth={publishedData.targetMonth || selectedMonth}
+                        onUpdateRow={()=>{}} onAddRow={()=>{}} onRemoveRow={()=>{}}
+                        columns={publishedData.holidayColumns || []}
+                        onUpdateColumn={()=>{}} onRemoveColumn={()=>{}}
+                        searchTerm=""
+                        scheduleNote={publishedData.holidayScheduleNote || ''} 
+                        setScheduleNote={()=>{}} 
+                    />
+                </div>
+                {(publishedData.exceptions || []).length > 0 && (
+                     <div className="break-after-page">
+                        <ExceptionScheduleView 
+                            exceptions={publishedData.exceptions || []}
+                            setExceptions={()=>{}}
+                            isEditing={false}
+                            allUsers={[]} locations={[]} savedTemplates={[]}
+                        />
+                     </div>
+                )}
+                <div className="break-after-page">
+                    <DoctorScheduleView 
+                        data={publishedData.doctorData || []} 
+                        isEditing={false} 
+                        allUsers={[]} 
+                        publishMonth={publishedData.targetMonth || selectedMonth}
+                        onUpdateRow={()=>{}} onAddRow={()=>{}} onRemoveRow={()=>{}}
+                        columns={publishedData.doctorColumns || []}
+                        onUpdateColumn={()=>{}} onRemoveColumn={()=>{}}
+                        searchTerm=""
+                    />
+                </div>
+                <div className="break-after-page">
+                    <DoctorFridayScheduleView 
+                        data={publishedData.doctorFridayData || []} 
+                        isEditing={false} 
+                        allUsers={[]} 
+                        publishMonth={publishedData.targetMonth || selectedMonth}
+                        onUpdateRow={()=>{}} onAddRow={()=>{}} onRemoveRow={()=>{}}
+                        columns={publishedData.doctorFridayColumns || []}
+                        onUpdateColumn={()=>{}} onRemoveColumn={()=>{}}
+                        searchTerm=""
+                    />
+                </div>
+            </div>
+        );
+    };
+
   return (
     <div className="min-h-screen bg-slate-50/50 pb-20 font-sans" dir={dir}>
 
@@ -858,13 +1014,35 @@ const DoctorDashboard: React.FC = () => {
                     {t('user.tab.schedule')}
                     </h2>
                     
-                    <button 
-                        onClick={() => setIsNoteOpen(!isNoteOpen)}
-                        className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all flex items-center gap-2 ${isNoteOpen ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-yellow-50 hover:text-yellow-600'}`}
-                        title="Toggle Personal Notes"
-                    >
-                        <i className="fas fa-sticky-note"></i> {isNoteOpen ? 'Hide Notes' : 'Notes'}
-                    </button>
+                    <div className="flex bg-slate-100 p-1 rounded-lg ml-4">
+                        <button 
+                            onClick={() => setViewMode('cards')}
+                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${viewMode === 'cards' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}
+                        >
+                            <i className="fas fa-th-large mr-1"></i> My Tickets
+                        </button>
+                        <button 
+                            onClick={() => setViewMode('full')}
+                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${viewMode === 'full' ? 'bg-white shadow text-purple-600' : 'text-slate-500'}`}
+                        >
+                            <i className="fas fa-table mr-1"></i> Full Schedule
+                        </button>
+                    </div>
+
+                    {viewMode === 'cards' && (
+                        <button 
+                            onClick={() => setIsNoteOpen(!isNoteOpen)}
+                            className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all flex items-center gap-2 ml-2 ${isNoteOpen ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-yellow-50 hover:text-yellow-600'}`}
+                            title="Toggle Personal Notes"
+                        >
+                            <i className="fas fa-sticky-note"></i> {isNoteOpen ? 'Hide Notes' : 'Notes'}
+                        </button>
+                    )}
+                    {viewMode === 'full' && (
+                        <button onClick={() => window.print()} className="ml-2 bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-slate-700">
+                            <i className="fas fa-print"></i> Print
+                        </button>
+                    )}
                 </div>
 
                 <div className="flex items-center gap-3 mt-3 md:mt-0 bg-slate-50 p-1 rounded-xl">
@@ -891,22 +1069,25 @@ const DoctorDashboard: React.FC = () => {
                 </div>
               </div>
 
-              {isNoteOpen && (
+              {viewMode === 'cards' && isNoteOpen && (
                   <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 mb-6 animate-fade-in-down">
                       <PersonalNotepad />
                   </div>
               )}
 
-              {loading ? <Loading /> : schedules.length === 0 ? (
-                <div className="text-center py-20 bg-white rounded-3xl shadow-sm border border-dashed border-slate-200">
-                  <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
-                    <i className="fas fa-calendar-times text-3xl"></i>
-                  </div>
-                  <p className="text-slate-500 font-bold">{t('user.hero.noShift')}</p>
-                </div>
+              {viewMode === 'full' ? (
+                  <RenderFullVisualSchedule />
               ) : (
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                  {schedules.map((sch) => {
+                  loading ? <Loading /> : schedules.length === 0 ? (
+                    <div className="text-center py-20 bg-white rounded-3xl shadow-sm border border-dashed border-slate-200">
+                      <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
+                        <i className="fas fa-calendar-times text-3xl"></i>
+                      </div>
+                      <p className="text-slate-500 font-bold">{t('user.hero.noShift')}</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                      {schedules.map((sch) => {
                     const status = getTicketStatus(sch);
                     const theme = getThemeClasses(status.theme || 'blue', status.grayscale || false);
                     let detailedDesc = sch.note && SHIFT_DESCRIPTIONS[sch.note] ? SHIFT_DESCRIPTIONS[sch.note] : '';
@@ -979,11 +1160,12 @@ const DoctorDashboard: React.FC = () => {
                     );
                   })}
                 </div>
-              )}
-            </div>
-          )}
-          
-          {activeTab === 'requests' && (
+              )
+            )}
+          </div>
+        )}
+        
+        {activeTab === 'requests' && (
                 <div className="space-y-8 animate-fade-in">
                     <div className="grid md:grid-cols-2 gap-8">
                         {/* Swap Request Form */}

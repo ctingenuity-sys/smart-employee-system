@@ -8,6 +8,7 @@ interface StaffMember {
     time?: string;
     color: string;
     isPP?: boolean;
+    note?: string;
 }
 
 const staffColorMap = new Map<string, string>();
@@ -84,7 +85,7 @@ const DoctorScheduleView: React.FC<DoctorScheduleViewProps> = ({
         });
     }, [data, columns]);
 
-    const handleStaffChange = useCallback((rowIndex: number, columnId: string, index: number, field: 'name' | 'time', value: string) => {
+    const handleStaffChange = useCallback((rowIndex: number, columnId: string, index: number, field: 'name' | 'time' | 'note', value: string) => {
         if (!data[rowIndex]) return;
         const row = { ...data[rowIndex] };
         const currentList = [...(row[columnId] as VisualStaff[] || [])];
@@ -223,6 +224,12 @@ const DoctorScheduleView: React.FC<DoctorScheduleViewProps> = ({
                                     className="w-full text-[9px] text-slate-500 p-0.5 bg-slate-50 border-b border-transparent focus:border-blue-300 outline-none"
                                     placeholder="Specific Time"
                                 />
+                                <input
+                                    value={s.note || ''}
+                                    onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'note', e.target.value)}
+                                    className="w-full text-[9px] text-yellow-700 p-0.5 bg-yellow-50 border-b border-transparent focus:border-yellow-400 outline-none"
+                                    placeholder="Note"
+                                />
                             </div>
                             <button 
                                 onClick={() => togglePP(rowIndex, columnId, i)} 
@@ -252,6 +259,11 @@ const DoctorScheduleView: React.FC<DoctorScheduleViewProps> = ({
                                 <span>{displayName}</span>
                                 {s.time && <span className="text-[10px] font-medium text-slate-600 print:text-black whitespace-nowrap">({s.time})</span>}
                             </div>
+                            {s.note && (
+                                <div className="text-[10px] font-bold text-yellow-700 bg-yellow-50 px-1 py-0.5 rounded border border-yellow-200 mt-1 w-full text-center">
+                                    {s.note}
+                                </div>
+                            )}
                             {s.isPP && (
                                 <div className="w-full text-[10px] font-black bg-yellow-400 text-black border-2 border-yellow-600 rounded px-1 py-0.5 mt-1 shadow-md uppercase tracking-wider text-center block print:bg-yellow-400 print:text-black print:border-black print-color-adjust-exact z-10 relative">
                                     PORTABLE & PROCEDURE
@@ -328,10 +340,13 @@ const DoctorScheduleView: React.FC<DoctorScheduleViewProps> = ({
         <table className="min-w-full divide-y divide-slate-800 border-collapse table-fixed">
           <thead className="bg-slate-200 print:bg-[#e6e7e8] print-color-adjust-exact">
             <tr className="divide-x divide-slate-800 border-b-2 border-slate-800">
-              <th className="px-2 py-3 text-center text-xs font-black text-slate-900 uppercase border-r-2 border-slate-800 w-24 bg-slate-200 print:bg-[#e6e7e8] print:w-16 print:px-1 print:py-2 print:text-[10px] print:leading-tight">
+              <th className="px-2 py-3 text-center text-xs font-black text-slate-900 uppercase border-r-2 border-slate-800 w-32 bg-slate-200 print:bg-[#e6e7e8] print:w-20 print:px-1 print:py-2 print:text-[10px] print:leading-tight">
                   WEEK<br/>DATE
               </th>
               {columns.map((col, idx) => renderHeaderCell(col, idx, colWidth))}
+              <th className="px-2 py-3 text-center text-xs font-black text-slate-900 uppercase border-r-2 border-slate-800 w-32 bg-slate-200 print:bg-[#e6e7e8] print:w-24 print:px-1 print:py-2 print:text-[10px] print:leading-tight">
+                  NOTE
+              </th>
               {isEditing && <th className="w-8 bg-white print:hidden"></th>}
             </tr>
           </thead>
@@ -340,18 +355,18 @@ const DoctorScheduleView: React.FC<DoctorScheduleViewProps> = ({
               <tr key={idx} className="divide-x divide-slate-800 border-b border-slate-800 min-h-[5rem] print:h-auto print:border-b">
                 <td className="px-2 py-2 text-sm font-bold text-slate-900 align-middle bg-slate-50 print:bg-transparent border-r-2 border-slate-800 print:p-1 print:text-[10px] text-center">
                     {isEditing ? (
-                        <div className="flex flex-col gap-1">
+                        <div className="flex flex-col gap-2">
                             <input
                                 type="date"
                                 value={row.startDate || ''}
                                 onChange={(e) => onUpdateRow(idx, {...data[idx], startDate: e.target.value})}
-                                className="w-full bg-white border border-slate-300 p-1 text-[10px] rounded"
+                                className="w-full bg-white border border-slate-300 p-2 text-sm font-bold rounded"
                             />
                             <input
                                 type="date"
                                 value={row.endDate || ''}
                                 onChange={(e) => onUpdateRow(idx, {...data[idx], endDate: e.target.value})}
-                                className="w-full bg-white border border-slate-300 p-1 text-[10px] rounded"
+                                className="w-full bg-white border border-slate-300 p-2 text-sm font-bold rounded"
                             />
                         </div>
                     ) : (
@@ -388,6 +403,21 @@ const DoctorScheduleView: React.FC<DoctorScheduleViewProps> = ({
                         </td>
                     );
                 })}
+
+                <td className="px-2 py-2 text-sm font-bold text-slate-900 align-middle bg-slate-50 print:bg-transparent border-r-2 border-slate-800 print:p-1 print:text-[10px] text-center">
+                    {isEditing ? (
+                        <textarea
+                            value={row.note || ''}
+                            onChange={(e) => onUpdateRow(idx, {...data[idx], note: e.target.value})}
+                            className="w-full bg-white border border-slate-300 p-1 text-[10px] rounded text-center resize-none h-12"
+                            placeholder="Note..."
+                        />
+                    ) : (
+                        <div className="font-bold text-[10px] print:text-[9px] whitespace-pre-line leading-tight text-slate-600">
+                            {row.note}
+                        </div>
+                    )}
+                </td>
 
                 {isEditing && (
                     <td className="px-1 py-1 align-middle print:hidden bg-white text-center">

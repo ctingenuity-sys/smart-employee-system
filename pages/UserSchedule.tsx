@@ -368,7 +368,7 @@ const UserSchedule: React.FC = () => {
     useEffect(() => {
         setLoading(true);
         getDocs(collection(db, 'locations')).then((snap) => {
-            setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
+            setLocations(snap.docs.map(d => ({ ...d.data(), id: d.id } as Location)));
         });
 
         if (currentUserId) {
@@ -406,7 +406,7 @@ const UserSchedule: React.FC = () => {
             );
 
             getDocs(qSch).then(snap => {
-                const fetchedData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule));
+                const fetchedData = snap.docs.map(d => ({ ...d.data(), id: d.id } as Schedule));
                 
                 const [selY, selM] = selectedMonth.split('-').map(Number);
                 const lastDay = new Date(selY, selM, 0).getDate(); 
@@ -428,7 +428,7 @@ const UserSchedule: React.FC = () => {
                 const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
                 getDocs(qActions).then(actionSnap => {
                     const fetchedActions = actionSnap.docs
-                        .map(d => ({ id: d.id, ...d.data() } as ActionLog))
+                        .map(d => ({ ...d.data(), id: d.id } as ActionLog))
                         .filter(a => {
                             const start = a.fromDate;
                             const end = a.toDate;
@@ -743,6 +743,20 @@ const UserSchedule: React.FC = () => {
                         allUsers={[]} publishMonth={publishedData.targetMonth || selectedMonth}
                         onUpdateRow={()=>{}} onAddRow={()=>{}} onRemoveRow={()=>{}}
                         columns={publishedData.doctorColumns || []}
+                        onUpdateColumn={()=>{}} onRemoveColumn={()=>{}}
+                        searchTerm=""
+                    />
+                </div>
+                
+                {/* 7. DOCTOR FRIDAY */}
+                <div className="break-after-page">
+                    <DoctorFridayScheduleView 
+                        data={publishedData.doctorFridayData || []} 
+                        isEditing={false} 
+                        allUsers={[]} 
+                        publishMonth={publishedData.targetMonth || selectedMonth}
+                        onUpdateRow={()=>{}} onAddRow={()=>{}} onRemoveRow={()=>{}}
+                        columns={publishedData.doctorFridayColumns || []}
                         onUpdateColumn={()=>{}} onRemoveColumn={()=>{}}
                         searchTerm=""
                     />

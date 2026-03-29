@@ -88,7 +88,8 @@ export interface Schedule {
   swapRequestId?: string;
   isRamadan?: boolean; // NEW: Explicit flag to force Ramadan theme regardless of dates
   isException?: boolean; // NEW: Explicit flag for Exception days
-shiftType?: 'morning' | 'evening' | 'night' | 'broken' | 'long_duty' | 'high_broken';}
+  shiftType?: 'morning' | 'evening' | 'night' | 'broken' | 'straight' | 'high_broken' | 'long_duty'; // NEW: Explicit shift type indicator
+}
 
 export interface SwapRequest {
   id: string;
@@ -335,7 +336,7 @@ export interface VisualStaff {
     startDate?: string;
     endDate?: string;
     note?: string; // Added: Note specific to this shift
-    shiftType?: 'morning' | 'evening' | 'night' | 'broken' | 'long_duty' | 'high_broken'; // NEW: Explicit shift type indicator
+    shiftType?: 'morning' | 'evening' | 'night' | 'broken' | 'straight' | 'high_broken' | 'long_duty'; // NEW: Explicit shift type indicator
 }
 
 export interface ModalityColumn {
@@ -380,6 +381,7 @@ export interface DoctorScheduleRow {
   dateRange: string;
   startDate?: string; // YYYY-MM-DD
   endDate?: string;   // YYYY-MM-DD
+  note?: string;      // NEW: Note for the schedule row
   
   // Specific overrides for Night Shift dates
   nightStartDate?: string; 
@@ -392,6 +394,7 @@ export interface DoctorScheduleRow {
 export interface DoctorFridayRow {
   id: string;
   date: string;
+  note?: string;      // NEW: Note for the schedule row
   [key: string]: any; // Allow dynamic columns
 }
 
@@ -572,7 +575,7 @@ export interface OpenShift {
   id: string;
   date: string; // YYYY-MM-DD
   shiftTime: string; // e.g. "08:00 - 16:00"
-  shiftType?: 'morning' | 'evening' | 'night' | 'broken' | 'long_duty' | 'high_broken'; // NEW: Explicit shift type indicator
+  shiftType?: 'morning' | 'evening' | 'night' | 'broken' | 'straight' | 'high_broken' | 'long_duty'; // NEW: Explicit shift type indicator
   locationId: string;
   notes?: string;
   status: 'open' | 'claimed' | 'approved';

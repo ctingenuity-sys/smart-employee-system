@@ -801,6 +801,43 @@ const ScheduleBuilder: React.FC = () => {
                 }
             }
 
+            // 6. Doctor Schedule
+            for (const row of doctorData) {
+                const sDate = row.startDate || globalStartDate;
+                const eDate = row.endDate || globalEndDate;
+                // For night shifts, if they have specific overrides
+                const nStart = row.nightStartDate || sDate;
+                const nEnd = row.nightEndDate || eDate;
+
+                for (const col of doctorColumns) {
+                    const staffList = row[col.id] as VisualStaff[];
+                    if (staffList && Array.isArray(staffList)) {
+                        const isNight = col.title.toLowerCase().includes('night');
+                        const rStart = isNight ? nStart : sDate;
+                        const rEnd = isNight ? nEnd : eDate;
+                        const rowMonth = rStart ? rStart.slice(0, 7) : publishMonth;
+                        const combinedNote = row.note ? (scheduleNote ? `${scheduleNote} - ${row.note}` : row.note) : scheduleNote;
+                        await saveStaff(staffList, 'Doctor Schedule', col.title, col.time || '08:00 - 16:00', undefined, 'doctor', rStart, rEnd, rowMonth, false, combinedNote);
+                    }
+                }
+            }
+
+            // 7. Doctor Friday Schedule
+            for (const row of doctorFridayData) {
+                if (!row.date) continue;
+                const fallbackYear = parseInt(globalStartDate.split('-')[0]) || new Date().getFullYear();
+                const date = extractDateFromText(row.date, fallbackYear) || row.date;
+                const rowMonth = date.match(/^\d{4}-\d{2}/) ? date.slice(0, 7) : publishMonth;
+
+                for (const col of doctorFridayColumns) {
+                    const staffList = row[col.id] as VisualStaff[];
+                    if (staffList && Array.isArray(staffList)) {
+                        const combinedNote = row.note ? (scheduleNote ? `${scheduleNote} - ${row.note}` : row.note) : scheduleNote;
+                        await saveStaff(staffList, 'Doctor Friday', `Friday - ${col.title}`, col.time || '08:00 - 16:00', date, 'doctor', undefined, undefined, rowMonth, false, combinedNote, `DrFriday_${col.id}`);
+                    }
+                }
+            }
+
             await batch.commit();
             setToast({ msg: mergeMode ? 'Merged Successfully!' : 'Published Successfully!', type: 'success' });
         } catch (e: any) {

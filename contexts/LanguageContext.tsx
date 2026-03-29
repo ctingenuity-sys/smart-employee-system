@@ -261,6 +261,7 @@ const translations: Record<string, { ar: string; en: string }> = {
   'dash.filterActive': { ar: 'نشط', en: "Active" },
   'dash.filterAll': { ar: 'الكل', en: "All" },
   'dash.call': { ar: 'اتصال', en: "Call" },
+  'dash.locationCode': { ar: 'كود الموقع', en: 'Location Code' },
 
   'sup.totalEmp': { ar: 'إجمالي الموظفين', en: 'Total Employees' },
   'sup.swapReqs': { ar: 'طلبات التبديل', en: 'Swap Requests' },

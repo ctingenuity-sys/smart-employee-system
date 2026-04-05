@@ -1,0 +1,25 @@
+{
+  "entities": {
+    "penalty": {
+      "title": "Penalty",
+      "description": "A penalty issued to an employee based on labor law.",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string", "description": "ID of the employee receiving the penalty" },
+        "managerId": { "type": "string", "description": "ID of the manager issuing the penalty" },
+        "penaltyType": { "type": "string", "description": "Type of penalty (e.g., Warning, Deduction)" },
+        "description": { "type": "string", "description": "Detailed description of the violation" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"], "description": "Status of the penalty" },
+        "rejectionReason": { "type": "string", "description": "Reason for rejection if rejected" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["employeeId", "managerId", "penaltyType", "description", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/penalties/{penaltyId}": {
+      "schema": "penalty",
+      "description": "Collection of penalties"
+    }
+  }
+}

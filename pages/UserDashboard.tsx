@@ -4,9 +4,9 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
-import { Schedule, Announcement, SwapRequest, OpenShift, User, AttendanceLog, ActionLog } from '../types';
+import { Schedule, Announcement, SwapRequest, OpenShift, User, AttendanceLog, ActionLog, Penalty } from '../types';
 import Toast from '../components/Toast';
 import { useAttendanceStatus } from '../hooks/useAttendanceStatus';
 
@@ -118,6 +118,9 @@ const UserDashboard: React.FC = () => {
 
 const [showAnnouncePopup, setShowAnnouncePopup] = useState(true);
   const [showAnnouncementsModal, setShowAnnouncementsModal] = useState(false);
+  const [pendingPenalties, setPendingPenalties] = useState<Penalty[]>([]);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [selectedPenaltyAction, setSelectedPenaltyAction] = useState<Penalty | null>(null);
 
   
 const [generatedCode, setGeneratedCode] = useState<string | null>(null);
@@ -162,6 +165,17 @@ const handleGenerateManualCode = () => {
   const closeAnnouncements = () => {
     localStorage.setItem('announcements_dismissed_at', new Date().getTime().toString());
     setShowAnnouncementsModal(false);
+  };
+
+  const handlePenaltyAction = async (penaltyId: string, status: 'accepted' | 'rejected') => {
+      const penaltyRef = doc(db, 'penalties', penaltyId);
+      await updateDoc(penaltyRef, {
+          status,
+          rejectionReason: status === 'rejected' ? rejectionReason : ''
+      });
+      setToast({ msg: 'تم تحديث حالة الجزاء بنجاح', type: 'success' });
+      setSelectedPenaltyAction(null);
+      setRejectionReason('');
   };
 
   // --- Data Loading ---
@@ -241,6 +255,12 @@ const handleGenerateManualCode = () => {
         setAllUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
     });
 
+    // 6.5 Penalties
+    const qPenalties = query(collection(db, 'penalties'), where('employeeId', '==', currentUserId), where('status', '==', 'pending'));
+    const unsubPenalties = onSnapshot(qPenalties, (snap: any) => {
+        setPendingPenalties(snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as Penalty)));
+    });
+
     // 7. Calculate Incoming Count (Real-time)
     let unsubSwaps: any;
     let unsubLeavesReliever: any;
@@ -302,6 +322,7 @@ const handleGenerateManualCode = () => {
     return () => {
         unsubLogs();
         unsubAllLogs();
+        unsubPenalties();
         if (unsubSwaps) unsubSwaps();
         if (unsubLeavesReliever) unsubLeavesReliever();
         if (unsubLeavesSup) unsubLeavesSup();
@@ -699,6 +720,84 @@ const handleGenerateManualCode = () => {
         <style>{styles}</style>
         
         {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+
+        {/* Pending Penalties Modal */}
+        {pendingPenalties.length > 0 && (
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in-up">
+                    <div className="bg-red-600 p-4 text-white text-center">
+                        <i className="fas fa-exclamation-triangle text-3xl mb-2"></i>
+                        <h2 className="text-xl font-bold">يوجد جزاءات معلقة تتطلب إجراء</h2>
+                    </div>
+                    <div className="p-6 max-h-[70vh] overflow-y-auto">
+                        {pendingPenalties.map(p => (
+                            <div key={p.id} className="bg-red-50 border border-red-100 p-4 rounded-xl mb-4">
+                                <div className="mb-4">
+                                    <p className="text-sm text-gray-500 mb-1">نوع الجزاء:</p>
+                                    <p className="font-bold text-red-700">{
+                                        p.penaltyType === '1st Warning' ? 'إنذار أول' :
+                                        p.penaltyType === '2nd Warning' ? 'إنذار ثاني' :
+                                        p.penaltyType === 'Final Warning' ? 'إنذار نهائي' :
+                                        p.penaltyType === 'Deduction' ? `خصم (${p.deductionDays} أيام)` :
+                                        p.penaltyType === 'Suspension' ? `إيقاف (${p.suspensionDays} أيام)` :
+                                        p.penaltyType === 'Dismissal' ? 'فصل من الخدمة' : p.penaltyType
+                                    }</p>
+                                </div>
+                                <div className="mb-4">
+                                    <p className="text-sm text-gray-500 mb-1">الوصف:</p>
+                                    <p className="font-medium">{p.description}</p>
+                                </div>
+                                
+                                {selectedPenaltyAction?.id === p.id ? (
+                                    <div className="mt-4 bg-white p-3 rounded-lg border border-red-200">
+                                        <textarea 
+                                            className="w-full p-2 border border-gray-300 rounded-lg mb-2 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none" 
+                                            placeholder="اكتب سبب الرفض هنا..." 
+                                            value={rejectionReason} 
+                                            onChange={(e) => setRejectionReason(e.target.value)} 
+                                            rows={3}
+                                        />
+                                        <div className="flex gap-2">
+                                            <button 
+                                                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors" 
+                                                onClick={() => handlePenaltyAction(p.id, 'rejected')}
+                                                disabled={!rejectionReason.trim()}
+                                            >
+                                                تأكيد الرفض
+                                            </button>
+                                            <button 
+                                                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-bold hover:bg-gray-300 transition-colors" 
+                                                onClick={() => {
+                                                    setSelectedPenaltyAction(null);
+                                                    setRejectionReason('');
+                                                }}
+                                            >
+                                                إلغاء
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex gap-3 mt-4">
+                                        <button 
+                                            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2" 
+                                            onClick={() => handlePenaltyAction(p.id, 'accepted')}
+                                        >
+                                            <i className="fas fa-check"></i> موافقة
+                                        </button>
+                                        <button 
+                                            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors flex items-center justify-center gap-2" 
+                                            onClick={() => setSelectedPenaltyAction(p)}
+                                        >
+                                            <i className="fas fa-times"></i> رفض
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        )}
 
         {/* Announcements Banner */}
      {showAnnouncePopup && announcements.length > 0 && (

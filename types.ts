@@ -1,5 +1,23 @@
 
 
+// --- NEW: Penalties ---
+export interface Penalty {
+  id: string;
+  employeeId: string;
+  employeeName: string; // Added for printable document
+  managerId: string;
+  managerName: string; // Added for printable document
+  penaltyType: '1st Warning' | '2nd Warning' | 'Final Warning' | 'Deduction' | 'Suspension' | 'Dismissal';
+  deductionDays?: number;
+  suspensionDays?: number;
+  suspensionFrom?: string;
+  suspensionTo?: string;
+  description: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  rejectionReason?: string;
+  createdAt: any; // Firestore Timestamp
+}
+
 export enum UserRole {
   ADMIN = 'admin',
   SUPERVISOR = 'supervisor',

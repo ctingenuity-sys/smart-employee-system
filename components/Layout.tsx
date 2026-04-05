@@ -206,6 +206,12 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                     <span className="font-medium">{t('nav.rotation')}</span>
                   </Link>
               )}
+              {canAccess('sup_penalties') && (
+                  <Link to="/supervisor/penalties" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/penalties')}`}>
+                    <i className="fas fa-gavel w-6"></i>
+                    <span className="font-medium">الجزاءات</span>
+                  </Link>
+              )}
               {canAccess('sup_reports') && (
                   <Link to="/reports" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/reports')}`}>
                     <i className="fas fa-file-contract w-6"></i>
@@ -239,6 +245,10 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                     <span className="font-medium">{t('user.tab.schedule')}</span>
                   </Link>
               )}
+              <Link to="/user/penalties" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/user/penalties')}`}>
+                <i className="fas fa-gavel w-6"></i>
+                <span className="font-medium">الجزاءات</span>
+              </Link>
             </>
           )}
 

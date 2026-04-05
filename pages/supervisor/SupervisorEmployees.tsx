@@ -54,6 +54,7 @@ const ALL_PERMISSIONS = [
     { key: 'sup_fms', label: 'FMS' },
     { key: 'sup_rooms', label: 'الغرف (Rooms)' },
     { key: 'sup_logbooks', label: 'السجلات (Logbooks)' },
+    { key: 'sup_penalties', label: 'الجزاءات (Penalties)' },
 ];
 
 // Mapped to match the specific CSS classes requested

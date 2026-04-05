@@ -56,6 +56,7 @@ const translations: Record<string, { ar: string; en: string }> = {
   'role.supervisor': { ar: 'مشرف', en: 'Supervisor' },
   'role.user': { ar: 'موظف', en: 'Employee' },
   'role.doctor': { ar: 'طبيب', en: 'Doctor' },
+  'role.manager':{ar:'المدير',en:'maneger'},
 
   // --- Doctor Station ---
   'doc.station': { ar: 'محطة طبيب الأشعة', en: 'Radiologist Station' },
@@ -237,9 +238,9 @@ const translations: Record<string, { ar: string; en: string }> = {
   'penalty.days': { ar: 'أيام', en: 'Days' },
   'penalty.history': { ar: 'سجل الجزاءات', en: 'Penalties History' },
   'penalty.issue': { ar: 'إصدار جزاء', en: 'Issue Penalty' },
-  
-  // --- Appointments Page (NEW) ---
 
+  // --- Appointments Page (NEW) ---
+  
   'appt.title': { ar: 'نظام حجز المواعيد', en: 'Appointment Booking System' },
   'appt.search': { ar: 'بحث بالاسم أو الكود...', en: 'Search by name or code...' },
   'appt.status.waiting': { ar: 'انتظار', en: 'Pending' },

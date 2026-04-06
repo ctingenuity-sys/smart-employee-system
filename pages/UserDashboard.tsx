@@ -497,8 +497,8 @@ const handleGenerateManualCode = () => {
   const menuItems = [
       { 
           id: 'attendance', 
-          title: 'تسجيل البصمة', 
-          subtitle: 'الحضور والانصراف',
+          title: t('user.dashboard.menu.attendance'), 
+          subtitle: t('user.dashboard.menu.attendance.subtitle'),
           icon: 'fa-fingerprint', 
           gradient: 'from-emerald-500 to-teal-600', 
           path: '/attendance-punch',
@@ -506,7 +506,7 @@ const handleGenerateManualCode = () => {
       { 
           id: 'schedule', 
           title: t('user.tab.schedule'), 
-          subtitle: 'جدول الورديات',
+          subtitle: t('user.tab.schedule.subtitle'),
           icon: 'fa-calendar-alt', 
           gradient: 'from-blue-500 to-indigo-600', 
           path: '/user/schedule',
@@ -514,7 +514,7 @@ const handleGenerateManualCode = () => {
       { 
           id: 'market', 
           title: t('user.tab.market'), 
-          subtitle: 'تغطية وردية (أوفر تايم)',
+          subtitle: t('user.tab.market.subtitle'),
           icon: 'fa-store', 
           gradient: 'from-amber-400 to-orange-500', 
           path: '/user/market',
@@ -522,8 +522,8 @@ const handleGenerateManualCode = () => {
       },
       { 
           id: 'requests', 
-          title: 'الطلبات', 
-          subtitle: 'إجازة / تبديل',
+          title: t('user.dashboard.menu.requests'), 
+          subtitle: t('user.dashboard.menu.requests.subtitle'),
           icon: 'fa-paper-plane', 
           gradient: 'from-purple-500 to-fuchsia-600', 
           path: '/user/requests',
@@ -531,7 +531,7 @@ const handleGenerateManualCode = () => {
       { 
           id: 'incoming', 
           title: t('user.tab.incoming'), 
-          subtitle: 'الطلبات الواردة',
+          subtitle: t('user.tab.incoming.subtitle'),
           icon: 'fa-inbox', 
           gradient: 'from-pink-500 to-rose-600', 
           path: '/user/incoming',
@@ -540,7 +540,7 @@ const handleGenerateManualCode = () => {
       { 
           id: 'history', 
           title: t('user.tab.history'), 
-          subtitle: 'الأرشيف والسجل',
+          subtitle: t('user.tab.history.subtitle'),
           icon: 'fa-history', 
           gradient: 'from-slate-500 to-slate-700', 
           path: '/user/history',
@@ -548,15 +548,15 @@ const handleGenerateManualCode = () => {
       { 
           id: 'profile', 
           title: t('user.tab.profile'), 
-          subtitle: 'ملفي الشخصي',
+          subtitle: t('user.dashboard.menu.profile.subtitle'),
           icon: 'fa-id-card', 
           gradient: 'from-cyan-500 to-blue-600', 
           path: '/user/profile',
       },
       { 
           id: 'performance', // NEW ITEM
-          title: 'أدائي (إحصائيات)', 
-          subtitle: 'مؤشرات الأداء',
+          title: t('user.dashboard.menu.performance'), 
+          subtitle: t('user.dashboard.menu.performance.subtitle'),
           icon: 'fa-chart-line', 
           gradient: 'from-violet-500 to-purple-600', 
           path: '/user/performance',
@@ -564,8 +564,8 @@ const handleGenerateManualCode = () => {
      
       {
           id: 'tasks',
-          title: 'المهام',
-          subtitle: 'إدارة المهام',
+          title: t('user.dashboard.menu.tasks'),
+          subtitle: t('user.dashboard.menu.tasks.subtitle'),
           icon: 'fa-tasks',
           gradient: 'from-lime-500 to-green-600',
           path: '/tasks'
@@ -735,12 +735,12 @@ const handleGenerateManualCode = () => {
                                 <div className="mb-4">
                                     <p className="text-sm text-gray-500 mb-1">نوع الجزاء:</p>
                                     <p className="font-bold text-red-700">{
-                                        p.penaltyType === '1st Warning' ? 'إنذار أول' :
-                                        p.penaltyType === '2nd Warning' ? 'إنذار ثاني' :
-                                        p.penaltyType === 'Final Warning' ? 'إنذار نهائي' :
-                                        p.penaltyType === 'Deduction' ? `خصم (${p.deductionDays} أيام)` :
-                                        p.penaltyType === 'Suspension' ? `إيقاف (${p.suspensionDays} أيام)` :
-                                        p.penaltyType === 'Dismissal' ? 'فصل من الخدمة' : p.penaltyType
+                                        p.penaltyType === '1st Warning' ? t('penalty.1stWarning') :
+                                        p.penaltyType === '2nd Warning' ? t('penalty.2ndWarning') :
+                                        p.penaltyType === 'Final Warning' ? t('penalty.finalWarning') :
+                                        p.penaltyType === 'Deduction' ? `${t('penalty.deduction')} (${p.deductionDays} ${t('penalty.days')})` :
+                                        p.penaltyType === 'Suspension' ? `${t('penalty.suspension')} (${p.suspensionDays} ${t('penalty.days')})` :
+                                        p.penaltyType === 'Dismissal' ? t('penalty.dismissal') : p.penaltyType
                                     }</p>
                                 </div>
                                 <div className="mb-4">

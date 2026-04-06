@@ -72,7 +72,7 @@ const GlobalNotificationListener: React.FC<{ userId: string, userRole: string }>
             snap.docChanges().forEach((change: any) => {
                 if (change.type === 'added') {
                     const data = change.doc.data();
-                    showBrowserNotification(`تعميم: ${data.title}`, data.content);
+                    showBrowserNotification(`${t('comm.announcement')}: ${data.title}`, data.content);
                 }
             });
         });

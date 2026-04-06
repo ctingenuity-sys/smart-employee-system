@@ -58,12 +58,19 @@ const UserPenalties: React.FC = () => {
                                 <div>
                                     <h3 className="font-bold text-lg text-gray-900">
                                         {
-                                            p.penaltyType === '1st Warning' ? t('penalty.1stWarning') :
-                                            p.penaltyType === '2nd Warning' ? t('penalty.2ndWarning') :
-                                            p.penaltyType === 'Final Warning' ? t('penalty.finalWarning') :
-                                            p.penaltyType === 'Deduction' ? `${t('penalty.deduction')} (${p.deductionDays} ${t('penalty.days')})` :
-                                            p.penaltyType === 'Suspension' ? `${t('penalty.suspension')} (${p.suspensionDays} ${t('penalty.days')})` :
-                                            p.penaltyType === 'Dismissal' ? t('penalty.dismissal') : p.penaltyType
+                                            (() => {
+                                                const arKey = getTranslationKeyForArabic(p.penaltyType);
+                                                if (arKey) return t(arKey);
+                                                switch(p.penaltyType) {
+                                                    case '1st Warning': return t('penalty.1stWarning');
+                                                    case '2nd Warning': return t('penalty.2ndWarning');
+                                                    case 'Final Warning': return t('penalty.finalWarning');
+                                                    case 'Deduction': return `${t('penalty.deduction')} (${p.deductionDays} ${t('penalty.days')})`;
+                                                    case 'Suspension': return `${t('penalty.suspension')} (${p.suspensionDays} ${t('penalty.days')})`;
+                                                    case 'Dismissal': return t('penalty.dismissal');
+                                                    default: return p.penaltyType;
+                                                }
+                                            })()
                                         }
                                     </h3>
                                     <p className="text-sm text-gray-500">

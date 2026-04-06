@@ -2,17 +2,19 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 // @ts-ignore
-import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch, getDocs, Timestamp, getDoc, addDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch, getDocs, Timestamp, getDoc, addDoc, QuerySnapshot, DocumentData } from 'firebase/firestore';
 import { SwapRequest, Schedule, User } from '../../types';
 import Toast from '../../components/Toast';
 import Modal from '../../components/Modal';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDepartment } from '../../contexts/DepartmentContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 
 const SupervisorSwaps: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
+    const { selectedDepartmentId } = useDepartment();
     
     // Data States
     const [pendingRequests, setPendingRequests] = useState<SwapRequest[]>([]);
@@ -32,14 +34,20 @@ const SupervisorSwaps: React.FC = () => {
     const [currentMonthReq, setCurrentMonthReq] = useState<SwapRequest | null>(null);
 
     useEffect(() => {
-        const unsubUsers = onSnapshot(collection(db, 'users'), snap => {
+        const qUsers = selectedDepartmentId 
+            ? query(collection(db, 'users'), where('departmentId', '==', selectedDepartmentId))
+            : collection(db, 'users');
+            
+        const unsubUsers = onSnapshot(qUsers, (snap: QuerySnapshot<DocumentData>) => {
             const fetchedUsers = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
             setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
         });
         
+        const withDept = (baseQuery: any) => selectedDepartmentId ? query(baseQuery, where('departmentId', '==', selectedDepartmentId)) : baseQuery;
+
         // Pending Requests
-        const qPending = query(collection(db, 'swapRequests'), where('status', '==', 'approvedByUser'));
-        const unsubPending = onSnapshot(qPending, snap => {
+        const qPending = withDept(query(collection(db, 'swapRequests'), where('status', '==', 'approvedByUser')));
+        const unsubPending = onSnapshot(qPending, (snap: QuerySnapshot<DocumentData>) => {
             const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as SwapRequest));
             // Sort Pending by newest as well
             list.sort((a: any, b: any) => {
@@ -51,8 +59,8 @@ const SupervisorSwaps: React.FC = () => {
         });
 
         // History/Active Requests (Approved Month Swaps for Revert capability)
-        const qHistory = query(collection(db, 'swapRequests'), where('status', '==', 'approvedBySupervisor'));
-        const unsubHistory = onSnapshot(qHistory, snap => {
+        const qHistory = withDept(query(collection(db, 'swapRequests'), where('status', '==', 'approvedBySupervisor')));
+        const unsubHistory = onSnapshot(qHistory, (snap: QuerySnapshot<DocumentData>) => {
             const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as SwapRequest));
             
             // SORTING LOGIC: Newest First
@@ -125,6 +133,399 @@ const SupervisorSwaps: React.FC = () => {
             setIsOptionModalOpen(true);
         } else {
             handleSwapAction(req, true, false); // Day swap doesn't need friday options
+        }
+    };
+
+    const handlePrintSwap = async (swap: SwapRequest) => {
+        try {
+            const getJobTitle = (uData: any) => {
+                const JOB_CATEGORIES = [
+                    { id: 'doctor', title: 'Doctors' },
+                    { id: 'technologist', title: 'Specialists' },
+                    { id: 'usg', title: 'Ultrasound' },
+                    { id: 'technician', title: 'Technicians' },
+                    { id: 'nurse', title: 'Nurses' },
+                    { id: 'rso', title: 'R S O' },
+                ];
+                const jobCat = JOB_CATEGORIES.find(c => c.id === uData?.jobCategory);
+                return jobCat ? jobCat.title : (uData?.section || uData?.role || uData?.jobCategory || '-');
+            };
+
+            // Fetch the requester's details
+            const uDoc = await getDoc(doc(db, 'users', swap.from));
+            const userData = uDoc.exists() ? uDoc.data() : null;
+            const userName = userData?.name || swap.from;
+            const userJobPosition = getJobTitle(userData);
+
+            // Fetch the reliever's details
+            const rDoc = await getDoc(doc(db, 'users', swap.to));
+            const relieverData = rDoc.exists() ? rDoc.data() : null;
+            const relieverName = relieverData?.name || swap.to;
+            const relieverJobPosition = getJobTitle(relieverData);
+
+            // Fetch supervisor details
+            let supervisorJob = '-';
+            let supervisorName = '-';
+            const supApp = (swap as any).supervisorApproval;
+            if (supApp?.uid) {
+                const sDoc = await getDoc(doc(db, 'users', supApp.uid));
+                if (sDoc.exists()) {
+                    const sData = sDoc.data();
+                    supervisorName = sData.name || supApp.uid;
+                    supervisorJob = sData.role || supApp.jobTitle || getJobTitle(sData);
+                }
+            }
+
+            const departmentName = 'RADIOLOGY DEPARTMENT';
+            const logoUrl = new URL('/logo.png', window.location.origin).href;
+
+            const renderStamp = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', approved: boolean = true) => {
+                const rotation = (Math.random() * 6 - 3).toFixed(1);
+                return `
+                    <div class="stamp-box" style="transform: rotate(${rotation}deg); position: absolute; top: -15px; left: 50%; transform: translateX(-50%) rotate(${rotation}deg); z-index: 50; pointer-events: none; ${!approved ? 'border-color: red; color: red;' : ''}">
+                        <div class="stamp-inner" style="${!approved ? 'border-color: red;' : ''}">
+                            <div class="stamp-hospital">AL JEDAANI HOSPITAL</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed ${!approved ? 'red' : 'rgba(30, 58, 138, 0.4)'}; margin-top: 1px; padding-top: 1px;">RADIOLOGY DEPARTMENT</div>
+                            <div class="stamp-dept" style="${!approved ? 'color: red;' : ''}">${jobTitle}</div>
+                            <div class="stamp-name">${name}</div>
+                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: ${approved ? 'green' : 'red'}; opacity: 0.7; transform: rotate(-10deg);">
+                                ${approved ? 'APPROVED' : 'NOT APPROVED'}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            };
+
+            const htmlContent = `
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>Swap Request - ${userName}</title>
+                    <style>
+                        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&family=Inter:wght@400;700&display=swap');
+                        @page {
+                            size: A4;
+                            margin: 10mm;
+                        }
+                        body { 
+                            font-family: 'Inter', 'Cairo', sans-serif; 
+                            margin: 0;
+                            padding: 0;
+                            color: #000;
+                            background: #fff;
+                            font-size: 12px;
+                        }
+                        .print-container { 
+                            width: 100%;
+                            max-width: 100%;
+                            margin: 0 auto; 
+                            border: 1px solid #000; 
+                            padding: 15px;
+                            box-sizing: border-box;
+                        }
+                        .header-section {
+                            text-align: center;
+                            margin-bottom: 10px;
+                        }
+                        .title-box {
+                            display: inline-block;
+                            border: 2px solid #000;
+                            border-radius: 12px;
+                            padding: 5px 30px;
+                            text-align: center;
+                        }
+                        .title-ar { font-size: 20px; font-weight: bold; margin-bottom: 2px; }
+                        .title-en { font-size: 14px; font-weight: bold; text-transform: uppercase; }
+                        
+                        .date-line {
+                            text-align: left;
+                            margin-bottom: 5px;
+                            font-weight: bold;
+                        }
+
+                        table {
+                            width: 100%;
+                            border-collapse: collapse;
+                        }
+                        td {
+                            border: 1px solid #000;
+                            padding: 4px 8px;
+                            vertical-align: middle;
+                        }
+                        .label-en { width: 25%; text-align: left; font-weight: bold; }
+                        .label-ar { width: 25%; text-align: right; font-weight: bold; font-family: 'Cairo', sans-serif; }
+                        .value { width: 50%; text-align: center; font-weight: bold; font-size: 13px; }
+                        
+                        .section-header {
+                            background: #fff;
+                            font-weight: bold;
+                        }
+                        .section-header td {
+                            padding: 2px 0;
+                        }
+                        .section-title-flex {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            padding: 0 15px;
+                            font-size: 14px;
+                        }
+
+                        .checkbox-container {
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                        }
+                        .checkbox {
+                            width: 14px;
+                            height: 14px;
+                            border: 1.5px solid #000;
+                            display: inline-block;
+                            position: relative;
+                        }
+                        .checkbox.checked::after {
+                            content: '✓';
+                            position: absolute;
+                            top: -5px;
+                            left: 1px;
+                            font-size: 14px;
+                        }
+
+                        .stamp-img {
+                            max-height: 45px;
+                            display: block;
+                            margin: 2px auto;
+                        }
+                        .stamp-box {
+                            border: 3px solid #1e3a8a;
+                            border-radius: 6px;
+                            padding: 4px 8px;
+                            display: inline-block;
+                            color: #1e3a8a;
+                            text-align: center;
+                            font-family: 'Courier New', Courier, monospace;
+                            font-weight: bold;
+                            line-height: 1.1;
+                            background: transparent;
+                            margin: 2px auto;
+                            min-width: 100px;
+                            position: relative;
+                            text-transform: uppercase;
+                            box-shadow: inset 0 0 2px rgba(30, 58, 138, 0.2);
+                        }
+                        .stamp-inner {
+                            border: 1px solid rgba(30, 58, 138, 0.5);
+                            padding: 2px;
+                            border-radius: 3px;
+                        }
+                        .stamp-hospital {
+                            font-size: 8px;
+                            letter-spacing: 0.5px;
+                            margin-bottom: 1px;
+                            border-bottom: 1px dashed rgba(30, 58, 138, 0.4);
+                            padding-bottom: 1px;
+                        }
+                        .stamp-dept {
+                            font-size: 10px;
+                            margin-bottom: 1px;
+                            color: #1e3a8a;
+                        }
+                        .stamp-name {
+                            font-size: 12px;
+                        }
+
+                        @media print {
+                            .print-container { border: 1px solid #000; }
+                            .no-print { display: none; }
+                        }
+
+                        /* Watermark Style */
+                        .watermark {
+                            position: fixed;
+                            top: 50%;
+                            left: 50%;
+                            transform: translate(-50%, -50%) rotate(-45deg);
+                            opacity: 0.15;
+                            width: 70%;
+                            z-index: -1;
+                            pointer-events: none;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <img src="${logoUrl}" class="watermark" alt="Watermark" crossOrigin="anonymous" />
+                    <div class="print-container">
+                        <div class="header-section" style="display: flex; align-items: center; justify-content: space-between;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <img src="${logoUrl}" alt="Logo" style="max-height: 80px;" crossOrigin="anonymous" />
+                            </div>
+                            <div class="title-box">
+                                <div class="title-ar">طلب تبديل</div>
+                                <div class="title-en">SWAP REQUEST</div>
+                            </div>
+                        </div>
+
+                        <div class="date-line">
+                            Date: ${swap.createdAt ? new Date(swap.createdAt.seconds * 1000).toLocaleDateString() : ''}
+                        </div>
+
+                        <table>
+                            <tr>
+                                <td class="label-en">Name:</td>
+                                <td class="value">${userName}</td>
+                                <td class="label-ar">الاسم:</td>
+                            </tr>
+                            <tr>
+                                <td class="label-en">Position:</td>
+                                <td class="value">${userJobPosition}</td>
+                                <td class="label-ar">الوظيفة:</td>
+                            </tr>
+                            <tr>
+                                <td class="label-en">Department:</td>
+                                <td class="value">${departmentName}</td>
+                                <td class="label-ar">القسم:</td>
+                            </tr>
+                            <tr>
+                                <td class="label-en">Type of Swap:</td>
+                                <td class="value">${swap.type || '-'}</td>
+                                <td class="label-ar">نوع التبديل:</td>
+                            </tr>
+                            <tr>
+                                <td class="label-en">Details:</td>
+                                <td class="value">${swap.details || '-'}</td>
+                                <td class="label-ar">التفاصيل:</td>
+                            </tr>
+                            <tr>
+                                <td class="label-en">From:</td>
+                                <td class="value">${swap.startDate || '-'}</td>
+                                <td class="label-ar">من تاريخ:</td>
+                            </tr>
+                            <tr>
+                                <td class="label-en">To:</td>
+                                <td class="value">${swap.endDate || '-'}</td>
+                                <td class="label-ar">حتي تاريخ:</td>
+                            </tr>
+                            <tr>
+                                <td class="label-en">Signature:</td>
+                                <td class="value" style="position: relative; height: 60px;">
+                                    <div style="font-size: 11px; margin-bottom: 2px;">${userName}</div>
+                                    ${renderStamp(userName, userJobPosition, 'AL JEDAANI HOSPITAL')}
+                                </td>
+                                <td class="label-ar">التوقيع :</td>
+                            </tr>
+                            
+                            <tr class="section-header">
+                                <td colspan="3">
+                                    <div class="section-title-flex">
+                                        <span>AUTHORIZATION</span>
+                                        <span>المصدقة</span>
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                            <tr>
+                                <td class="label-en">Reliever:</td>
+                                <td class="value">${relieverName}</td>
+                                <td class="label-ar">الاسم البديل:</td>
+                            </tr>
+                            <tr>
+                                <td class="label-en">Signature of Reliever:</td>
+                                <td class="value" style="position: relative; height: 60px;">
+                                    ${(swap.status === 'approvedByUser' || swap.status === 'approvedBySupervisor' || swap.status === 'rejectedBySupervisor') ? renderStamp(relieverName, relieverJobPosition, 'AL JEDAANI HOSPITAL', true) : ''}
+                                </td>
+                                <td class="label-ar">توقيع البديل:</td>
+                            </tr>
+                            <tr>
+                                <td class="label-en">Supervisor :</td>
+                                <td class="value"></td>
+                                <td class="label-ar">المشرف:</td>
+                            </tr>
+                            <tr>
+                                <td colspan="3">
+                                    <div style="display: flex; justify-content: space-between; padding: 0 30px; font-weight: bold;">
+                                        ${swap.status === 'approvedBySupervisor' ? `
+                                            <div class="checkbox-container">
+                                                <div class="checkbox checked"></div>
+                                                <span>Approved</span>
+                                            </div>
+                                            <div class="checkbox-container">
+                                                <span>موافق</span>
+                                                <div class="checkbox checked"></div>
+                                            </div>
+                                        ` : `
+                                            <div class="checkbox-container">
+                                                <div class="checkbox ${swap.status === 'rejectedBySupervisor' ? 'checked' : ''}"></div>
+                                                <span>Disapproved</span>
+                                            </div>
+                                            <div class="checkbox-container">
+                                                <span>غير موافق</span>
+                                                <div class="checkbox ${swap.status === 'rejectedBySupervisor' ? 'checked' : ''}"></div>
+                                            </div>
+                                        `}
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="label-en">Reason:</td>
+                                <td class="value">${swap.status === 'rejectedBySupervisor' && (swap as any).supervisorApproval?.comment ? (swap as any).supervisorApproval.comment : ''}</td>
+                                <td class="label-ar">السبب :</td>
+                            </tr>
+                            <tr>
+                                <td class="label-en">Signature, Supervisor:</td>
+                                <td class="value" style="position: relative; height: 60px; display: flex; align-items: center; gap: 10px; min-width: 350px;">
+                                    ${(swap.status === 'approvedBySupervisor' || swap.status === 'rejectedBySupervisor') ? renderStamp(supervisorName, supervisorJob, 'AL JEDAANI HOSPITAL', swap.status === 'approvedBySupervisor') : ''}
+                                    ${(swap.status === 'approvedBySupervisor' || swap.status === 'rejectedBySupervisor') ? `<span style="font-weight: bold;">${supervisorName}</span>` : ''}
+                                </td>
+                                <td class="label-ar">توقيع المشرف :</td>
+                            </tr>
+                        </table>
+                    </div>
+                </body>
+                </html>
+            `;
+
+            const printWindow = window.open('', '_blank');
+            if (printWindow) {
+                printWindow.document.open();
+                printWindow.document.write(htmlContent);
+                printWindow.document.close();
+                
+                setTimeout(() => {
+                    const images = printWindow.document.getElementsByTagName('img');
+                    let loadedCount = 0;
+                    const totalImages = images.length;
+                    
+                    const doPrint = () => {
+                        printWindow.focus();
+                        printWindow.print();
+                    };
+
+                    if (totalImages === 0) {
+                        doPrint();
+                    } else {
+                        for (let i = 0; i < totalImages; i++) {
+                            if (images[i].complete) {
+                                loadedCount++;
+                            } else {
+                                images[i].onload = () => {
+                                    loadedCount++;
+                                    if (loadedCount === totalImages) doPrint();
+                                };
+                                images[i].onerror = () => {
+                                    loadedCount++;
+                                    if (loadedCount === totalImages) doPrint();
+                                };
+                            }
+                        }
+                        if (loadedCount === totalImages) doPrint();
+                    }
+                }, 500);
+            } else {
+                alert('Please allow popups to print the document.');
+            }
+        } catch (error) {
+            console.error("Error printing swap request:", error);
         }
     };
 
@@ -221,6 +622,7 @@ const SupervisorSwaps: React.FC = () => {
                           shifts: shiftB ? (shiftB.shifts || []) : [],
                           note: `Swap Approved: Covering ${nameB}`,
                           userType: 'user',
+                          departmentId: selectedDepartmentId || null,
                           createdAt: Timestamp.now()
                       });
 
@@ -234,6 +636,7 @@ const SupervisorSwaps: React.FC = () => {
                           shifts: shiftA ? (shiftA.shifts || []) : [],
                           note: `Swap Approved: Covered by ${nameA}`,
                           userType: 'user',
+                          departmentId: selectedDepartmentId || null,
                           createdAt: Timestamp.now()
                       });
                       count++;
@@ -273,6 +676,7 @@ const SupervisorSwaps: React.FC = () => {
                       shifts: shiftB ? (shiftB.shifts || []) : [],
                       note: `Swap Approved: Covering ${nameB}`,
                       userType: 'user',
+                      departmentId: selectedDepartmentId || null,
                       createdAt: Timestamp.now()
                   });
 
@@ -286,6 +690,7 @@ const SupervisorSwaps: React.FC = () => {
                       shifts: shiftA ? (shiftA.shifts || []) : [],
                       note: `Swap Approved: Covered by ${nameA}`,
                       userType: 'user',
+                      departmentId: selectedDepartmentId || null,
                       createdAt: Timestamp.now()
                   });
                   
@@ -491,6 +896,7 @@ const SupervisorSwaps: React.FC = () => {
                 shifts: shiftToSwap.shifts || [],
                 note: `Day Exception (Month Swap Override) - Was ${currentHolderName}`,
                 userType: 'user',
+                departmentId: selectedDepartmentId || null,
                 createdAt: Timestamp.now()
             });
 
@@ -505,6 +911,7 @@ const SupervisorSwaps: React.FC = () => {
                 shifts: [],
                 note: `Day Exception - Covered by ${targetName}`,
                 userType: 'user',
+                departmentId: selectedDepartmentId || null,
                 createdAt: Timestamp.now()
             });
 
@@ -575,19 +982,27 @@ const SupervisorSwaps: React.FC = () => {
                                 </div>
                             </div>
                             
-                            <div className="flex gap-2">
+                            <div className="flex flex-col gap-2">
                                 {activeTab === 'pending' ? (
                                     <>
-                                        <button onClick={() => initiateApproval(req)} className="bg-emerald-500 text-white px-5 py-2 rounded-xl font-bold hover:bg-emerald-600 shadow-md transition-all text-sm">
-                                            {t('sup.approve')}
-                                        </button>
-                                        <button onClick={() => handleSwapAction(req, false)} className="bg-white border border-red-200 text-red-500 px-5 py-2 rounded-xl font-bold hover:bg-red-50 transition-all text-sm">
-                                            {t('sup.reject')}
+                                        <div className="flex gap-2">
+                                            <button onClick={() => initiateApproval(req)} className="bg-emerald-500 text-white px-5 py-2 rounded-xl font-bold hover:bg-emerald-600 shadow-md transition-all text-sm flex-1">
+                                                {t('sup.approve')}
+                                            </button>
+                                            <button onClick={() => handleSwapAction(req, false)} className="bg-white border border-red-200 text-red-500 px-5 py-2 rounded-xl font-bold hover:bg-red-50 transition-all text-sm flex-1">
+                                                {t('sup.reject')}
+                                            </button>
+                                        </div>
+                                        <button onClick={() => handlePrintSwap(req)} className="bg-slate-100 text-slate-600 px-5 py-2 rounded-xl font-bold hover:bg-slate-200 transition-all flex items-center justify-center gap-2">
+                                            <i className="fas fa-print"></i> {t('print')}
                                         </button>
                                     </>
                                 ) : (
                                     // HISTORY ACTIONS: REVERT & EXCEPTION
                                     <div className="flex gap-2">
+                                        <button onClick={() => handlePrintSwap(req)} className="bg-slate-100 text-slate-600 px-4 py-2 rounded-xl font-bold hover:bg-slate-200 transition-all text-xs flex items-center gap-2 shadow-sm">
+                                            <i className="fas fa-print"></i> {t('print')}
+                                        </button>
                                         {req.type === 'month' && (
                                             <button 
                                                 onClick={() => handleOpenException(req)}

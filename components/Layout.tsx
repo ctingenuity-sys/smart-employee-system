@@ -209,7 +209,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
               {canAccess('sup_penalties') && (
                   <Link to="/supervisor/penalties" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/penalties')}`}>
                     <i className="fas fa-gavel w-6"></i>
-                    <span className="font-medium">الجزاءات</span>
+                    <span className="font-medium">{t('nav.penalties')}</span>
                   </Link>
               )}
               {canAccess('sup_reports') && (
@@ -227,7 +227,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
               {canAccess('sup_archive') && (
                   <Link to="/supervisor/archive" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/archive')}`}>
                     <i className="fas fa-archive w-6"></i>
-                    <span className="font-medium">أرشيف البيانات</span>
+                    <span className="font-medium">{t('nav.dataArchive')}</span>
                   </Link>
               )}
             </>
@@ -247,7 +247,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
               )}
               <Link to="/user/penalties" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/user/penalties')}`}>
                 <i className="fas fa-gavel w-6"></i>
-                <span className="font-medium">الجزاءات</span>
+                <span className="font-medium">{t('nav.penalties')}</span>
               </Link>
             </>
           )}

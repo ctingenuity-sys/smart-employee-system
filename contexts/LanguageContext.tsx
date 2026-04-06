@@ -84,9 +84,11 @@ const translations: Record<string, { ar: string; en: string }> = {
   'nav.techSupport': { ar: 'الدعم الفني الذكي', en: 'AI Tech Support' },
   'nav.appointments': { ar: 'المواعيد', en: 'Appointments' },
   'nav.penalties': { ar: 'الجزاءات', en: 'Penalties' },
+  'nav.dataArchive': { ar: 'أرشيف البيانات', en: 'Data Archive' },
   
   // --- Penalties ---
   'penalty.title': { ar: 'إدارة الجزاءات', en: 'Penalties Management' },
+  'penalty.history': { ar: 'سجل الجزاءات', en: 'Penalty History' },
   'penalty.subtitle': { ar: 'إصدار وإدارة جزاءات الموظفين بناءً على لائحة مكتب العمل', en: 'Issue and manage employee penalties based on labor law' },
   'penalty.myPenalties': { ar: 'الجزاءات الموجهة إليك', en: 'Your Penalties' },
   'penalty.myPenaltiesSubtitle': { ar: 'سجل الجزاءات والإشعارات الإدارية الخاصة بك', en: 'Your Penalties and Administrative Notices Log' },

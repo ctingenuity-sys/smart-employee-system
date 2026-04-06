@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { db, auth } from '../firebase';
 // @ts-ignore
 import { collection, query, where, getDocs, onSnapshot, doc, updateDoc } from 'firebase/firestore';
-import { useLanguage } from '../contexts/LanguageContext';
+import { useLanguage, getTranslationKeyForArabic } from '../contexts/LanguageContext';
 import { Schedule, Announcement, SwapRequest, OpenShift, User, AttendanceLog, ActionLog, Penalty } from '../types';
 import Toast from '../components/Toast';
 import { useAttendanceStatus } from '../hooks/useAttendanceStatus';
@@ -727,13 +727,13 @@ const handleGenerateManualCode = () => {
                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in-up">
                     <div className="bg-red-600 p-4 text-white text-center">
                         <i className="fas fa-exclamation-triangle text-3xl mb-2"></i>
-                        <h2 className="text-xl font-bold">يوجد جزاءات معلقة تتطلب إجراء</h2>
+                        <h2 className="text-xl font-bold">{t('user.dashboard.penalties.title')}</h2>
                     </div>
                     <div className="p-6 max-h-[70vh] overflow-y-auto">
                         {pendingPenalties.map(p => (
                             <div key={p.id} className="bg-red-50 border border-red-100 p-4 rounded-xl mb-4">
                                 <div className="mb-4">
-                                    <p className="text-sm text-gray-500 mb-1">نوع الجزاء:</p>
+                                    <p className="text-sm text-gray-500 mb-1">{t('user.dashboard.penalty.type')}</p>
                                     <p className="font-bold text-red-700">{
                                         p.penaltyType === '1st Warning' ? t('penalty.1stWarning') :
                                         p.penaltyType === '2nd Warning' ? t('penalty.2ndWarning') :
@@ -744,15 +744,15 @@ const handleGenerateManualCode = () => {
                                     }</p>
                                 </div>
                                 <div className="mb-4">
-                                    <p className="text-sm text-gray-500 mb-1">الوصف:</p>
-                                    <p className="font-medium">{p.description}</p>
+                                    <p className="text-sm text-gray-500 mb-1">{t('user.dashboard.penalty.description')}</p>
+                                    <p className="font-medium">{getTranslationKeyForArabic(p.description) ? t(getTranslationKeyForArabic(p.description)!) : p.description}</p>
                                 </div>
                                 
                                 {selectedPenaltyAction?.id === p.id ? (
                                     <div className="mt-4 bg-white p-3 rounded-lg border border-red-200">
                                         <textarea 
                                             className="w-full p-2 border border-gray-300 rounded-lg mb-2 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none" 
-                                            placeholder="اكتب سبب الرفض هنا..." 
+                                            placeholder={t('user.dashboard.penalty.reason.placeholder')} 
                                             value={rejectionReason} 
                                             onChange={(e) => setRejectionReason(e.target.value)} 
                                             rows={3}
@@ -763,7 +763,7 @@ const handleGenerateManualCode = () => {
                                                 onClick={() => handlePenaltyAction(p.id, 'rejected')}
                                                 disabled={!rejectionReason.trim()}
                                             >
-                                                تأكيد الرفض
+                                                {t('user.dashboard.penalty.reject.confirm')}
                                             </button>
                                             <button 
                                                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-bold hover:bg-gray-300 transition-colors" 
@@ -772,7 +772,7 @@ const handleGenerateManualCode = () => {
                                                     setRejectionReason('');
                                                 }}
                                             >
-                                                إلغاء
+                                                {t('user.dashboard.penalty.cancel')}
                                             </button>
                                         </div>
                                     </div>
@@ -782,13 +782,13 @@ const handleGenerateManualCode = () => {
                                             className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2" 
                                             onClick={() => handlePenaltyAction(p.id, 'accepted')}
                                         >
-                                            <i className="fas fa-check"></i> موافقة
+                                            <i className="fas fa-check"></i> {t('user.dashboard.penalty.accept')}
                                         </button>
                                         <button 
                                             className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors flex items-center justify-center gap-2" 
                                             onClick={() => setSelectedPenaltyAction(p)}
                                         >
-                                            <i className="fas fa-times"></i> رفض
+                                            <i className="fas fa-times"></i> {t('user.dashboard.penalty.reject')}
                                         </button>
                                     </div>
                                 )}

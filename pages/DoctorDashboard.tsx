@@ -727,6 +727,7 @@ const DoctorDashboard: React.FC = () => {
           relieverIds: relieverIds,
           supervisorId: targetSupervisorId,
           managerId: targetManagerId,
+          departmentId: currentUserData?.departmentId || null,
           dateHired: dateHired,
           dueDateForLeave: dueDateForLeave,
           status: status, 

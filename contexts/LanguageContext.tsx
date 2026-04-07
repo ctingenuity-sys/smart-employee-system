@@ -498,6 +498,9 @@ const translations: Record<string, { ar: string; en: string }> = {
   'user.req.to': { ar: 'إلى', en: 'To' },
   'user.req.reason': { ar: 'السبب', en: 'Reason' },
   'user.req.apply': { ar: 'تقديم الطلب', en: 'Apply' },
+  'user.req.error.noShift': { ar: 'أنت ليس لديك دوام في هذا اليوم للتبديل', en: 'You do not have a shift on this day to swap' },
+  'user.req.error.targetNoShift': { ar: 'الموظف المختار ليس لديه دوام في هذا اليوم للتبديل معه', en: 'The selected employee does not have a shift on this day to swap with' },
+  'user.req.error.supervisorFirst': { ar: 'يجب موافقة المشرف أولاً', en: 'Supervisor must approve first' },
 
   'user.market.title': { ar: 'سوق الورديات المتاحة', en: 'Open Shift Marketplace' },
   'user.market.desc': { ar: 'يمكنك هنا استعراض الورديات الشاغرة وطلب تغطيتها.', en: 'Browse and claim open shifts to earn extra points.' },

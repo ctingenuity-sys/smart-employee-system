@@ -114,6 +114,73 @@ const SupervisorSwaps: React.FC = () => {
         });
     };
 
+    const [isCleaning, setIsCleaning] = useState(false);
+
+    const handleCleanOrphanedSwaps = async () => {
+        if (!confirm('Are you sure you want to clean up orphaned swap schedules? This will delete swap schedules that have no corresponding swap request.')) return;
+        setIsCleaning(true);
+        try {
+            // 1. Get all swap requests
+            const qReqs = query(collection(db, 'swapRequests'));
+            const reqsSnap = await getDocs(qReqs);
+            const validSwapDatesByUser: Record<string, Set<string>> = {};
+            
+            reqsSnap.docs.forEach(d => {
+                const data = d.data();
+                if (data.status === 'approvedBySupervisor' && data.startDate) {
+                    if (!validSwapDatesByUser[data.from]) validSwapDatesByUser[data.from] = new Set();
+                    if (!validSwapDatesByUser[data.to]) validSwapDatesByUser[data.to] = new Set();
+                    
+                    if (data.type === 'day') {
+                        validSwapDatesByUser[data.from].add(data.startDate);
+                        validSwapDatesByUser[data.to].add(data.startDate);
+                    } else if (data.type === 'period' && data.endDate) {
+                        const dates = getDatesInRange(data.startDate, data.endDate);
+                        dates.forEach(date => {
+                            validSwapDatesByUser[data.from].add(date);
+                            validSwapDatesByUser[data.to].add(date);
+                        });
+                    }
+                }
+            });
+
+            // 2. Get all schedules that are swaps
+            const qSch = query(collection(db, 'schedules'));
+            const schSnap = await getDocs(qSch);
+            
+            const batch = writeBatch(db);
+            let deleteCount = 0;
+
+            schSnap.docs.forEach(d => {
+                const data = d.data();
+                const isSwap = (data.locationId && data.locationId.toString().includes('Swap Duty')) || 
+                               (data.note && data.note.toString().includes('Swap Approved'));
+                
+                if (isSwap && data.date) {
+                    const userId = data.userId;
+                    const date = data.date;
+                    
+                    // If this user doesn't have a valid swap request for this date, delete it
+                    if (!validSwapDatesByUser[userId] || !validSwapDatesByUser[userId].has(date)) {
+                        batch.delete(d.ref);
+                        deleteCount++;
+                    }
+                }
+            });
+
+            if (deleteCount > 0) {
+                await batch.commit();
+                setToast({ msg: `Cleaned ${deleteCount} orphaned swap schedules.`, type: 'success' });
+            } else {
+                setToast({ msg: 'No orphaned swap schedules found.', type: 'success' });
+            }
+        } catch (error) {
+            console.error("Error cleaning orphaned swaps:", error);
+            setToast({ msg: 'Error cleaning orphaned swaps.', type: 'error' });
+        }
+        setIsCleaning(false);
+    };
+
     // Helper to get dates in range
     const getDatesInRange = (startDate: string, endDate: string) => {
         const date = new Date(startDate);
@@ -936,19 +1003,31 @@ const SupervisorSwaps: React.FC = () => {
                     <h1 className="text-2xl font-black text-slate-800">{t('sup.swapReqs')}</h1>
                 </div>
                 
-                <div className="flex bg-slate-100 p-1 rounded-xl">
+                <div className="flex items-center gap-4">
                     <button 
-                        onClick={() => setActiveTab('pending')}
-                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'pending' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}
+                        onClick={handleCleanOrphanedSwaps}
+                        disabled={isCleaning}
+                        className="bg-rose-50 text-rose-600 px-4 py-2 rounded-xl font-bold hover:bg-rose-100 transition-colors flex items-center gap-2 text-xs"
+                        title="Delete swap schedules that have no corresponding swap request"
                     >
-                        Pending ({pendingRequests.length})
+                        <i className={`fas ${isCleaning ? 'fa-spinner fa-spin' : 'fa-broom'}`}></i> 
+                        {isCleaning ? 'Cleaning...' : 'Clean Orphaned Swaps'}
                     </button>
-                    <button 
-                        onClick={() => setActiveTab('history')}
-                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'history' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}
-                    >
-                        Active History
-                    </button>
+
+                    <div className="flex bg-slate-100 p-1 rounded-xl">
+                        <button 
+                            onClick={() => setActiveTab('pending')}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'pending' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}
+                        >
+                            Pending ({pendingRequests.length})
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('history')}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'history' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}
+                        >
+                            Active History
+                        </button>
+                    </div>
                 </div>
             </div>
 

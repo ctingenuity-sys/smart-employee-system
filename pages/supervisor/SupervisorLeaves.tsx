@@ -5,14 +5,16 @@ import { collection, query, where, getDocs, doc, updateDoc, Timestamp, getDoc } 
 import { LeaveRequest, User, UserRole } from '../../types';
 import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDepartment } from '../../contexts/DepartmentContext';
+import { useAuth } from '../../App';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../App';
 
 const SupervisorLeaves: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
     const { role } = useAuth();
+    const { selectedDepartmentId } = useDepartment();
     const [activeTab, setActiveTab] = useState<'supervisor' | 'manager'>('supervisor');
 
     const fetchWorkLocation = async (userId: string) => {
@@ -69,8 +71,11 @@ const SupervisorLeaves: React.FC = () => {
         const currentUserId = auth.currentUser?.uid;
         if (!currentUserId) return;
 
-        getDocs(collection(db, 'users')).then(snap => {
-            const fetchedUsers = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
+        const withDept = (baseQuery: any) => selectedDepartmentId ? query(baseQuery, where('departmentId', '==', selectedDepartmentId)) : baseQuery;
+
+        const qUsers = withDept(collection(db, 'users'));
+        getDocs(qUsers).then(snap => {
+            const fetchedUsers = snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as User));
             setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
         });
         
@@ -78,10 +83,10 @@ const SupervisorLeaves: React.FC = () => {
         // If Admin, show ALL pending_supervisor requests
         let qLeavesSup;
         if (role === UserRole.ADMIN) {
-            qLeavesSup = query(
+            qLeavesSup = withDept(query(
                 collection(db, 'leaveRequests'), 
                 where('status', '==', 'pending_supervisor')
-            );
+            ));
         } else {
             qLeavesSup = query(
                 collection(db, 'leaveRequests'), 
@@ -91,17 +96,17 @@ const SupervisorLeaves: React.FC = () => {
         }
         
         getDocs(qLeavesSup).then(snap => {
-            setLeaveRequests(snap.docs.map(d => ({ ...d.data(), id: d.id } as LeaveRequest)));
+            setLeaveRequests(snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as LeaveRequest)));
         });
 
         // Manager Tab: Show requests where I am the assigned manager
         // If Admin, show ALL pending_manager requests
         let qLeavesMan;
         if (role === UserRole.ADMIN) {
-            qLeavesMan = query(
+            qLeavesMan = withDept(query(
                 collection(db, 'leaveRequests'), 
                 where('status', '==', 'pending_manager')
-            );
+            ));
         } else {
             qLeavesMan = query(
                 collection(db, 'leaveRequests'), 
@@ -111,14 +116,14 @@ const SupervisorLeaves: React.FC = () => {
         }
         
         getDocs(qLeavesMan).then(snap => {
-            setManagerRequests(snap.docs.map(d => ({ ...d.data(), id: d.id } as LeaveRequest)));
+            setManagerRequests(snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as LeaveRequest)));
         });
 
         // Fallback for Admins: If I am an admin, I might want to see ALL pending requests that don't have an assigned supervisor/manager
         if (role === UserRole.ADMIN) {
             // We could add more queries here if needed, but for now let's stick to assigned ones
         }
-    }, [refreshTrigger, role]);
+    }, [refreshTrigger, role, selectedDepartmentId]);
 
     const getUserName = (id: string) => users.find(u => u.id === id)?.name || id;
 
@@ -155,25 +160,20 @@ const SupervisorLeaves: React.FC = () => {
             };
 
             if (isManagerAction) {
+                if (isApproved && !req.supervisorApproval) {
+                    setToast({ msg: t('user.req.error.supervisorFirst'), type: 'error' });
+                    return;
+                }
                 await updateDoc(doc(db, 'leaveRequests', req.id!), { 
                     status: isApproved ? 'approved' : 'rejected',
                     managerApproval: approvalData
                 });
             } else {
-                // If the supervisor is also the manager, approve as manager too
-                const isAlsoManager = req.managerId === currentUserId;
-                if (isApproved && isAlsoManager) {
-                    await updateDoc(doc(db, 'leaveRequests', req.id!), { 
-                        status: 'approved',
-                        supervisorApproval: approvalData,
-                        managerApproval: approvalData
-                    });
-                } else {
-                    await updateDoc(doc(db, 'leaveRequests', req.id!), { 
-                        status: isApproved ? 'pending_manager' : 'rejected',
-                        supervisorApproval: approvalData
-                    });
-                }
+                // Supervisor approval always sets status to 'pending_manager'
+                await updateDoc(doc(db, 'leaveRequests', req.id!), { 
+                    status: isApproved ? 'pending_manager' : 'rejected',
+                    supervisorApproval: approvalData
+                });
             }
             
             setToast({ msg: `Request ${isApproved ? 'Approved' : 'Rejected'}`, type: 'success' });

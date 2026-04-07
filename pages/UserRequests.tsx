@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, addDoc, getDocs, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, Timestamp, query, where } from 'firebase/firestore';
 import { User } from '../types';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -82,9 +82,9 @@ const UserRequests: React.FC = () => {
         if (!leaveEnd) errs.end = 'End date required';
         if (!leaveReason) errs.reason = 'Reason is required';
         if (relieverIds.length === 0) errs.relievers = 'Please select at least one reliever';
-        if (!selectedManagerId && !currentUserData?.managerId) errs.manager = 'Please select a manager';
-        if (!selectedSupervisorId && !currentUserData?.supervisorId) errs.supervisor = 'Please select a supervisor';
         if (leaveStart && leaveEnd && leaveStart > leaveEnd) errs.end = 'End date cannot be before start date';
+        if (!selectedManagerId) errs.manager = 'Please select a manager';
+        if (!selectedSupervisorId) errs.supervisor = 'Please select a supervisor';
         setLeaveErrors(errs);
         return Object.keys(errs).length === 0;
     };
@@ -95,6 +95,46 @@ const UserRequests: React.FC = () => {
         if (!currentUserId) return;
         
         try {
+            // Validate if both users have a shift on the swap date
+            if (swapType === 'day' && swapDate) {
+                const targetMonth = swapDate.slice(0, 7);
+                const qSch = query(collection(db, 'schedules'), where('userId', 'in', [currentUserId, targetUser]), where('month', '==', targetMonth));
+                const snap = await getDocs(qSch);
+                const allSchedules = snap.docs.map(d => d.data() as any);
+                
+                // Helper to resolve shift (similar to SupervisorSwaps)
+                const resolveShift = (dateStr: string, schedules: any[]) => {
+                    const dayOfWeek = new Date(dateStr).getDay();
+                    const specific = schedules.find(s => s.date === dateStr);
+                    if (specific) return specific;
+                    return schedules.find(sch => {
+                        if (sch.date) return false;
+                        let applies = false;
+                        const isFri = sch.locationId?.toLowerCase().includes('friday') || sch.note?.toLowerCase().includes('friday');
+                        if (dayOfWeek === 5) { if (isFri) applies = true; } else { if (!isFri && !(sch.locationId || '').includes('Holiday')) applies = true; }
+                        if (applies) {
+                            if (sch.validFrom && dateStr < sch.validFrom) applies = false;
+                            if (sch.validTo && dateStr > sch.validTo) applies = false;
+                        }
+                        return applies;
+                    });
+                };
+
+                // Validate current user
+                const currentShift = resolveShift(swapDate, allSchedules.filter(s => s.userId === currentUserId));
+                if (!currentShift || currentShift.locationId?.includes('Off')) {
+                    setSwapErrors({ ...swapErrors, target: t('user.req.error.noShift') });
+                    return;
+                }
+
+                // Validate target user
+                const targetShift = resolveShift(swapDate, allSchedules.filter(s => s.userId === targetUser));
+                if (!targetShift || targetShift.locationId?.includes('Off')) {
+                    setSwapErrors({ ...swapErrors, target: t('user.req.error.targetNoShift') });
+                    return;
+                }
+            }
+
             await addDoc(collection(db, 'swapRequests'), {
                 from: currentUserId,
                 to: targetUser,
@@ -109,7 +149,8 @@ const UserRequests: React.FC = () => {
             setTargetUser(''); setSwapDetails(''); setSwapDate(''); setSwapEndDate('');
             setTimeout(() => navigate('/user/history'), 1500);
         } catch (e) {
-            setToast({ msg: 'Error sending request', type: 'error' });
+            console.error("Error in handleSwapSubmit:", e);
+            setToast({ msg: `Error sending request: ${e instanceof Error ? e.message : String(e)}`, type: 'error' });
         }
     };
 
@@ -119,10 +160,10 @@ const UserRequests: React.FC = () => {
         if (!currentUserId) return;
         
         try {
-          // Determine initial status based on whether relievers are selected
+          // Determine initial status: Reliever -> Supervisor -> Manager
+          const skipSupervisor = !selectedSupervisorId || selectedSupervisorId === selectedManagerId;
           let initialStatus = 'pending_reliever';
           if (!relieverIds || relieverIds.length === 0) {
-              const skipSupervisor = !selectedSupervisorId || selectedSupervisorId === selectedManagerId;
               initialStatus = skipSupervisor ? 'pending_manager' : 'pending_supervisor';
           }
 
@@ -134,10 +175,10 @@ const UserRequests: React.FC = () => {
               duration: leaveDuration,
               reason: leaveReason, 
               relieverIds: relieverIds,
-              supervisorId: selectedSupervisorId || currentUserData?.supervisorId || null,
-              managerId: selectedManagerId || currentUserData?.managerId || null,
-              dateHired: dateHired,
               dueDateForLeave: dueDateForLeave,
+              supervisorId: selectedSupervisorId || null,
+              managerId: selectedManagerId || null,
+              departmentId: currentUserData?.departmentId || null,
               status: initialStatus, 
               createdAt: Timestamp.now() 
           });
@@ -145,7 +186,8 @@ const UserRequests: React.FC = () => {
           setLeaveStart(''); setLeaveEnd(''); setLeaveReason(''); setLeaveDuration(''); setRelieverIds([]); setDateHired(''); setDueDateForLeave(''); setSelectedManagerId(''); setSelectedSupervisorId('');
           setTimeout(() => navigate('/user/history'), 1500);
         } catch (e) { 
-            setToast({ msg: 'Error sending request', type: 'error' }); 
+            console.error("Error in handleLeaveSubmit:", e);
+            setToast({ msg: `Error sending request: ${e instanceof Error ? e.message : String(e)}`, type: 'error' }); 
         }
     };
 
@@ -211,7 +253,20 @@ const UserRequests: React.FC = () => {
                                 onChange={e => { setTargetUser(e.target.value); setSwapErrors({...swapErrors, target:''}) }}
                             >
                                 <option value="">{t('user.req.colleague')}...</option>
-                                {users.filter(u => u.id !== currentUserId && !['admin', 'supervisor', 'manager'].includes(u.role)).map(u => (
+                                {users.filter(u => {
+                                    if (u.id === currentUserId) return false;
+                                    if (['admin', 'supervisor', 'manager'].includes(u.role)) return false;
+                                    
+                                    const myCategory = currentUserData?.jobCategory;
+                                    if (myCategory === 'doctor') {
+                                        return u.jobCategory === 'doctor';
+                                    } else if (myCategory === 'technician' || myCategory === 'technologist') {
+                                        return u.jobCategory === 'technician' || u.jobCategory === 'technologist';
+                                    } else if (myCategory === 'usg') {
+                                        return u.jobCategory === 'usg';
+                                    }
+                                    return true;
+                                }).map(u => (
                                     <option key={u.id} value={u.id}>{u.name || u.email}</option>
                                 ))}
                             </select>
@@ -273,7 +328,20 @@ const UserRequests: React.FC = () => {
                                     setRelieverIds(selected);
                                     setLeaveErrors({...leaveErrors, relievers:''});
                                 }}>
-                                    {users.filter(u => u.id !== currentUserId && !['admin', 'supervisor', 'manager'].includes(u.role)).map(u => (
+                                    {users.filter(u => {
+                                        if (u.id === currentUserId) return false;
+                                        if (['admin', 'supervisor', 'manager'].includes(u.role)) return false;
+                                        
+                                        const myCategory = currentUserData?.jobCategory;
+                                        if (myCategory === 'doctor') {
+                                            return u.jobCategory === 'doctor';
+                                        } else if (myCategory === 'technician' || myCategory === 'technologist') {
+                                            return u.jobCategory === 'technician' || u.jobCategory === 'technologist';
+                                        } else if (myCategory === 'usg') {
+                                            return u.jobCategory === 'usg';
+                                        }
+                                        return true;
+                                    }).map(u => (
                                         <option key={u.id} value={u.id}>{u.name || u.email}</option>
                                     ))}
                                 </select>
@@ -285,19 +353,18 @@ const UserRequests: React.FC = () => {
                                 {currentUserData?.managerId ? (
                                     <div className="bg-slate-50 p-3 rounded-xl text-sm font-bold text-slate-600 border border-slate-100 flex items-center justify-between">
                                         <span>{users.find(u => u.id === currentUserData.managerId)?.name || 'Assigned Manager'}</span>
-                                        <span className="text-[10px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full">Assigned</span>
+                                        <span className="text-[10px] bg-emerald-100 text-emerald-600 px-2 py-0.5 rounded-full">Assigned</span>
                                     </div>
                                 ) : (
                                     <select className={`w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100 ${leaveErrors.manager ? 'ring-2 ring-red-200' : ''}`} value={selectedManagerId} onChange={e => {setSelectedManagerId(e.target.value); setLeaveErrors({...leaveErrors, manager:''})}}>
                                         <option value="">Select Manager...</option>
-                                        {users.filter(u => u.role === 'supervisor' || u.role === 'admin' || u.role === 'manager').map(u => (
+                                        {users.filter(u => u.role === 'manager').map(u => (
                                             <option key={u.id} value={u.id}>{u.name || u.email}</option>
                                         ))}
                                     </select>
                                 )}
                                 {leaveErrors.manager && <p className="text-[10px] text-red-500 mt-1">{leaveErrors.manager}</p>}
                             </div>
-
                             <div className="col-span-2">
                                 <label className="block text-xs font-bold text-slate-400 mb-1">Select Supervisor</label>
                                 {currentUserData?.supervisorId ? (
@@ -308,16 +375,12 @@ const UserRequests: React.FC = () => {
                                 ) : (
                                     <select className={`w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100 ${leaveErrors.supervisor ? 'ring-2 ring-red-200' : ''}`} value={selectedSupervisorId} onChange={e => {setSelectedSupervisorId(e.target.value); setLeaveErrors({...leaveErrors, supervisor:''})}}>
                                         <option value="">Select Supervisor...</option>
-                                        {users.filter(u => u.role === 'supervisor' || u.role === 'admin' || u.role === 'manager').map(u => (
+                                        {users.filter(u => u.role === 'supervisor' ).map(u => (
                                             <option key={u.id} value={u.id}>{u.name || u.email}</option>
                                         ))}
                                     </select>
                                 )}
                                 {leaveErrors.supervisor && <p className="text-[10px] text-red-500 mt-1">{leaveErrors.supervisor}</p>}
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.dateHired')}</label>
-                                <input type="date" className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={dateHired} onChange={e => setDateHired(e.target.value)} />
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.dueDateForLeave')}</label>

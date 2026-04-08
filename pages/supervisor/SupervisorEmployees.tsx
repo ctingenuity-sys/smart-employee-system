@@ -12,7 +12,7 @@ import { User, LocationCheckRequest, UserDocument } from '../../types';
 import Modal from '../../components/Modal';
 import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
-import { useAuth } from '../../App';
+import { useAuth } from '../../contexts/AuthContext';
 import { UserRole } from '../../types';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
@@ -242,8 +242,10 @@ const SupervisorEmployees: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
     const { role: authRole } = useAuth();
+    console.log('AuthRole:', authRole, 'UserRole.ADMIN:', UserRole.ADMIN);
     const [users, setUsers] = useState<User[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
+    const [sortBy, setSortBy] = useState<'name' | 'role' | 'category'>('name');
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
     const [loading, setLoading] = useState(false);
     
@@ -471,6 +473,10 @@ const SupervisorEmployees: React.FC = () => {
 
         if (!email || !password) return setToast({ msg: 'Email & Password required', type: 'error' });
         
+        if (newUserRole === 'admin' && authRole?.toLowerCase() !== UserRole.ADMIN.toLowerCase()) {
+            return setToast({ msg: 'Only Admins can create Admins', type: 'error' });
+        }
+        
         setIsAddingUser(true);
         const appName = `SecondaryApp-${Date.now()}`;
         let secondaryApp: any;
@@ -528,6 +534,11 @@ const SupervisorEmployees: React.FC = () => {
     
     const handleUpdateUser = async () => {
         if (!editForm.id) return;
+        
+        if (editForm.role === 'admin' && authRole?.toLowerCase() !== UserRole.ADMIN.toLowerCase()) {
+            return setToast({ msg: 'Only Admins can set Admins', type: 'error' });
+        }
+        
         try {
             // 1. Update Main DB (Profile)
             await updateDoc(doc(mainDb, 'users', editForm.id), {
@@ -549,6 +560,11 @@ const SupervisorEmployees: React.FC = () => {
                 registrationExpiry: editForm.registrationExpiry || null,
                 nrrcExpiry: editForm.nrrcExpiry || null
             }, { merge: true });
+
+            // Update local state
+            console.log('Updating user:', editForm.id, 'with:', editForm);
+            setUsers(prev => prev.map(u => u.id === editForm.id ? { ...u, ...editForm } : u));
+
             setToast({ msg: 'User Updated Successfully', type: 'success' });
             setIsEditModalOpen(false);
         } catch (e: any) {
@@ -875,6 +891,14 @@ const SupervisorEmployees: React.FC = () => {
             u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
             u.email.toLowerCase().includes(searchQuery.toLowerCase())
         );
+    }).sort((a, b) => {
+        if (sortBy === 'role') {
+            return (a.role || '').localeCompare(b.role || '');
+        } else if (sortBy === 'category') {
+            return (a.jobCategory || '').localeCompare(b.jobCategory || '');
+        } else {
+            return (a.name || '').localeCompare(b.name || '');
+        }
     });
 
     const openEditModal = (user: User) => {
@@ -1141,7 +1165,7 @@ const SupervisorEmployees: React.FC = () => {
                                                     <option value="doctor">Doctor</option>
                                                     <option value="supervisor">Supervisor</option>
                                                     <option value="manager">Manager</option>
-                                                    {authRole === UserRole.ADMIN && <option value="admin">Admin</option>}
+                                                    {(authRole?.toLowerCase() === UserRole.ADMIN.toLowerCase()) && <option value="admin">Admin</option>}
                                                 </select>
                                             </div>
                                             <div className="input-group-modern">
@@ -1227,14 +1251,28 @@ const SupervisorEmployees: React.FC = () => {
                     {/* User List */}
                     <div className="lg:col-span-2 space-y-4">
                         <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden">
-                            <div className="p-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
-                                <i className="fas fa-search text-gray-400"></i>
-                                <input 
-                                    className="bg-transparent outline-none text-sm w-full font-bold text-gray-600"
-                                    placeholder="Search Users..."
-                                    value={searchQuery}
-                                    onChange={e => setSearchQuery(e.target.value)}
-                                />
+                            <div className="p-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-4">
+                                <div className="flex items-center gap-2 flex-1">
+                                    <i className="fas fa-search text-gray-400"></i>
+                                    <input 
+                                        className="bg-transparent outline-none text-sm w-full font-bold text-gray-600"
+                                        placeholder="Search Users..."
+                                        value={searchQuery}
+                                        onChange={e => setSearchQuery(e.target.value)}
+                                    />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <i className="fas fa-sort text-gray-400"></i>
+                                    <select 
+                                        className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-bold text-gray-600 outline-none focus:ring-2 focus:ring-blue-500/20"
+                                        value={sortBy}
+                                        onChange={e => setSortBy(e.target.value as any)}
+                                    >
+                                        <option value="name">Name</option>
+                                        <option value="role">Role</option>
+                                        <option value="category">Category</option>
+                                    </select>
+                                </div>
                             </div>
                             <div className="overflow-x-auto">
                                 <table className={`w-full ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
@@ -1376,13 +1414,23 @@ const SupervisorEmployees: React.FC = () => {
                                     className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-200 outline-none" 
                                     value={editForm.role || 'user'} 
                                     onChange={e => setEditForm({...editForm, role: e.target.value})}
-                                    disabled={authRole !== UserRole.ADMIN && editForm.role === UserRole.ADMIN}
+                                    disabled={authRole?.toLowerCase() !== UserRole.ADMIN.toLowerCase() && editForm.role?.toLowerCase() === UserRole.ADMIN.toLowerCase()}
                                 >
                                     <option value="user">User</option>
                                     <option value="doctor">Doctor</option>
                                     <option value="supervisor">Supervisor</option>
                                     <option value="manager">Manager</option>
-                                    {authRole === UserRole.ADMIN && <option value="admin">Admin</option>}
+                                    {(authRole?.toLowerCase() === UserRole.ADMIN.toLowerCase()) && <option value="admin">Admin</option>}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 block mb-1">المسمى الوظيفي (Job Category)</label>
+                                <select 
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
+                                    value={editForm.jobCategory || 'technician'} 
+                                    onChange={e => setEditForm({...editForm, jobCategory: e.target.value as any})}
+                                >
+                                    {JOB_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
                                 </select>
                             </div>
                         </div>
@@ -1439,17 +1487,6 @@ const SupervisorEmployees: React.FC = () => {
                             value={editForm.hireDate || ''} 
                             onChange={e => setEditForm({...editForm, hireDate: e.target.value})} 
                         />
-                    </div>
-                    
-                    <div>
-                        <label className="text-xs font-bold text-slate-500 block mb-1">المسمى الوظيفي (Job Category)</label>
-                        <select 
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
-                            value={editForm.jobCategory || 'technician'} 
-                            onChange={e => setEditForm({...editForm, jobCategory: e.target.value as any})}
-                        >
-                            {JOB_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
-                        </select>
                     </div>
 
                     {/* PDF UPLOAD SECTION */}

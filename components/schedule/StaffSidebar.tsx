@@ -16,8 +16,9 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({ users }) => {
     const [search, setSearch] = useState('');
 
     const filteredUsers = users.filter(u => 
-        (u.name && String(u.name).toLowerCase().includes(search.toLowerCase())) || 
-        (u.email && String(u.email).toLowerCase().includes(search.toLowerCase()))
+        !['admin', 'supervisor', 'manager'].includes(u.role) &&
+        ((u.name && String(u.name).toLowerCase().includes(search.toLowerCase())) || 
+         (u.email && String(u.email).toLowerCase().includes(search.toLowerCase())))
     );
 
     const handleDragStart = (e: React.DragEvent, user: StaffUser) => {

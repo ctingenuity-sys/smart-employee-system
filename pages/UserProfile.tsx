@@ -10,7 +10,7 @@ import Modal from '../components/Modal';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 import { appointmentsDb } from '../firebaseAppointments';
-import {getCountFromServer } from 'firebase/firestore';
+import { getCountFromServer } from 'firebase/firestore';
 
 // Helper for safe dates
 const safeDate = (val: any) => {
@@ -62,20 +62,20 @@ const UserProfile: React.FC = () => {
 
         const qKudos = query(collection(db, 'peer_recognition'), where('toUserId', '==', currentUserId));
         getDocs(qKudos).then((snap) => {
-            const fetchedKudos = snap.docs.map(d => ({ id: d.id, ...d.data() } as PeerRecognition));
+            const fetchedKudos = snap.docs.map(d => ({ ...d.data(), id: d.id } as PeerRecognition));
             fetchedKudos.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
             setMyKudos(fetchedKudos);
         });
 
         const qActions = query(collection(db, 'actions'), where('employeeId', '==', currentUserId));
         getDocs(qActions).then((snap) => {
-            const fetchedActions = snap.docs.map(d => ({ id: d.id, ...d.data() } as ActionLog));
+            const fetchedActions = snap.docs.map(d => ({ ...d.data(), id: d.id } as ActionLog));
             fetchedActions.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
             setMyActions(fetchedActions);
         });
 
         getDocs(collection(db, 'users')).then((snap) => {
-            setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
+            setUsers(snap.docs.map(d => ({ ...d.data(), id: d.id } as User)));
         });
 
         // Get Patients Count from Supabase
@@ -252,7 +252,7 @@ const UserProfile: React.FC = () => {
                             required
                         >
                             <option value="">Select Colleague...</option>
-                            {users.filter(u => u.id !== currentUserId).map(u => (
+                            {users.filter(u => u.id !== currentUserId && !['admin', 'supervisor', 'manager'].includes(u.role)).map(u => (
                                 <option key={u.id} value={u.id}>{u.name || u.email}</option>
                             ))}
                         </select>

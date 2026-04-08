@@ -6,7 +6,7 @@ import { LeaveRequest, User, UserRole } from '../../types';
 import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDepartment } from '../../contexts/DepartmentContext';
-import { useAuth } from '../../App';
+import { useAuth } from '../../contexts/AuthContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 

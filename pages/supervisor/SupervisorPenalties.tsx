@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db, auth } from '../../firebase';
 import { collection, addDoc, onSnapshot, serverTimestamp, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
 import { User, Penalty } from '../../types';
-import { useAuth } from '../../App';
+import { useAuth } from '../../contexts/AuthContext';
 import PenaltyPrintable from '../../components/PenaltyPrintable';
 import { useLanguage, getTranslationKeyForArabic } from '../../contexts/LanguageContext';
 import { printPenaltyDocument } from '../../utils/printPenalty';
@@ -83,7 +83,8 @@ const SupervisorPenalties: React.FC = () => {
 
     useEffect(() => {
         const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-            setUsers(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as User)));
+            const fetchedUsers = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as User));
+            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role?.toLowerCase() || '')));
         });
         const unsubscribePenalties = onSnapshot(query(collection(db, 'penalties'), orderBy('createdAt', 'desc')), (snapshot) => {
             setPenalties(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Penalty)));

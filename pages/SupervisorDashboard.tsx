@@ -12,7 +12,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { PrintHeader } from '../components/PrintLayout';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../App';
+import { useAuth } from '../contexts/AuthContext';
 import { UserRole } from '../types';
 
 interface DashboardAlert {

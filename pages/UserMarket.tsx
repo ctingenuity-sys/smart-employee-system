@@ -5,12 +5,14 @@ import { collection, query, where, getDocs, updateDoc, doc, Timestamp } from 'fi
 import { OpenShift, Location } from '../types';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useDepartment } from '../contexts/DepartmentContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 
 const UserMarket: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
+    const { selectedDepartmentId } = useDepartment();
     const currentUserId = auth.currentUser?.uid;
     const [openShifts, setOpenShifts] = useState<OpenShift[]>(() => {
         const cached = localStorage.getItem('usr_cached_market_shifts');
@@ -32,14 +34,17 @@ const UserMarket: React.FC = () => {
     }, [locations]);
 
     useEffect(() => {
-        getDocs(collection(db, 'locations')).then((snap) => {
-            setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
+        if (!selectedDepartmentId) return;
+        
+        const qLocs = query(collection(db, 'locations'), where('departmentId', '==', selectedDepartmentId));
+        getDocs(qLocs).then((snap) => {
+            setLocations(snap.docs.map(d => ({ ...d.data(), id: d.id } as Location)));
         });
-        const qOpenShifts = query(collection(db, 'openShifts'), where('status', '==', 'open'));
+        const qOpenShifts = query(collection(db, 'openShifts'), where('status', '==', 'open'), where('departmentId', '==', selectedDepartmentId));
         getDocs(qOpenShifts).then((snap) => {
-            setOpenShifts(snap.docs.map(d => ({ id: d.id, ...d.data() } as OpenShift)));
+            setOpenShifts(snap.docs.map(d => ({ ...d.data(), id: d.id } as OpenShift)));
         });
-    }, [refreshTrigger]);
+    }, [refreshTrigger, selectedDepartmentId]);
 
     const handleClaimShift = async (shift: OpenShift) => {
         if (!currentUserId) return;

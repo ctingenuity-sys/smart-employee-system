@@ -21,7 +21,7 @@ const DepartmentContext = createContext<DepartmentContextType>({
 export const useDepartment = () => useContext(DepartmentContext);
 
 export const DepartmentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { role, departmentId } = useAuth();
+    const { user, role, departmentId } = useAuth();
     const [departments, setDepartments] = useState<Department[]>([]);
     const [selectedDepartmentId, setSelectedDepartmentId] = useState<string | null>(null);
     const [loadingDepartments, setLoadingDepartments] = useState(true);
@@ -52,7 +52,11 @@ export const DepartmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                     }
                 } else {
                     // Supervisor/Manager/User locked to their department
-                    if (departmentId) {
+                    // Check if they manage any department first
+                    const managedDept = depts.find(d => d.managerId === user?.uid);
+                    if (managedDept) {
+                        setSelectedDepartmentId(managedDept.id);
+                    } else if (departmentId) {
                         setSelectedDepartmentId(departmentId);
                     } else {
                         // Fallback to legacy if they don't have a department assigned yet
@@ -67,7 +71,7 @@ export const DepartmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         };
 
         fetchDepartments();
-    }, [role, departmentId]);
+    }, [role, departmentId, user]);
 
     // Save admin selection
     useEffect(() => {

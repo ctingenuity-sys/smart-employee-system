@@ -111,21 +111,21 @@ export const useAttendanceStatus = (userId: string | undefined) => {
             where('userId', '==', userId)
         );
         const unsubSchedules = onSnapshot(qSchedules, snap => {
-            setSchedules(snap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule)));
+            setSchedules(snap.docs.map(d => ({ ...d.data(), id: d.id } as Schedule)));
             setLoadingSchedules(false);
         });
 
         // 2. Fetch Today Logs
         const qLogsToday = query(collection(db, 'attendance_logs'), where('userId', '==', userId), where('date', '==', todayStr));
         const unsubLogsToday = onSnapshot(qLogsToday, snap => {
-            setTodayLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog)));
+            setTodayLogs(snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceLog)));
             setLoadingLogsToday(false);
         });
 
         // 3. Fetch Yesterday Logs
         const qLogsYesterday = query(collection(db, 'attendance_logs'), where('userId', '==', userId), where('date', '==', yesterdayStr));
         const unsubLogsYesterday = onSnapshot(qLogsYesterday, snap => {
-            setYesterdayLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog)));
+            setYesterdayLogs(snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceLog)));
             setLoadingLogsYesterday(false);
         });
 
@@ -135,7 +135,7 @@ export const useAttendanceStatus = (userId: string | undefined) => {
             where('userId', '==', userId)
         );
         const unsubActions = onSnapshot(qActions, snap => {
-            const actions = snap.docs.map(d => ({ id: d.id, ...d.data() } as ActionLog));
+            const actions = snap.docs.map(d => ({ ...d.data(), id: d.id } as ActionLog));
             const active = actions.find(a => a.fromDate <= todayStr && a.toDate >= todayStr);
             setTodayAction(active ? active.type : null);
             setLoadingActions(false);

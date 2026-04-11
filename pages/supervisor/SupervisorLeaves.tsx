@@ -88,11 +88,11 @@ const SupervisorLeaves: React.FC = () => {
                 where('status', '==', 'pending_supervisor')
             ));
         } else {
-            qLeavesSup = query(
+            qLeavesSup = withDept(query(
                 collection(db, 'leaveRequests'), 
                 where('status', '==', 'pending_supervisor'),
                 where('supervisorId', '==', currentUserId)
-            );
+            ));
         }
         
         getDocs(qLeavesSup).then(snap => {

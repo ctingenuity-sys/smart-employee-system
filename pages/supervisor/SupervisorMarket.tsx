@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 // @ts-ignore
-import { collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, Timestamp, query, getDocs } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, Timestamp, query, getDocs, where, QuerySnapshot, DocumentData } from 'firebase/firestore';
 import { OpenShift, Location, User } from '../../types';
 import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDepartment } from '../../contexts/DepartmentContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 
@@ -44,6 +45,7 @@ const parseMultiShifts = (text: string) => {
 const SupervisorMarket: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
+    const { selectedDepartmentId } = useDepartment();
     const [openShifts, setOpenShifts] = useState<OpenShift[]>([]);
     const [locations, setLocations] = useState<Location[]>([]);
     const [users, setUsers] = useState<User[]>([]);
@@ -54,14 +56,16 @@ const SupervisorMarket: React.FC = () => {
     const [newShiftLocation, setNewShiftLocation] = useState('');
 
     useEffect(() => {
-        const unsubLocs = onSnapshot(collection(db, 'locations'), snap => setLocations(snap.docs.map(d => ({id:d.id, ...d.data()} as Location))));
-        const unsubUsers = onSnapshot(collection(db, 'users'), snap => {
+        const withDept = (baseQuery: any) => selectedDepartmentId ? query(baseQuery, where('departmentId', '==', selectedDepartmentId)) : baseQuery;
+
+        const unsubLocs = onSnapshot(withDept(collection(db, 'locations')), (snap: QuerySnapshot<DocumentData>) => setLocations(snap.docs.map(d => ({id:d.id, ...d.data()} as Location))));
+        const unsubUsers = onSnapshot(withDept(collection(db, 'users')), (snap: QuerySnapshot<DocumentData>) => {
             const fetchedUsers = snap.docs.map(d => ({id:d.id, ...d.data()} as User));
             setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
         });
-        const unsubShifts = onSnapshot(collection(db, 'openShifts'), snap => setOpenShifts(snap.docs.map(d => ({id:d.id, ...d.data()} as OpenShift))));
+        const unsubShifts = onSnapshot(withDept(collection(db, 'openShifts')), (snap: QuerySnapshot<DocumentData>) => setOpenShifts(snap.docs.map(d => ({id:d.id, ...d.data()} as OpenShift))));
         return () => { unsubLocs(); unsubUsers(); unsubShifts(); };
-    }, []);
+    }, [selectedDepartmentId]);
 
     const getUserName = (id: string) => users.find(u => u.id === id)?.name || id;
 
@@ -74,6 +78,7 @@ const SupervisorMarket: React.FC = () => {
                 locationId: newShiftLocation,
                 status: 'open',
                 createdBy: 'Admin',
+                departmentId: selectedDepartmentId || null,
                 createdAt: Timestamp.now()
             });
             setToast({ msg: 'Shift Posted', type: 'success' });
@@ -98,9 +103,11 @@ const SupervisorMarket: React.FC = () => {
                    locationId: shift.locationId, 
                    date: shift.date,
                    shifts: parseMultiShifts(shift.shiftTime),
-                   note: 'Open Shift Claim',
                    month: shift.date.slice(0, 7),
+                   staffName: getUserName(shift.claimedBy),
                    userType: 'user',
+                   note: 'Claimed from Market',
+                   departmentId: selectedDepartmentId || null,
                    createdAt: Timestamp.now()
                });
             }

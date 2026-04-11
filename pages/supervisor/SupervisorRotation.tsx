@@ -6,6 +6,7 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { User, Schedule, Location } from '../../types';
 import Loading from '../../components/Loading';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDepartment } from '../../contexts/DepartmentContext';
 import { PrintHeader, PrintFooter } from '../../components/PrintLayout';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
@@ -100,6 +101,7 @@ interface DetailedMonthData {
 const SupervisorRotation: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
+    const { selectedDepartmentId } = useDepartment();
     const [loading, setLoading] = useState(true);
     
     // Filters
@@ -116,21 +118,23 @@ const SupervisorRotation: React.FC = () => {
 
     useEffect(() => {
         setLoading(true);
-        getDocs(collection(db, 'users')).then((snap) => {
-            const fetchedUsers = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
+        const withDept = (baseQuery: any) => selectedDepartmentId ? query(baseQuery, where('departmentId', '==', selectedDepartmentId)) : baseQuery;
+
+        getDocs(withDept(collection(db, 'users'))).then((snap) => {
+            const fetchedUsers = snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as User));
             setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
         });
-        getDocs(collection(db, 'locations')).then((snap) => {
-            setLocations(snap.docs.map(d => ({ ...d.data(), id: d.id } as Location)));
+        getDocs(withDept(collection(db, 'locations'))).then((snap) => {
+            setLocations(snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as Location)));
         });
         const oldestMonth = months[0];
-        const qSch = query(collection(db, 'schedules'), where('month', '>=', oldestMonth));
+        const qSch = withDept(query(collection(db, 'schedules'), where('month', '>=', oldestMonth)));
         getDocs(qSch).then((snap) => {
             setSchedules(snap.docs.map(d => d.data() as Schedule));
             setLoading(false);
         });
         return () => {};
-    }, [months]);
+    }, [months, selectedDepartmentId]);
 
     // --- Processing Logic ---
     const rotationMatrix = useMemo(() => {

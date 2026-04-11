@@ -9,6 +9,10 @@ import { PrintHeader, PrintFooter } from '../components/PrintLayout';
 // @ts-ignore
 import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, Timestamp, query, where, onSnapshot, setDoc, orderBy } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useDepartment } from '../contexts/DepartmentContext';
+import { UserRole } from '../types';
+import { useFilteredUsers } from '..//hooks/useFilteredUsers';
 import { appointmentsDb } from '../firebaseAppointments';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
@@ -43,7 +47,10 @@ const POINTS_PER_MONTH = 120;
 const Reports: React.FC = () => {
     // --- State ---
     const { t, dir } = useLanguage();
-    const [employees, setEmployees] = useState<User[]>([]);
+    const { role: authRole, user: currentUser } = useAuth();
+    const { selectedDepartmentId } = useDepartment();
+    const [allEmployees, setAllEmployees] = useState<User[]>([]);
+    const employees = useFilteredUsers(allEmployees);
     const [actions, setActions] = useState<ActionLog[]>([]);
     const [swaps, setSwaps] = useState<any[]>([]);
     const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -140,7 +147,7 @@ const Reports: React.FC = () => {
 
                 const uSnap = await getDocs(collection(db, 'users'));
                 const fetchedUsers = uSnap.docs.map(d => ({ ...d.data(), id: d.id } as User));
-                setEmployees(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
+                setAllEmployees(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
 
                 const sSnap = await getDocs(collection(db, 'swapRequests'));
                 setSwaps(sSnap.docs.map(d => ({ ...d.data(), id: d.id })));

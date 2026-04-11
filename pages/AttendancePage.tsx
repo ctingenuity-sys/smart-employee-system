@@ -439,7 +439,7 @@ const AttendancePage: React.FC = () => {
         const todayStr = getLocalDateKey(currentTime);
         const qLogs = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', todayStr));
         const unsubLogs = onSnapshot(qLogs, (snap) => {
-            const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
+            const logs = snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceLog));
             
             // --- ADD OFFLINE PUNCHES TO UI ---
             const offlinePunches = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');
@@ -496,7 +496,7 @@ const AttendancePage: React.FC = () => {
         
         const qLogsYesterday = query(collection(db, 'attendance_logs'), where('userId', '==', currentUserId), where('date', '==', yesterdayStr));
         const unsubYesterday = onSnapshot(qLogsYesterday, (snap) => {
-            const logs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
+            const logs = snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceLog));
             
             // --- ADD OFFLINE PUNCHES TO UI ---
             const offlinePunches = JSON.parse(localStorage.getItem(OFFLINE_PUNCHES_KEY) || '[]');

@@ -13,6 +13,7 @@ import { PrintHeader } from '../components/PrintLayout';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useDepartment } from '../contexts/DepartmentContext';
 import { UserRole } from '../types';
 
 interface DashboardAlert {
@@ -70,6 +71,7 @@ const SupervisorDashboard: React.FC = () => {
   const { t, dir } = useLanguage();
   const navigate = useNavigate();
   const { role: authRole, permissions } = useAuth();
+  const { selectedDepartmentId } = useDepartment();
   
   const canAccess = (feature: string) => {
       if (authRole === UserRole.ADMIN) return true;
@@ -110,7 +112,15 @@ const SupervisorDashboard: React.FC = () => {
       const qUsers = query(collection(db, 'users'));
       getDocs(qUsers).then(snap => {
           const fetchedUsers = snap.docs.map(d => ({id: d.id, ...d.data()} as User));
-          setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
+          let filtered = fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role));
+          
+          if (authRole === UserRole.SUPERVISOR) {
+              filtered = filtered.filter(u => u.departmentId === selectedDepartmentId || u.supervisorId === currentAdminId);
+          } else if (authRole === UserRole.MANAGER) {
+              filtered = filtered.filter(u => u.departmentId === selectedDepartmentId || u.managerId === currentAdminId);
+          }
+          
+          setUsers(filtered);
       });
 
       // 2. Pending Requests Counts
@@ -120,7 +130,12 @@ const SupervisorDashboard: React.FC = () => {
       let unsubMarket: any;
       let unsubAppt: any;
 
-      const qSwaps = query(collection(db, 'swapRequests'), where('status', '==', 'approvedByUser'));
+      let qSwaps;
+      if (authRole === UserRole.ADMIN) {
+          qSwaps = query(collection(db, 'swapRequests'), where('status', '==', 'approvedByUser'));
+      } else {
+          qSwaps = query(collection(db, 'swapRequests'), where('status', '==', 'approvedByUser'), where('departmentId', '==', selectedDepartmentId));
+      }
       unsubSwaps = onSnapshot(qSwaps, (snap: QuerySnapshot<DocumentData>) => setSwapRequestsCount(snap.size));
 
       const role = localStorage.getItem('role');
@@ -153,7 +168,12 @@ const SupervisorDashboard: React.FC = () => {
           updateLeaveCount();
       });
 
-      const qMarket = query(collection(db, 'openShifts'), where('status', '==', 'claimed'));
+      let qMarket;
+      if (authRole === UserRole.ADMIN) {
+          qMarket = query(collection(db, 'openShifts'), where('status', '==', 'claimed'));
+      } else {
+          qMarket = query(collection(db, 'openShifts'), where('status', '==', 'claimed'), where('departmentId', '==', selectedDepartmentId));
+      }
       unsubMarket = onSnapshot(qMarket, (snap: QuerySnapshot<DocumentData>) => setOpenShiftsCount(snap.size));
 
       // 3. Today's Appointments
@@ -162,7 +182,12 @@ const SupervisorDashboard: React.FC = () => {
       unsubAppt = onSnapshot(qAppt, (snap: QuerySnapshot<DocumentData>) => setTodayApptCount(snap.size));
 
       // 4. Live Logs (Fetch ALL for today to calculate presence)
-      const qLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayDate)); 
+      let qLogs;
+      if (authRole === UserRole.ADMIN) {
+          qLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayDate)); 
+      } else {
+          qLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayDate), where('departmentId', '==', selectedDepartmentId));
+      }
       getDocs(qLogs).then((snap: QuerySnapshot<DocumentData>) => {
           const logs = snap.docs.map(d => d.data() as AttendanceLog);
           // Sort for the feed
@@ -183,7 +208,12 @@ const SupervisorDashboard: React.FC = () => {
       nextMonthDate.setMonth(now.getMonth() + 1);
       const nextMonth = nextMonthDate.toISOString().slice(0, 7);
 
-      const qSch = query(collection(db, 'schedules'), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
+      let qSch;
+      if (authRole === UserRole.ADMIN) {
+          qSch = query(collection(db, 'schedules'), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
+      } else {
+          qSch = query(collection(db, 'schedules'), where('month', 'in', [prevMonth, currentMonth, nextMonth]), where('departmentId', '==', selectedDepartmentId));
+      }
       getDocs(qSch).then(snap => {
           setSchedules(snap.docs.map(d => d.data() as Schedule));
       });

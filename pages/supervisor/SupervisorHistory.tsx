@@ -6,6 +6,7 @@ import { collection, query, where, getDocs, doc, deleteDoc } from 'firebase/fire
 import { SwapRequest, LeaveRequest, User } from '../../types';
 import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDepartment } from '../../contexts/DepartmentContext';
 import { PrintHeader, PrintFooter } from '../../components/PrintLayout';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
@@ -25,6 +26,7 @@ interface HistoryItem {
 const SupervisorHistory: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
+    const { selectedDepartmentId } = useDepartment();
     const [historyData, setHistoryData] = useState<HistoryItem[]>(() => {
         const cached = localStorage.getItem('usr_cached_sup_hist');
         return cached ? JSON.parse(cached) : [];
@@ -47,12 +49,15 @@ const SupervisorHistory: React.FC = () => {
     }, [users]);
 
     useEffect(() => {
-        getDocs(collection(db, 'users')).then(snap => {
+        const withDept = (baseQuery: any) => selectedDepartmentId ? query(baseQuery, where('departmentId', '==', selectedDepartmentId)) : baseQuery;
+
+        const qUsers = withDept(collection(db, 'users'));
+        getDocs(qUsers).then(snap => {
             const fetchedUsers = snap.docs.map(d => ({id:d.id, ...d.data()} as User));
             setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
         });
         
-        const qSwaps = query(collection(db, 'swapRequests'), where('status', 'in', ['approvedBySupervisor', 'rejectedBySupervisor', 'rejected']));
+        const qSwaps = withDept(query(collection(db, 'swapRequests'), where('status', 'in', ['approvedBySupervisor', 'rejectedBySupervisor', 'rejected'])));
         getDocs(qSwaps).then(snap => {
             const swaps = snap.docs.map(d => ({
                 id: d.id, type: 'swap', userId: d.data().from, targetId: d.data().to, startDate: d.data().startDate, details: d.data().details, status: d.data().status, createdAt: d.data().createdAt
@@ -60,14 +65,14 @@ const SupervisorHistory: React.FC = () => {
             setHistoryData(prev => [...prev.filter(i => i.type !== 'swap'), ...swaps]);
         });
 
-        const qLeaves = query(collection(db, 'leaveRequests'), where('status', 'in', ['approved', 'rejected']));
+        const qLeaves = withDept(query(collection(db, 'leaveRequests'), where('status', 'in', ['approved', 'rejected'])));
         getDocs(qLeaves).then(snap => {
             const leaves = snap.docs.map(d => ({
                 id: d.id, type: 'leave', userId: d.data().from, startDate: d.data().startDate, endDate: d.data().endDate, details: d.data().reason, status: d.data().status, createdAt: d.data().createdAt
             } as HistoryItem));
             setHistoryData(prev => [...prev.filter(i => i.type !== 'leave'), ...leaves]);
         });
-    }, [refreshTrigger]);
+    }, [refreshTrigger, selectedDepartmentId]);
 
     const getUserName = (id: string) => users.find(u => u.id === id)?.name || id;
 

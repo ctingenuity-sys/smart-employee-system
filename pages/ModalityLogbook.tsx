@@ -85,7 +85,7 @@ const ModalityLogbook: React.FC<ModalityLogbookProps> = ({ type, title, colorThe
             );
 
             const snap = await getDocs(q);
-            const fetchedLogs = snap.docs.map(d => ({id: d.id, ...d.data()} as ExtendedAppointment));
+            const fetchedLogs = snap.docs.map(d => ({ ...d.data(), id: d.id }) as ExtendedAppointment);
             
             setLogs(fetchedLogs);
 

@@ -1,10 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
+import { db } from '../../firebase';
 import { appointmentsDb } from '../../firebaseAppointments';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { ExtendedAppointment } from '../../types';
 import Loading from '../../components/Loading';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDepartment } from '../../contexts/DepartmentContext';
 import { PrintHeader, PrintFooter } from '../../components/PrintLayout';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
@@ -12,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 const PanicReportsPage: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
+    const { selectedDepartmentId } = useDepartment();
     const [reports, setReports] = useState<ExtendedAppointment[]>([]);
     const [loading, setLoading] = useState(true);
     // Default to current month
@@ -28,15 +31,25 @@ const PanicReportsPage: React.FC = () => {
                 const nextMonthDate = new Date(parseInt(year), parseInt(month), 1);
                 const endOfMonth = nextMonthDate.toISOString();
 
+                // Fetch users for the selected department
+                const qUsers = selectedDepartmentId ? query(collection(db, 'users'), where('departmentId', '==', selectedDepartmentId)) : collection(db, 'users');
+                const usersSnap = await getDocs(qUsers);
+                const validUserIds = new Set(usersSnap.docs.map(d => d.id));
+
                 // Fetch appointments where isPanic is true within the selected range
                 const qData = query(collection(appointmentsDb, 'appointments'), where('isPanic', '==', true), where('completedAt', '>=', startOfMonth), where('completedAt', '<', endOfMonth), orderBy('completedAt', 'asc'));
                 const dataSnap = await getDocs(qData);
-                const data = dataSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                const data = dataSnap.docs.map(d => ({ ...d.data(), id: d.id }));
                 const error = null;
 
                 if (error) throw error;
                 if (data) {
-                    setReports(data as ExtendedAppointment[]);
+                    const filteredData = data.filter((appt: any) => {
+                        const uid = appt.performedBy || 'unknown';
+                        if (selectedDepartmentId && !validUserIds.has(uid)) return false;
+                        return true;
+                    });
+                    setReports(filteredData as ExtendedAppointment[]);
                 }
             } catch (e) {
                 console.error("Error fetching panic reports:", e);
@@ -46,7 +59,7 @@ const PanicReportsPage: React.FC = () => {
         };
 
         fetchReports();
-    }, [selectedMonth]);
+    }, [selectedMonth, selectedDepartmentId]);
 
     if (loading) return <Loading />;
 

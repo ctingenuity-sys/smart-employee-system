@@ -2,9 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebaseData';
 // @ts-ignore
-import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, Timestamp, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, Timestamp, arrayUnion, arrayRemove, query, where } from 'firebase/firestore';
 import { uploadFile } from '../../services/storageClient';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDepartment } from '../../contexts/DepartmentContext';
 import Toast from '../../components/Toast';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
@@ -13,6 +14,7 @@ import DocumentScanner from '../../components/DocumentScanner';
 const FMSReports: React.FC = () => {
     const { dir } = useLanguage();
     const navigate = useNavigate();
+    const { selectedDepartmentId } = useDepartment();
     const [groups, setGroups] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'} | null>(null);
@@ -29,12 +31,16 @@ const FMSReports: React.FC = () => {
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
     useEffect(() => {
-        const unsub = onSnapshot(collection(db, 'fms_reports'), (snap) => {
-            setGroups(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const q = selectedDepartmentId 
+            ? query(collection(db, 'fms_reports'), where('departmentId', '==', selectedDepartmentId))
+            : collection(db, 'fms_reports');
+            
+        const unsub = onSnapshot(q, (snap) => {
+            setGroups(snap.docs.map(d => ({ ...d.data(), id: d.id })));
             setLoading(false);
         });
         return () => unsub();
-    }, []);
+    }, [selectedDepartmentId]);
 
     const toggleExpand = (id: string) => {
         const newSet = new Set(expandedGroups);
@@ -85,7 +91,8 @@ const FMSReports: React.FC = () => {
                 await addDoc(collection(db, 'fms_reports'), {
                     name: reportName,
                     items: [newItem],
-                    createdAt: Timestamp.now()
+                    createdAt: Timestamp.now(),
+                    departmentId: selectedDepartmentId || null
                 });
             }
             setToast({ msg: 'Report Added', type: 'success' });

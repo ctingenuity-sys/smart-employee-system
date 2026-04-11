@@ -10,6 +10,7 @@ import ReloadPrompt from './components/ReloadPrompt';
 import { UserRole } from './types';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { DepartmentProvider } from './contexts/DepartmentContext';
 import Layout from './components/Layout';
 
 // --- Lazy Loading Pages (Code Splitting) ---
@@ -223,7 +224,9 @@ const App: React.FC = () => {
   return (
     <LanguageProvider>
       <AuthProvider>
-        <AppRoutes />
+        <DepartmentProvider>
+          <AppRoutes />
+        </DepartmentProvider>
       </AuthProvider>
     </LanguageProvider>
   );

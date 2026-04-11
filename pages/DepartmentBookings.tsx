@@ -59,7 +59,7 @@ const DepartmentBookings: React.FC = () => {
                         where('status', '==', 'pending')
                     );
                     const snap = await getDocs(q);
-                    const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    const data = snap.docs.map(d => ({ ...d.data(), id: d.id }));
                     setPendingPatients(data);
                 } catch (e) {
                     console.error("Error fetching pending", e);

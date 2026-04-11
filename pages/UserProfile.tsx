@@ -5,12 +5,13 @@ import { db, auth } from '../firebase';
 import { collection, query, where, getDocs, addDoc, Timestamp } from 'firebase/firestore';
 import { ActionLog, PeerRecognition, User } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useDepartment } from '../contexts/DepartmentContext';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 import { appointmentsDb } from '../firebaseAppointments';
-import { getCountFromServer } from 'firebase/firestore';
+import {  getCountFromServer } from 'firebase/firestore';
 
 // Helper for safe dates
 const safeDate = (val: any) => {
@@ -22,6 +23,7 @@ const safeDate = (val: any) => {
 
 const UserProfile: React.FC = () => {
     const { t, dir } = useLanguage();
+    const { selectedDepartmentId } = useDepartment();
     const navigate = useNavigate();
     const currentUserId = auth.currentUser?.uid;
     const currentUserName = localStorage.getItem('username') || 'User';
@@ -58,7 +60,7 @@ const UserProfile: React.FC = () => {
     }, [users]);
 
     useEffect(() => {
-        if (!currentUserId) return;
+        if (!currentUserId || !selectedDepartmentId) return;
 
         const qKudos = query(collection(db, 'peer_recognition'), where('toUserId', '==', currentUserId));
         getDocs(qKudos).then((snap) => {
@@ -74,7 +76,8 @@ const UserProfile: React.FC = () => {
             setMyActions(fetchedActions);
         });
 
-        getDocs(collection(db, 'users')).then((snap) => {
+        const qUsers = query(collection(db, 'users'), where('departmentId', '==', selectedDepartmentId));
+        getDocs(qUsers).then((snap) => {
             setUsers(snap.docs.map(d => ({ ...d.data(), id: d.id } as User)));
         });
 
@@ -92,7 +95,7 @@ const UserProfile: React.FC = () => {
         };
         fetchPatientCount();
 
-    }, [currentUserId, refreshTrigger]);
+    }, [currentUserId, refreshTrigger, selectedDepartmentId]);
 
     const handleSendKudos = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -102,12 +105,14 @@ const UserProfile: React.FC = () => {
         try {
             const targetUserObj = users.find(u => u.id === kudosForm.toUserId);
             const targetName = targetUserObj ? (targetUserObj.name || targetUserObj.email) : 'Colleague';
+            const senderUserObj = users.find(u => u.id === currentUserId);
   
             await addDoc(collection(db, 'peer_recognition'), {
                 fromUserId: currentUserId,
                 fromUserName: currentUserName,
                 toUserId: kudosForm.toUserId,
                 toUserName: targetName, 
+                departmentId: selectedDepartmentId,
                 type: kudosForm.type,
                 message: kudosForm.message,
                 createdAt: Timestamp.now()

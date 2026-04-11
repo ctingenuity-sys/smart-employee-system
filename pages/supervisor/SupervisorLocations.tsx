@@ -1,33 +1,41 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 // @ts-ignore
-import { collection, addDoc, deleteDoc, doc, getDocs } from 'firebase/firestore';
+import { collection, addDoc, deleteDoc, doc, getDocs, query, where } from 'firebase/firestore';
 import { Location } from '../../types';
 import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDepartment } from '../../contexts/DepartmentContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 
 const SupervisorLocations: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
+    const { selectedDepartmentId } = useDepartment();
     const [locations, setLocations] = useState<Location[]>([]);
     const [newLocationName, setNewLocationName] = useState('');
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'} | null>(null);
 
     const fetchLocations = async () => {
-        const snap = await getDocs(collection(db, 'locations'));
-        setLocations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
+        const qLocs = selectedDepartmentId 
+            ? query(collection(db, 'locations'), where('departmentId', '==', selectedDepartmentId))
+            : collection(db, 'locations');
+        const snap = await getDocs(qLocs);
+        setLocations(snap.docs.map(d => ({ ...d.data(), id: d.id } as Location)));
     };
 
     useEffect(() => {
         fetchLocations();
-    }, []);
+    }, [selectedDepartmentId]);
 
     const handleAddLocation = async () => {
         if (!newLocationName) return;
         try {
-            await addDoc(collection(db, 'locations'), { name: newLocationName });
+            await addDoc(collection(db, 'locations'), { 
+                name: newLocationName,
+                departmentId: selectedDepartmentId || null 
+            });
             setToast({ msg: 'Location Added', type: 'success' });
             setNewLocationName('');
             fetchLocations();

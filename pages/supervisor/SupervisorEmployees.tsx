@@ -13,9 +13,10 @@ import Modal from '../../components/Modal';
 import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { useDepartment } from '../../contexts/DepartmentContext';
 import { UserRole } from '../../types';
 // @ts-ignore
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 // Import the new storage service
 import { uploadFile } from '../../services/storageClient';
 import DocumentScanner from '../../components/DocumentScanner';
@@ -241,9 +242,27 @@ const styles = `
 const SupervisorEmployees: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
-    const { role: authRole } = useAuth();
+    const location = useLocation();
+    const { role: authRole, user: currentUser } = useAuth();
+    const { departments, selectedDepartmentId } = useDepartment();
+    
     console.log('AuthRole:', authRole, 'UserRole.ADMIN:', UserRole.ADMIN);
     const [users, setUsers] = useState<User[]>([]);
+    const [selectedDepartmentFilter, setSelectedDepartmentFilter] = useState<string>(location.state?.departmentId || selectedDepartmentId || 'all');
+    const isFirstRender = useRef(true);
+
+    useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            if (location.state?.departmentId) return; // Keep the initial state
+        }
+        
+        if (selectedDepartmentId) {
+            setSelectedDepartmentFilter(selectedDepartmentId);
+        } else {
+            setSelectedDepartmentFilter('all');
+        }
+    }, [selectedDepartmentId]);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortBy, setSortBy] = useState<'name' | 'role' | 'category'>('name');
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
@@ -253,7 +272,7 @@ const SupervisorEmployees: React.FC = () => {
     const [viewMode, setViewMode] = useState<'table' | 'visual'>('visual'); 
 
     // Visual Mode State
-    const [selectedCategoryUsers, setSelectedCategoryUsers] = useState<User[]>([]);
+    const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
     const [selectedCategoryTitle, setSelectedCategoryTitle] = useState('');
     const [selectedCategoryTheme, setSelectedCategoryTheme] = useState(''); // New for modal theme
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -326,8 +345,12 @@ const SupervisorEmployees: React.FC = () => {
     const [newUserEmail, setNewUserEmail] = useState('');
     const [newUserPassword, setNewUserPassword] = useState('');
     const [newUserRole, setNewUserRole] = useState('user');
+    const [newUserDepartment, setNewUserDepartment] = useState('');
+    const [newUserSupervisor, setNewUserSupervisor] = useState('');
+    const [newUserManager, setNewUserManager] = useState('');
     const [newUserPhone, setNewUserPhone] = useState('');
     const [newUserCategory, setNewUserCategory] = useState('technician');
+    const [newUserPermissions, setNewUserPermissions] = useState<string[]>([]);
     const [newUserGender, setNewUserGender] = useState<'male'|'female'>('male');
     const [newUserHireDate, setNewUserHireDate] = useState('');
     const [newUserHidden, setNewUserHidden] = useState(false);
@@ -487,15 +510,16 @@ const SupervisorEmployees: React.FC = () => {
             const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
             const newUserId = userCredential.user.uid;
             
-            const defaultPermissions = ['schedule', 'requests', 'market', 'incoming', 'history', 'profile', 'performance', 'appointments', 'communications', 'inventory', 'tasks', 'tech_support'];
-
             await setDoc(doc(mainDb, 'users', newUserId), {
                 uid: newUserId,
                 email: email,
                 name: newUserName.trim(),
                 role: newUserRole,
+                departmentId: newUserDepartment || null,
+                supervisorId: newUserSupervisor || null,
+                managerId: newUserManager || null,
                 phone: newUserPhone.trim(),
-                permissions: defaultPermissions,
+                permissions: newUserPermissions,
                 jobCategory: newUserCategory || 'technician',
                 gender: newUserGender || 'male',
                 hireDate: newUserHireDate || '',
@@ -545,6 +569,9 @@ const SupervisorEmployees: React.FC = () => {
                 name: editForm.name || '',
                 email: editForm.email || '', 
                 role: editForm.role || 'user',
+                departmentId: editForm.departmentId || null,
+                supervisorId: editForm.supervisorId || null,
+                managerId: editForm.managerId || null,
                 phone: editForm.phone || '', 
                 permissions: editForm.permissions || [],
                 jobCategory: editForm.jobCategory || 'technician',
@@ -887,6 +914,25 @@ const SupervisorEmployees: React.FC = () => {
 
     const filteredUsers = users.filter(u => {
         if (u.isHidden && !hiddenEmployeesVisible) return false;
+        
+        // Supervisor/Manager Isolation: Can only see users in their department or users assigned to them
+        if (authRole === UserRole.SUPERVISOR) {
+            if (u.departmentId !== selectedDepartmentId && u.supervisorId !== currentUser?.uid) {
+                return false;
+            }
+        } else if (authRole === UserRole.MANAGER) {
+            if (u.departmentId !== selectedDepartmentId && u.managerId !== currentUser?.uid) {
+                return false;
+            }
+        }
+
+        // Department Filter Logic
+        if (selectedDepartmentFilter !== 'all') {
+            if (u.departmentId !== selectedDepartmentFilter) return false;
+            // Exclude Admin/Supervisor/Manager from department view as requested
+            if (['admin', 'supervisor', 'manager'].includes(u.role?.toLowerCase() || '')) return false;
+        }
+
         return (
             u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
             u.email.toLowerCase().includes(searchQuery.toLowerCase())
@@ -947,15 +993,9 @@ const SupervisorEmployees: React.FC = () => {
     };
 
     const openCategoryList = (catId: string) => {
-        const filtered = users.filter(u => {
-             // Check for hidden state
-             if (u.isHidden && !hiddenEmployeesVisible) return false;
-             if (['admin', 'supervisor', 'manager'].includes(u.role)) return false;
-             return (u.jobCategory || 'technician') === catId;
-        });
         const categoryData = JOB_CATEGORIES.find(c => c.id === catId);
         
-        setSelectedCategoryUsers(filtered);
+        setSelectedCategoryId(catId);
         setSelectedCategoryTitle(categoryData?.title || '');
         setSelectedCategoryTheme(categoryData?.cardTheme || 'from-gray-50 to-gray-100 border-gray-200'); // Set theme
         // We use the CSS class name instead of gradient
@@ -1054,6 +1094,25 @@ const SupervisorEmployees: React.FC = () => {
             </span>
         );
     }
+
+    const derivedCategoryUsers = users.filter(u => {
+        if (u.isHidden && !hiddenEmployeesVisible) return false;
+        if (['admin', 'supervisor', 'manager'].includes(u.role)) return false;
+        
+        // Supervisor/Manager Isolation
+        if (authRole === UserRole.SUPERVISOR) {
+            if (u.departmentId !== selectedDepartmentId && u.supervisorId !== currentUser?.uid) return false;
+        } else if (authRole === UserRole.MANAGER) {
+            if (u.departmentId !== selectedDepartmentId && u.managerId !== currentUser?.uid) return false;
+        }
+
+        // Department Filter Logic
+        if (selectedDepartmentFilter !== 'all') {
+            if (u.departmentId !== selectedDepartmentFilter) return false;
+        }
+
+        return (u.jobCategory || 'technician') === selectedCategoryId;
+    });
 
     return (
         <div className="max-w-7xl mx-auto px-4 py-8 animate-fade-in" dir={dir}>
@@ -1159,6 +1218,30 @@ const SupervisorEmployees: React.FC = () => {
 
                                         <div className="grid grid-cols-2 gap-3">
                                             <div className="input-group-modern">
+                                                <i className="fas fa-building input-icon"></i>
+                                                <select className="input-modern" value={newUserDepartment} onChange={e => setNewUserDepartment(e.target.value)}>
+                                                    <option value="">-- اختر القسم --</option>
+                                                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                                </select>
+                                            </div>
+                                            <div className="input-group-modern">
+                                                <i className="fas fa-user-tie input-icon"></i>
+                                                <select className="input-modern" value={newUserSupervisor} onChange={e => setNewUserSupervisor(e.target.value)}>
+                                                    <option value="">-- اختر المشرف --</option>
+                                                    {users.filter(u => u.role === 'supervisor' || u.role === 'admin').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="input-group-modern">
+                                                <i className="fas fa-user-shield input-icon"></i>
+                                                <select className="input-modern" value={newUserManager} onChange={e => setNewUserManager(e.target.value)}>
+                                                    <option value="">-- اختر المدير --</option>
+                                                    {users.filter(u => u.role === 'manager' || u.role === 'admin').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                                </select>
+                                            </div>
+                                            <div className="input-group-modern">
                                                 <i className="fas fa-user-tag input-icon"></i>
                                                 <select className="input-modern" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}>
                                                     <option value="user">User</option>
@@ -1174,6 +1257,27 @@ const SupervisorEmployees: React.FC = () => {
                                                     {JOB_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
                                                 </select>
                                             </div>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Permissions */}
+                                    <div className="space-y-3 pt-2 border-t border-slate-200">
+                                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Permissions</p>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {ALL_PERMISSIONS.map(p => (
+                                                <label key={p.key} className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={newUserPermissions.includes(p.key)}
+                                                        onChange={e => {
+                                                            if (e.target.checked) setNewUserPermissions([...newUserPermissions, p.key]);
+                                                            else setNewUserPermissions(newUserPermissions.filter(k => k !== p.key));
+                                                        }}
+                                                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                                    />
+                                                    {p.label}
+                                                </label>
+                                            ))}
                                         </div>
                                     </div>
                                     
@@ -1261,6 +1365,21 @@ const SupervisorEmployees: React.FC = () => {
                                         onChange={e => setSearchQuery(e.target.value)}
                                     />
                                 </div>
+                                {authRole === UserRole.ADMIN && (
+                                    <div className="flex items-center gap-2">
+                                        <i className="fas fa-building text-gray-400"></i>
+                                        <select 
+                                            className="bg-transparent outline-none text-sm font-bold text-gray-600 cursor-pointer"
+                                            value={selectedDepartmentFilter}
+                                            onChange={e => setSelectedDepartmentFilter(e.target.value)}
+                                        >
+                                            <option value="all">All Departments</option>
+                                            {departments.map(dept => (
+                                                <option key={dept.id} value={dept.id}>{dept.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
                                 <div className="flex items-center gap-2">
                                     <i className="fas fa-sort text-gray-400"></i>
                                     <select 
@@ -1295,6 +1414,12 @@ const SupervisorEmployees: React.FC = () => {
                                                     <div>
                                                         <h4 className="font-bold text-slate-800">{user.name} {user.isHidden && <i className="fas fa-eye-slash text-xs text-red-300 ml-1"></i>}</h4>
                                                         <p className="text-sm text-slate-400">{user.email}</p>
+                                                        {user.departmentId && (
+                                                            <p className="text-xs text-indigo-500 font-medium mt-0.5">
+                                                                <i className="fas fa-building mr-1"></i>
+                                                                {departments.find(d => d.id === user.departmentId)?.name || 'Unknown Dept'}
+                                                            </p>
+                                                        )}
                                                     </div>
                                                 </td>
                                                 <td className="p-4">
@@ -1347,8 +1472,24 @@ const SupervisorEmployees: React.FC = () => {
                                  const isHidden = (u as any).isHidden;
                                  if (isHidden && !hiddenEmployeesVisible) return false;
                                  if (['admin', 'supervisor', 'manager'].includes(u.role)) return false;
+                                 
+                                 // Supervisor/Manager Isolation
+                                 if (authRole === UserRole.SUPERVISOR) {
+                                     if (u.departmentId !== selectedDepartmentId && u.supervisorId !== currentUser?.uid) return false;
+                                 } else if (authRole === UserRole.MANAGER) {
+                                     if (u.departmentId !== selectedDepartmentId && u.managerId !== currentUser?.uid) return false;
+                                 }
+
+                                 // Department Filter Logic
+                                 if (selectedDepartmentFilter !== 'all') {
+                                     if (u.departmentId !== selectedDepartmentFilter) return false;
+                                 }
+
                                  return (u.jobCategory || 'technician') === cat.id;
                             });
+                            
+                            if (catUsers.length === 0) return null;
+                            
                             const warningCounts = getWarningCounts(catUsers, cat.id);
                             const hasDanger = warningCounts.expired > 0;
                             const hasWarning = warningCounts.nearExpiry > 0;
@@ -1421,6 +1562,39 @@ const SupervisorEmployees: React.FC = () => {
                                     <option value="supervisor">Supervisor</option>
                                     <option value="manager">Manager</option>
                                     {(authRole?.toLowerCase() === UserRole.ADMIN.toLowerCase()) && <option value="admin">Admin</option>}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 block mb-1">القسم (Department)</label>
+                                <select 
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
+                                    value={editForm.departmentId || ''} 
+                                    onChange={e => setEditForm({...editForm, departmentId: e.target.value})}
+                                >
+                                    <option value="">-- اختر القسم --</option>
+                                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 block mb-1">المشرف (Supervisor)</label>
+                                <select 
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
+                                    value={editForm.supervisorId || ''} 
+                                    onChange={e => setEditForm({...editForm, supervisorId: e.target.value})}
+                                >
+                                    <option value="">-- اختر المشرف --</option>
+                                    {users.filter(u => u.role === 'supervisor' || u.role === 'admin').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 block mb-1">المدير (Manager)</label>
+                                <select 
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
+                                    value={editForm.managerId || ''} 
+                                    onChange={e => setEditForm({...editForm, managerId: e.target.value})}
+                                >
+                                    <option value="">-- اختر المدير --</option>
+                                    {users.filter(u => u.role === 'manager' || u.role === 'admin').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                                 </select>
                             </div>
                             <div>
@@ -1681,13 +1855,13 @@ const SupervisorEmployees: React.FC = () => {
             {/* Category List Modal (New Colorful Card Layout) */}
             <Modal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} title={`${selectedCategoryTitle} List`} maxWidth="max-w-4xl">
                 <div className="grid grid-cols-1 gap-6 max-h-[60vh] overflow-y-auto pr-2 pb-4 custom-scrollbar">
-                    {selectedCategoryUsers.length === 0 ? (
+                    {derivedCategoryUsers.length === 0 ? (
                         <div className="col-span-1 text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400">
                             <i className="fas fa-user-slash text-4xl mb-3 opacity-50"></i>
                             <p>No employees in this category.</p>
                         </div>
                     ) : (
-                        selectedCategoryUsers.map(user => (
+                        derivedCategoryUsers.map(user => (
                             <div key={user.id} className={`group relative ${selectedCategoryTheme} rounded-[24px] p-6 shadow-lg hover:shadow-2xl transition-all duration-300 border border-white/20 overflow-hidden`}>
                                 
                                 {/* Background Decorative Icon */}
@@ -1715,9 +1889,15 @@ const SupervisorEmployees: React.FC = () => {
                                         <div className="flex justify-between items-start">
                                             <div>
                                                 <h3 className="font-black text-white text-2xl leading-tight drop-shadow-md">{user.name}</h3>
-                                                <p className="text-white/80 font-bold text-sm mb-3 flex items-center gap-2">
+                                                <p className="text-white/80 font-bold text-sm mb-1 flex items-center gap-2">
                                                     <i className="fas fa-envelope opacity-70"></i> {user.email}
                                                 </p>
+                                                {user.departmentId && (
+                                                    <p className="text-white/90 font-medium text-xs mb-3 flex items-center gap-2 bg-black/20 w-fit px-2 py-1 rounded-md">
+                                                        <i className="fas fa-building opacity-70"></i> 
+                                                        {departments.find(d => d.id === user.departmentId)?.name || 'Unknown Dept'}
+                                                    </p>
+                                                )}
                                             </div>
                                             <button 
                                                 onClick={() => { setIsCategoryModalOpen(false); openEditModal(user); }}

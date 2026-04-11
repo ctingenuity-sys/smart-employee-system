@@ -1,8 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
+import { db as certDb } from '../../firebaseData';
+import { inventoryDb } from '../../firebaseInventory';
 // @ts-ignore
-import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, orderBy, Timestamp, where } from 'firebase/firestore';
 import { Department, User } from '../../types';
 import Toast from '../../components/Toast';
 import Modal from '../../components/Modal';
@@ -47,6 +49,10 @@ const DepartmentsPage: React.FC = () => {
     const [formManager, setFormManager] = useState('');
     const [formColor, setFormColor] = useState('bg-blue-500');
     const [formIcon, setFormIcon] = useState('fa-hospital-user');
+    const [formCategories, setFormCategories] = useState<string[]>([]);
+    const [newCategory, setNewCategory] = useState('');
+
+    const [isMigrating, setIsMigrating] = useState(false);
 
     useEffect(() => {
         localStorage.setItem('usr_cached_depts', JSON.stringify(departments));
@@ -60,14 +66,136 @@ const DepartmentsPage: React.FC = () => {
         // Fetch Departments
         const qDepts = query(collection(db, 'departments'), orderBy('name'));
         getDocs(qDepts).then((snap) => {
-            setDepartments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Department)));
+            setDepartments(snap.docs.map(d => ({ ...d.data(), id: d.id } as Department)));
         });
 
         // Fetch Users (for manager selection)
         getDocs(collection(db, 'users')).then((snap) => {
-            setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
+            setUsers(snap.docs.map(d => ({ ...d.data(), id: d.id } as User)));
         });
     }, [refreshTrigger]);
+
+    const handleMigrateLegacyData = async () => {
+        if (!window.confirm('هل أنت متأكد من رغبتك في ترحيل البيانات القديمة إلى قسم "الأشعة"؟ هذه العملية قد تستغرق بعض الوقت.')) return;
+        
+        setIsMigrating(true);
+        try {
+            // 1. Ensure Radiology department exists
+            let targetDeptId = '';
+            const existingRadiology = departments.find(d => d.name.includes('الأشعة') || d.name.includes('Radiology'));
+            
+            if (existingRadiology) {
+                targetDeptId = existingRadiology.id;
+            } else {
+                const newDeptRef = await addDoc(collection(db, 'departments'), {
+                    name: 'الأشعة (Radiology)',
+                    color: 'bg-blue-500',
+                    icon: 'fa-x-ray',
+                    createdAt: Timestamp.now(),
+                    updatedAt: Timestamp.now()
+                });
+                targetDeptId = newDeptRef.id;
+                setRefreshTrigger(prev => prev + 1);
+            }
+
+            // Collections to migrate from main db
+            const collectionsToMigrate = [
+                'users', 'schedules', 'leaveRequests', 'swapRequests', 
+                'attendance_logs', 'openShifts', 'actions', 'peer_recognition',
+                'locations', 'schedule_templates', 'monthly_publishes', 
+                'performance_archives', 'penalties', 'shiftLogs'
+            ];
+
+            // Collections to migrate from certDb
+            const certDbCollections = [
+                'inventory_devices', 'fms_reports', 'room_reports', 'employee_records'
+            ];
+
+            let migratedCount = 0;
+
+            for (const colName of collectionsToMigrate) {
+                const snap = await getDocs(collection(db, colName));
+                for (const document of snap.docs) {
+                    const data = document.data();
+                    if (!data.departmentId) {
+                        await updateDoc(doc(db, colName, document.id), {
+                            departmentId: targetDeptId
+                        });
+                        migratedCount++;
+                    }
+                }
+            }
+
+            for (const colName of certDbCollections) {
+                const snap = await getDocs(collection(certDb, colName));
+                for (const document of snap.docs) {
+                    const data = document.data();
+                    if (!data.departmentId) {
+                        await updateDoc(doc(certDb, colName, document.id), {
+                            departmentId: targetDeptId
+                        });
+                        migratedCount++;
+                    }
+                }
+            }
+
+            setToast({ msg: `تم ترحيل ${migratedCount} سجل بنجاح إلى قسم الأشعة.`, type: 'success' });
+        } catch (error: any) {
+            console.error("Migration error:", error);
+            setToast({ msg: 'حدث خطأ أثناء الترحيل: ' + error.message, type: 'error' });
+        } finally {
+            setIsMigrating(false);
+        }
+    };
+
+    const handleMigrateInventory = async () => {
+        if (!window.confirm('هل أنت متأكد من رغبتك في ترحيل بيانات المخزون القديمة إلى قسم "الأشعة"؟')) return;
+        
+        setIsMigrating(true);
+        try {
+            // 1. Ensure Radiology department exists
+            let targetDeptId = '';
+            const existingRadiology = departments.find(d => d.name.includes('الأشعة') || d.name.includes('Radiology'));
+            
+            if (existingRadiology) {
+                targetDeptId = existingRadiology.id;
+            } else {
+                const newDeptRef = await addDoc(collection(db, 'departments'), {
+                    name: 'الأشعة (Radiology)',
+                    color: 'bg-blue-500',
+                    icon: 'fa-x-ray',
+                    createdAt: Timestamp.now(),
+                    updatedAt: Timestamp.now()
+                });
+                targetDeptId = newDeptRef.id;
+                setRefreshTrigger(prev => prev + 1);
+            }
+
+            // Collections to migrate from inventoryDb
+            const inventoryCollections = ['materials', 'invoices', 'usages'];
+            let migratedCount = 0;
+
+            for (const colName of inventoryCollections) {
+                const snap = await getDocs(collection(inventoryDb, colName));
+                for (const document of snap.docs) {
+                    const data = document.data();
+                    if (!data.departmentId) {
+                        await updateDoc(doc(inventoryDb, colName, document.id), {
+                            departmentId: targetDeptId
+                        });
+                        migratedCount++;
+                    }
+                }
+            }
+
+            setToast({ msg: `تم ترحيل ${migratedCount} سجل مخزون بنجاح إلى قسم الأشعة.`, type: 'success' });
+        } catch (error: any) {
+            console.error("Migration error:", error);
+            setToast({ msg: 'خطأ في ترحيل البيانات: ' + error.message, type: 'error' });
+        } finally {
+            setIsMigrating(false);
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -79,6 +207,7 @@ const DepartmentsPage: React.FC = () => {
                 managerId: formManager || null,
                 color: formColor,
                 icon: formIcon,
+                categories: formCategories,
                 updatedAt: Timestamp.now()
             };
 
@@ -115,6 +244,7 @@ const DepartmentsPage: React.FC = () => {
         setFormManager(dept.managerId || '');
         setFormColor(dept.color || 'bg-blue-500');
         setFormIcon(dept.icon || 'fa-hospital-user');
+        setFormCategories(dept.categories || []);
         setIsModalOpen(true);
     };
 
@@ -124,6 +254,8 @@ const DepartmentsPage: React.FC = () => {
         setFormManager('');
         setFormColor('bg-blue-500');
         setFormIcon('fa-hospital-user');
+        setFormCategories([]);
+        setNewCategory('');
     };
 
     // Get Manager Name Helper
@@ -153,12 +285,30 @@ const DepartmentsPage: React.FC = () => {
                             <p className="text-slate-500">إنشاء وتوزيع الأقسام الطبية والإدارية</p>
                         </div>
                     </div>
-                    <button 
-                        onClick={() => { resetForm(); setIsModalOpen(true); }}
-                        className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all flex items-center gap-2"
-                    >
-                        <i className="fas fa-plus"></i> إضافة قسم جديد
-                    </button>
+                    <div className="flex gap-3">
+                        <button 
+                            onClick={handleMigrateLegacyData}
+                            disabled={isMigrating}
+                            className="bg-orange-500 text-white px-4 py-3 rounded-xl font-bold shadow-lg hover:bg-orange-600 transition-all disabled:opacity-50 flex items-center gap-2"
+                        >
+                            {isMigrating ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-database"></i>}
+                            ترحيل البيانات القديمة
+                        </button>
+                        <button 
+                            onClick={handleMigrateInventory}
+                            disabled={isMigrating}
+                            className="bg-teal-500 text-white px-4 py-3 rounded-xl font-bold shadow-lg hover:bg-teal-600 transition-all disabled:opacity-50 flex items-center gap-2"
+                        >
+                            {isMigrating ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-box-open"></i>}
+                            ترحيل المخزون القديم
+                        </button>
+                        <button 
+                            onClick={() => { resetForm(); setIsModalOpen(true); }}
+                            className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all flex items-center gap-2"
+                        >
+                            <i className="fas fa-plus"></i> إضافة قسم جديد
+                        </button>
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -197,10 +347,34 @@ const DepartmentsPage: React.FC = () => {
                                         <i className="fas fa-users text-slate-400"></i>
                                         <span className="text-xs font-bold text-slate-600">الموظفين</span>
                                     </div>
-                                    <span className="text-xs font-black text-slate-800 bg-white px-2 py-1 rounded-lg border border-slate-200">
-                                        {getEmployeeCount(dept.id)}
-                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-black text-slate-800 bg-white px-2 py-1 rounded-lg border border-slate-200">
+                                            {getEmployeeCount(dept.id)}
+                                        </span>
+                                        <button 
+                                            onClick={() => navigate('/supervisor/employees', { state: { departmentId: dept.id } })}
+                                            className="text-xs bg-indigo-100 text-indigo-600 hover:bg-indigo-200 px-2 py-1 rounded-lg font-bold transition-colors"
+                                            title="عرض الموظفين"
+                                        >
+                                            <i className="fas fa-eye"></i>
+                                        </button>
+                                    </div>
                                 </div>
+                                {dept.categories && dept.categories.length > 0 && (
+                                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <i className="fas fa-tags text-slate-400"></i>
+                                            <span className="text-xs font-bold text-slate-600">الفئات</span>
+                                        </div>
+                                        <div className="flex flex-wrap gap-1">
+                                            {dept.categories.map(cat => (
+                                                <span key={cat} className="bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md text-[10px] font-bold">
+                                                    {cat}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     ))}
@@ -232,6 +406,40 @@ const DepartmentsPage: React.FC = () => {
                                 <option key={u.id} value={u.id}>{u.name || u.email} ({u.role})</option>
                             ))}
                         </select>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">فئات الموظفين (Categories)</label>
+                        <div className="flex gap-2 mb-2">
+                            <input 
+                                className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-800 focus:ring-2 focus:ring-indigo-100 outline-none"
+                                placeholder="مثال: طبيب، فني..."
+                                value={newCategory}
+                                onChange={e => setNewCategory(e.target.value)}
+                            />
+                            <button 
+                                type="button"
+                                onClick={() => {
+                                    if (newCategory && !formCategories.includes(newCategory)) {
+                                        setFormCategories([...formCategories, newCategory]);
+                                        setNewCategory('');
+                                    }
+                                }}
+                                className="bg-slate-800 text-white px-4 rounded-xl font-bold"
+                            >
+                                إضافة
+                            </button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            {formCategories.map(cat => (
+                                <span key={cat} className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-2">
+                                    {cat}
+                                    <button type="button" onClick={() => setFormCategories(formCategories.filter(c => c !== cat))} className="text-indigo-400 hover:text-indigo-600">
+                                        <i className="fas fa-times"></i>
+                                    </button>
+                                </span>
+                            ))}
+                        </div>
                     </div>
 
                     <div>

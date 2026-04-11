@@ -5,6 +5,9 @@ import { db } from '../firebase';
 import { collection, addDoc, getDocs, Timestamp, query, where, writeBatch, doc, deleteDoc, updateDoc, orderBy, setDoc, getDoc } from 'firebase/firestore';
 import { ModalityColumn, CommonDuty, FridayScheduleRow, HolidayScheduleRow, SavedTemplate, User, Location, VisualStaff, DoctorScheduleRow, DoctorFridayRow, ScheduleColumn, DateException } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useDepartment } from '../contexts/DepartmentContext';
+import { useFilteredUsers } from '../hooks/useFilteredUsers';
 import GeneralScheduleView from '../components/schedule/GeneralScheduleView';
 import FridayScheduleView from '../components/schedule/FridayScheduleView';
 import HolidayScheduleView from '../components/schedule/HolidayScheduleView';
@@ -155,6 +158,7 @@ const deleteDocsInBatches = async (docs: any[]) => {
 const ScheduleBuilder: React.FC = () => {
     // ... (Keep existing State Hooks)
     const { t, dir } = useLanguage();
+    const { selectedDepartmentId } = useDepartment();
     const navigate = useNavigate();
     const [visualSubTab, setVisualSubTab] = useState<'general' | 'friday' | 'holiday' | 'ramadan' | 'doctor' | 'doctor_friday' | 'exceptions'>('general');
     const [isEditingVisual, setIsEditingVisual] = useState(true);
@@ -188,7 +192,8 @@ const ScheduleBuilder: React.FC = () => {
     const [holidayColumns, setHolidayColumns] = useState<ScheduleColumn[]>(defaultHolidayCols);
     const [doctorColumns, setDoctorColumns] = useState<ScheduleColumn[]>(defaultDoctorCols);
     const [doctorFridayColumns, setDoctorFridayColumns] = useState<ScheduleColumn[]>(defaultDoctorFridayCols);
-    const [allUsers, setAllUsers] = useState<User[]>([]);
+    const [allEmployees, setAllEmployees] = useState<User[]>([]);
+    const employees = useFilteredUsers(allEmployees);
     const [allLocations, setAllLocations] = useState<Location[]>([]);
     const [savedTemplates, setSavedTemplates] = useState<SavedTemplate[]>([]);
     const [loading, setLoading] = useState(true);
@@ -217,18 +222,18 @@ const ScheduleBuilder: React.FC = () => {
         const initData = async () => {
             setLoading(true);
             try {
-                const uSnap = await getDocs(collection(db, "users"));
+                const uSnap = await getDocs(query(collection(db, "users"), where('departmentId', '==', selectedDepartmentId)));
                 const fetchedUsers = uSnap.docs.map((d: any) => ({ ...(d.data() as any), id: d.id } as User));
-                setAllUsers(fetchedUsers.filter(u => {
+                setAllEmployees(fetchedUsers.filter(u => {
                     const role = u.role || '';
                     if (Array.isArray(role)) {
                         return !role.some(r => ['admin', 'supervisor', 'manager'].includes(r));
                     }
                     return !['admin', 'supervisor', 'manager'].includes(role);
                 }));
-                const lSnap = await getDocs(collection(db, "locations"));
+                const lSnap = await getDocs(query(collection(db, "locations"), where('departmentId', '==', selectedDepartmentId)));
                 setAllLocations(lSnap.docs.map((d: any) => ({ ...(d.data() as any), id: d.id } as Location)));
-                const tSnap = await getDocs(collection(db, "schedule_templates"));
+                const tSnap = await getDocs(query(collection(db, "schedule_templates"), where('departmentId', '==', selectedDepartmentId)));
                 setSavedTemplates(tSnap.docs.map((d: any) => ({ ...(d.data() as any), id: d.id } as SavedTemplate)));
             } catch (error: any) {
                 setToast({ msg: 'Error loading data: ' + error.message, type: 'error' });
@@ -302,7 +307,8 @@ const ScheduleBuilder: React.FC = () => {
                 globalEndDate,
                 scheduleNote,
                 ramadanScheduleNote,
-                holidayScheduleNote
+                holidayScheduleNote,
+                departmentId: selectedDepartmentId
             };
 
             if (activeTemplateId && !isNew) {
@@ -399,10 +405,14 @@ const ScheduleBuilder: React.FC = () => {
                 setConfirmation(prev => ({ ...prev, isOpen: false }));
                 setLoading(true);
                 try {
-                    const docRef = doc(db, 'monthly_publishes', publishMonth);
+                    const docRef = doc(db, 'monthly_publishes', `${selectedDepartmentId}_${publishMonth}`);
                     const docSnap = await getDoc(docRef);
                     if (docSnap.exists()) {
                         const data = docSnap.data() as SavedTemplate;
+                        if (data.departmentId && data.departmentId !== selectedDepartmentId) {
+                            setToast({ msg: 'You are not authorized to load this schedule.', type: 'error' });
+                            return;
+                        }
                         loadStateFromTemplate(data);
                         setActivePublishId(publishMonth);
                         setActiveTemplateId(undefined);
@@ -431,11 +441,13 @@ const ScheduleBuilder: React.FC = () => {
             const months = new Set<string>();
             
             snapPub.docs.forEach(d => {
-                months.add(d.id);
+                if (d.id.startsWith(`${selectedDepartmentId}_`)) {
+                    months.add(d.id.replace(`${selectedDepartmentId}_`, ''));
+                }
             });
             
             // Fallback: Check schedules collection if monthly_publishes is empty/unsynced
-            const qSch = query(collection(db, 'schedules'));
+            const qSch = query(collection(db, 'schedules'), where('departmentId', '==', selectedDepartmentId));
             const snapshot = await getDocs(qSch);
             snapshot.docs.forEach(d => {
                 const m = d.data().month;
@@ -457,10 +469,10 @@ const ScheduleBuilder: React.FC = () => {
         setLoading(true);
         
         // 1. Delete tickets by explicit month field
-        const q1 = query(collection(db, 'schedules'), where('month', '==', monthToDelete));
+        const q1 = query(collection(db, 'schedules'), where('month', '==', monthToDelete), where('departmentId', '==', selectedDepartmentId));
         
         // 2. Delete tickets by sourcePublishId field (Newly added to solve the zombie ticket issue)
-        const q2 = query(collection(db, 'schedules'), where('sourcePublishId', '==', monthToDelete));
+        const q2 = query(collection(db, 'schedules'), where('sourcePublishId', '==', monthToDelete), where('departmentId', '==', selectedDepartmentId));
 
         Promise.all([getDocs(q1), getDocs(q2)]).then(async ([snap1, snap2]) => {
             const allDocs = [...snap1.docs, ...snap2.docs];
@@ -475,7 +487,7 @@ const ScheduleBuilder: React.FC = () => {
             
             // Also remove from published views (Snapshot)
             // Separate single delete for the snapshot document
-            await deleteDoc(doc(db, 'monthly_publishes', monthToDelete));
+            await deleteDoc(doc(db, 'monthly_publishes', `${selectedDepartmentId}_${monthToDelete}`));
 
             setToast({ msg: `Deleted schedule for ${monthToDelete} (${uniqueDocs.length} tickets removed)`, type: 'success' });
             setAvailableMonthsToDelete(prev => prev.filter(m => m !== monthToDelete));
@@ -537,18 +549,19 @@ const ScheduleBuilder: React.FC = () => {
                 scheduleNote,
                 ramadanScheduleNote, 
                 holidayScheduleNote,
-                publishedAt: Timestamp.now()
+                publishedAt: Timestamp.now(),
+                departmentId: selectedDepartmentId
             };
 
-            await setDoc(doc(db, 'monthly_publishes', publishMonth), visualSnapshot);
+            await setDoc(doc(db, 'monthly_publishes', `${selectedDepartmentId}_${publishMonth}`), visualSnapshot);
             
             // *** 2. Standard Individual Ticket Generation (For My Schedule & Logic) ***
             if (!mergeMode) {
                 // Delete based on BOTH month AND sourcePublishId to catch everything
                 
-                const q = query(collection(db, 'schedules'), where('month', '==', publishMonth));
+                const q = query(collection(db, 'schedules'), where('month', '==', publishMonth), where('departmentId', '==', selectedDepartmentId));
                 // We also check for any tickets that claim to be from this source ID even if month differs
-                const qSource = query(collection(db, 'schedules'), where('sourcePublishId', '==', publishMonth));
+                const qSource = query(collection(db, 'schedules'), where('sourcePublishId', '==', publishMonth), where('departmentId', '==', selectedDepartmentId));
                 
                 const [snap1, snap2] = await Promise.all([getDocs(q), getDocs(qSource)]);
                 
@@ -568,7 +581,10 @@ const ScheduleBuilder: React.FC = () => {
                         // PROTECT LEAVES
                         const isLeave = sData.locationId === 'LEAVE_ACTION';
 
-                        if (!isSwap && !isLeave) {
+                        // Robust deletion: Only delete if it belongs to this department OR has no departmentId (legacy cleanup)
+                        const belongsToDept = !sData.departmentId || sData.departmentId === selectedDepartmentId;
+
+                        if (!isSwap && !isLeave && belongsToDept) {
                             docsToDelete.push(docSnap);
                             processedDeletes.add(docSnap.id);
                         }
@@ -602,7 +618,7 @@ const ScheduleBuilder: React.FC = () => {
                 let id = staff.userId;
                 if (!id) {
                     const cleanName = staff.name.replace(/[（(].*?[）)]/g, '').trim().toLowerCase();
-                    const found = allUsers.find(u => (u.name && String(u.name).toLowerCase().trim() === cleanName) || (u.email && String(u.email).toLowerCase().trim() === cleanName));
+                    const found = employees.find(u => (u.name && String(u.name).toLowerCase().trim() === cleanName) || (u.email && String(u.email).toLowerCase().trim() === cleanName));
                     if (found) id = found.id;
                 }
                 if (!id) id = `unlinked_${staff.name.replace(/\s+/g, '_').toLowerCase()}_${Date.now()}`;
@@ -624,6 +640,7 @@ const ScheduleBuilder: React.FC = () => {
                             locationId: locId,
                             month: overrideMonth || publishMonth,
                             sourcePublishId: publishMonth, // CRITICAL: Tag every ticket with the ID of this publish action
+                            departmentId: selectedDepartmentId, // NEW: Added departmentId
                             userType: userType,
                             shifts: staff.time ? parseMultiShifts(staff.time) : shifts,
                             note: staff.note ? `${notePrefix} - ${staff.note}` : notePrefix,
@@ -852,7 +869,7 @@ const ScheduleBuilder: React.FC = () => {
         <div className="flex h-screen overflow-hidden bg-slate-50 print:bg-white print:h-auto print:overflow-visible" dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
             
-            {isSidebarOpen && <StaffSidebar users={allUsers} />}
+            {isSidebarOpen && <StaffSidebar users={employees} />}
 
             <div className="flex-1 flex flex-col h-full overflow-hidden print:h-auto print:overflow-visible relative">
                 {/* ... (Keep header and controls) */}
@@ -989,7 +1006,7 @@ const ScheduleBuilder: React.FC = () => {
                                 onReorderColumns={(from, to) => { const n = [...generalData]; const [rem] = n.splice(from, 1); n.splice(to, 0, rem); setGeneralData(n); }}
                                 onAddDuty={() => setCommonDuties([...commonDuties, { section: 'New Duty', time: '', staff: [] }])}
                                 onRemoveDuty={(i) => setCommonDuties(commonDuties.filter((_, idx) => idx !== i))}
-                                locations={allLocations} allUsers={allUsers} searchTerm={searchTerm}
+                                locations={allLocations} allUsers={employees} searchTerm={searchTerm}
                             />
                         )}
                         
@@ -1014,7 +1031,7 @@ const ScheduleBuilder: React.FC = () => {
                                 setScheduleNote={setRamadanScheduleNote}
 
                                 isEditing={isEditingVisual}
-                                allUsers={allUsers}
+                                allUsers={employees}
                                 locations={allLocations}
                                 savedTemplates={savedTemplates}
                             />
@@ -1022,7 +1039,7 @@ const ScheduleBuilder: React.FC = () => {
 
                         {visualSubTab === 'friday' && (
                             <FridayScheduleView 
-                                data={fridayData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}
+                                data={fridayData} isEditing={isEditingVisual} allUsers={employees} publishMonth={publishMonth}
                                 onUpdateRow={(i, d) => { const n = [...fridayData]; n[i] = d; setFridayData(n); }}
                                 onAddRow={() => setFridayData([...fridayData, { id: Date.now().toString(), date: '' }])}
                                 onRemoveRow={(i) => setFridayData(fridayData.filter((_, idx) => idx !== i))}
@@ -1034,7 +1051,7 @@ const ScheduleBuilder: React.FC = () => {
                         )}
                         {visualSubTab === 'holiday' && (
                             <HolidayScheduleView 
-                                data={holidayData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}
+                                data={holidayData} isEditing={isEditingVisual} allUsers={employees} publishMonth={publishMonth}
                                 onUpdateRow={(i, d) => { const n = [...holidayData]; n[i] = d; setHolidayData(n); }}
                                 onAddRow={() => setHolidayData([...holidayData, { id: Date.now().toString(), occasion: '' }])}
                                 onRemoveRow={(i) => setHolidayData(holidayData.filter((_, idx) => idx !== i))}
@@ -1051,14 +1068,14 @@ const ScheduleBuilder: React.FC = () => {
                                 exceptions={exceptions}
                                 setExceptions={setExceptions}
                                 isEditing={isEditingVisual}
-                                allUsers={allUsers}
+                                allUsers={employees}
                                 locations={allLocations}
                                 savedTemplates={savedTemplates}
                             />
                         )}
                         {visualSubTab === 'doctor' && (
                             <DoctorScheduleView 
-                                data={doctorData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}
+                                data={doctorData} isEditing={isEditingVisual} allUsers={employees} publishMonth={publishMonth}
                                 onUpdateRow={(i, d) => { const n = [...doctorData]; n[i] = d; setDoctorData(n); }}
                                 onAddRow={() => setDoctorData([...doctorData, { id: Date.now().toString(), dateRange: '' }])}
                                 onRemoveRow={(i) => setDoctorData(doctorData.filter((_, idx) => idx !== i))}
@@ -1070,7 +1087,7 @@ const ScheduleBuilder: React.FC = () => {
                         )}
                         {visualSubTab === 'doctor_friday' && (
                             <DoctorFridayScheduleView 
-                                data={doctorFridayData} isEditing={isEditingVisual} allUsers={allUsers} publishMonth={publishMonth}
+                                data={doctorFridayData} isEditing={isEditingVisual} allUsers={employees} publishMonth={publishMonth}
                                 onUpdateRow={(i, d) => { const n = [...doctorFridayData]; n[i] = d; setDoctorFridayData(n); }}
                                 onAddRow={() => setDoctorFridayData([...doctorFridayData, { id: Date.now().toString(), date: '' }])}
                                 onRemoveRow={(i) => setDoctorFridayData(doctorFridayData.filter((_, idx) => idx !== i))}

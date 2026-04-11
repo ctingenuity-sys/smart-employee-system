@@ -6,6 +6,7 @@ import Loading from '../components/Loading';
 import Modal from '../components/Modal';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useDepartment } from '../contexts/DepartmentContext';
 import GeneralScheduleView from '../components/schedule/GeneralScheduleView';
 import FridayScheduleView from '../components/schedule/FridayScheduleView';
 import HolidayScheduleView from '../components/schedule/HolidayScheduleView';
@@ -15,7 +16,7 @@ import ExceptionScheduleView from '../components/schedule/ExceptionScheduleView'
 import RamadanScheduleView from '../components/schedule/RamadanScheduleView';
 
 // @ts-ignore
-import { collection, getDocs, addDoc, query, where, doc, getDoc, updateDoc, Timestamp, orderBy, limit } from 'firebase/firestore';
+import { collection, getDocs, addDoc, query, where, doc, getDoc, updateDoc, Timestamp, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 interface SwapRequestWithUser extends SwapRequest {
   id: string;
@@ -158,6 +159,7 @@ const ppRegex = /(?:\(|\[|\{)\s*pp\s*(?:\)|\]|\})|(?:\bPP\b)/i;
 
 const DoctorDashboard: React.FC = () => {
   const { t, dir } = useLanguage();
+  const { selectedDepartmentId } = useDepartment();
   
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
@@ -255,8 +257,12 @@ const DoctorDashboard: React.FC = () => {
     getDocs(collection(db, 'locations')).then((snap) => {
         setLocations(snap.docs.map(d => ({ ...d.data(), id: d.id } as LocationData)));
     });
-    const qAnnounce = query(collection(db, 'announcements'), where('isActive', '==', true));
-    getDocs(qAnnounce).then((snap) => {
+    
+    if (!selectedDepartmentId) return;
+
+    const qAnnounce = query(collection(db, 'announcements'), where('isActive', '==', true), where('departmentId', '==', selectedDepartmentId));
+    
+    const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
       const now = new Date();
       const cutoffTime = new Date(now.getTime() - 48 * 60 * 60 * 1000); 
       const list = snap.docs
@@ -269,7 +275,11 @@ const DoctorDashboard: React.FC = () => {
       list.sort((a, b) => { const ta = a.createdAt?.seconds || 0; const tb = b.createdAt?.seconds || 0; return tb - ta; });
       setAnnouncements(list);
     });
-  }, [refreshTrigger]);
+
+    return () => {
+        unsubAnnounce();
+    };
+  }, [refreshTrigger, selectedDepartmentId]);
 
   useEffect(() => {
       if (viewMode === 'full') {

@@ -8,6 +8,7 @@ import { Material, Invoice, MaterialUsage, ForecastResult } from '../types';
 import Loading from '../components/Loading';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useDepartment } from '../contexts/DepartmentContext';
 import { PrintHeader, PrintFooter } from './PrintLayout';
 import { GoogleGenAI } from "@google/genai";
 
@@ -19,6 +20,7 @@ interface InventorySystemProps {
 
 const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, userEmail }) => {
     const { t, dir } = useLanguage();
+    const { selectedDepartmentId } = useDepartment();
     const [activeTab, setActiveTab] = useState<'dashboard' | 'usage' | 'incoming' | 'materials' | 'reports'>('dashboard');
     const [materials, setMaterials] = useState<Material[]>([]);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -59,19 +61,21 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
     useEffect(() => {
         setLoading(true);
-        const unsubMat = onSnapshot(collection(inventoryDb, 'materials'), (snap: any) => {
-            setMaterials(snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Material)));
+        if (!selectedDepartmentId) return;
+
+        const unsubMat = onSnapshot(query(collection(inventoryDb, 'materials'), where('departmentId', '==', selectedDepartmentId)), (snap: any) => {
+            setMaterials(snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as Material)));
         });
-        const unsubInv = onSnapshot(collection(inventoryDb, 'invoices'), (snap: any) => {
-            const list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Invoice));
+        const unsubInv = onSnapshot(query(collection(inventoryDb, 'invoices'), where('departmentId', '==', selectedDepartmentId)), (snap: any) => {
+            const list = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as Invoice));
             setInvoices(list.sort((a: any, b: any) => {
                 const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
                 const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
                 return db.getTime() - da.getTime();
             }));
         });
-        const unsubUse = onSnapshot(collection(inventoryDb, 'usages'), (snap: any) => {
-            const list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as MaterialUsage));
+        const unsubUse = onSnapshot(query(collection(inventoryDb, 'usages'), where('departmentId', '==', selectedDepartmentId)), (snap: any) => {
+            const list = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as MaterialUsage));
             setUsages(list.sort((a: any, b: any) => {
                 const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
                 const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
@@ -81,7 +85,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
         setLoading(false);
         return () => { unsubMat(); unsubInv(); unsubUse(); };
-    }, []);
+    }, [selectedDepartmentId]);
 
     // ... (rest of the component implementation)
     const frequentMaterials = useMemo(() => {

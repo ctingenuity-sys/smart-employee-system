@@ -3,6 +3,7 @@ import { db, auth } from '../../firebase';
 import { collection, addDoc, onSnapshot, serverTimestamp, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
 import { User, Penalty } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
+import { useFilteredUsers } from '../../hooks/useFilteredUsers';
 import PenaltyPrintable from '../../components/PenaltyPrintable';
 import { useLanguage, getTranslationKeyForArabic } from '../../contexts/LanguageContext';
 import { printPenaltyDocument } from '../../utils/printPenalty';
@@ -68,7 +69,8 @@ const VIOLATION_CATEGORIES = {
 const SupervisorPenalties: React.FC = () => {
     const { userName } = useAuth();
     const { t, dir } = useLanguage();
-    const [users, setUsers] = useState<User[]>([]);
+    const [allUsers, setAllUsers] = useState<User[]>([]);
+    const users = useFilteredUsers(allUsers);
     const [penalties, setPenalties] = useState<Penalty[]>([]);
     const [selectedEmployee, setSelectedEmployee] = useState('');
     const [penaltyType, setPenaltyType] = useState<'1st Warning' | '2nd Warning' | 'Final Warning' | 'Deduction' | 'Suspension' | 'Dismissal'>('1st Warning');
@@ -84,7 +86,7 @@ const SupervisorPenalties: React.FC = () => {
     useEffect(() => {
         const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
             const fetchedUsers = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as User));
-            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role?.toLowerCase() || '')));
+            setAllUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role?.toLowerCase() || '')));
         });
         const unsubscribePenalties = onSnapshot(query(collection(db, 'penalties'), orderBy('createdAt', 'desc')), (snapshot) => {
             setPenalties(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Penalty)));

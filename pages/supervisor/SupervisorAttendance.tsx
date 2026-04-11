@@ -7,6 +7,7 @@ import { User, Schedule, AttendanceLog, ActionLog } from '../../types';
 import Toast from '../../components/Toast';
 import Modal from '../../components/Modal';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDepartment } from '../../contexts/DepartmentContext';
 import { PrintHeader, PrintFooter } from '../../components/PrintLayout';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
@@ -153,6 +154,7 @@ interface EmployeeAttendanceSummary {
 const SupervisorAttendance: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
+    const { selectedDepartmentId } = useDepartment();
     const [users, setUsers] = useState<User[]>([]);
     const [attendanceSummaries, setAttendanceSummaries] = useState<EmployeeAttendanceSummary[]>([]);
     const [attFilterUser, setAttFilterUser] = useState('');
@@ -181,11 +183,15 @@ const SupervisorAttendance: React.FC = () => {
     const [manualTime, setManualTime] = useState('08:00');
 
     useEffect(() => {
-        getDocs(collection(db, 'users')).then(snap => {
+        const qUsers = selectedDepartmentId 
+            ? query(collection(db, 'users'), where('departmentId', '==', selectedDepartmentId))
+            : collection(db, 'users');
+            
+        getDocs(qUsers).then(snap => {
             const fetchedUsers = snap.docs.map(d => ({id:d.id, ...d.data()} as User));
             setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
         });
-    }, []);
+    }, [selectedDepartmentId]);
 
     const handleImportArchive = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -252,11 +258,13 @@ const SupervisorAttendance: React.FC = () => {
         }));
 
         // --- 1. OPTIMIZED SCHEDULE FETCHING ---
+        const withDept = (baseQuery: any) => selectedDepartmentId ? query(baseQuery, where('departmentId', '==', selectedDepartmentId)) : baseQuery;
+
         let qSch;
         if (attFilterUser) {
             qSch = query(collection(db, 'schedules'), where('userId', '==', attFilterUser));
         } else {
-            qSch = query(collection(db, 'schedules'), where('validTo', '>=', attFilterStart));
+            qSch = withDept(query(collection(db, 'schedules'), where('validTo', '>=', attFilterStart)));
         }
         
         const snapSch = await getDocs(qSch);
@@ -280,11 +288,21 @@ const SupervisorAttendance: React.FC = () => {
             allLogs = offlineLogs.filter(l => l.date >= startStr && l.date <= fetchEndDateStr);
         } else {
             // Fetch from Firebase
-            const qLogs = query(
-                collection(db, 'attendance_logs'), 
-                where('date', '>=', startD.toISOString().split('T')[0]), 
-                where('date', '<=', fetchEndD.toISOString().split('T')[0])
-            );
+            let qLogs;
+            if (attFilterUser) {
+                qLogs = query(
+                    collection(db, 'attendance_logs'), 
+                    where('userId', '==', attFilterUser),
+                    where('date', '>=', startD.toISOString().split('T')[0]), 
+                    where('date', '<=', fetchEndD.toISOString().split('T')[0])
+                );
+            } else {
+                qLogs = withDept(query(
+                    collection(db, 'attendance_logs'), 
+                    where('date', '>=', startD.toISOString().split('T')[0]), 
+                    where('date', '<=', fetchEndD.toISOString().split('T')[0])
+                ));
+            }
             const snapLogs = await getDocs(qLogs);
             allLogs = snapLogs.docs.map(doc => doc.data() as AttendanceLog);
         }
@@ -306,7 +324,7 @@ const SupervisorAttendance: React.FC = () => {
         });
 
         // --- 3. FETCH LEAVES ---
-        const qLeaves = query(collection(db, 'leaveRequests'), where('status', '==', 'approved'));
+        const qLeaves = withDept(query(collection(db, 'leaveRequests'), where('status', '==', 'approved')));
         const snapLeaves = await getDocs(qLeaves);
         const leaves = snapLeaves.docs.map(d => d.data());
 

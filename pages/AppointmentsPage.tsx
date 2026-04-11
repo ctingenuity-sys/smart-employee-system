@@ -667,7 +667,7 @@ const AppointmentsPage: React.FC = () => {
                         }
                         
                         // Always update pending cache
-                        updateSpecificCache('pending', record.date, 'add', record as ExtendedAppointment);
+                        updateSpecificCache('pending', record.date, 'add', { ...record, time: record.time || '00:00' } as ExtendedAppointment);
 
                         newRecordsCount++;
                     } catch (err) {
@@ -850,7 +850,10 @@ const AppointmentsPage: React.FC = () => {
                 const q = query(collectionRef, ...constraints);
 
                 const snapshot = await getDocs(q);
-                const fetchedApps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ExtendedAppointment));
+                const fetchedApps = snapshot.docs.map(doc => {
+                    const data = doc.data();
+                    return { id: doc.id, ...data, time: data.time || '00:00' } as ExtendedAppointment;
+                });
                 
                 setAppointments(fetchedApps);
                 
@@ -1241,14 +1244,14 @@ const AppointmentsPage: React.FC = () => {
             // Update Local State immediately
             setAppointments(prev => prev.map(a => 
                 a.id === appt.id 
-                ? { ...a, ...updateData } as ExtendedAppointment
+                ? { ...a, ...updateData, time: (a.time || updateData.time) || '00:00' } as ExtendedAppointment
                 : a
             ));
 
             // --- CACHE UPDATE: Move from Pending to Processing ---
             const today = getLocalToday();
             updateSpecificCache('pending', today, 'remove', appt);
-            updateSpecificCache('processing', today, 'add', { ...appt, ...updateData } as ExtendedAppointment);
+            updateSpecificCache('processing', today, 'add', { ...appt, ...updateData, time: (appt.time || updateData.time) || '00:00' } as ExtendedAppointment);
 
             setCurrentRegNo(regNo);
             setIsRegModalOpen(true);
@@ -1312,7 +1315,7 @@ const AppointmentsPage: React.FC = () => {
             // --- CACHE UPDATE: Move from Processing to Done ---
             const today = getLocalToday();
             updateSpecificCache('processing', today, 'remove', finishingAppt);
-            updateSpecificCache('done', today, 'add', { ...finishingAppt, ...finishData } as ExtendedAppointment);
+            updateSpecificCache('done', today, 'add', { ...finishingAppt, ...finishData, time: (finishingAppt.time || finishData.time) || '00:00' } as ExtendedAppointment);
 
             setToast({ 
                 msg: isPanic ? t('appt.toast.panic') : t('appt.toast.finish'), 
@@ -1832,7 +1835,10 @@ const AppointmentsPage: React.FC = () => {
                 orderBy('completedAt', 'asc')
             );
             const snap = await getDocs(q);
-            const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ExtendedAppointment));
+            const data = snap.docs.map(doc => {
+                const d = doc.data();
+                return { id: doc.id, ...d, time: d.time || '00:00' } as ExtendedAppointment;
+            });
             setLogbookData(data);
         } catch (e) {
             console.error(e);

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, addDoc, updateDoc, deleteDoc, doc, query, orderBy, limit, Timestamp, arrayUnion, where, getDocs } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, query, orderBy, limit, Timestamp, arrayUnion, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { ShiftLog, Announcement, User, Location } from '../types';
 import Loading from '../components/Loading';
 import SkeletonLoader from '../components/SkeletonLoader';
@@ -10,10 +10,12 @@ import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 import VoiceInput from '../components/VoiceInput';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useDepartment } from '../contexts/DepartmentContext';
 import { GoogleGenAI } from "@google/genai";
 
 const CommunicationPage: React.FC = () => {
     const { t, dir } = useLanguage();
+    const { selectedDepartmentId } = useDepartment();
     const [activeTab, setActiveTab] = useState<'logbook' | 'announcements'>('logbook');
     const [shiftLogs, setShiftLogs] = useState<ShiftLog[]>([]);
     const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -104,15 +106,16 @@ const CommunicationPage: React.FC = () => {
 
     // --- Data Fetching ---
     useEffect(() => {
+        if (!selectedDepartmentId) return;
         setLoading(true);
 
         // 1. Fetch Users & Locations
-        getDocs(collection(db, 'users')).then((snap: any) => {
-            setUsers(snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as User)));
+        getDocs(query(collection(db, 'users'), where('departmentId', '==', selectedDepartmentId))).then((snap: any) => {
+            setUsers(snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as User)));
         });
         
-        getDocs(collection(db, 'locations')).then(snap => {
-             setLocations(snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Location)));
+        getDocs(query(collection(db, 'locations'), where('departmentId', '==', selectedDepartmentId))).then(snap => {
+             setLocations(snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as Location)));
         });
 
         // 2. Fetch Logs based on Filter Month/Year
@@ -121,20 +124,25 @@ const CommunicationPage: React.FC = () => {
 
         const qLogs = query(
             collection(db, 'shiftLogs'), 
+            where('departmentId', '==', selectedDepartmentId),
             where('createdAt', '>=', Timestamp.fromDate(start)),
             where('createdAt', '<=', Timestamp.fromDate(end)),
             orderBy('createdAt', 'desc')
         );
 
-        getDocs(qLogs).then((snap: any) => {
-            const logs = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as ShiftLog));
+        const unsubLogs = onSnapshot(qLogs, (snap: any) => {
+            const logs = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as ShiftLog));
             setShiftLogs(logs);
         });
 
         // 3. Fetch Announcements (Always fetch latest)
-        const qAnnounce = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
-        getDocs(qAnnounce).then((snap: any) => {
-            const list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Announcement));
+        const qAnnounce = query(
+            collection(db, 'announcements'), 
+            where('departmentId', '==', selectedDepartmentId),
+            orderBy('createdAt', 'desc')
+        );
+        const unsubAnnounce = onSnapshot(qAnnounce, (snap: any) => {
+            const list = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as Announcement));
             setAnnouncements(list);
 
             // Auto-mark as seen logic
@@ -154,7 +162,11 @@ const CommunicationPage: React.FC = () => {
             setLoading(false);
         }, 1000);
 
-    }, [userId, userName, storedRole, filterMonth, filterYear, refreshTrigger]);
+        return () => {
+            unsubLogs();
+            unsubAnnounce();
+        };
+    }, [userId, userName, storedRole, filterMonth, filterYear, refreshTrigger, selectedDepartmentId]);
 
     // ... (rest of the component)
     const handleLogSubmit = async (e: React.FormEvent) => {
@@ -193,6 +205,7 @@ const CommunicationPage: React.FC = () => {
                 category: logCategory,
                 isImportant: logImportant,
                 type: logImportant ? 'issue' : 'handover',
+                departmentId: selectedDepartmentId,
                 createdAt: Timestamp.now()
             });
             setToast({ msg: t('save'), type: 'success' });
@@ -372,6 +385,7 @@ const CommunicationPage: React.FC = () => {
                 isActive: true,
                 createdAt: Timestamp.now(),
                 createdBy: userName,
+                departmentId: selectedDepartmentId,
                 seenBy: []
             });
             setNewAnnounceTitle(''); setNewAnnounceContent('');

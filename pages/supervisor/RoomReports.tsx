@@ -2,9 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebaseData';
 // @ts-ignore
-import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, Timestamp, query, where } from 'firebase/firestore';
 import { uploadFile } from '../../services/storageClient';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDepartment } from '../../contexts/DepartmentContext';
 import Toast from '../../components/Toast';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
@@ -13,6 +14,7 @@ import DocumentScanner from '../../components/DocumentScanner';
 const RoomReports: React.FC = () => {
     const { dir } = useLanguage();
     const navigate = useNavigate();
+    const { selectedDepartmentId } = useDepartment();
     const [rooms, setRooms] = useState<any[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -25,11 +27,15 @@ const RoomReports: React.FC = () => {
     const [uploading, setUploading] = useState(false);
 
     useEffect(() => {
-        const unsub = onSnapshot(collection(db, 'room_reports'), (snap) => {
-            setRooms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const q = selectedDepartmentId 
+            ? query(collection(db, 'room_reports'), where('departmentId', '==', selectedDepartmentId))
+            : collection(db, 'room_reports');
+            
+        const unsub = onSnapshot(q, (snap) => {
+            setRooms(snap.docs.map(d => ({ ...d.data(), id: d.id })));
         });
         return () => unsub();
-    }, []);
+    }, [selectedDepartmentId]);
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || !e.target.files[0]) return;
@@ -67,7 +73,11 @@ const RoomReports: React.FC = () => {
                 await updateDoc(doc(db, 'room_reports', editingId), formData);
                 setToast({ msg: 'Room Updated', type: 'success' });
             } else {
-                await addDoc(collection(db, 'room_reports'), { ...formData, createdAt: Timestamp.now() });
+                await addDoc(collection(db, 'room_reports'), { 
+                    ...formData, 
+                    createdAt: Timestamp.now(),
+                    departmentId: selectedDepartmentId || null
+                });
                 setToast({ msg: 'Room Added', type: 'success' });
             }
             setIsModalOpen(false);

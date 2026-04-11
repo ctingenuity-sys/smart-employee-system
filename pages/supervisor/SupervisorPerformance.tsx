@@ -7,6 +7,7 @@ import { collection, addDoc, query, where, getDocs, Timestamp, orderBy } from 'f
 import Loading from '../../components/Loading';
 import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDepartment } from '../../contexts/DepartmentContext';
 import { PrintHeader, PrintFooter } from '../../components/PrintLayout';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
@@ -29,6 +30,7 @@ interface ArchivedReport {
 const SupervisorPerformance: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
+    const { selectedDepartmentId } = useDepartment();
     const [loading, setLoading] = useState(true);
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
     
@@ -71,6 +73,11 @@ const SupervisorPerformance: React.FC = () => {
                 queryStart = startOfWeek;
             }
 
+            // Fetch users for the selected department
+            const qUsers = selectedDepartmentId ? query(collection(db, 'users'), where('departmentId', '==', selectedDepartmentId)) : collection(db, 'users');
+            const usersSnap = await getDocs(qUsers);
+            const validUserIds = new Set(usersSnap.docs.map(d => d.id));
+
             // Fetch all done appointments
             const qData = query(collection(appointmentsDb, 'appointments'), 
                 where('status', '==', 'done'), 
@@ -85,6 +92,8 @@ const SupervisorPerformance: React.FC = () => {
             
             data.forEach((appt: any) => {
                 const uid = appt.performedBy || 'unknown';
+                if (selectedDepartmentId && !validUserIds.has(uid)) return; // Filter by department users
+                
                 const name = appt.performedByName || 'Unknown';
                 const date = appt.date;
                 
@@ -125,9 +134,10 @@ const SupervisorPerformance: React.FC = () => {
     // Fetch Archives (Firestore)
     const fetchArchives = async () => {
         try {
-            const q = query(collection(db, 'performance_archives'), orderBy('month', 'desc'));
+            const withDept = (baseQuery: any) => selectedDepartmentId ? query(baseQuery, where('departmentId', '==', selectedDepartmentId)) : baseQuery;
+            const q = withDept(query(collection(db, 'performance_archives'), orderBy('month', 'desc')));
             const snap = await getDocs(q);
-            const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as ArchivedReport));
+            const list = snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as ArchivedReport));
             setArchivedReports(list);
         } catch (e) {
             console.error(e);
@@ -140,7 +150,7 @@ const SupervisorPerformance: React.FC = () => {
         } else {
             fetchArchives();
         }
-    }, [selectedMonth, viewMode]);
+    }, [selectedMonth, viewMode, selectedDepartmentId]);
 
     const handleSaveArchive = async () => {
         if (liveStats.length === 0) return setToast({ msg: 'No data to archive', type: 'error' });
@@ -151,7 +161,8 @@ const SupervisorPerformance: React.FC = () => {
                 month: selectedMonth,
                 stats: liveStats,
                 createdAt: Timestamp.now(),
-                createdBy: auth.currentUser?.email
+                createdBy: auth.currentUser?.email,
+                departmentId: selectedDepartmentId || null
             });
             setToast({ msg: 'تم حفظ التقرير بنجاح ✅', type: 'success' });
         } catch (e) {

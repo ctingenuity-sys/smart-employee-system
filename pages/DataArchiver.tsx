@@ -52,7 +52,7 @@ const DataArchiver: React.FC = () => {
                 // 1. Fetch
                 const qData = query(collection(appointmentsDb, 'appointments'), where('date', '<', archiveDate));
                 const dataSnap = await getDocs(qData);
-                const data = dataSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                const data = dataSnap.docs.map(d => ({ ...d.data(), id: d.id }));
                 const error = null;
 
                 if (error) throw error;

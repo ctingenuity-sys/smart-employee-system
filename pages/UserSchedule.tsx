@@ -6,6 +6,7 @@ import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firesto
 import { Schedule, Location, User, ActionLog, AttendanceLog, SavedTemplate } from '../types';
 import Loading from '../components/Loading';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useDepartment } from '../contexts/DepartmentContext';
 import { PrintHeader, PrintFooter } from '../components/PrintLayout';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
@@ -328,6 +329,7 @@ const Barcode: React.FC = () => (
 
 const UserSchedule: React.FC = () => {
     const { t, dir } = useLanguage();
+    const { selectedDepartmentId } = useDepartment();
     const navigate = useNavigate();
     const currentUserId = auth.currentUser?.uid;
     const [schedules, setSchedules] = useState<Schedule[]>(() => {
@@ -483,9 +485,9 @@ const UserSchedule: React.FC = () => {
     // --- FULL SCHEDULE VIEW FETCH (REAL-TIME SNAPSHOT) ---
     // Updated to use getDoc for immediate deletion reflection
     useEffect(() => {
-        if (viewMode === 'full') {
+        if (viewMode === 'full' && selectedDepartmentId) {
             setLoading(true);
-            const docRef = doc(db, 'monthly_publishes', selectedMonth);
+            const docRef = doc(db, 'monthly_publishes', `${selectedDepartmentId}_${selectedMonth}`);
             getDoc(docRef).then((docSnap) => {
                 if (docSnap.exists()) {
                     setPublishedData(docSnap.data() as SavedTemplate);
@@ -497,8 +499,11 @@ const UserSchedule: React.FC = () => {
                 console.error("Error watching published schedule", error);
                 setLoading(false);
             });
+        } else if (viewMode === 'full') {
+            setPublishedData(null);
+            setLoading(false);
         }
-    }, [viewMode, selectedMonth, refreshTrigger]);
+    }, [viewMode, selectedDepartmentId, selectedMonth, refreshTrigger]);
 
     const getLocationName = useCallback((sch: Schedule) => {
         if (sch.locationId === 'LEAVE_ACTION') {
@@ -986,7 +991,7 @@ const UserSchedule: React.FC = () => {
                                             
                                             <div className="flex flex-wrap gap-2 mt-3">
                                                 {customNote && ( 
-                                                    <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm px-10 py-1 rounded-full text-[18px] font-bold border border-white/10 hover:bg-white/20 transition-colors">
+                                                    <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] font-bold border border-white/10 hover:bg-white/20 transition-colors">
                                                         <i className="fas fa-info-circle text-sky-300"></i> {customNote}
                                                     </div> 
                                                 )}

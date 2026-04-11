@@ -2,9 +2,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../../firebaseData';
 // @ts-ignore
-import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, Timestamp, query, where } from 'firebase/firestore';
 import { uploadFile } from '../../services/storageClient';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDepartment } from '../../contexts/DepartmentContext';
 import Toast from '../../components/Toast';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
@@ -62,6 +63,7 @@ const getTheme = (cat: string) => {
 const DeviceInventory: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
+    const { selectedDepartmentId } = useDepartment();
     const [devices, setDevices] = useState<any[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -95,12 +97,16 @@ const DeviceInventory: React.FC = () => {
     const [scannerField, setScannerField] = useState<'maintUrl' | 'qualUrl' | null>(null);
 
     useEffect(() => {
-        const unsub = onSnapshot(collection(db, 'inventory_devices'), (snap) => {
-            setDevices(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const q = selectedDepartmentId 
+            ? query(collection(db, 'inventory_devices'), where('departmentId', '==', selectedDepartmentId))
+            : collection(db, 'inventory_devices');
+            
+        const unsub = onSnapshot(q, (snap) => {
+            setDevices(snap.docs.map(d => ({ ...d.data(), id: d.id })));
             setLoading(false);
         });
         return () => unsub();
-    }, []);
+    }, [selectedDepartmentId]);
 
     const xrayCategories = ['CT', 'X-Ray', 'Panoramic & Dental', 'Cath Lab', 'Mammogram & BMD', 'Portable', 'C-ARM', 'FLOUROSCOPY'];
     // const showQualityFields = xrayCategories.includes(formData.category); // Removed
@@ -143,7 +149,11 @@ const DeviceInventory: React.FC = () => {
                 await updateDoc(doc(db, 'inventory_devices', editingId), formData);
                 setToast({ msg: 'Device Updated', type: 'success' });
             } else {
-                await addDoc(collection(db, 'inventory_devices'), { ...formData, createdAt: Timestamp.now() });
+                await addDoc(collection(db, 'inventory_devices'), { 
+                    ...formData, 
+                    createdAt: Timestamp.now(),
+                    departmentId: selectedDepartmentId || null
+                });
                 setToast({ msg: 'Device Added', type: 'success' });
             }
             setIsModalOpen(false);

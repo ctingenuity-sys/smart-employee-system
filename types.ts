@@ -32,6 +32,7 @@ export interface Department {
   managerId?: string; // ID of the supervisor
   color?: string; // For UI visualization
   icon?: string; // FontAwesome icon class
+  categories?: string[]; // NEW: Added categories
   createdAt?: any;
 }
 
@@ -450,6 +451,7 @@ export interface SavedTemplate {
   holidayData: HolidayScheduleRow[];
   doctorData?: DoctorScheduleRow[]; 
   doctorFridayData?: DoctorFridayRow[]; 
+  departmentId?: string; // NEW: Added departmentId
   
   // Dynamic Columns Configuration
   fridayColumns?: ScheduleColumn[];
@@ -480,7 +482,6 @@ export interface SavedTemplate {
   holidayScheduleNote?: string; // NEW: Specific title for Holiday schedule
   
   // Department Support
-  departmentId?: string; // NEW
 }
 
 // --- Attendance Analyzer Types ---

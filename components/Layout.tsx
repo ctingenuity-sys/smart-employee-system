@@ -12,6 +12,7 @@ import Modal from './Modal';
 import Toast from './Toast';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAttendanceStatus } from '../hooks/useAttendanceStatus';
+import { useDepartment } from '../contexts/DepartmentContext';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -54,7 +55,7 @@ const showBrowserNotification = (title: string, body: string, type: 'normal' | '
   }
 };
 
-const GlobalNotificationListener: React.FC<{ userId: string, userRole: string }> = ({ userId, userRole }) => {
+const GlobalNotificationListener: React.FC<{ userId: string, userRole: string, departmentId: string | null }> = ({ userId, userRole, departmentId }) => {
     const isFirstRun = useRef(true);
     const { t } = useLanguage();
 
@@ -64,10 +65,12 @@ const GlobalNotificationListener: React.FC<{ userId: string, userRole: string }>
     }, []);
 
     useEffect(() => {
-        if (!userId) return;
+        if (!userId || !departmentId) return;
 
         // Announcements
-        const unsubAnnounce = onSnapshot(query(collection(db, 'announcements'), orderBy('createdAt', 'desc'), limit(1)), (snap: any) => {
+        const qAnnounce = query(collection(db, 'announcements'), where('departmentId', '==', departmentId), orderBy('createdAt', 'desc'), limit(1));
+        
+        const unsubAnnounce = onSnapshot(qAnnounce, (snap: any) => {
             if (isFirstRun.current) return;
             snap.docChanges().forEach((change: any) => {
                 if (change.type === 'added') {
@@ -80,13 +83,14 @@ const GlobalNotificationListener: React.FC<{ userId: string, userRole: string }>
         return () => {
             unsubAnnounce();
         };
-    }, [userId, userRole]);
+    }, [userId, userRole, departmentId]);
 
     return null;
 };
 
 const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissions = [] }) => {
   const { t, language, toggleLanguage, dir } = useLanguage();
+  const { selectedDepartmentId } = useDepartment();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -152,7 +156,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
   return (
     <div className="flex h-screen overflow-hidden print:h-auto print:overflow-visible" dir={dir}>
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
-      {currentUserId && <GlobalNotificationListener userId={currentUserId} userRole={userRole} />}
+      {currentUserId && <GlobalNotificationListener userId={currentUserId} userRole={userRole} departmentId={selectedDepartmentId} />}
 
       <div className={`fixed inset-0 z-20 transition-opacity bg-black opacity-50 lg:hidden ${isSidebarOpen ? 'block' : 'hidden'} print:hidden`} onClick={() => setIsSidebarOpen(false)}></div>
 
@@ -189,6 +193,12 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
 
           {(userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR || userRole === UserRole.MANAGER) && (
             <>
+              {userRole === UserRole.ADMIN && (
+                  <Link to="/admin/departments" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/admin/departments')}`}>
+                    <i className="fas fa-building w-6 text-purple-400"></i>
+                    <span className="font-medium">Departments</span>
+                  </Link>
+              )}
               <Link to="/supervisor" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor')}`}>
                 <i className="fas fa-chart-line w-6"></i>
                 <span className="font-medium">{t('nav.dashboard')}</span>

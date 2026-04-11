@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, addDoc, updateDoc, deleteDoc, doc, query, orderBy, Timestamp, limit, getDocs } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, query, orderBy, Timestamp, limit, getDocs, where } from 'firebase/firestore';
 import { DepartmentTask, Location } from '../types';
 import Loading from '../components/Loading';
 import Toast from '../components/Toast';
 import VoiceInput from '../components/VoiceInput';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useDepartment } from '../contexts/DepartmentContext';
 
 const TasksPage: React.FC = () => {
     const { t, dir } = useLanguage();
+    const { selectedDepartmentId } = useDepartment();
     const [tasks, setTasks] = useState<DepartmentTask[]>(() => {
         const cached = localStorage.getItem('usr_cached_tasks');
         return cached ? JSON.parse(cached) : [];
@@ -45,21 +47,23 @@ const TasksPage: React.FC = () => {
     }, [locations]);
 
     useEffect(() => {
+        if (!selectedDepartmentId) return;
         setLoading(true);
         
         // Fetch Locations
-        getDocs(collection(db, 'locations')).then(snap => {
-            setLocations(snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Location)));
+        const qLocs = query(collection(db, 'locations'), where('departmentId', '==', selectedDepartmentId));
+        getDocs(qLocs).then(snap => {
+            setLocations(snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as Location)));
         });
 
         // Fetch Tasks
-        const qTasks = query(collection(db, 'departmentTasks'), orderBy('createdAt', 'desc'), limit(100));
+        const qTasks = query(collection(db, 'departmentTasks'), where('departmentId', '==', selectedDepartmentId), orderBy('createdAt', 'desc'), limit(100));
         getDocs(qTasks).then((snap: any) => {
-             setTasks(snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as DepartmentTask)));
+             setTasks(snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as DepartmentTask)));
              setLoading(false);
         });
 
-    }, [refreshTrigger]);
+    }, [refreshTrigger, selectedDepartmentId]);
 
     // ... (rest of the component)
     const handleAddTask = async (e: React.FormEvent) => {
@@ -71,6 +75,7 @@ const TasksPage: React.FC = () => {
             await addDoc(collection(db, 'departmentTasks'), {
                 title: newTaskTitle,
                 location: newTaskLocation,
+                departmentId: selectedDepartmentId,
                 priority: newTaskPriority,
                 status: 'pending',
                 createdBy: userName,

@@ -6,11 +6,13 @@ import { collection, addDoc, getDocs, Timestamp, query, where } from 'firebase/f
 import { User } from '../types';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useDepartment } from '../contexts/DepartmentContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 
 const UserRequests: React.FC = () => {
     const { t, dir } = useLanguage();
+    const { selectedDepartmentId } = useDepartment();
     const navigate = useNavigate();
     const currentUserId = auth.currentUser?.uid;
     
@@ -48,7 +50,10 @@ const UserRequests: React.FC = () => {
     }, [users]);
 
     useEffect(() => {
-        getDocs(collection(db, 'users')).then((snap) => {
+        if (!selectedDepartmentId) return;
+        
+        const qUsers = query(collection(db, 'users'), where('departmentId', '==', selectedDepartmentId));
+        getDocs(qUsers).then((snap) => {
             const allUsers = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
             setUsers(allUsers);
             
@@ -65,7 +70,7 @@ const UserRequests: React.FC = () => {
                 }
             }
         });
-    }, [refreshTrigger, currentUserId]);
+    }, [refreshTrigger, currentUserId, selectedDepartmentId]);
 
     const validateSwap = () => {
         const errs: any = {};
@@ -142,6 +147,7 @@ const UserRequests: React.FC = () => {
                 details: swapDetails,
                 startDate: swapDate,
                 endDate: swapType === 'period' ? swapEndDate : null,
+                departmentId: currentUserData?.departmentId || null,
                 status: 'pending',
                 createdAt: Timestamp.now()
             });

@@ -9,6 +9,7 @@ import { useLanguage, getTranslationKeyForArabic } from '../contexts/LanguageCon
 import { Schedule, Announcement, SwapRequest, OpenShift, User, AttendanceLog, ActionLog, Penalty } from '../types';
 import Toast from '../components/Toast';
 import { useAttendanceStatus } from '../hooks/useAttendanceStatus';
+import { useDepartment } from '../contexts/DepartmentContext';
 
 // --- Helpers ---
 const getLocalDateStr = (d: Date) => {
@@ -92,6 +93,7 @@ const ppRegex = /(?:\(|\[|\{)\s*pp\s*(?:\)|\]|\})|(?:\bPP\b)/i;
 
 const UserDashboard: React.FC = () => {
   const { t, dir } = useLanguage();
+  const { selectedDepartmentId } = useDepartment();
   const navigate = useNavigate();
   const currentUserId = auth.currentUser?.uid;
   const shiftStatus = useAttendanceStatus(currentUserId);
@@ -180,11 +182,12 @@ const handleGenerateManualCode = () => {
 
   // --- Data Loading ---
   useEffect(() => {
-    if (!currentUserId) return;
+    if (!currentUserId || !selectedDepartmentId) return;
 
     // 1. Announcements
-    const qAnnounce = query(collection(db, 'announcements'), where('isActive', '==', true));
-    getDocs(qAnnounce).then((snap: any) => {
+    const qAnnounce = query(collection(db, 'announcements'), where('isActive', '==', true), where('departmentId', '==', selectedDepartmentId));
+    
+    const unsubAnnounce = onSnapshot(qAnnounce, (snap: any) => {
         const now = new Date();
         const cutoffTime = new Date(now.getTime() - 24 * 60 * 60 * 1000); 
         
@@ -320,6 +323,7 @@ const handleGenerateManualCode = () => {
     });
 
     return () => {
+        unsubAnnounce();
         unsubLogs();
         unsubAllLogs();
         unsubPenalties();
@@ -328,7 +332,7 @@ const handleGenerateManualCode = () => {
         if (unsubLeavesSup) unsubLeavesSup();
         if (unsubLeavesMan) unsubLeavesMan();
     };
-  }, [currentUserId, refreshTrigger]);
+  }, [currentUserId, refreshTrigger, selectedDepartmentId]);
 
   // --- On Shift Logic (Corrected) ---
   useEffect(() => {

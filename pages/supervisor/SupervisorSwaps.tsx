@@ -3,11 +3,12 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 // @ts-ignore
 import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch, getDocs, Timestamp, getDoc, addDoc, QuerySnapshot, DocumentData } from 'firebase/firestore';
-import { SwapRequest, Schedule, User } from '../../types';
+import { SwapRequest, Schedule, User, UserRole } from '../../types';
 import Toast from '../../components/Toast';
 import Modal from '../../components/Modal';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDepartment } from '../../contexts/DepartmentContext';
+import { useAuth } from '../../contexts/AuthContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 
@@ -15,6 +16,7 @@ const SupervisorSwaps: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
     const { selectedDepartmentId } = useDepartment();
+    const { role: authRole, user: currentUser } = useAuth();
     
     // Data States
     const [pendingRequests, setPendingRequests] = useState<SwapRequest[]>([]);
@@ -40,7 +42,23 @@ const SupervisorSwaps: React.FC = () => {
             
         const unsubUsers = onSnapshot(qUsers, (snap: QuerySnapshot<DocumentData>) => {
             const fetchedUsers = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
-            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
+            console.log('Debug: authRole', authRole);
+            const filteredUsers = fetchedUsers.filter(u => {
+                // Exclude admin/supervisor/manager
+                if (['admin', 'supervisor', 'manager'].includes(u.role)) return false;
+
+                // Doctor filtering logic
+                if (authRole === UserRole.ADMIN) return true;
+                
+                const isAuthDoctor = (authRole && authRole.toLowerCase() === UserRole.DOCTOR.toLowerCase()) || (currentUser?.jobCategory && currentUser.jobCategory.toLowerCase() === 'doctor');
+                const isUserDoctor = (u.role && u.role.toLowerCase() === UserRole.DOCTOR.toLowerCase()) || (u.jobCategory && u.jobCategory.toLowerCase() === 'doctor');
+                
+                if (isAuthDoctor) return isUserDoctor;
+                
+                console.log(`Debug: User ${u.name} role: ${u.role}, jobCategory: ${u.jobCategory}, isDoctor: ${isUserDoctor}, keep: ${!isUserDoctor}`);
+                return !isUserDoctor;
+            });
+            setUsers(filteredUsers);
         });
         
         const withDept = (baseQuery: any) => selectedDepartmentId ? query(baseQuery, where('departmentId', '==', selectedDepartmentId)) : baseQuery;
@@ -55,6 +73,7 @@ const SupervisorSwaps: React.FC = () => {
                 const tB = b.createdAt?.seconds || 0;
                 return tB - tA;
             });
+            // We will filter this in the render or using a separate effect that depends on users
             setPendingRequests(list);
         });
 
@@ -1032,12 +1051,16 @@ const SupervisorSwaps: React.FC = () => {
             </div>
 
             <div className="grid gap-4">
-                {(activeTab === 'pending' ? pendingRequests : historyRequests).length === 0 ? (
+                {(activeTab === 'pending' ? pendingRequests : historyRequests)
+                    .filter(req => users.some(u => u.id === req.from))
+                    .length === 0 ? (
                     <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-slate-200 text-slate-400">
                         {activeTab === 'pending' ? 'No pending requests' : 'No active history'}
                     </div>
                 ) : (
-                    (activeTab === 'pending' ? pendingRequests : historyRequests).map(req => (
+                    (activeTab === 'pending' ? pendingRequests : historyRequests)
+                        .filter(req => users.some(u => u.id === req.from))
+                        .map(req => (
                         <div key={req.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 group hover:border-indigo-200 transition-colors">
                             <div className="flex items-center gap-4">
                                 <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl shadow-sm ${req.status === 'approvedBySupervisor' ? 'bg-emerald-50 text-emerald-600' : 'bg-indigo-50 text-indigo-600'}`}>

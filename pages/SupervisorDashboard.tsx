@@ -118,6 +118,8 @@ const SupervisorDashboard: React.FC = () => {
               filtered = filtered.filter(u => u.departmentId === selectedDepartmentId || u.supervisorId === currentAdminId);
           } else if (authRole === UserRole.MANAGER) {
               filtered = filtered.filter(u => u.departmentId === selectedDepartmentId || u.managerId === currentAdminId);
+          } else if (authRole === UserRole.ADMIN && selectedDepartmentId) {
+              filtered = filtered.filter(u => u.departmentId === selectedDepartmentId);
           }
           
           setUsers(filtered);
@@ -131,7 +133,7 @@ const SupervisorDashboard: React.FC = () => {
       let unsubAppt: any;
 
       let qSwaps;
-      if (authRole === UserRole.ADMIN) {
+      if (!selectedDepartmentId) {
           qSwaps = query(collection(db, 'swapRequests'), where('status', '==', 'approvedByUser'));
       } else {
           qSwaps = query(collection(db, 'swapRequests'), where('status', '==', 'approvedByUser'), where('departmentId', '==', selectedDepartmentId));
@@ -141,10 +143,10 @@ const SupervisorDashboard: React.FC = () => {
       const role = localStorage.getItem('role');
       
       let qLeavesSup;
-      if (role === 'admin') {
+      if (!selectedDepartmentId) {
           qLeavesSup = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_supervisor'));
       } else {
-          qLeavesSup = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_supervisor'), where('supervisorId', '==', currentAdminId));
+          qLeavesSup = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_supervisor'), where('departmentId', '==', selectedDepartmentId));
       }
 
       let supCount = 0;
@@ -157,10 +159,10 @@ const SupervisorDashboard: React.FC = () => {
       });
 
       let qLeavesMan;
-      if (role === 'admin') {
+      if (!selectedDepartmentId) {
           qLeavesMan = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_manager'));
       } else {
-          qLeavesMan = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_manager'), where('managerId', '==', currentAdminId));
+          qLeavesMan = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_manager'), where('departmentId', '==', selectedDepartmentId));
       }
       
       unsubLeavesMan = onSnapshot(qLeavesMan, (snap: QuerySnapshot<DocumentData>) => {
@@ -169,7 +171,7 @@ const SupervisorDashboard: React.FC = () => {
       });
 
       let qMarket;
-      if (authRole === UserRole.ADMIN) {
+      if (!selectedDepartmentId) {
           qMarket = query(collection(db, 'openShifts'), where('status', '==', 'claimed'));
       } else {
           qMarket = query(collection(db, 'openShifts'), where('status', '==', 'claimed'), where('departmentId', '==', selectedDepartmentId));
@@ -183,7 +185,7 @@ const SupervisorDashboard: React.FC = () => {
 
       // 4. Live Logs (Fetch ALL for today to calculate presence)
       let qLogs;
-      if (authRole === UserRole.ADMIN) {
+      if (!selectedDepartmentId) {
           qLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayDate)); 
       } else {
           qLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayDate), where('departmentId', '==', selectedDepartmentId));
@@ -209,7 +211,7 @@ const SupervisorDashboard: React.FC = () => {
       const nextMonth = nextMonthDate.toISOString().slice(0, 7);
 
       let qSch;
-      if (authRole === UserRole.ADMIN) {
+      if (!selectedDepartmentId) {
           qSch = query(collection(db, 'schedules'), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
       } else {
           qSch = query(collection(db, 'schedules'), where('month', 'in', [prevMonth, currentMonth, nextMonth]), where('departmentId', '==', selectedDepartmentId));

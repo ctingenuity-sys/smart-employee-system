@@ -79,7 +79,7 @@ const SupervisorLeaves: React.FC = () => {
             setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
         });
         
-        // Supervisor Tab: Show requests where I am the assigned supervisor
+        // Supervisor Tab: Show requests for the department
         // If Admin, show ALL pending_supervisor requests
         let qLeavesSup;
         if (role === UserRole.ADMIN) {
@@ -90,8 +90,7 @@ const SupervisorLeaves: React.FC = () => {
         } else {
             qLeavesSup = withDept(query(
                 collection(db, 'leaveRequests'), 
-                where('status', '==', 'pending_supervisor'),
-                where('supervisorId', '==', currentUserId)
+                where('status', '==', 'pending_supervisor')
             ));
         }
         
@@ -99,7 +98,7 @@ const SupervisorLeaves: React.FC = () => {
             setLeaveRequests(snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as LeaveRequest)));
         });
 
-        // Manager Tab: Show requests where I am the assigned manager
+        // Manager Tab: Show requests for the department
         // If Admin, show ALL pending_manager requests
         let qLeavesMan;
         if (role === UserRole.ADMIN) {
@@ -108,11 +107,10 @@ const SupervisorLeaves: React.FC = () => {
                 where('status', '==', 'pending_manager')
             ));
         } else {
-            qLeavesMan = query(
+            qLeavesMan = withDept(query(
                 collection(db, 'leaveRequests'), 
-                where('status', '==', 'pending_manager'),
-                where('managerId', '==', currentUserId)
-            );
+                where('status', '==', 'pending_manager')
+            ));
         }
         
         getDocs(qLeavesMan).then(snap => {
@@ -169,9 +167,10 @@ const SupervisorLeaves: React.FC = () => {
                     managerApproval: approvalData
                 });
             } else {
-                // Supervisor approval always sets status to 'pending_manager'
+                // Supervisor approval sets status to pending_manager if managers exist, else approved
+                const hasManagers = (req as any).hasManagers;
                 await updateDoc(doc(db, 'leaveRequests', req.id!), { 
-                    status: isApproved ? 'pending_manager' : 'rejected',
+                    status: isApproved ? (hasManagers ? 'pending_manager' : 'approved') : 'rejected',
                     supervisorApproval: approvalData
                 });
             }

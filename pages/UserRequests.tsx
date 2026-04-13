@@ -88,8 +88,7 @@ const UserRequests: React.FC = () => {
         if (!leaveReason) errs.reason = 'Reason is required';
         if (relieverIds.length === 0) errs.relievers = 'Please select at least one reliever';
         if (leaveStart && leaveEnd && leaveStart > leaveEnd) errs.end = 'End date cannot be before start date';
-        if (!selectedManagerId) errs.manager = 'Please select a manager';
-        if (!selectedSupervisorId) errs.supervisor = 'Please select a supervisor';
+
         setLeaveErrors(errs);
         return Object.keys(errs).length === 0;
     };
@@ -151,6 +150,18 @@ const UserRequests: React.FC = () => {
                 status: 'pending',
                 createdAt: Timestamp.now()
             });
+
+            // Notify Target User
+            await addDoc(collection(db, 'notifications'), {
+                userId: targetUser,
+                departmentId: currentUserData?.departmentId || null,
+                title: 'طلب تبديل جديد',
+                message: `لديك طلب تبديل جديد من ${currentUserData?.name || 'زميل'}`,
+                link: '/incoming',
+                readBy: [],
+                createdAt: Timestamp.now(),
+                type: 'request'
+            });
             setToast({ msg: t('save'), type: 'success' });
             setTargetUser(''); setSwapDetails(''); setSwapDate(''); setSwapEndDate('');
             setTimeout(() => navigate('/user/history'), 1500);
@@ -166,11 +177,12 @@ const UserRequests: React.FC = () => {
         if (!currentUserId) return;
         
         try {
-          // Determine initial status: Reliever -> Supervisor -> Manager
-          const skipSupervisor = !selectedSupervisorId || selectedSupervisorId === selectedManagerId;
+          const hasSupervisors = users.some(u => u.role === 'supervisor');
+          const hasManagers = users.some(u => u.role === 'manager');
+          
           let initialStatus = 'pending_reliever';
           if (!relieverIds || relieverIds.length === 0) {
-              initialStatus = skipSupervisor ? 'pending_manager' : 'pending_supervisor';
+              initialStatus = hasSupervisors ? 'pending_supervisor' : (hasManagers ? 'pending_manager' : 'approved');
           }
 
           await addDoc(collection(db, 'leaveRequests'), { 
@@ -182,14 +194,41 @@ const UserRequests: React.FC = () => {
               reason: leaveReason, 
               relieverIds: relieverIds,
               dueDateForLeave: dueDateForLeave,
-              supervisorId: selectedSupervisorId || null,
-              managerId: selectedManagerId || null,
+              hasSupervisors: hasSupervisors,
+              hasManagers: hasManagers,
               departmentId: currentUserData?.departmentId || null,
               status: initialStatus, 
               createdAt: Timestamp.now() 
           });
+
+          // Notify Supervisors if pending supervisor, or Relievers if pending reliever
+          if (initialStatus === 'pending_reliever' && relieverIds.length > 0) {
+              for (const rId of relieverIds) {
+                  await addDoc(collection(db, 'notifications'), {
+                      userId: rId,
+                      departmentId: currentUserData?.departmentId || null,
+                      title: 'طلب تغطية إجازة',
+                      message: `طلب تغطية إجازة جديد من ${currentUserData?.name || 'زميل'}`,
+                      link: '/user/incoming',
+                      readBy: [],
+                      createdAt: Timestamp.now(),
+                      type: 'request'
+                  });
+              }
+          } else if (initialStatus === 'pending_supervisor') {
+              await addDoc(collection(db, 'notifications'), {
+                  targetRole: 'supervisor',
+                  departmentId: currentUserData?.departmentId || null,
+                  title: 'طلب إجازة جديد',
+                  message: `طلب إجازة جديد من ${currentUserData?.name || 'موظف'}`,
+                  link: '/user/incoming',
+                  readBy: [],
+                  createdAt: Timestamp.now(),
+                  type: 'request'
+              });
+          }
           setToast({ msg: t('save'), type: 'success' });
-          setLeaveStart(''); setLeaveEnd(''); setLeaveReason(''); setLeaveDuration(''); setRelieverIds([]); setDateHired(''); setDueDateForLeave(''); setSelectedManagerId(''); setSelectedSupervisorId('');
+          setLeaveStart(''); setLeaveEnd(''); setLeaveReason(''); setLeaveDuration(''); setRelieverIds([]); setDateHired(''); setDueDateForLeave('');
           setTimeout(() => navigate('/user/history'), 1500);
         } catch (e) { 
             console.error("Error in handleLeaveSubmit:", e);
@@ -263,15 +302,23 @@ const UserRequests: React.FC = () => {
                                     if (u.id === currentUserId) return false;
                                     if (['admin', 'supervisor', 'manager'].includes(u.role)) return false;
                                     
-                                    const myCategory = currentUserData?.jobCategory;
+                                    const myCategory = currentUserData?.jobCategory?.toLowerCase();
+                                    const uCategory = u.jobCategory?.toLowerCase();
+                                    const uRole = u.role?.toLowerCase();
+                                    const isUDoctor = uCategory === 'doctor' || uRole === 'doctor';
+                                    
                                     if (myCategory === 'doctor') {
-                                        return u.jobCategory === 'doctor';
+                                        return isUDoctor;
                                     } else if (myCategory === 'technician' || myCategory === 'technologist') {
-                                        return u.jobCategory === 'technician' || u.jobCategory === 'technologist';
+                                        if (isUDoctor) return false;
+                                        return uCategory === 'technician' || uCategory === 'technologist';
                                     } else if (myCategory === 'usg') {
-                                        return u.jobCategory === 'usg';
+                                        if (isUDoctor) return false;
+                                        return uCategory === 'usg';
                                     }
-                                    return true;
+                                    
+                                    // For any other category (nurse, etc.), exclude doctors
+                                    return !isUDoctor;
                                 }).map(u => (
                                     <option key={u.id} value={u.id}>{u.name || u.email}</option>
                                 ))}
@@ -338,55 +385,29 @@ const UserRequests: React.FC = () => {
                                         if (u.id === currentUserId) return false;
                                         if (['admin', 'supervisor', 'manager'].includes(u.role)) return false;
                                         
-                                        const myCategory = currentUserData?.jobCategory;
+                                        const myCategory = currentUserData?.jobCategory?.toLowerCase();
+                                        const uCategory = u.jobCategory?.toLowerCase();
+                                        const uRole = u.role?.toLowerCase();
+                                        const isUDoctor = uCategory === 'doctor' || uRole === 'doctor';
+                                        
                                         if (myCategory === 'doctor') {
-                                            return u.jobCategory === 'doctor';
+                                            return isUDoctor;
                                         } else if (myCategory === 'technician' || myCategory === 'technologist') {
-                                            return u.jobCategory === 'technician' || u.jobCategory === 'technologist';
+                                            if (isUDoctor) return false;
+                                            return uCategory === 'technician' || uCategory === 'technologist';
                                         } else if (myCategory === 'usg') {
-                                            return u.jobCategory === 'usg';
+                                            if (isUDoctor) return false;
+                                            return uCategory === 'usg';
                                         }
-                                        return true;
+                                        
+                                        // For any other category (nurse, etc.), exclude doctors
+                                        return !isUDoctor;
                                     }).map(u => (
                                         <option key={u.id} value={u.id}>{u.name || u.email}</option>
                                     ))}
                                 </select>
                                 <p className="text-[10px] text-slate-400 mt-1">{t('user.req.holdCtrl')}</p>
                                 {leaveErrors.relievers && <p className="text-[10px] text-red-500 mt-1">{leaveErrors.relievers}</p>}
-                            </div>
-                            <div className="col-span-2">
-                                <label className="block text-xs font-bold text-slate-400 mb-1">Select Manager</label>
-                                {currentUserData?.managerId ? (
-                                    <div className="bg-slate-50 p-3 rounded-xl text-sm font-bold text-slate-600 border border-slate-100 flex items-center justify-between">
-                                        <span>{users.find(u => u.id === currentUserData.managerId)?.name || 'Assigned Manager'}</span>
-                                        <span className="text-[10px] bg-emerald-100 text-emerald-600 px-2 py-0.5 rounded-full">Assigned</span>
-                                    </div>
-                                ) : (
-                                    <select className={`w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100 ${leaveErrors.manager ? 'ring-2 ring-red-200' : ''}`} value={selectedManagerId} onChange={e => {setSelectedManagerId(e.target.value); setLeaveErrors({...leaveErrors, manager:''})}}>
-                                        <option value="">Select Manager...</option>
-                                        {users.filter(u => u.role === 'manager').map(u => (
-                                            <option key={u.id} value={u.id}>{u.name || u.email}</option>
-                                        ))}
-                                    </select>
-                                )}
-                                {leaveErrors.manager && <p className="text-[10px] text-red-500 mt-1">{leaveErrors.manager}</p>}
-                            </div>
-                            <div className="col-span-2">
-                                <label className="block text-xs font-bold text-slate-400 mb-1">Select Supervisor</label>
-                                {currentUserData?.supervisorId ? (
-                                    <div className="bg-slate-50 p-3 rounded-xl text-sm font-bold text-slate-600 border border-slate-100 flex items-center justify-between">
-                                        <span>{users.find(u => u.id === currentUserData.supervisorId)?.name || 'Assigned Supervisor'}</span>
-                                        <span className="text-[10px] bg-emerald-100 text-emerald-600 px-2 py-0.5 rounded-full">Assigned</span>
-                                    </div>
-                                ) : (
-                                    <select className={`w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100 ${leaveErrors.supervisor ? 'ring-2 ring-red-200' : ''}`} value={selectedSupervisorId} onChange={e => {setSelectedSupervisorId(e.target.value); setLeaveErrors({...leaveErrors, supervisor:''})}}>
-                                        <option value="">Select Supervisor...</option>
-                                        {users.filter(u => u.role === 'supervisor' ).map(u => (
-                                            <option key={u.id} value={u.id}>{u.name || u.email}</option>
-                                        ))}
-                                    </select>
-                                )}
-                                {leaveErrors.supervisor && <p className="text-[10px] text-red-500 mt-1">{leaveErrors.supervisor}</p>}
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.dueDateForLeave')}</label>

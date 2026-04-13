@@ -53,23 +53,29 @@ const SupervisorHistory: React.FC = () => {
 
         const qUsers = withDept(collection(db, 'users'));
         getDocs(qUsers).then(snap => {
-            const fetchedUsers = snap.docs.map(d => ({id:d.id, ...d.data()} as User));
+            const fetchedUsers = snap.docs.map(d => ({id:d.id, ...(d.data() as any)} as User));
             setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
         });
         
         const qSwaps = withDept(query(collection(db, 'swapRequests'), where('status', 'in', ['approvedBySupervisor', 'rejectedBySupervisor', 'rejected'])));
         getDocs(qSwaps).then(snap => {
-            const swaps = snap.docs.map(d => ({
-                id: d.id, type: 'swap', userId: d.data().from, targetId: d.data().to, startDate: d.data().startDate, details: d.data().details, status: d.data().status, createdAt: d.data().createdAt
-            } as HistoryItem));
+            const swaps = snap.docs.map(d => {
+                const data = d.data() as any;
+                return {
+                    id: d.id, type: 'swap', userId: data.from, targetId: data.to, startDate: data.startDate, details: data.details, status: data.status, createdAt: data.createdAt
+                } as HistoryItem;
+            });
             setHistoryData(prev => [...prev.filter(i => i.type !== 'swap'), ...swaps]);
         });
 
         const qLeaves = withDept(query(collection(db, 'leaveRequests'), where('status', 'in', ['approved', 'rejected'])));
         getDocs(qLeaves).then(snap => {
-            const leaves = snap.docs.map(d => ({
-                id: d.id, type: 'leave', userId: d.data().from, startDate: d.data().startDate, endDate: d.data().endDate, details: d.data().reason, status: d.data().status, createdAt: d.data().createdAt
-            } as HistoryItem));
+            const leaves = snap.docs.map(d => {
+                const data = d.data() as any;
+                return {
+                    id: d.id, type: 'leave', userId: data.from, startDate: data.startDate, endDate: data.endDate, details: data.reason, status: data.status, createdAt: data.createdAt
+                } as HistoryItem;
+            });
             setHistoryData(prev => [...prev.filter(i => i.type !== 'leave'), ...leaves]);
         });
     }, [refreshTrigger, selectedDepartmentId]);

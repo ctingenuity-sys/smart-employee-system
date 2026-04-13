@@ -284,11 +284,12 @@ const SupervisorEmployees: React.FC = () => {
     // Document Upload State
     const [isUploading, setIsUploading] = useState(false);
     const [showScanner, setShowScanner] = useState(false);
-    const [scannerCategory, setScannerCategory] = useState<'registration' | 'license' | 'general'>('general');
+    const [scannerCategory, setScannerCategory] = useState<'registration' | 'license' | 'general' | 'nrrc'>('general');
     
     // Link/Scan Modal State
     const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
-    const [linkData, setLinkData] = useState({ name: '', url: '', category: 'registration' as 'registration' | 'license' | 'general', expiryDate: '' });
+    const [linkData, setLinkData] = useState({ name: '', url: '', category: 'registration' as 'registration' | 'license' | 'general' | 'nrrc', expiryDate: '' });
+    const [tempExpiryDate, setTempExpiryDate] = useState('');
     const [isScanning, setIsScanning] = useState(false);
     const scannerRef = useRef<any>(null);
     
@@ -368,8 +369,12 @@ const SupervisorEmployees: React.FC = () => {
     // Fetch Main Users (Real-time)
     useEffect(() => {
         setLoading(true);
+        const q = selectedDepartmentId 
+            ? query(collection(mainDb, 'users'), where('departmentId', '==', selectedDepartmentId))
+            : collection(mainDb, 'users');
+            
         const unsubscribe = onSnapshot(
-            collection(mainDb, 'users'), 
+            q, 
             (snapshot) => {
                 const usersList = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as User));
                 setMainUsers(usersList);
@@ -382,7 +387,7 @@ const SupervisorEmployees: React.FC = () => {
             }
         );
         return () => unsubscribe();
-    }, []);
+    }, [selectedDepartmentId]);
 
     // Fetch Cert Records (Real-time)
     useEffect(() => {
@@ -408,9 +413,16 @@ const SupervisorEmployees: React.FC = () => {
                 ...u, 
                 ...(certData[u.id] || {}) 
             }));
-            setUsers(merged);
+            
+            const filtered = merged.filter(u => {
+                if (authRole === UserRole.ADMIN) return true;
+                if (authRole && authRole.toLowerCase() === UserRole.DOCTOR.toLowerCase()) return u.role.toLowerCase() === UserRole.DOCTOR.toLowerCase();
+                // Other roles: exclude doctors
+                return u.role.toLowerCase() !== UserRole.DOCTOR.toLowerCase();
+            });
+            setUsers(filtered);
         }
-    }, [mainUsers, certData]);
+    }, [mainUsers, certData, authRole]);
         
     useEffect(() => {
         if (currentAdminId) {
@@ -510,6 +522,10 @@ const SupervisorEmployees: React.FC = () => {
             const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
             const newUserId = userCredential.user.uid;
             
+            const defaultUserPerms = ALL_PERMISSIONS.filter(p => !p.key.startsWith('sup_')).map(p => p.key);
+            const defaultSupPerms = ALL_PERMISSIONS.map(p => p.key);
+            const assignedPermissions = ['supervisor', 'manager', 'admin'].includes(newUserRole) ? defaultSupPerms : defaultUserPerms;
+
             await setDoc(doc(mainDb, 'users', newUserId), {
                 uid: newUserId,
                 email: email,
@@ -519,7 +535,7 @@ const SupervisorEmployees: React.FC = () => {
                 supervisorId: newUserSupervisor || null,
                 managerId: newUserManager || null,
                 phone: newUserPhone.trim(),
-                permissions: newUserPermissions,
+                permissions: assignedPermissions,
                 jobCategory: newUserCategory || 'technician',
                 gender: newUserGender || 'male',
                 hireDate: newUserHireDate || '',
@@ -602,7 +618,7 @@ const SupervisorEmployees: React.FC = () => {
     
 
     // --- Updated File Upload Logic using Firebase Storage ---
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, category: 'registration' | 'license' | 'general' = 'general') => {
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, category: 'registration' | 'license' | 'general' | 'nrrc' = 'general') => {
         const file = e.target.files?.[0];
         if (!file || !editForm.id) return;
 
@@ -629,21 +645,45 @@ const SupervisorEmployees: React.FC = () => {
                 url: downloadUrl,
                 type: 'pdf',
                 category: category,
-                uploadedAt: new Date().toISOString()
+                uploadedAt: new Date().toISOString(),
+                expiryDate: tempExpiryDate || undefined
             };
 
+            const currentDocs = editForm.documents || [];
+            let updatedDocs;
+            if (category === 'registration' || category === 'license' || category === 'nrrc') {
+                updatedDocs = [...currentDocs.filter(d => d.category !== category), newDoc];
+            } else {
+                updatedDocs = [...currentDocs, newDoc];
+            }
+
             // Save the link in Cert DB
-            await setDoc(doc(certDb, 'employee_records', editForm.id), {
-                documents: arrayUnion(newDoc)
-            }, { merge: true });
+            const updatePayload: any = {
+                documents: updatedDocs
+            };
+            
+            // Also update the main expiry field if provided
+            if (tempExpiryDate) {
+                if (category === 'registration') updatePayload.registrationExpiry = tempExpiryDate;
+                if (category === 'license') updatePayload.licenseExpiry = tempExpiryDate;
+                if (category === 'nrrc') updatePayload.nrrcExpiry = tempExpiryDate;
+            }
+
+            await setDoc(doc(certDb, 'employee_records', editForm.id), updatePayload, { merge: true });
 
             // Update local state
             setEditForm(prev => ({
                 ...prev,
-                documents: [...(prev.documents || []), newDoc]
+                documents: updatedDocs,
+                ...(tempExpiryDate ? {
+                    ...(category === 'registration' ? { registrationExpiry: tempExpiryDate } : {}),
+                    ...(category === 'license' ? { licenseExpiry: tempExpiryDate } : {}),
+                    ...(category === 'nrrc' ? { nrrcExpiry: tempExpiryDate } : {}),
+                } : {})
             }));
 
             setToast({ msg: 'تم رفع الملف بنجاح', type: 'success' });
+            setTempExpiryDate('');
         } catch (error: any) {
             console.error("Upload error:", error);
             if (error.message === 'CORS_ERROR') {
@@ -674,19 +714,42 @@ const SupervisorEmployees: React.FC = () => {
                 url: downloadUrl,
                 type: 'pdf',
                 category: scannerCategory,
-                uploadedAt: new Date().toISOString()
+                uploadedAt: new Date().toISOString(),
+                expiryDate: tempExpiryDate || undefined
             };
 
-            await setDoc(doc(certDb, 'employee_records', editForm.id), {
-                documents: arrayUnion(newDoc)
-            }, { merge: true });
+            const currentDocs = editForm.documents || [];
+            let updatedDocs;
+            if (scannerCategory === 'registration' || scannerCategory === 'license' || scannerCategory === 'nrrc') {
+                updatedDocs = [...currentDocs.filter(d => d.category !== scannerCategory), newDoc];
+            } else {
+                updatedDocs = [...currentDocs, newDoc];
+            }
+
+            const updatePayload: any = {
+                documents: updatedDocs
+            };
+
+            if (tempExpiryDate) {
+                if (scannerCategory === 'registration') updatePayload.registrationExpiry = tempExpiryDate;
+                if (scannerCategory === 'license') updatePayload.licenseExpiry = tempExpiryDate;
+                if (scannerCategory === 'nrrc') updatePayload.nrrcExpiry = tempExpiryDate;
+            }
+
+            await setDoc(doc(certDb, 'employee_records', editForm.id), updatePayload, { merge: true });
 
             setEditForm(prev => ({
                 ...prev,
-                documents: [...(prev.documents || []), newDoc]
+                documents: updatedDocs,
+                ...(tempExpiryDate ? {
+                    ...(scannerCategory === 'registration' ? { registrationExpiry: tempExpiryDate } : {}),
+                    ...(scannerCategory === 'license' ? { licenseExpiry: tempExpiryDate } : {}),
+                    ...(scannerCategory === 'nrrc' ? { nrrcExpiry: tempExpiryDate } : {}),
+                } : {})
             }));
 
             setToast({ msg: 'تم رفع الملف بنجاح', type: 'success' });
+            setTempExpiryDate('');
         } catch (error: any) {
             console.error("Upload error:", error);
             if (error.message === 'CORS_ERROR') {
@@ -716,14 +779,36 @@ const SupervisorEmployees: React.FC = () => {
                 uploadedAt: new Date().toISOString()
             };
 
+            const currentDocs = editForm.documents || [];
+            let updatedDocs;
+            if (linkData.category === 'registration' || linkData.category === 'license' || linkData.category === 'nrrc') {
+                updatedDocs = [...currentDocs.filter(d => d.category !== linkData.category), newDoc];
+            } else {
+                updatedDocs = [...currentDocs, newDoc];
+            }
+
             // Save the link in Cert DB
-            await setDoc(doc(certDb, 'employee_records', editForm.id), {
-                documents: arrayUnion(newDoc)
-            }, { merge: true });
+            const updatePayload: any = {
+                documents: updatedDocs
+            };
+
+            // Also update the main expiry field if provided
+            if (linkData.expiryDate) {
+                if (linkData.category === 'registration') updatePayload.registrationExpiry = linkData.expiryDate;
+                if (linkData.category === 'license') updatePayload.licenseExpiry = linkData.expiryDate;
+                if (linkData.category === 'nrrc') updatePayload.nrrcExpiry = linkData.expiryDate;
+            }
+
+            await setDoc(doc(certDb, 'employee_records', editForm.id), updatePayload, { merge: true });
 
             setEditForm(prev => ({
                 ...prev,
-                documents: [...(prev.documents || []), newDoc]
+                documents: updatedDocs,
+                ...(linkData.expiryDate ? {
+                    ...(linkData.category === 'registration' ? { registrationExpiry: linkData.expiryDate } : {}),
+                    ...(linkData.category === 'license' ? { licenseExpiry: linkData.expiryDate } : {}),
+                    ...(linkData.category === 'nrrc' ? { nrrcExpiry: linkData.expiryDate } : {}),
+                } : {})
             }));
 
             setToast({ msg: 'تم إضافة الرابط بنجاح', type: 'success' });
@@ -1224,23 +1309,27 @@ const SupervisorEmployees: React.FC = () => {
                                                     {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                                                 </select>
                                             </div>
-                                            <div className="input-group-modern">
-                                                <i className="fas fa-user-tie input-icon"></i>
-                                                <select className="input-modern" value={newUserSupervisor} onChange={e => setNewUserSupervisor(e.target.value)}>
-                                                    <option value="">-- اختر المشرف --</option>
-                                                    {users.filter(u => u.role === 'supervisor' || u.role === 'admin').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                                                </select>
-                                            </div>
+                                            {newUserRole !== 'supervisor' && newUserRole !== 'manager' && newUserRole !== 'admin' && (
+                                                <div className="input-group-modern">
+                                                    <i className="fas fa-user-tie input-icon"></i>
+                                                    <select className="input-modern" value={newUserSupervisor} onChange={e => setNewUserSupervisor(e.target.value)}>
+                                                        <option value="">-- اختر المشرف --</option>
+                                                        {users.filter(u => u.role === 'supervisor' || u.role === 'admin').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                                    </select>
+                                                </div>
+                                            )}
                                         </div>
                                         
                                         <div className="grid grid-cols-2 gap-3">
-                                            <div className="input-group-modern">
-                                                <i className="fas fa-user-shield input-icon"></i>
-                                                <select className="input-modern" value={newUserManager} onChange={e => setNewUserManager(e.target.value)}>
-                                                    <option value="">-- اختر المدير --</option>
-                                                    {users.filter(u => u.role === 'manager' || u.role === 'admin').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                                                </select>
-                                            </div>
+                                            {newUserRole !== 'manager' && newUserRole !== 'admin' && (
+                                                <div className="input-group-modern">
+                                                    <i className="fas fa-user-shield input-icon"></i>
+                                                    <select className="input-modern" value={newUserManager} onChange={e => setNewUserManager(e.target.value)}>
+                                                        <option value="">-- اختر المدير --</option>
+                                                        {users.filter(u => u.role === 'manager' || u.role === 'admin').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                                    </select>
+                                                </div>
+                                            )}
                                             <div className="input-group-modern">
                                                 <i className="fas fa-user-tag input-icon"></i>
                                                 <select className="input-modern" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}>
@@ -1260,28 +1349,7 @@ const SupervisorEmployees: React.FC = () => {
                                         </div>
                                     </div>
                                     
-                                    {/* Permissions */}
-                                    <div className="space-y-3 pt-2 border-t border-slate-200">
-                                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Permissions</p>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            {ALL_PERMISSIONS.map(p => (
-                                                <label key={p.key} className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={newUserPermissions.includes(p.key)}
-                                                        onChange={e => {
-                                                            if (e.target.checked) setNewUserPermissions([...newUserPermissions, p.key]);
-                                                            else setNewUserPermissions(newUserPermissions.filter(k => k !== p.key));
-                                                        }}
-                                                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                                    />
-                                                    {p.label}
-                                                </label>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    
-                                    <label className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors shadow-sm">
+                                    <label className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors shadow-sm mt-4">
                                         <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${newUserHidden ? 'bg-blue-500 border-blue-500 text-white' : 'border-slate-300 bg-slate-100'}`}>
                                             {newUserHidden && <i className="fas fa-check text-xs"></i>}
                                         </div>
@@ -1292,7 +1360,7 @@ const SupervisorEmployees: React.FC = () => {
                                     <button 
                                         onClick={handleAddUser} 
                                         disabled={isAddingUser}
-                                        className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-4 rounded-xl font-black hover:from-blue-700 hover:to-indigo-700 shadow-lg disabled:opacity-50 transform active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                                        className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-4 rounded-xl font-black hover:from-blue-700 hover:to-indigo-700 shadow-lg disabled:opacity-50 transform active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-4"
                                     >
                                         {isAddingUser ? <i className="fas fa-spinner fa-spin"></i> : <><i className="fas fa-plus-circle"></i> {t('add')}</>}
                                     </button>
@@ -1575,28 +1643,32 @@ const SupervisorEmployees: React.FC = () => {
                                     {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                                 </select>
                             </div>
-                            <div>
-                                <label className="text-xs font-bold text-slate-500 block mb-1">المشرف (Supervisor)</label>
-                                <select 
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
-                                    value={editForm.supervisorId || ''} 
-                                    onChange={e => setEditForm({...editForm, supervisorId: e.target.value})}
-                                >
-                                    <option value="">-- اختر المشرف --</option>
-                                    {users.filter(u => u.role === 'supervisor' || u.role === 'admin').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="text-xs font-bold text-slate-500 block mb-1">المدير (Manager)</label>
-                                <select 
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
-                                    value={editForm.managerId || ''} 
-                                    onChange={e => setEditForm({...editForm, managerId: e.target.value})}
-                                >
-                                    <option value="">-- اختر المدير --</option>
-                                    {users.filter(u => u.role === 'manager' || u.role === 'admin').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                                </select>
-                            </div>
+                            {editForm.role !== 'supervisor' && editForm.role !== 'manager' && editForm.role !== 'admin' && (
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 block mb-1">المشرف (Supervisor)</label>
+                                    <select 
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
+                                        value={editForm.supervisorId || ''} 
+                                        onChange={e => setEditForm({...editForm, supervisorId: e.target.value})}
+                                    >
+                                        <option value="">-- اختر المشرف --</option>
+                                        {users.filter(u => u.role === 'supervisor' || u.role === 'admin').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                    </select>
+                                </div>
+                            )}
+                            {editForm.role !== 'manager' && editForm.role !== 'admin' && (
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 block mb-1">المدير (Manager)</label>
+                                    <select 
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
+                                        value={editForm.managerId || ''} 
+                                        onChange={e => setEditForm({...editForm, managerId: e.target.value})}
+                                    >
+                                        <option value="">-- اختر المدير --</option>
+                                        {users.filter(u => u.role === 'manager' || u.role === 'admin').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                    </select>
+                                </div>
+                            )}
                             <div>
                                 <label className="text-xs font-bold text-slate-500 block mb-1">المسمى الوظيفي (Job Category)</label>
                                 <select 
@@ -1667,42 +1739,52 @@ const SupervisorEmployees: React.FC = () => {
                     <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 space-y-3">
                         <div className="flex justify-between items-center">
                             <h4 className="font-bold text-blue-800 text-sm flex items-center gap-2"><i className="fas fa-file-pdf"></i> Documents (PDF)</h4>
-                            <div className="flex gap-2 flex-wrap">
-                                {/* NEW BUTTON for Link/QR */}
+                            <div className="flex items-center gap-2">
+                                <label className="text-[10px] font-bold text-blue-700">Expiry Date:</label>
+                                <input 
+                                    type="date" 
+                                    className="bg-white border border-blue-200 rounded px-2 py-0.5 text-[10px] font-bold outline-none focus:ring-1 focus:ring-blue-400"
+                                    value={tempExpiryDate}
+                                    onChange={e => setTempExpiryDate(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                        
+                        <div className="flex gap-2 flex-wrap">
+                            {/* NEW BUTTON for Link/QR */}
+                            <button 
+                                onClick={() => { setIsLinkModalOpen(true); setIsEditModalOpen(false); }} // Close edit, open link modal (or nested)
+                                className="cursor-pointer bg-white text-purple-600 px-3 py-1 rounded-lg text-[10px] font-bold border border-purple-200 hover:bg-purple-50 transition-colors flex items-center gap-1"
+                            >
+                                <i className="fas fa-link"></i> Link / QR
+                            </button>
+
+                            <div className="flex items-center gap-1">
+                                <label className="cursor-pointer bg-white text-blue-600 px-3 py-1 rounded-lg text-[10px] font-bold border border-blue-200 hover:bg-blue-100 transition-colors flex items-center gap-1">
+                                    <i className="fas fa-certificate"></i> + Reg. Certificate
+                                    <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleFileUpload(e, 'registration')} disabled={isUploading} />
+                                </label>
                                 <button 
-                                    onClick={() => { setIsLinkModalOpen(true); setIsEditModalOpen(false); }} // Close edit, open link modal (or nested)
-                                    className="cursor-pointer bg-white text-purple-600 px-3 py-1 rounded-lg text-[10px] font-bold border border-purple-200 hover:bg-purple-50 transition-colors flex items-center gap-1"
+                                    onClick={() => { setScannerCategory('registration'); setShowScanner(true); }}
+                                    className="cursor-pointer bg-white text-blue-600 px-2 py-1 rounded-lg text-[10px] font-bold border border-blue-200 hover:bg-blue-100 transition-colors flex items-center"
+                                    title="Scan Reg. Certificate"
                                 >
-                                    <i className="fas fa-link"></i> Link / QR
+                                    <i className="fas fa-camera"></i>
                                 </button>
+                            </div>
 
-                                <div className="flex items-center gap-1">
-                                    <label className="cursor-pointer bg-white text-blue-600 px-3 py-1 rounded-lg text-[10px] font-bold border border-blue-200 hover:bg-blue-100 transition-colors flex items-center gap-1">
-                                        <i className="fas fa-certificate"></i> + Reg. Certificate
-                                        <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleFileUpload(e, 'registration')} disabled={isUploading} />
-                                    </label>
-                                    <button 
-                                        onClick={() => { setScannerCategory('registration'); setShowScanner(true); }}
-                                        className="cursor-pointer bg-white text-blue-600 px-2 py-1 rounded-lg text-[10px] font-bold border border-blue-200 hover:bg-blue-100 transition-colors flex items-center"
-                                        title="Scan Reg. Certificate"
-                                    >
-                                        <i className="fas fa-camera"></i>
-                                    </button>
-                                </div>
-
-                                <div className="flex items-center gap-1">
-                                    <label className="cursor-pointer bg-white text-emerald-600 px-3 py-1 rounded-lg text-[10px] font-bold border border-emerald-200 hover:bg-emerald-50 transition-colors flex items-center gap-1">
-                                        <i className="fas fa-id-card"></i> + License
-                                        <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleFileUpload(e, 'license')} disabled={isUploading} />
-                                    </label>
-                                    <button 
-                                        onClick={() => { setScannerCategory('license'); setShowScanner(true); }}
-                                        className="cursor-pointer bg-white text-emerald-600 px-2 py-1 rounded-lg text-[10px] font-bold border border-emerald-200 hover:bg-emerald-50 transition-colors flex items-center"
-                                        title="Scan License"
-                                    >
-                                        <i className="fas fa-camera"></i>
-                                    </button>
-                                </div>
+                            <div className="flex items-center gap-1">
+                                <label className="cursor-pointer bg-white text-emerald-600 px-3 py-1 rounded-lg text-[10px] font-bold border border-emerald-200 hover:bg-emerald-50 transition-colors flex items-center gap-1">
+                                    <i className="fas fa-id-card"></i> + License
+                                    <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleFileUpload(e, 'license')} disabled={isUploading} />
+                                </label>
+                                <button 
+                                    onClick={() => { setScannerCategory('license'); setShowScanner(true); }}
+                                    className="cursor-pointer bg-white text-emerald-600 px-2 py-1 rounded-lg text-[10px] font-bold border border-emerald-200 hover:bg-emerald-50 transition-colors flex items-center"
+                                    title="Scan License"
+                                >
+                                    <i className="fas fa-camera"></i>
+                                </button>
                             </div>
                         </div>
                         
@@ -1991,7 +2073,7 @@ const SupervisorEmployees: React.FC = () => {
                                             {(() => {
                                                 const generalDocs = user.documents?.filter(d => 
                                                     d.category === 'general' || 
-                                                    (d.category !== 'license' && d.category !== 'registration' && d.category !== 'nrrc_certificate')
+                                                    (d.category !== 'license' && d.category !== 'registration' && d.category !== 'nrrc')
                                                 ) || [];
 
                                                 if (generalDocs.length === 0) return null;

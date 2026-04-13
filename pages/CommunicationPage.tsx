@@ -28,6 +28,7 @@ const CommunicationPage: React.FC = () => {
         return cached ? JSON.parse(cached) : [];
     });
     const [loading, setLoading] = useState(true);
+    const [announcementsLoading, setAnnouncementsLoading] = useState(true);
     const [toast, setToast] = useState<{msg: string, type: 'success'|'info'|'error'} | null>(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -110,7 +111,7 @@ const CommunicationPage: React.FC = () => {
         setLoading(true);
 
         // 1. Fetch Users & Locations
-        getDocs(query(collection(db, 'users'), where('departmentId', '==', selectedDepartmentId))).then((snap: any) => {
+        getDocs(collection(db, 'users')).then((snap: any) => {
             setUsers(snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as User)));
         });
         
@@ -136,6 +137,7 @@ const CommunicationPage: React.FC = () => {
         });
 
         // 3. Fetch Announcements (Always fetch latest)
+        setAnnouncementsLoading(true);
         const qAnnounce = query(
             collection(db, 'announcements'), 
             where('departmentId', '==', selectedDepartmentId),
@@ -144,6 +146,7 @@ const CommunicationPage: React.FC = () => {
         const unsubAnnounce = onSnapshot(qAnnounce, (snap: any) => {
             const list = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as Announcement));
             setAnnouncements(list);
+            setAnnouncementsLoading(false);
 
             // Auto-mark as seen logic
             if (userId) {
@@ -388,6 +391,18 @@ const CommunicationPage: React.FC = () => {
                 departmentId: selectedDepartmentId,
                 seenBy: []
             });
+
+            // Notify all users in the department
+            await addDoc(collection(db, 'notifications'), {
+                departmentId: selectedDepartmentId,
+                title: 'إعلان جديد',
+                message: newAnnounceTitle,
+                link: '/user/dashboard',
+                readBy: [],
+                createdAt: Timestamp.now(),
+                type: 'announcement'
+            });
+
             setNewAnnounceTitle(''); setNewAnnounceContent('');
             setToast({ msg: t('save'), type: 'success' });
         } catch (e) { setToast({ msg: 'Error', type: 'error' }); }
@@ -753,48 +768,61 @@ const CommunicationPage: React.FC = () => {
 
                         {/* List */}
                         <div className={`${isSupervisor ? 'md:col-span-8' : 'md:col-span-12'}`}>
-                            <div className="space-y-4">
-                                {announcements.map(ann => (
-                                    <div key={ann.id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow relative group">
-                                        {isSupervisor && (
-                                            <div className="absolute top-4 rtl:left-4 ltr:right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                                                <button onClick={() => setEditAnnounceModal({isOpen: true, ann})} className="text-slate-300 hover:text-blue-500">
-                                                    <i className="fas fa-pen"></i>
-                                                </button>
-                                                <button onClick={() => handleDeleteAnnouncement(ann.id)} className="text-slate-300 hover:text-red-500">
-                                                    <i className="fas fa-trash"></i>
-                                                </button>
-                                            </div>
-                                        )}
-                                        
-                                        <div className="flex justify-between items-start mb-3">
-                                            <h4 className="font-black text-xl text-slate-800">{ann.title}</h4>
-                                            <div className="flex gap-2">
-                                                <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${ann.priority === 'critical' ? 'bg-red-100 text-red-600' : ann.priority === 'urgent' ? 'bg-amber-100 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
-                                                    {t(`comm.prio.${ann.priority}`)}
-                                                </span>
-                                            </div>
+                            {announcementsLoading ? (
+                                <div className="space-y-4">
+                                    <SkeletonLoader type="card" count={3} />
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {announcements.length === 0 ? (
+                                        <div className="bg-white p-12 rounded-3xl text-center border border-slate-100">
+                                            <i className="fas fa-bullhorn text-4xl text-slate-200 mb-4"></i>
+                                            <p className="text-slate-400 font-bold">{t('comm.ann.none') || 'No announcements yet'}</p>
                                         </div>
-                                        
-                                        <p className="text-slate-600 text-sm leading-relaxed mb-4">{ann.content}</p>
-                                        
-                                        <div className="flex justify-between items-center pt-4 border-t border-slate-50">
-                                            <div className="text-xs text-slate-400">
-                                                {t('from')}: <span className="font-bold text-slate-600">{ann.createdBy}</span> • {ann.createdAt?.toDate ? ann.createdAt.toDate().toLocaleDateString('en-US') : ''}
+                                    ) : (
+                                        announcements.map(ann => (
+                                            <div key={ann.id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow relative group">
+                                                {isSupervisor && (
+                                                    <div className="absolute top-4 rtl:left-4 ltr:right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                                                        <button onClick={() => setEditAnnounceModal({isOpen: true, ann})} className="text-slate-300 hover:text-blue-500">
+                                                            <i className="fas fa-pen"></i>
+                                                        </button>
+                                                        <button onClick={() => handleDeleteAnnouncement(ann.id)} className="text-slate-300 hover:text-red-500">
+                                                            <i className="fas fa-trash"></i>
+                                                        </button>
+                                                    </div>
+                                                )}
+                                                
+                                                <div className="flex justify-between items-start mb-3">
+                                                    <h4 className="font-black text-xl text-slate-800">{ann.title}</h4>
+                                                    <div className="flex gap-2">
+                                                        <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${ann.priority === 'critical' ? 'bg-red-100 text-red-600' : ann.priority === 'urgent' ? 'bg-amber-100 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                                                            {t(`comm.prio.${ann.priority}`)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                
+                                                <p className="text-slate-600 text-sm leading-relaxed mb-4">{ann.content}</p>
+                                                
+                                                <div className="flex justify-between items-center pt-4 border-t border-slate-50">
+                                                    <div className="text-xs text-slate-400">
+                                                        {t('from')}: <span className="font-bold text-slate-600">{ann.createdBy}</span> • {ann.createdAt?.toDate ? ann.createdAt.toDate().toLocaleDateString('en-US') : ''}
+                                                    </div>
+                                                    
+                                                    {isSupervisor && (
+                                                        <button 
+                                                            onClick={() => setViewersModal({ isOpen: true, title: ann.title, viewers: ann.seenBy || [] })}
+                                                            className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-200 font-bold flex items-center gap-2"
+                                                        >
+                                                            <i className="fas fa-eye"></i> {ann.seenBy ? ann.seenBy.length : 0}
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
-                                            
-                                            {isSupervisor && (
-                                                <button 
-                                                    onClick={() => setViewersModal({ isOpen: true, title: ann.title, viewers: ann.seenBy || [] })}
-                                                    className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-200 font-bold flex items-center gap-2"
-                                                >
-                                                    <i className="fas fa-eye"></i> {ann.seenBy ? ann.seenBy.length : 0}
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

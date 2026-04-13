@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, getDocs, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot, doc, updateDoc, writeBatch, arrayUnion } from 'firebase/firestore';
 import { useLanguage, getTranslationKeyForArabic } from '../contexts/LanguageContext';
 import { Schedule, Announcement, SwapRequest, OpenShift, User, AttendanceLog, ActionLog, Penalty } from '../types';
 import Toast from '../components/Toast';
@@ -102,6 +102,7 @@ const UserDashboard: React.FC = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcementsLoading, setAnnouncementsLoading] = useState(true);
   const [openShiftsCount, setOpenShiftsCount] = useState(0);
   const [incomingCount, setIncomingCount] = useState(0);
   const [currentSchedules, setCurrentSchedules] = useState<Schedule[]>([]);
@@ -153,7 +154,7 @@ const handleGenerateManualCode = () => {
 };
   // منطق التحقق من الـ 12 ساعة
   useEffect(() => {
-    if (announcements.length > 0) {
+    if (!announcementsLoading && announcements.length > 0) {
       const lastDismissed = localStorage.getItem('announcements_dismissed_at');
       const now = new Date().getTime();
       
@@ -162,7 +163,7 @@ const handleGenerateManualCode = () => {
         setShowAnnouncementsModal(true);
       }
     }
-  }, [announcements]);
+  }, [announcements, announcementsLoading]);
 
   const closeAnnouncements = () => {
     localStorage.setItem('announcements_dismissed_at', new Date().getTime().toString());
@@ -185,7 +186,12 @@ const handleGenerateManualCode = () => {
     if (!currentUserId || !selectedDepartmentId) return;
 
     // 1. Announcements
-    const qAnnounce = query(collection(db, 'announcements'), where('isActive', '==', true), where('departmentId', '==', selectedDepartmentId));
+    setAnnouncementsLoading(true);
+    const qAnnounce = query(
+        collection(db, 'announcements'), 
+        where('isActive', '==', true), 
+        where('departmentId', '==', selectedDepartmentId)
+    );
     
     const unsubAnnounce = onSnapshot(qAnnounce, (snap: any) => {
         const now = new Date();
@@ -194,9 +200,15 @@ const handleGenerateManualCode = () => {
         const list = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as Announcement)).filter((ann: any) => {
             if (!ann.createdAt) return false;
             const createdDate = ann.createdAt.toDate ? ann.createdAt.toDate() : new Date(ann.createdAt);
-            return createdDate >= cutoffTime; 
+            if (createdDate < cutoffTime) return false;
+            if (currentUserId && ann.seenBy?.includes(currentUserId)) return false;
+            return true;
         });
         setAnnouncements(list);
+        setAnnouncementsLoading(false);
+    }, (err) => {
+        console.error("Announcements error:", err);
+        setAnnouncementsLoading(false);
     });
 
     // 2. Counts
@@ -469,8 +481,8 @@ const handleGenerateManualCode = () => {
         mode = 'active';
         location = 'On Duty';
     } else if (s.state === 'LOCKED') {
-        mode = 'active'; // Changed from 'upcoming' to 'active' to show green immediately after check-in
-        location = 'On Duty'; // Changed from 'Waiting' to 'On Duty'
+        mode = 'upcoming'; // Changed from 'active'
+        location = 'Too Early'; // Changed from 'On Duty'
     } else if (s.state === 'COMPLETED') {
         mode = 'complete';
         location = 'Done';
@@ -481,8 +493,8 @@ const handleGenerateManualCode = () => {
         mode = 'absent';
         location = 'Action Required';
     } else if (s.state === 'WAITING') {
-        mode = 'active'; // Changed from 'upcoming' to 'active' to show green during break/waiting
-        location = 'On Duty'; // Changed from 'On Break' to 'On Duty'
+        mode = 'upcoming'; // Changed from 'active'
+        location = 'Waiting'; // Changed from 'On Duty'
         if (s.timeRemaining) subtitle = `Next shift in ${s.timeRemaining}`;
     } else if (s.state === 'UPCOMING') {
         mode = 'upcoming';
@@ -804,7 +816,7 @@ const handleGenerateManualCode = () => {
         )}
 
         {/* Announcements Banner */}
-     {showAnnouncePopup && announcements.length > 0 && (
+     {!announcementsLoading && showAnnouncePopup && announcements.length > 0 && (
             <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
                 {/* خلفية معتمة قابلة للنقر للإغلاق */}
                 <div 
@@ -859,7 +871,23 @@ const handleGenerateManualCode = () => {
                     {/* زر التأكيد السفلي */}
                     <div className="p-6 bg-slate-50/50 border-t border-slate-100 text-center">
                         <button 
-                            onClick={() => setShowAnnouncePopup(false)}
+                            onClick={async () => {
+                                setShowAnnouncePopup(false);
+                                // Update seenBy for all announcements shown
+                                try {
+                                    const batch = writeBatch(db);
+                                    announcements.forEach(ann => {
+                                        if (currentUserId && !ann.seenBy?.includes(currentUserId)) {
+                                            batch.update(doc(db, 'announcements', ann.id), {
+                                                seenBy: arrayUnion(currentUserId)
+                                            });
+                                        }
+                                    });
+                                    await batch.commit();
+                                } catch (e) {
+                                    console.error("Failed to update seenBy", e);
+                                }
+                            }}
                             className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold text-sm shadow-[0_10px_20px_rgba(0,0,0,0.1)] hover:shadow-[0_15px_25px_rgba(0,0,0,0.2)] active:scale-95 transition-all"
                         >
                             حسناً، تم الاطلاع

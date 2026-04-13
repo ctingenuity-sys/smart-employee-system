@@ -43,12 +43,12 @@ export const DepartmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
                 // Set default selected department
                 if (role === UserRole.ADMIN) {
-                    // Admin can see all, default to first or a specific one
+                    // Admin can see all, default to all
                     const saved = localStorage.getItem('selected_department_id');
                     if (saved && depts.find(d => d.id === saved)) {
                         setSelectedDepartmentId(saved);
-                    } else if (depts.length > 0) {
-                        setSelectedDepartmentId(depts[0].id);
+                    } else {
+                        setSelectedDepartmentId(null);
                     }
                 } else {
                     // Supervisor/Manager/User locked to their department

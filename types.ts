@@ -40,7 +40,7 @@ export interface UserDocument {
   name: string;
   url?: string; // Made optional if using link only
   type: string;
-  category?: 'registration' | 'license' | 'general'; // NEW: Document Category
+  category?: 'registration' | 'license' | 'general' | 'nrrc'; // NEW: Document Category
   uploadedAt: string;
   verificationLink?: string; // NEW: Direct Link to Certificate
   expiryDate?: string; // NEW: Document Expiry Date
@@ -518,6 +518,7 @@ export interface ProcessedRecord {
   shortfallHours: number;
   latenessHours: number;
   earlyDepartureHours: number;
+  note?: string; // NEW
 }
 
 export interface EmployeeSummary {
@@ -525,6 +526,9 @@ export interface EmployeeSummary {
   totalWorkDays: number;
   fridaysWorked: number;
   absentDays: number;
+  holidayDays: number; // NEW
+  exceptionalDays: number; // NEW
+  sickLeaveDays: number; // NEW
   totalOvertimeHours: number;
   totalShortfallHours: number;
   totalLatenessHours: number;

@@ -22,6 +22,7 @@ interface DetailedAttendanceRecord {
     clockOut: string | null;
     breakOut: string | null;
     breakIn: string | null;
+    note?: string; // NEW
     isModified?: boolean; // To track if we moved a midnight shift
     ignore?: boolean; // To mark rows that were merged into previous day
 }
@@ -554,6 +555,9 @@ const AttendanceAnalyzer: React.FC = () => {
                 totalWorkDays: 0,
                 fridaysWorked: 0,
                 absentDays: 0,
+                holidayDays: 0,
+                exceptionalDays: 0,
+                sickLeaveDays: 0,
                 totalOvertimeHours: 0,
                 totalShortfallHours: 0,
                 totalLatenessHours: 0,

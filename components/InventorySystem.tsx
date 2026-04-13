@@ -224,7 +224,8 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 staffEmail: userEmail,
                 staffRole: userRole,
                 date: Timestamp.now(),
-                isCorrection: false // Explicitly mark as NOT a correction
+                isCorrection: false, // Explicitly mark as NOT a correction
+                departmentId: selectedDepartmentId
             });
 
             setToast({ msg: t('save'), type: 'success' });
@@ -263,7 +264,8 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 expiryDate: incExpiry || null,
                 imageUrl: imageUrl,
                 createdBy: userName,
-                isCorrection: false // Explicitly mark as NOT a correction
+                isCorrection: false, // Explicitly mark as NOT a correction
+                departmentId: selectedDepartmentId
             });
 
             setToast({ msg: t('save'), type: 'success' });
@@ -305,7 +307,8 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                             expiryDate: null,
                             imageUrl: null,
                             createdBy: userName + " (Correction)",
-                            isCorrection: true // FLAG: Hidden from "Added" column
+                            isCorrection: true, // FLAG: Hidden from "Added" column
+                            departmentId: selectedDepartmentId
                         });
                     } else {
                         await addDoc(collection(inventoryDb, 'usages'), {
@@ -316,7 +319,8 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                             staffEmail: userEmail,
                             staffRole: userRole,
                             date: correctionTs,
-                            isCorrection: true // FLAG: Hidden from "Used" column
+                            isCorrection: true, // FLAG: Hidden from "Used" column
+                            departmentId: selectedDepartmentId
                         });
                     }
                     setToast({ msg: `Stock Corrected (Hidden Record Created)`, type: 'success' });
@@ -327,7 +331,11 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 }
             } else {
                 // NEW MATERIAL
-                await addDoc(collection(inventoryDb, 'materials'), { name: newMatName, quantity: qty });
+                await addDoc(collection(inventoryDb, 'materials'), { 
+                    name: newMatName, 
+                    quantity: qty,
+                    departmentId: selectedDepartmentId
+                });
                 setToast({ msg: t('save'), type: 'success' });
             }
             setNewMatName(''); setNewMatQty(''); setEditingMat(null); setCorrectionDate(new Date().toISOString().split('T')[0]);
@@ -375,6 +383,52 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         } finally {
             setLoading(false);
         }
+    };
+
+    // --- NEW: Fix Missing Department IDs ---
+    const handleFixMissingDepartmentIds = async () => {
+        if(!confirm("سيتم تعيين جميع السجلات غير المرتبطة بقسم إلى القسم الحالي. هل أنت متأكد؟")) return;
+        setLoading(true);
+        try {
+            let count = 0;
+
+            // Fix Usages
+            const usagesSnap = await getDocs(collection(inventoryDb, 'usages'));
+            for (const docSnap of usagesSnap.docs) {
+                if (!docSnap.data().departmentId) {
+                    await updateDoc(doc(inventoryDb, 'usages', docSnap.id), { departmentId: selectedDepartmentId });
+                    count++;
+                }
+            }
+
+            // Fix Invoices
+            const invoicesSnap = await getDocs(collection(inventoryDb, 'invoices'));
+            for (const docSnap of invoicesSnap.docs) {
+                if (!docSnap.data().departmentId) {
+                    await updateDoc(doc(inventoryDb, 'invoices', docSnap.id), { departmentId: selectedDepartmentId });
+                    count++;
+                }
+            }
+
+            // Fix Materials
+            const materialsSnap = await getDocs(collection(inventoryDb, 'materials'));
+            for (const docSnap of materialsSnap.docs) {
+                if (!docSnap.data().departmentId) {
+                    await updateDoc(doc(inventoryDb, 'materials', docSnap.id), { departmentId: selectedDepartmentId });
+                    count++;
+                }
+            }
+
+            if (count > 0) {
+                setToast({ msg: `تم استرجاع ${count} سجل بنجاح! ✅`, type: 'success' });
+            } else {
+                setToast({ msg: 'لا توجد سجلات مفقودة', type: 'info' });
+            }
+        } catch (e) {
+            console.error(e);
+            setToast({ msg: 'حدث خطأ أثناء الاسترجاع', type: 'error' });
+        }
+        setLoading(false);
     };
 
     const handleDeleteUsage = async (usage: MaterialUsage) => {
@@ -1058,13 +1112,22 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                             <div className="flex items-center gap-2">
                                 <h2 className="text-xl font-black text-slate-800">{t('inv.rep.title')}</h2>
                                 {isAdmin && (
-                                    <button 
-                                        onClick={handlePurgeCorrections}
-                                        className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-100 flex items-center gap-2 ml-4"
-                                        title="Clean old stock corrections history"
-                                    >
-                                        <i className="fas fa-broom"></i> تنظيف التصحيحات
-                                    </button>
+                                    <>
+                                        <button 
+                                            onClick={handlePurgeCorrections}
+                                            className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-100 flex items-center gap-2 ml-4"
+                                            title="Clean old stock corrections history"
+                                        >
+                                            <i className="fas fa-broom"></i> تنظيف التصحيحات
+                                        </button>
+                                        <button 
+                                            onClick={handleFixMissingDepartmentIds}
+                                            className="bg-amber-50 text-amber-600 border border-amber-200 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-amber-100 flex items-center gap-2 ml-2"
+                                            title="استرجاع السجلات المفقودة للقسم الحالي"
+                                        >
+                                            <i className="fas fa-wrench"></i> استرجاع السجلات
+                                        </button>
+                                    </>
                                 )}
                             </div>
                             <div className="flex gap-2 items-center">

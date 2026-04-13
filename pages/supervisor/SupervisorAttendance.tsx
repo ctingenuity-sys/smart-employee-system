@@ -59,6 +59,33 @@ const timeToMinutes = (timeStr: string) => {
     return parseInt(parts[0]) * 60 + parseInt(parts[1]);
 };
 
+// --- Updated: Special Day Detection ---
+const detectSpecialDay = (specific: any) => {
+    if (!specific) return { category: null, name: null };
+    const note = (specific.note || "").toLowerCase();
+    const loc = (specific.locationId || "").toLowerCase();
+    const period = (specific.periodName || "").toLowerCase();
+    
+    const isExceptionFlag = specific.isException === true || (specific.id && specific.id.includes('_Exception_'));
+    const isHolidayFlag = loc.includes('holiday') || note.includes('holiday') || note.includes('عيد') || note.includes('eid') || note.includes('broken') || period.includes('eid');
+    
+    if (isHolidayFlag) {
+        return { category: 'holiday', name: 'Eid / Holiday' };
+    }
+    
+    if (isExceptionFlag || note.includes('استثنائية') || note.includes('exceptional') || note.includes('foundation') || note.includes('ramadan') || note.includes('pro') || note.includes('x-ray')) {
+        if (note.includes('foundation') || period.includes('foundation')) return { category: 'exceptional', name: 'Foundation Day' };
+        if (note.includes('ramadan') || period.includes('ramadan')) return { category: 'exceptional', name: 'Ramadan' };
+        return { category: 'exceptional', name: 'Exceptional' };
+    }
+    
+    if (note.includes('سكليف') || note.includes('sick')) {
+        return { category: 'sick', name: null };
+    }
+    
+    return { category: null, name: null };
+};
+
 // --- NEW HELPER: Format Hours to HH.MM (Minutes as decimal part) ---
 const formatAsDotMinutes = (decimalHours: number) => {
     if (!decimalHours || isNaN(decimalHours)) return '0.00';
@@ -147,6 +174,11 @@ interface EmployeeAttendanceSummary {
     totalEarlyHours: number;
     totalOvertimeHours: number;
     absentDays: number;
+    authorizedAbsenceDays: number; // NEW
+    holidayDays: number; // NEW
+    exceptionalDays: number; // NEW
+    sickLeaveDays: number; // NEW
+    specialDays: Record<string, number>; // NEW: Map of day name -> count
     riskCount: number;
     details: DailyDetail[];
 }
@@ -154,7 +186,7 @@ interface EmployeeAttendanceSummary {
 const SupervisorAttendance: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
-    const { selectedDepartmentId } = useDepartment();
+    const { selectedDepartmentId, departments } = useDepartment();
     const [users, setUsers] = useState<User[]>([]);
     const [attendanceSummaries, setAttendanceSummaries] = useState<EmployeeAttendanceSummary[]>([]);
     const [attFilterUser, setAttFilterUser] = useState('');
@@ -189,7 +221,7 @@ const SupervisorAttendance: React.FC = () => {
             
         getDocs(qUsers).then(snap => {
             const fetchedUsers = snap.docs.map(d => ({id:d.id, ...d.data()} as User));
-            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
+           setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager', 'doctor'].includes(u.role)));
         });
     }, [selectedDepartmentId]);
 
@@ -207,7 +239,7 @@ const SupervisorAttendance: React.FC = () => {
                     setIsOfflineMode(true);
                     
                     // Auto-set dates based on imported data
-                    const dates = hydrated.map(l => l.date).sort();
+                    const dates = hydrated.map((l: any) => l.date).sort();
                     if (dates.length > 0) {
                         setAttFilterStart(dates[0]);
                         setAttFilterEnd(dates[dates.length - 1]);
@@ -253,6 +285,11 @@ const SupervisorAttendance: React.FC = () => {
             totalEarlyHours: 0,
             totalOvertimeHours: 0, 
             absentDays: 0, 
+            authorizedAbsenceDays: 0, // NEW
+            holidayDays: 0, // NEW
+            exceptionalDays: 0, // NEW
+            sickLeaveDays: 0, // NEW
+            specialDays: {}, // NEW
             riskCount: 0,
             details: []
         }));
@@ -342,8 +379,15 @@ const SupervisorAttendance: React.FC = () => {
                 
                 const userSchedules = schedulesByUser.get(user.id) || [];
                 const specific = userSchedules.find(s => s.date === dateStr);
+                
+                let specialDayCategory = null;
+                let specialDayName = null;
+
                 if (specific) {
                     myShifts = specific.shifts || parseMultiShifts(specific.note || "");
+                    const detected = detectSpecialDay(specific);
+                    specialDayCategory = detected.category;
+                    specialDayName = detected.name;
                 } else {
                     userSchedules.forEach(sch => {
                         if (sch.date) return;
@@ -363,9 +407,20 @@ const SupervisorAttendance: React.FC = () => {
                         
                         if (applies) {
                             const parsed = sch.shifts || parseMultiShifts(sch.note||"");
-                            if (parsed.length > 0) myShifts = parsed;
+                            if (parsed.length > 0) {
+                                myShifts = parsed;
+                            }
                         }
                     });
+                }
+
+                if (specialDayCategory === 'holiday') summary.holidayDays++;
+                else if (specialDayCategory === 'exceptional') summary.exceptionalDays++;
+                else if (specialDayCategory === 'sick') summary.sickLeaveDays++;
+
+                // Track special day by name
+                if (specialDayName) {
+                    summary.specialDays[specialDayName] = (summary.specialDays[specialDayName] || 0) + 1;
                 }
 
                 // --- Match Logs ---
@@ -548,7 +603,7 @@ const SupervisorAttendance: React.FC = () => {
                     return ts.toDate().toLocaleTimeString('en-US', {hour12:false, hour:'2-digit', minute:'2-digit'});
                 };
 
-                const isOnLeave = leaves.some(l => l.from === user.id && l.startDate <= dateStr && l.endDate >= dateStr);
+                const isOnLeave = (leaves as any[]).some(l => l.from === user.id && l.startDate <= dateStr && l.endDate >= dateStr);
 
                 if (myShifts.length > 0 && !isOnLeave) {
                     if (myShifts.length === 2) {
@@ -569,6 +624,9 @@ const SupervisorAttendance: React.FC = () => {
                             status = (in1 && out1) ? 'Present' : 'Incomplete';
                         }
                     }
+                } else if (isOnLeave) {
+                    status = 'Off';
+                    summary.authorizedAbsenceDays += 1.0; // Count as authorized absence
                 } else {
                     status = 'Off';
                 }
@@ -635,12 +693,14 @@ const SupervisorAttendance: React.FC = () => {
                     }
                 }
 
-                summary.absentDays += absentValue;
+                if (status === 'Absent') {
+                    summary.absentDays += absentValue;
+                }
                 summary.totalLateHours += (lateMins / 60);
                 summary.totalEarlyHours += (earlyMins / 60);
                 summary.totalOvertimeHours += (dailyOvertime / 60); // Accumulate adjusted hours
 
-                [in1, out1, in2, out2].forEach(l => {
+                [in1, out1, in2, out2].forEach((l: any) => {
                     if (l) {
                         if (l.isSuspicious) {
                             const type = l.violationType || 'SUSPICIOUS_ACTIVITY';
@@ -762,6 +822,9 @@ const SupervisorAttendance: React.FC = () => {
                 "Work Days": s.totalWorkDays,
                 "Fridays Worked": s.fridaysWorked,
                 "Absent Days": s.absentDays,
+                "Holiday Days": s.holidayDays,
+                "Exceptional Days": s.exceptionalDays,
+                "Sick Leave Days": s.sickLeaveDays,
                 "Total Late (Hrs.Mins)": formatAsDotMinutes(s.totalLateHours),
                 "Total Early Leave (Hrs.Mins)": formatAsDotMinutes(s.totalEarlyHours),
                 "Total Overtime (Hrs.Mins)": formatAsDotMinutes(s.totalOvertimeHours),
@@ -805,6 +868,151 @@ const SupervisorAttendance: React.FC = () => {
             console.error(e);
             setToast({ msg: 'Export Failed', type: 'error' });
         }
+    };
+
+    const handlePayrollReport = () => {
+        if (attendanceSummaries.length === 0) return setToast({ msg: 'No data to export', type: 'error' });
+        
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) return;
+
+        const selectedDept = departments.find(d => d.id === selectedDepartmentId);
+        const deptName = selectedDept ? selectedDept.name : 'Department of Radiology';
+
+        let content = `
+            <html>
+                <head>
+                    <title>Payroll Report</title>
+                    <style>
+                        @page { size: landscape; margin: 15px; }
+                        body { font-family: Arial, sans-serif; padding: 20px; color: #333; }
+                        
+                        /* Header Styles */
+                        .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #2c3e50; padding-bottom: 15px; margin-bottom: 20px; }
+                        .hospital-info { display: flex; align-items: center; gap: 15px; }
+                        .logo-placeholder { width: 70px; height: 70px; background-color: #ecf0f1; border: 2px dashed #bdc3c7; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #7f8c8d; border-radius: 50%; font-weight: bold; }
+                        .hospital-text h2 { margin: 0; color: #2c3e50; font-size: 22px; text-transform: uppercase; letter-spacing: 1px; outline: none; }
+                        .hospital-text p { margin: 4px 0 0; color: #7f8c8d; font-size: 14px; outline: none; }
+                        .report-title { text-align: right; }
+                        .report-title h1 { margin: 0; font-size: 24px; color: #2c3e50; }
+                        .report-title p { margin: 5px 0 0; font-size: 14px; color: #7f8c8d; font-weight: bold; }
+                        
+                        /* Table Styles */
+                        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; }
+                        th, td { border: 1px solid #bdc3c7; padding: 8px 4px; text-align: center; }
+                        th { background-color: #ecf0f1; color: #2c3e50; font-weight: bold; }
+                        
+                        /* Editable Elements */
+                        .editable-cell { min-width: 60px; min-height: 16px; outline: none; cursor: text; }
+                        .editable-cell:hover { background-color: #fdfd96; }
+                        .editable-cell:focus { background-color: #fffacd; border-bottom: 1px solid #000; }
+                        
+                        /* Signatures */
+                        .signatures { margin-top: 60px; display: flex; justify-content: space-around; }
+                        .sig-box { width: 200px; border-top: 1px solid #000; padding-top: 10px; text-align: center; font-weight: bold; color: #2c3e50; }
+                        
+                        /* Print Button */
+                        @media print {
+                            .no-print { display: none !important; }
+                            .editable-cell:hover, .editable-cell:focus { background-color: transparent; border-bottom: none; }
+                        }
+                        .controls {
+                            position: fixed; top: 20px; right: 20px; display: flex; gap: 10px; z-index: 1000;
+                        }
+                        .action-btn {
+                            padding: 10px 20px; color: white; border: none; border-radius: 5px;
+                            cursor: pointer; font-size: 14px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+                        }
+                        .print-btn { background-color: #2980b9; }
+                        .print-btn:hover { background-color: #3498db; }
+                        .add-col-btn { background-color: #27ae60; }
+                        .add-col-btn:hover { background-color: #2ecc71; }
+                    </style>
+                </head>
+                <body>
+                    <div class="no-print controls">
+                        <button class="action-btn add-col-btn" onclick="addColumn()">+ Add Column</button>
+                        <button class="action-btn print-btn" onclick="window.print()">Print Report</button>
+                    </div>
+                    
+                    <div class="header">
+                        <div class="hospital-info">
+                            <div class="logo-placeholder">LOGO</div>
+                            <div class="hospital-text">
+                                <h2 contenteditable="true">Hospital Name</h2>
+                                <p contenteditable="true">${deptName}</p>
+                            </div>
+                        </div>
+                        <div class="report-title">
+                            <h1>Payroll Report</h1>
+                            <p>Period: ${attFilterStart} to ${attFilterEnd}</p>
+                        </div>
+                    </div>
+                    
+                    <table id="payrollTable">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Employee</th>
+                                <th>Work Days</th>
+                                <th>Fridays</th>
+                                <th>Absent (Unauth)</th>
+                                <th>Absent (Auth)</th>
+                                <th>Sick Leave</th>
+                                <th>Late (Hrs)</th>
+                                <th>Early (Hrs)</th>
+                                <th>Overtime (Hrs)</th>
+                                <th><div class="editable-cell" contenteditable="true">Custom Column</div></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${attendanceSummaries.map((s, i) => `
+                                <tr>
+                                    <td>${i + 1}</td>
+                                    <td style="text-align: left; padding-left: 8px; font-weight: bold;">${s.userName}</td>
+                                    <td>${s.totalWorkDays}</td>
+                                    <td>${s.fridaysWorked}</td>
+                                    <td>${s.absentDays}</td>
+                                    <td>${s.authorizedAbsenceDays}</td>
+                                    <td>${s.sickLeaveDays}</td>
+                                    <td>${formatAsDotMinutes(s.totalLateHours)}</td>
+                                    <td>${formatAsDotMinutes(s.totalEarlyHours)}</td>
+                                    <td>${formatAsDotMinutes(s.totalOvertimeHours)}</td>
+                                    <td><div class="editable-cell" contenteditable="true"></div></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    
+                    <div class="signatures">
+                        <div class="sig-box">Manager Signature</div>
+                        <div class="sig-box">Supervisor Signature</div>
+                    </div>
+
+                    <script>
+                        function addColumn() {
+                            const table = document.getElementById('payrollTable');
+                            const theadRow = table.querySelector('thead tr');
+                            const tbodyRows = table.querySelectorAll('tbody tr');
+                            
+                            // Add header cell
+                            const th = document.createElement('th');
+                            th.innerHTML = '<div class="editable-cell" contenteditable="true">New Column</div>';
+                            theadRow.appendChild(th);
+                            
+                            // Add body cells
+                            tbodyRows.forEach(row => {
+                                const td = document.createElement('td');
+                                td.innerHTML = '<div class="editable-cell" contenteditable="true"></div>';
+                                row.appendChild(td);
+                            });
+                        }
+                    </script>
+                </body>
+            </html>
+        `;
+        printWindow.document.write(content);
+        printWindow.document.close();
     };
 
     const openMapModal = (lat: number, lng: number, title: string) => {
@@ -940,6 +1148,9 @@ const SupervisorAttendance: React.FC = () => {
                         </button>
                         <button onClick={handleExportExcel} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-emerald-700 transition-all flex items-center gap-2">
                             <i className="fas fa-file-excel"></i> Export
+                        </button>
+                        <button onClick={handlePayrollReport} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-purple-700 transition-all flex items-center gap-2">
+                            <i className="fas fa-file-invoice-dollar"></i> Payroll Report
                         </button>
                         <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-700 transition-all flex items-center gap-2">
                             <i className="fas fa-print"></i> Print

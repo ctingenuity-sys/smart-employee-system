@@ -13,6 +13,7 @@ import Toast from './Toast';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAttendanceStatus } from '../hooks/useAttendanceStatus';
 import { useDepartment } from '../contexts/DepartmentContext';
+import NotificationBell from './NotificationBell';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -67,21 +68,32 @@ const GlobalNotificationListener: React.FC<{ userId: string, userRole: string, d
     useEffect(() => {
         if (!userId || !departmentId) return;
 
-        // Announcements
-        const qAnnounce = query(collection(db, 'announcements'), where('departmentId', '==', departmentId), orderBy('createdAt', 'desc'), limit(1));
+        // Listen to the new notifications collection
+        const qNotif = query(collection(db, 'notifications'), where('departmentId', '==', departmentId), orderBy('createdAt', 'desc'), limit(1));
         
-        const unsubAnnounce = onSnapshot(qAnnounce, (snap: any) => {
+        const unsubNotif = onSnapshot(qNotif, (snap: any) => {
             if (isFirstRun.current) return;
             snap.docChanges().forEach((change: any) => {
                 if (change.type === 'added') {
                     const data = change.doc.data();
-                    showBrowserNotification(`${t('comm.announcement')}: ${data.title}`, data.content);
+                    
+                    // Check if notification is for me
+                    let isForMe = false;
+                    if (data.userId === userId) isForMe = true;
+                    else if (!data.userId && data.targetRole === userRole) isForMe = true;
+                    else if (!data.userId && !data.targetRole) isForMe = true;
+
+                    if (isForMe && (!data.readBy || !data.readBy.includes(userId))) {
+                        showBrowserNotification(data.title, data.message, data.type === 'alert' ? 'alert' : 'normal');
+                        // Dispatch custom event to show toast in Layout
+                        window.dispatchEvent(new CustomEvent('app-notification', { detail: { title: data.title, message: data.message } }));
+                    }
                 }
             });
         });
 
         return () => {
-            unsubAnnounce();
+            unsubNotif();
         };
     }, [userId, userRole, departmentId]);
 
@@ -90,7 +102,7 @@ const GlobalNotificationListener: React.FC<{ userId: string, userRole: string, d
 
 const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissions = [] }) => {
   const { t, language, toggleLanguage, dir } = useLanguage();
-  const { selectedDepartmentId } = useDepartment();
+  const { departments, selectedDepartmentId, setSelectedDepartmentId } = useDepartment();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -107,6 +119,14 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
   const [confirmPassword, setConfirmPassword] = useState('');
   const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
   const [isPwLoading, setIsPwLoading] = useState(false);
+
+  useEffect(() => {
+      const handleAppNotification = (e: any) => {
+          setToast({ msg: `${e.detail.title}: ${e.detail.message}`, type: 'info' });
+      };
+      window.addEventListener('app-notification', handleAppNotification);
+      return () => window.removeEventListener('app-notification', handleAppNotification);
+  }, []);
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -169,16 +189,19 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
         </div>
 
         <div className="p-4 border-b border-slate-700 mb-4 flex-shrink-0">
-          <div className="flex items-center gap-3">
-             <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-white font-bold">
-                 {userName.charAt(0).toUpperCase()}
-             </div>
-             <div>
-                <p className="text-sm font-bold text-white truncate max-w-[120px]">{userName}</p>
-                <span className="inline-block px-2 py-0.5 text-[10px] font-medium bg-blue-600 text-white rounded-full">
-                    {t(`role.${userRole}`) || userRole}
-                </span>
-             </div>
+          <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                 <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-white font-bold">
+                     {userName.charAt(0).toUpperCase()}
+                 </div>
+                 <div>
+                    <p className="text-sm font-bold text-white truncate max-w-[120px]">{userName}</p>
+                    <span className="inline-block px-2 py-0.5 text-[10px] font-medium bg-blue-600 text-white rounded-full">
+                        {t(`role.${userRole}`) || userRole}
+                    </span>
+                 </div>
+              </div>
+              <NotificationBell userRole={userRole} />
           </div>
           <button onClick={() => setIsPasswordModalOpen(true)} className="mt-3 w-full py-1.5 text-xs bg-slate-800 text-slate-300 rounded hover:bg-slate-700 transition-colors">
              <i className="fas fa-key mr-1"></i> {t('pw.change')}
@@ -186,6 +209,20 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
         </div>
 
         <nav className="px-4 space-y-2 flex-1">
+          {userRole === UserRole.ADMIN && (
+              <div className="mb-4">
+                  <select 
+                      className="w-full bg-slate-800 text-slate-300 border border-slate-700 rounded-lg px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                      value={selectedDepartmentId || ''}
+                      onChange={(e) => setSelectedDepartmentId(e.target.value || null)}
+                  >
+                      <option value="">All Departments</option>
+                      {departments.map(d => (
+                          <option key={d.id} value={d.id}>{d.name}</option>
+                      ))}
+                  </select>
+              </div>
+          )}
           <button onClick={toggleLanguage} className="flex items-center w-full px-4 py-2 mb-4 text-sm font-bold text-slate-300 bg-slate-800 rounded-lg hover:text-white hover:bg-slate-700 transition-colors">
               <i className="fas fa-globe w-6"></i>
               <span className="font-medium">{language === 'ar' ? 'English' : 'العربية'}</span>
@@ -274,23 +311,17 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
           <div className="pt-4 mt-4 border-t border-slate-700">
              <p className="px-4 text-xs font-bold text-slate-500 mb-2">{t('nav.sharedTools')}</p>
              
-             {canAccess('appointments') && (userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR || isOnDuty) && (
-                 <>
-                    <Link to="/appointments" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/appointments')}`}>
-                        <i className="fas fa-calendar-check w-6 text-indigo-400"></i>
-                        <span className="font-medium">{t('nav.appointments')}</span>
-                    </Link>
-                    <Link to="/department-bookings" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/department-bookings')}`}>
-                        <i className="fas fa-calendar-plus w-6 text-emerald-400"></i>
-                        <span className="font-medium">Department Bookings</span>
-                    </Link>
-                 </>
+             {(userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR || userRole === UserRole.MANAGER || userRole === UserRole.DOCTOR || userRole === UserRole.USER) && (
+                 <Link to="/communications" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/communications')}`}>
+                    <i className="fas fa-handshake w-6 text-blue-400"></i>
+                    <span className="font-medium">Shift Handover & Communications</span>
+                 </Link>
              )}
 
-             {canAccess('communications') && (
-                 <Link to="/communications" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/communications')}`}>
-                    <i className="fas fa-comments w-6 text-blue-400"></i>
-                    <span className="font-medium">{t('nav.communications')}</span>
+             {(userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR || userRole === UserRole.MANAGER || userRole === UserRole.DOCTOR || userRole === UserRole.USER) && (
+                 <Link to="/supervisor/oncall" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/oncall')}`}>
+                    <i className="fas fa-phone-volume w-6 text-emerald-400"></i>
+                    <span className="font-medium">On-Call Management</span>
                  </Link>
              )}
 
@@ -336,9 +367,12 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
       <div className="flex flex-col flex-1 overflow-hidden print:overflow-visible print:h-auto">
         <header className="flex items-center justify-between px-6 py-4 bg-white shadow-sm lg:hidden print:hidden">
             <div className="text-xl font-bold text-secondary">{t('app.name')}</div>
-            <button onClick={() => setIsSidebarOpen(true)} className="text-secondary focus:outline-none">
-                <i className="fas fa-bars fa-lg"></i>
-            </button>
+            <div className="flex items-center gap-4">
+                <NotificationBell userRole={userRole} />
+                <button onClick={() => setIsSidebarOpen(true)} className="text-secondary focus:outline-none">
+                    <i className="fas fa-bars fa-lg"></i>
+                </button>
+            </div>
         </header>
 
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-100 p-4 lg:p-8 print:bg-white print:p-0 print:overflow-visible">

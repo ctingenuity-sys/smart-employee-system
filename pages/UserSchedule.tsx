@@ -134,6 +134,10 @@ const parseMultiShifts = (text: string) => {
     let cleanText = text.trim();
     const segments = cleanText.split(/[\/,]|\s+and\s+|&|\s+(?=\d{1,2}(?::\d{2})?\s*(?:am|pm|mn|noon))/i);
     const shifts: { start: string, end: string }[] = [];
+    
+    // Helper to check if string contains AM/PM
+    const hasAmPm = (str: string) => /am|pm|ص|م|مساء|صباح/i.test(str);
+
     segments.forEach(seg => {
         const trimmed = seg.trim();
         if(!trimmed) return;
@@ -141,9 +145,22 @@ const parseMultiShifts = (text: string) => {
         if (rangeParts.length >= 2) {
             const startStr = rangeParts[0].trim();
             const endStr = rangeParts[rangeParts.length - 1].trim(); 
-            const s = convertTo24Hour(startStr);
-            const e = convertTo24Hour(endStr);
+            let s = convertTo24Hour(startStr);
+            let e = convertTo24Hour(endStr);
+            
             if (s && e) {
+                // Logic to fix 8-4 to 08:00-16:00
+                const startHour = parseInt(s.split(':')[0]);
+                const endHour = parseInt(e.split(':')[0]);
+
+                if (!hasAmPm(startStr) && !hasAmPm(endStr)) {
+                    if (endHour < startHour) {
+                        // Add 12 hours to end
+                        let newEndHour = endHour + 12;
+                        if (newEndHour > 24) newEndHour -= 24;
+                        e = `${newEndHour.toString().padStart(2, '0')}:${e.split(':')[1]}`;
+                    }
+                }
                 shifts.push({ start: s, end: e });
             }
         }

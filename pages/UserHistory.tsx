@@ -33,6 +33,7 @@ const UserHistory: React.FC = () => {
 
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [isManager, setIsManager] = useState(false);
+    const [allUsers, setAllUsers] = useState<Record<string, string>>({});
 
     useEffect(() => {
         if (!currentUserId) return;
@@ -40,6 +41,13 @@ const UserHistory: React.FC = () => {
             if (uDoc.exists()) {
                 setIsManager(uDoc.data().role === 'manager');
             }
+        });
+        getDocs(collection(db, 'users')).then(snap => {
+            const usersMap: Record<string, string> = {};
+            snap.docs.forEach(d => {
+                usersMap[d.id] = d.data().name || d.id;
+            });
+            setAllUsers(usersMap);
         });
     }, [currentUserId]);
 
@@ -97,16 +105,26 @@ const UserHistory: React.FC = () => {
             isOutgoing: s.isOutgoing,
             originalData: s
         }));
-        const leaves: UnifiedHistoryItem[] = leaveHistory.map(l => ({
-            id: l.id,
-            rawType: 'leave',
-            displayType: l.typeOfLeave || 'Leave',
-            date: `${l.startDate} > ${l.endDate}`,
-            details: l.reason,
-            status: l.status,
-            createdAt: l.createdAt,
-            originalData: l
-        }));
+        const leaves: UnifiedHistoryItem[] = leaveHistory.map(l => {
+            let statusDisplay = l.status;
+            if (l.status === 'pending_reliever') {
+                const pendingIds = (l.relieverIds || []).filter((id: string) => !l.relieverApprovals?.[id]?.approved);
+                if (pendingIds.length > 0) {
+                    const pendingNames = pendingIds.map((id: string) => allUsers[id] || id).join(', ');
+                    statusDisplay = `pending_reliever:${pendingNames}`;
+                }
+            }
+            return {
+                id: l.id,
+                rawType: 'leave',
+                displayType: l.typeOfLeave || 'Leave',
+                date: `${l.startDate} > ${l.endDate}`,
+                details: l.reason,
+                status: statusDisplay,
+                createdAt: l.createdAt,
+                originalData: l
+            };
+        });
         let combined = [...swaps, ...leaves];
         combined.sort((a, b) => {
             const ta = a.createdAt?.seconds || 0;
@@ -238,7 +256,7 @@ const UserHistory: React.FC = () => {
                     const rDoc = await getDoc(doc(db, 'users', id));
                     let rJob = '-';
                     let rName = id;
-                    let rApproved = true; // Default
+                    let rApproved = false; // Default should be false
                     if (rDoc.exists()) {
                         const rData = rDoc.data();
                         rName = rData.name || id;
@@ -302,18 +320,20 @@ const UserHistory: React.FC = () => {
             };
 
             const renderStamp = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', index: number = 0, total: number = 1, approved: boolean = true) => {
+                if (!approved) return ''; // Do not render stamp if not approved
+                
                 const rotation = (Math.random() * 6 - 3).toFixed(1);
                 // Spread out stamps if there are multiple (especially for relievers)
                 const offset = total > 1 ? (index - (total - 1) / 2) * 140 : 0;
                 return `
-                    <div class="stamp-box" style="transform: rotate(${rotation}deg); position: absolute; top: -15px; left: calc(50% + ${offset}px); transform: translateX(-50%) rotate(${rotation}deg); z-index: 50; pointer-events: none; ${!approved ? 'border-color: red; color: red;' : ''}">
-                        <div class="stamp-inner" style="${!approved ? 'border-color: red;' : ''}">
+                    <div class="stamp-box" style="transform: rotate(${rotation}deg); position: absolute; top: -15px; left: calc(50% + ${offset}px); transform: translateX(-50%) rotate(${rotation}deg); z-index: 50; pointer-events: none;">
+                        <div class="stamp-inner">
                             <div class="stamp-hospital">AL JEDAANI HOSPITAL</div>
-                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed ${!approved ? 'red' : 'rgba(30, 58, 138, 0.4)'}; margin-top: 1px; padding-top: 1px;">RADIOLOGY DEPARTMENT</div>
-                            <div class="stamp-dept" style="${!approved ? 'color: red;' : ''}">${jobTitle}</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">RADIOLOGY DEPARTMENT</div>
+                            <div class="stamp-dept">${jobTitle}</div>
                             <div class="stamp-name">${name}</div>
-                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: ${approved ? 'green' : 'red'}; opacity: 0.7; transform: rotate(-10deg);">
-                                ${approved ? 'APPROVED' : 'NOT APPROVED'}
+                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: green; opacity: 0.7; transform: rotate(-10deg);">
+                                APPROVED
                             </div>
                         </div>
                     </div>
@@ -607,7 +627,7 @@ const UserHistory: React.FC = () => {
                             <tr>
                                 <td class="label-en">Signature, Supervisor:</td>
                                 <td class="value" style="position: relative; height: 60px; display: flex; align-items: center; gap: 10px; min-width: 350px;">
-                                    ${leave.supervisorApproval ? renderStamp(leave.supervisorApproval.name, supervisorJob, 'AL JEDAANI HOSPITAL', 0, 1, leave.supervisorApproval.approved) : ''}
+                                    ${leave.supervisorApproval?.approved ? renderStamp(leave.supervisorApproval.name, supervisorJob, 'AL JEDAANI HOSPITAL', 0, 1, true) : ''}
                                     ${leave.supervisorApproval ? `<span style="font-weight: bold;">${leave.supervisorApproval.name}</span>` : ''}
                                 </td>
                                 <td class="label-ar">توقيع المشرف:</td>
@@ -656,7 +676,7 @@ const UserHistory: React.FC = () => {
                             <tr>
                                 <td class="label-en">Signature, Head of Department:</td>
                                 <td class="value" style="position: relative; height: 60px; display: flex; align-items: center; gap: 10px; min-width: 350px;">
-                                    ${(leave.status === 'approved' || leave.status === 'rejected') && leave.managerApproval ? renderStamp(leave.managerApproval.name, managerJob, 'AL JEDAANI HOSPITAL', 0, 1, leave.status === 'approved') : ''}
+                                    ${leave.status === 'approved' && leave.managerApproval ? renderStamp(leave.managerApproval.name, managerJob, 'AL JEDAANI HOSPITAL', 0, 1, true) : ''}
                                     ${(leave.status === 'approved' || leave.status === 'rejected') && leave.managerApproval ? `<span style="font-weight: bold;">${leave.managerApproval.name}</span>` : ''}
                                 </td>
                                 <td class="label-ar">توقيع رئيس القسم :</td>
@@ -793,16 +813,18 @@ const UserHistory: React.FC = () => {
             const logoUrl = new URL('/logo.png', window.location.origin).href;
 
             const renderStamp = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', approved: boolean = true) => {
+                if (!approved) return ''; // Do not render stamp if not approved
+                
                 const rotation = (Math.random() * 6 - 3).toFixed(1);
                 return `
-                    <div class="stamp-box" style="transform: rotate(${rotation}deg); position: absolute; top: -15px; left: 50%; transform: translateX(-50%) rotate(${rotation}deg); z-index: 50; pointer-events: none; ${!approved ? 'border-color: red; color: red;' : ''}">
-                        <div class="stamp-inner" style="${!approved ? 'border-color: red;' : ''}">
+                    <div class="stamp-box" style="transform: rotate(${rotation}deg); position: absolute; top: -15px; left: 50%; transform: translateX(-50%) rotate(${rotation}deg); z-index: 50; pointer-events: none;">
+                        <div class="stamp-inner">
                             <div class="stamp-hospital">AL JEDAANI HOSPITAL</div>
-                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed ${!approved ? 'red' : 'rgba(30, 58, 138, 0.4)'}; margin-top: 1px; padding-top: 1px;">RADIOLOGY DEPARTMENT</div>
-                            <div class="stamp-dept" style="${!approved ? 'color: red;' : ''}">${jobTitle}</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">RADIOLOGY DEPARTMENT</div>
+                            <div class="stamp-dept">${jobTitle}</div>
                             <div class="stamp-name">${name}</div>
-                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: ${approved ? 'green' : 'red'}; opacity: 0.7; transform: rotate(-10deg);">
-                                ${approved ? 'APPROVED' : 'NOT APPROVED'}
+                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: green; opacity: 0.7; transform: rotate(-10deg);">
+                                APPROVED
                             </div>
                         </div>
                     </div>
@@ -1087,7 +1109,7 @@ const UserHistory: React.FC = () => {
                             <tr>
                                 <td class="label-en">Signature, Supervisor:</td>
                                 <td class="value" style="position: relative; height: 60px; display: flex; align-items: center; gap: 10px; min-width: 350px;">
-                                    ${(swap.status === 'approvedBySupervisor' || swap.status === 'rejectedBySupervisor') ? renderStamp(supervisorName, supervisorJob, 'AL JEDAANI HOSPITAL', swap.status === 'approvedBySupervisor') : ''}
+                                    ${swap.status === 'approvedBySupervisor' ? renderStamp(supervisorName, supervisorJob, 'AL JEDAANI HOSPITAL', true) : ''}
                                     ${(swap.status === 'approvedBySupervisor' || swap.status === 'rejectedBySupervisor') ? `<span style="font-weight: bold;">${supervisorName}</span>` : ''}
                                 </td>
                                 <td class="label-ar">توقيع المشرف :</td>
@@ -1211,7 +1233,7 @@ const UserHistory: React.FC = () => {
                                             'bg-amber-50 text-amber-600 border-amber-100'
                                         }`}>
                                             {item.status === 'approvedByUser' ? t('user.hist.waitingSupervisor') : 
-                                             item.status === 'pending_reliever' ? t('user.hist.waitingReliever') :
+                                             item.status.startsWith('pending_reliever') ? `${t('user.hist.waitingReliever')} (${item.status.split(':')[1] || ''})` :
                                              item.status === 'pending_supervisor' ? t('user.hist.waitingSupervisor') :
                                              item.status === 'pending_manager' ? t('user.hist.waitingManager') :
                                              item.status}

@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /penalties/{penaltyId} {
+      allow read, write: if request.auth != null;
+    }
+    match /certifications/{certId} {
+      allow read, write: if request.auth != null;
+    }
+    match /users/{userId} {
+      allow read, write: if request.auth != null;
+    }
+    match /shiftHandovers/{handoverId} {
+      allow read, write: if request.auth != null;
+    }
+    match /onCallSchedules/{scheduleId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

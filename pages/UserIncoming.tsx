@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, query, where, getDocs, updateDoc, doc, Timestamp, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, Timestamp, getDoc, addDoc } from 'firebase/firestore';
 import { SwapRequest, LeaveRequest } from '../types';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
@@ -78,32 +78,6 @@ const UserIncoming: React.FC = () => {
                 leaves.push({ ...data, id: d.id, fromUser: { id: data.from, name: fromName } });
             }
 
-            // 2. Supervisor Approvals
-            const qSupLeaves = query(collection(db, 'leaveRequests'), where('supervisorId', '==', currentUserId), where('status', '==', 'pending_supervisor'));
-            const snap2 = await getDocs(qSupLeaves);
-            for (const d of snap2.docs) {
-                const data = d.data() as LeaveRequest;
-                let fromName = "Unknown";
-                try {
-                    const uDoc = await getDoc(doc(db, 'users', data.from));
-                    if (uDoc.exists()) fromName = uDoc.data().name || uDoc.data().email;
-                } catch(e){}
-                leaves.push({ ...data, id: d.id, fromUser: { id: data.from, name: fromName } });
-            }
-
-            // 3. Manager Approvals
-            const qManLeaves = query(collection(db, 'leaveRequests'), where('managerId', '==', currentUserId), where('status', '==', 'pending_manager'));
-            const snap3 = await getDocs(qManLeaves);
-            for (const d of snap3.docs) {
-                const data = d.data() as LeaveRequest;
-                let fromName = "Unknown";
-                try {
-                    const uDoc = await getDoc(doc(db, 'users', data.from));
-                    if (uDoc.exists()) fromName = uDoc.data().name || uDoc.data().email;
-                } catch(e){}
-                leaves.push({ ...data, id: d.id, fromUser: { id: data.from, name: fromName } });
-            }
-
             setIncomingLeaves(leaves);
         };
         fetchLeaves();
@@ -129,6 +103,22 @@ const UserIncoming: React.FC = () => {
             try { 
                 const newStatus = action === 'approved' ? 'approvedByUser' : 'rejected'; 
                 await updateDoc(doc(db, 'swapRequests', requestId), { status: newStatus, processedAt: Timestamp.now() }); 
+                
+                // Notify the requester
+                const swapReq = incomingSwaps.find(r => r.id === requestId);
+                if (swapReq) {
+                    await addDoc(collection(db, 'notifications'), {
+                        userId: swapReq.from,
+                        departmentId: swapReq.departmentId || null,
+                        title: 'تحديث على طلب التبديل',
+                        message: `تم ${action === 'approved' ? 'الموافقة على' : 'رفض'} طلب التبديل الخاص بك من قبل الزميل.`,
+                        link: '/user/history',
+                        readBy: [],
+                        createdAt: Timestamp.now(),
+                        type: 'request'
+                    });
+                }
+
                 setToast({ msg: 'Success', type: 'success' }); 
                 setRefreshTrigger(prev => prev + 1);
             } catch (e) { 
@@ -194,8 +184,13 @@ const UserIncoming: React.FC = () => {
                             id === currentUserId || (currentApprovals[id] && currentApprovals[id].approved)
                         );
                         if (allRelieversApproved) {
-                            const skipSupervisor = !req.supervisorId || req.supervisorId === req.managerId;
-                            newStatus = skipSupervisor ? 'pending_manager' : 'pending_supervisor';
+                            if ((req as any).hasSupervisors) {
+                                newStatus = 'pending_supervisor';
+                            } else if ((req as any).hasManagers) {
+                                newStatus = 'pending_manager';
+                            } else {
+                                newStatus = 'approved';
+                            }
                         }
                     }
                 } else if (req.status === 'pending_supervisor') {
@@ -224,6 +219,46 @@ const UserIncoming: React.FC = () => {
 
                 updateData.status = newStatus;
                 await updateDoc(doc(db, 'leaveRequests', req.id), updateData);
+
+                // Notify the requester
+                // @ts-ignore
+                const { addDoc, collection } = await import('firebase/firestore');
+                await addDoc(collection(db, 'notifications'), {
+                    userId: req.from,
+                    departmentId: req.departmentId || null,
+                    title: 'تحديث على طلب الإجازة',
+                    message: `تم تحديث حالة طلب الإجازة الخاص بك إلى: ${newStatus}`,
+                    link: '/user/history',
+                    readBy: [],
+                    createdAt: Timestamp.now(),
+                    type: 'request'
+                });
+
+                // If it moved to pending_supervisor, notify supervisors
+                if (newStatus === 'pending_supervisor') {
+                    await addDoc(collection(db, 'notifications'), {
+                        targetRole: 'supervisor',
+                        departmentId: req.departmentId || null,
+                        title: 'طلب إجازة جديد',
+                        message: `طلب إجازة بانتظار موافقة المشرف من ${req.fromUser?.name || 'موظف'}`,
+                        link: '/user/incoming',
+                        readBy: [],
+                        createdAt: Timestamp.now(),
+                        type: 'request'
+                    });
+                } else if (newStatus === 'pending_manager') {
+                    await addDoc(collection(db, 'notifications'), {
+                        targetRole: 'manager',
+                        departmentId: req.departmentId || null,
+                        title: 'طلب إجازة جديد',
+                        message: `طلب إجازة بانتظار موافقة المدير من ${req.fromUser?.name || 'موظف'}`,
+                        link: '/user/incoming',
+                        readBy: [],
+                        createdAt: Timestamp.now(),
+                        type: 'request'
+                    });
+                }
+
                 setToast({ msg: 'Success', type: 'success' }); 
                 setRefreshTrigger(prev => prev + 1);
             } catch (e) { 

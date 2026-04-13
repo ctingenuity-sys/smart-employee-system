@@ -14,12 +14,29 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["employeeId", "managerId", "penaltyType", "description", "status", "createdAt"]
+    },
+    "certification": {
+      "title": "Certification",
+      "description": "Professional certification or license for an employee.",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string", "description": "ID of the employee" },
+        "name": { "type": "string", "description": "Name of the certification (e.g., BLS, ACLS, License)" },
+        "expiryDate": { "type": "string", "format": "date", "description": "Date of expiry" },
+        "documentUrl": { "type": "string", "description": "URL to the uploaded document" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["employeeId", "name", "expiryDate", "createdAt"]
     }
   },
   "firestore": {
     "/penalties/{penaltyId}": {
       "schema": "penalty",
       "description": "Collection of penalties"
+    },
+    "/certifications/{certId}": {
+      "schema": "certification",
+      "description": "Collection of employee certifications"
     }
   }
 }

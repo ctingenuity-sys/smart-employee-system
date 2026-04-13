@@ -23,9 +23,13 @@ import Modal from '../components/Modal';
 import { useNavigate } from 'react-router-dom';
 
 // ... (Keep existing Helper Functions: convertTo24Hour, parseMultiShifts, normalizeDigits, extractDateFromText)
+const normalizeDigits = (str: string) => {
+    return str.replace(/[٠-٩]/g, d => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
+};
+
 const convertTo24Hour = (timeStr: string): string | undefined => {
     if (!timeStr) return undefined; // بدلاً من null
-    let s = String(timeStr).toLowerCase().trim();
+    let s = normalizeDigits(String(timeStr).toLowerCase().trim());
     
     s = s.replace(/12mn0/g, '24:00'); 
     s = s.replace(/12mn/g, '24:00');
@@ -58,29 +62,41 @@ const convertTo24Hour = (timeStr: string): string | undefined => {
 
 const parseMultiShifts = (text: string) => {
     if (!text) return [];
-    let cleanText = text.replace(/[()（）]/g, ' ').trim();
+    let cleanText = normalizeDigits(text.replace(/[()（）]/g, ' ').trim());
     const segments = cleanText.split(/[\/,]|\s+and\s+|&|\s+(?=\d{1,2}(?::\d{2})?\s*(?:am|pm|mn|noon))/i);
     const shifts: { start: string, end: string }[] = [];
     
+    // Helper to check if string contains AM/PM
+    const hasAmPm = (str: string) => /am|pm|ص|م|مساء|صباح/i.test(str);
+
     segments.forEach(seg => {
         const trimmed = seg.trim();
         if(!trimmed) return;
-        const rangeParts = trimmed.split(/\s*(?:[-–—]|\bto\b)\s*/i);
+        const rangeParts = trimmed.split(/\s*(?:[-–—]|\bto\b|الى|إلى)\s*/i);
         if (rangeParts.length >= 2) {
             const startStr = rangeParts[0].trim();
             const endStr = rangeParts[rangeParts.length - 1].trim(); 
-            const s = convertTo24Hour(startStr);
-            const e = convertTo24Hour(endStr);
+            let s = convertTo24Hour(startStr);
+            let e = convertTo24Hour(endStr);
+            
             if (s && e) {
+                // Logic to fix 8-4 to 08:00-16:00
+                const startHour = parseInt(s.split(':')[0]);
+                const endHour = parseInt(e.split(':')[0]);
+
+                if (!hasAmPm(startStr) && !hasAmPm(endStr)) {
+                    if (endHour < startHour) {
+                        // Add 12 hours to end
+                        let newEndHour = endHour + 12;
+                        if (newEndHour > 24) newEndHour -= 24;
+                        e = `${newEndHour.toString().padStart(2, '0')}:${e.split(':')[1]}`;
+                    }
+                }
                 shifts.push({ start: s, end: e });
             }
         }
     });
     return shifts;
-};
-
-const normalizeDigits = (str: string) => {
-    return str.replace(/[٠-٩]/g, d => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
 };
 
 const extractDateFromText = (input: string, defaultYear?: number): string | undefined => {
@@ -469,17 +485,23 @@ const ScheduleBuilder: React.FC = () => {
         setLoading(true);
         
         // 1. Delete tickets by explicit month field
-        const q1 = query(collection(db, 'schedules'), where('month', '==', monthToDelete), where('departmentId', '==', selectedDepartmentId));
+        const q1 = query(collection(db, 'schedules'), where('month', '==', monthToDelete));
         
         // 2. Delete tickets by sourcePublishId field (Newly added to solve the zombie ticket issue)
-        const q2 = query(collection(db, 'schedules'), where('sourcePublishId', '==', monthToDelete), where('departmentId', '==', selectedDepartmentId));
+        const q2 = query(collection(db, 'schedules'), where('sourcePublishId', '==', monthToDelete));
 
         Promise.all([getDocs(q1), getDocs(q2)]).then(async ([snap1, snap2]) => {
             const allDocs = [...snap1.docs, ...snap2.docs];
             
-            // Filter unique docs
+            // Filter unique docs and by department
             const uniqueDocsMap = new Map();
-            allDocs.forEach(d => uniqueDocsMap.set(d.id, d));
+            allDocs.forEach(d => {
+                const data = d.data();
+                const belongsToDept = !data.departmentId || data.departmentId === selectedDepartmentId;
+                if (belongsToDept) {
+                    uniqueDocsMap.set(d.id, d);
+                }
+            });
             const uniqueDocs = Array.from(uniqueDocsMap.values());
             
             // USE BATCH DELETE FUNCTION
@@ -559,9 +581,9 @@ const ScheduleBuilder: React.FC = () => {
             if (!mergeMode) {
                 // Delete based on BOTH month AND sourcePublishId to catch everything
                 
-                const q = query(collection(db, 'schedules'), where('month', '==', publishMonth), where('departmentId', '==', selectedDepartmentId));
+                const q = query(collection(db, 'schedules'), where('month', '==', publishMonth));
                 // We also check for any tickets that claim to be from this source ID even if month differs
-                const qSource = query(collection(db, 'schedules'), where('sourcePublishId', '==', publishMonth), where('departmentId', '==', selectedDepartmentId));
+                const qSource = query(collection(db, 'schedules'), where('sourcePublishId', '==', publishMonth));
                 
                 const [snap1, snap2] = await Promise.all([getDocs(q), getDocs(qSource)]);
                 
@@ -642,7 +664,7 @@ const ScheduleBuilder: React.FC = () => {
                             sourcePublishId: publishMonth, // CRITICAL: Tag every ticket with the ID of this publish action
                             departmentId: selectedDepartmentId, // NEW: Added departmentId
                             userType: userType,
-                            shifts: staff.time ? parseMultiShifts(staff.time) : shifts,
+                            shifts: (staff.time && staff.time.trim() !== '') ? parseMultiShifts(staff.time) : shifts,
                             note: staff.note ? `${notePrefix} - ${staff.note}` : notePrefix,
                             createdAt: Timestamp.now(),
                             periodName: activeTitle || scheduleNote, 
@@ -856,6 +878,18 @@ const ScheduleBuilder: React.FC = () => {
             }
 
             await batch.commit();
+            
+            // Notify all users in the department
+            await addDoc(collection(db, 'notifications'), {
+                departmentId: selectedDepartmentId,
+                title: 'جدول جديد',
+                message: `تم ${mergeMode ? 'تحديث' : 'نشر'} جدول شهر ${publishMonth}`,
+                link: '/user/schedule',
+                readBy: [],
+                createdAt: Timestamp.now(),
+                type: 'schedule'
+            });
+
             setToast({ msg: mergeMode ? 'Merged Successfully!' : 'Published Successfully!', type: 'success' });
         } catch (e: any) {
             setToast({ msg: 'Error: ' + e.message, type: 'error' });

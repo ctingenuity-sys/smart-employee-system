@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
+import { db as certDb } from '../firebaseData';
 // @ts-ignore
-import { collection, query, where, getDocs, addDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, Timestamp, getCountFromServer, doc, getDoc } from 'firebase/firestore';
 import { ActionLog, PeerRecognition, User } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useDepartment } from '../contexts/DepartmentContext';
@@ -11,7 +12,6 @@ import Modal from '../components/Modal';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 import { appointmentsDb } from '../firebaseAppointments';
-import {  getCountFromServer } from 'firebase/firestore';
 
 // Helper for safe dates
 const safeDate = (val: any) => {
@@ -36,6 +36,7 @@ const UserProfile: React.FC = () => {
         const cached = localStorage.getItem('usr_cached_kudos');
         return cached ? JSON.parse(cached) : [];
     });
+    const [myCertifications, setMyCertifications] = useState<any[]>([]);
     const [users, setUsers] = useState<User[]>(() => {
         const cached = localStorage.getItem('usr_cached_users');
         return cached ? JSON.parse(cached) : [];
@@ -80,6 +81,58 @@ const UserProfile: React.FC = () => {
         getDocs(qUsers).then((snap) => {
             setUsers(snap.docs.map(d => ({ ...d.data(), id: d.id } as User)));
         });
+
+        const fetchUserCerts = async () => {
+            try {
+                const certDocRef = doc(certDb, 'employee_records', currentUserId!);
+                const certDocSnap = await getDoc(certDocRef);
+                if (certDocSnap.exists()) {
+                    const certData = certDocSnap.data();
+                    const certs = [];
+                    const docs = certData.documents || [];
+                    
+                    if (certData.licenseExpiry) {
+                        certs.push({ 
+                            id: 'license', 
+                            name: 'License', 
+                            expiryDate: certData.licenseExpiry, 
+                            documentUrl: docs.find((d: any) => d.category === 'license')?.url 
+                        });
+                    }
+                    if (certData.registrationExpiry) {
+                        certs.push({ 
+                            id: 'registration', 
+                            name: 'Registration', 
+                            expiryDate: certData.registrationExpiry, 
+                            documentUrl: docs.find((d: any) => d.category === 'registration')?.url 
+                        });
+                    }
+                    if (certData.nrrcExpiry) {
+                        certs.push({ 
+                            id: 'nrrc', 
+                            name: 'NRRC Certificate', 
+                            expiryDate: certData.nrrcExpiry, 
+                            documentUrl: docs.find((d: any) => d.category === 'nrrc')?.url 
+                        });
+                    }
+
+                    // Add other general documents
+                    docs.forEach((d: any) => {
+                        if (d.category !== 'license' && d.category !== 'registration' && d.category !== 'nrrc') {
+                            certs.push({
+                                id: d.uploadedAt || Math.random().toString(),
+                                name: d.name,
+                                expiryDate: d.expiryDate || '-',
+                                documentUrl: d.url
+                            });
+                        }
+                    });
+
+                    setMyCertifications(certs);
+                }
+            } catch (e) { console.error("Error fetching user certs:", e); }
+        };
+        fetchUserCerts();
 
         // Get Patients Count from Supabase
         const fetchPatientCount = async () => {
@@ -231,6 +284,36 @@ const UserProfile: React.FC = () => {
                                         <p className="text-xs text-slate-500 mt-1 font-mono">{safeDate(act.fromDate)}</p>
                                     </div>
                                     <p className="text-xs text-slate-700 font-medium max-w-[50%] text-right">{act.description}</p>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+
+                {/* Certifications */}
+                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                            <i className="fas fa-certificate text-amber-500"></i> Certifications
+                        </h3>
+                    </div>
+                    <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                        {myCertifications.length === 0 ? (
+                            <p className="text-center text-slate-400 py-4 text-sm">No certifications.</p>
+                        ) : (
+                            myCertifications.map(cert => (
+                                <div key={cert.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100 hover:border-slate-200 transition-colors">
+                                    <div>
+                                        <p className="text-sm font-bold text-slate-700">{cert.name}</p>
+                                        <p className={`text-[10px] mt-1 font-mono ${cert.expiryDate !== '-' && new Date(cert.expiryDate) < new Date() ? 'text-red-500 font-bold' : 'text-slate-500'}`}>
+                                            Expires: {cert.expiryDate} {cert.expiryDate !== '-' && new Date(cert.expiryDate) < new Date() ? '(Expired)' : ''}
+                                        </p>
+                                    </div>
+                                    {cert.documentUrl && (
+                                        <a href={cert.documentUrl} target="_blank" rel="noreferrer" className="text-blue-500 hover:text-blue-600">
+                                            <i className="fas fa-file-pdf text-xl"></i>
+                                        </a>
+                                    )}
                                 </div>
                             ))
                         )}

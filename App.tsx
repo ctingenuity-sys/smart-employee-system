@@ -27,6 +27,7 @@ const SupervisorPerformance = React.lazy(() => import('./pages/supervisor/Superv
 const SupervisorRotation = React.lazy(() => import('./pages/supervisor/SupervisorRotation'));
 const PanicReportsPage = React.lazy(() => import('./pages/supervisor/PanicReportsPage'));
 const SupervisorPenalties = React.lazy(() => import('./pages/supervisor/SupervisorPenalties'));
+const OnCallManagement = React.lazy(() => import('./pages/supervisor/OnCallManagement'));
 
 // NEW ADMIN PAGE
 const DepartmentsPage = React.lazy(() => import('./pages/admin/DepartmentsPage'));
@@ -161,6 +162,7 @@ const AppRoutes: React.FC = () => {
           <Route path="/supervisor/panic-reports" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_panic"><PanicReportsPage /></ProtectedRoute>} />
           <Route path="/supervisor/rotation" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_rotation"><SupervisorRotation /></ProtectedRoute>} />
           <Route path="/supervisor/penalties" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_penalties"><SupervisorPenalties /></ProtectedRoute>} />
+                        <Route path="/supervisor/oncall" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER, UserRole.USER, UserRole.DOCTOR]}><OnCallManagement /></ProtectedRoute>} />
 
           {/* --- Departments Management (ADMIN ONLY) --- */}
           <Route path="/admin/departments" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN]}><DepartmentsPage /></ProtectedRoute>} />

@@ -128,10 +128,10 @@ const NotificationBell: React.FC<{ userRole: string }> = ({ userRole }) => {
             {isOpen && (
                 <div className={`absolute top-full mt-1 w-60 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden z-[100] ${dir === 'rtl' ? 'left-0' : 'right-0'}`}>
                     <div className="bg-slate-50 p-3 border-b border-slate-100 flex justify-between items-center">
-                        <h3 className="font-black text-slate-800 text-sm">الإشعارات</h3>
+                        <h3 className="font-black text-slate-800 text-sm">{t('notifications.title')}</h3>
                         {unreadCount > 0 && (
                             <button onClick={markAllAsRead} className="text-xs text-indigo-600 font-bold hover:text-indigo-800">
-                                تحديد الكل كمقروء
+                                {t('notifications.markAllRead')}
                             </button>
                         )}
                     </div>
@@ -140,7 +140,7 @@ const NotificationBell: React.FC<{ userRole: string }> = ({ userRole }) => {
                         {notifications.length === 0 ? (
                             <div className="p-6 text-center text-slate-400">
                                 <i className="fas fa-bell-slash text-3xl mb-2 opacity-20"></i>
-                                <p className="text-sm font-medium">لا توجد إشعارات</p>
+                                <p className="text-sm font-medium">{t('notifications.empty')}</p>
                             </div>
                         ) : (
                             <div className="divide-y divide-slate-50">
@@ -155,9 +155,11 @@ const NotificationBell: React.FC<{ userRole: string }> = ({ userRole }) => {
                                             <div className={`w-2 h-2 mt-1.5 rounded-full shrink-0 ${isRead ? 'bg-transparent' : 'bg-indigo-500'}`}></div>
                                             <div>
                                                 <h4 className={`text-sm ${isRead ? 'font-medium text-slate-700' : 'font-bold text-slate-900'}`}>
-                                                    {notif.title}
+                                                    {t(notif.title)}
                                                 </h4>
-                                                <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{notif.message}</p>
+                                                <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">
+                                                    {t(notif.message).replace('{name}', notif.userId || '').replace('{month}', '').replace('{mode}', '').replace('{action}', '')}
+                                                </p>
                                                 <span className="text-[10px] text-slate-400 mt-1 block">
                                                     {notif.createdAt?.toDate ? notif.createdAt.toDate().toLocaleString('ar-EG') : ''}
                                                 </span>

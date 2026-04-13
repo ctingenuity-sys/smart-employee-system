@@ -882,8 +882,8 @@ const ScheduleBuilder: React.FC = () => {
             // Notify all users in the department
             await addDoc(collection(db, 'notifications'), {
                 departmentId: selectedDepartmentId,
-                title: 'جدول جديد',
-                message: `تم ${mergeMode ? 'تحديث' : 'نشر'} جدول شهر ${publishMonth}`,
+                title: 'notif.schedule.new',
+                message: `notif.schedule.msg|mode:${mergeMode ? 'updated' : 'published'}|month:${publishMonth}`,
                 link: '/user/schedule',
                 readBy: [],
                 createdAt: Timestamp.now(),

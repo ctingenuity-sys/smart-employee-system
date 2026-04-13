@@ -395,7 +395,7 @@ const CommunicationPage: React.FC = () => {
             // Notify all users in the department
             await addDoc(collection(db, 'notifications'), {
                 departmentId: selectedDepartmentId,
-                title: 'إعلان جديد',
+                title: 'notif.announce.new',
                 message: newAnnounceTitle,
                 link: '/user/dashboard',
                 readBy: [],

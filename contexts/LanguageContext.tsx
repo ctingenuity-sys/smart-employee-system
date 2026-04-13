@@ -85,6 +85,22 @@ const translations: Record<string, { ar: string; en: string }> = {
   'nav.appointments': { ar: 'المواعيد', en: 'Appointments' },
   'nav.penalties': { ar: 'الجزاءات', en: 'Penalties' },
   'nav.dataArchive': { ar: 'أرشيف البيانات', en: 'Data Archive' },
+  'nav.onCallManagement': { ar: 'إدارة المناوبات', en: 'On-Call Management' },
+  'comm.ann.none': { ar: 'لا توجد إعلانات', en: 'No announcements' },
+  'tech.title': { ar: 'الدعم الفني', en: 'Technical Support' },
+  'notifications.title': { ar: 'الإشعارات', en: 'Notifications' },
+  'notifications.markAllRead': { ar: 'تحديد الكل كمقروء', en: 'Mark all as read' },
+  'notifications.empty': { ar: 'لا توجد إشعارات', en: 'No notifications' },
+  
+  // Notification Messages
+  'notif.leave.new': { ar: 'طلب إجازة جديد', en: 'New Leave Request' },
+  'notif.leave.msg': { ar: 'طلب إجازة بانتظار موافقة المشرف من {name}', en: 'Leave request pending supervisor approval from {name}' },
+  'notif.leave.msg_mgr': { ar: 'طلب إجازة بانتظار موافقة المدير من {name}', en: 'Leave request pending manager approval from {name}' },
+  'notif.schedule.new': { ar: 'جدول جديد', en: 'New Schedule' },
+  'notif.schedule.msg': { ar: 'تم {mode} جدول شهر {month}', en: 'Schedule for {month} has been {mode}' },
+  'notif.swap.update': { ar: 'تحديث على طلب التبديل', en: 'Swap Request Update' },
+  'notif.swap.msg': { ar: 'تم {action} طلب التبديل الخاص بك من قبل الزميل.', en: 'Your swap request has been {action} by the colleague.' },
+  'notif.announce.new': { ar: 'إعلان جديد', en: 'New Announcement' },
   
   // --- Penalties ---
   'penalty.title': { ar: 'إدارة الجزاءات', en: 'Penalties Management' },

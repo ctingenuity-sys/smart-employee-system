@@ -110,8 +110,8 @@ const UserIncoming: React.FC = () => {
                     await addDoc(collection(db, 'notifications'), {
                         userId: swapReq.from,
                         departmentId: swapReq.departmentId || null,
-                        title: 'تحديث على طلب التبديل',
-                        message: `تم ${action === 'approved' ? 'الموافقة على' : 'رفض'} طلب التبديل الخاص بك من قبل الزميل.`,
+                        title: 'notif.swap.update',
+                        message: `notif.swap.msg|action:${action === 'approved' ? 'approved' : 'rejected'}`,
                         link: '/user/history',
                         readBy: [],
                         createdAt: Timestamp.now(),
@@ -239,8 +239,8 @@ const UserIncoming: React.FC = () => {
                     await addDoc(collection(db, 'notifications'), {
                         targetRole: 'supervisor',
                         departmentId: req.departmentId || null,
-                        title: 'طلب إجازة جديد',
-                        message: `طلب إجازة بانتظار موافقة المشرف من ${req.fromUser?.name || 'موظف'}`,
+                        title: 'notif.leave.new',
+                        message: `notif.leave.msg|name:${req.fromUser?.name || 'موظف'}`,
                         link: '/user/incoming',
                         readBy: [],
                         createdAt: Timestamp.now(),
@@ -250,8 +250,8 @@ const UserIncoming: React.FC = () => {
                     await addDoc(collection(db, 'notifications'), {
                         targetRole: 'manager',
                         departmentId: req.departmentId || null,
-                        title: 'طلب إجازة جديد',
-                        message: `طلب إجازة بانتظار موافقة المدير من ${req.fromUser?.name || 'موظف'}`,
+                        title: 'notif.leave.new',
+                        message: `notif.leave.msg_mgr|name:${req.fromUser?.name || 'موظف'}`,
                         link: '/user/incoming',
                         readBy: [],
                         createdAt: Timestamp.now(),

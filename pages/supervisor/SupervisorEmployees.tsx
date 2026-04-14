@@ -244,7 +244,7 @@ const SupervisorEmployees: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { role: authRole, user: currentUser } = useAuth();
-    const { departments, selectedDepartmentId } = useDepartment();
+    const { departments, selectedDepartmentId, setSelectedDepartmentId } = useDepartment();
     
     console.log('AuthRole:', authRole, 'UserRole.ADMIN:', UserRole.ADMIN);
     const [users, setUsers] = useState<User[]>([]);
@@ -252,17 +252,23 @@ const SupervisorEmployees: React.FC = () => {
     const isFirstRender = useRef(true);
 
     useEffect(() => {
-        if (isFirstRender.current) {
+        if (location.state?.departmentId && isFirstRender.current) {
             isFirstRender.current = false;
-            if (location.state?.departmentId) return; // Keep the initial state
+            setSelectedDepartmentFilter(location.state.departmentId);
+            if (setSelectedDepartmentId) setSelectedDepartmentId(location.state.departmentId);
+            return;
         }
         
-        if (selectedDepartmentId) {
-            setSelectedDepartmentFilter(selectedDepartmentId);
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
         } else {
-            setSelectedDepartmentFilter('all');
+            if (selectedDepartmentId) {
+                setSelectedDepartmentFilter(selectedDepartmentId);
+            } else {
+                setSelectedDepartmentFilter('all');
+            }
         }
-    }, [selectedDepartmentId]);
+    }, [selectedDepartmentId, location.state]);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortBy, setSortBy] = useState<'name' | 'role' | 'category'>('name');
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
@@ -416,9 +422,14 @@ const SupervisorEmployees: React.FC = () => {
             
             const filtered = merged.filter(u => {
                 if (authRole === UserRole.ADMIN) return true;
-                if (authRole && authRole.toLowerCase() === UserRole.DOCTOR.toLowerCase()) return u.role.toLowerCase() === UserRole.DOCTOR.toLowerCase();
+                
+                const isAuthDoctor = (authRole && authRole.toLowerCase() === UserRole.DOCTOR.toLowerCase()) || (currentUser?.jobCategory && currentUser.jobCategory.toLowerCase() === 'doctor');
+                const isUserDoctor = (u.role && u.role.toLowerCase() === UserRole.DOCTOR.toLowerCase()) || (u.jobCategory && u.jobCategory.toLowerCase() === 'doctor');
+                
+                if (isAuthDoctor) return isUserDoctor;
+                
                 // Other roles: exclude doctors
-                return u.role.toLowerCase() !== UserRole.DOCTOR.toLowerCase();
+                return !isUserDoctor;
             });
             setUsers(filtered);
         }

@@ -112,14 +112,15 @@ const SupervisorDashboard: React.FC = () => {
       const qUsers = query(collection(db, 'users'));
       getDocs(qUsers).then(snap => {
           const fetchedUsers = snap.docs.map(d => ({id: d.id, ...d.data()} as User));
-          let filtered = fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role));
+          let filtered = fetchedUsers;
           
-          if (authRole === UserRole.SUPERVISOR) {
+          if (authRole === UserRole.ADMIN) {
+              // Admin sees all users except other admins (or include all, let's exclude admin)
+              filtered = fetchedUsers.filter(u => u.role !== 'admin');
+          } else if (authRole === UserRole.SUPERVISOR) {
               filtered = filtered.filter(u => u.departmentId === selectedDepartmentId || u.supervisorId === currentAdminId);
           } else if (authRole === UserRole.MANAGER) {
               filtered = filtered.filter(u => u.departmentId === selectedDepartmentId || u.managerId === currentAdminId);
-          } else if (authRole === UserRole.ADMIN && selectedDepartmentId) {
-              filtered = filtered.filter(u => u.departmentId === selectedDepartmentId);
           }
           
           setUsers(filtered);
@@ -133,7 +134,7 @@ const SupervisorDashboard: React.FC = () => {
       let unsubAppt: any;
 
       let qSwaps;
-      if (!selectedDepartmentId) {
+      if (authRole === UserRole.ADMIN) {
           qSwaps = query(collection(db, 'swapRequests'), where('status', '==', 'approvedByUser'));
       } else {
           qSwaps = query(collection(db, 'swapRequests'), where('status', '==', 'approvedByUser'), where('departmentId', '==', selectedDepartmentId));
@@ -143,10 +144,10 @@ const SupervisorDashboard: React.FC = () => {
       const role = localStorage.getItem('role');
       
       let qLeavesSup;
-      if (!selectedDepartmentId) {
+      if (role === 'admin') {
           qLeavesSup = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_supervisor'));
       } else {
-          qLeavesSup = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_supervisor'), where('departmentId', '==', selectedDepartmentId));
+          qLeavesSup = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_supervisor'), where('supervisorId', '==', currentAdminId));
       }
 
       let supCount = 0;
@@ -159,10 +160,10 @@ const SupervisorDashboard: React.FC = () => {
       });
 
       let qLeavesMan;
-      if (!selectedDepartmentId) {
+      if (role === 'admin') {
           qLeavesMan = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_manager'));
       } else {
-          qLeavesMan = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_manager'), where('departmentId', '==', selectedDepartmentId));
+          qLeavesMan = query(collection(db, 'leaveRequests'), where('status', '==', 'pending_manager'), where('managerId', '==', currentAdminId));
       }
       
       unsubLeavesMan = onSnapshot(qLeavesMan, (snap: QuerySnapshot<DocumentData>) => {
@@ -171,7 +172,7 @@ const SupervisorDashboard: React.FC = () => {
       });
 
       let qMarket;
-      if (!selectedDepartmentId) {
+      if (authRole === UserRole.ADMIN) {
           qMarket = query(collection(db, 'openShifts'), where('status', '==', 'claimed'));
       } else {
           qMarket = query(collection(db, 'openShifts'), where('status', '==', 'claimed'), where('departmentId', '==', selectedDepartmentId));
@@ -184,18 +185,20 @@ const SupervisorDashboard: React.FC = () => {
       unsubAppt = onSnapshot(qAppt, (snap: QuerySnapshot<DocumentData>) => setTodayApptCount(snap.size));
 
       // 4. Live Logs (Fetch ALL for today to calculate presence)
-      let qLogs;
-      if (!selectedDepartmentId) {
-          qLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayDate)); 
-      } else {
-          qLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayDate), where('departmentId', '==', selectedDepartmentId));
-      }
+      let qLogs = query(collection(db, 'attendance_logs'), where('date', '==', todayDate)); 
       getDocs(qLogs).then((snap: QuerySnapshot<DocumentData>) => {
           const logs = snap.docs.map(d => d.data() as AttendanceLog);
+          
+          // Filter logs for the feed based on role
+          let filteredLogs = logs;
+          if (authRole !== UserRole.ADMIN) {
+              filteredLogs = logs.filter(log => log.departmentId === selectedDepartmentId);
+          }
+          
           // Sort for the feed
-          const sortedLogs = [...logs].sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+          const sortedLogs = [...filteredLogs].sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
           setTodayLogs(sortedLogs.slice(0, 20)); // Limit feed display
-          setAllTodayLogs(logs); // Keep all for logic
+          setAllTodayLogs(logs); // Keep ALL logs for presence calculation
       });
 
       // 5. Schedules for "Who is on shift" - UPDATED to fetch surrounding months
@@ -211,7 +214,7 @@ const SupervisorDashboard: React.FC = () => {
       const nextMonth = nextMonthDate.toISOString().slice(0, 7);
 
       let qSch;
-      if (!selectedDepartmentId) {
+      if (authRole === UserRole.ADMIN) {
           qSch = query(collection(db, 'schedules'), where('month', 'in', [prevMonth, currentMonth, nextMonth]));
       } else {
           qSch = query(collection(db, 'schedules'), where('month', 'in', [prevMonth, currentMonth, nextMonth]), where('departmentId', '==', selectedDepartmentId));
@@ -519,7 +522,7 @@ const SupervisorDashboard: React.FC = () => {
             
             {/* 1. Hero Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <div className="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-[2rem] p-6 text-white shadow-xl shadow-indigo-200 relative overflow-hidden group hover:scale-[1.02] transition-transform">
+                <div className="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-[2rem] p-6 text-white shadow-xl shadow-indigo-200 relative overflow-hidden group hover:scale-[1.02] transition-transform animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
                     <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full -mr-10 -mt-10 blur-xl"></div>
                     <div className="flex justify-between items-start relative z-10">
                         <div>
@@ -532,7 +535,7 @@ const SupervisorDashboard: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-[2rem] p-6 text-white shadow-xl shadow-orange-200 relative overflow-hidden group hover:scale-[1.02] transition-transform">
+                <div className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-[2rem] p-6 text-white shadow-xl shadow-orange-200 relative overflow-hidden group hover:scale-[1.02] transition-transform animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
                     <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full -mr-10 -mt-10 blur-xl"></div>
                     <div className="flex justify-between items-start relative z-10">
                         <div>
@@ -545,7 +548,7 @@ const SupervisorDashboard: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-cyan-500 to-blue-500 rounded-[2rem] p-6 text-white shadow-xl shadow-cyan-200 relative overflow-hidden group hover:scale-[1.02] transition-transform">
+                <div className="bg-gradient-to-br from-cyan-500 to-blue-500 rounded-[2rem] p-6 text-white shadow-xl shadow-cyan-200 relative overflow-hidden group hover:scale-[1.02] transition-transform animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
                     <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full -mr-10 -mt-10 blur-xl"></div>
                     <div className="flex justify-between items-start relative z-10">
                         <div>
@@ -558,7 +561,7 @@ const SupervisorDashboard: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-[2rem] p-6 text-white shadow-xl shadow-emerald-200 relative overflow-hidden group hover:scale-[1.02] transition-transform">
+                <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-[2rem] p-6 text-white shadow-xl shadow-emerald-200 relative overflow-hidden group hover:scale-[1.02] transition-transform animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
                     <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full -mr-10 -mt-10 blur-xl"></div>
                     <div className="flex justify-between items-start relative z-10">
                         <div>
@@ -574,7 +577,7 @@ const SupervisorDashboard: React.FC = () => {
             
             {/* Safety & Facility Management Section (NEW) */}
             {safetyItems.length > 0 && (
-            <div className="mb-8">
+            <div className="mb-8 animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
                  <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
                     <i className="fas fa-hard-hat text-orange-500"></i> Facility & Safety Management
                  </h3>
@@ -600,7 +603,7 @@ const SupervisorDashboard: React.FC = () => {
             
             {/* Logbooks Shortcut Section */}
             {logbookItems.length > 0 && (
-            <div className="mb-8">
+            <div className="mb-8 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
                  <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
                     <i className="fas fa-book-medical text-indigo-500"></i> Department Logbooks
                  </h3>
@@ -624,11 +627,12 @@ const SupervisorDashboard: React.FC = () => {
 
             {/* 2. Navigation Menu */}
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-4 mb-8">
-                {menuItems.map((item) => (
+                {menuItems.map((item, index) => (
                     <button
                         key={item.id}
                         onClick={() => navigate(item.path)}
-                        className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center gap-3 transition-all hover:shadow-md hover:-translate-y-1 group relative overflow-hidden"
+                        className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center gap-3 transition-all hover:shadow-md hover:-translate-y-1 group relative overflow-hidden animate-fade-in-up"
+                        style={{ animationDelay: `${0.1 * (index % 4)}s` }}
                     >
                         <div className={`w-14 h-14 ${item.color} rounded-xl flex items-center justify-center text-white text-2xl shadow-lg group-hover:scale-110 transition-transform`}>
                             <i className={`fas ${item.icon}`}></i>
@@ -644,7 +648,7 @@ const SupervisorDashboard: React.FC = () => {
             </div>
 
             {/* 3. Quick Action & Live Feed */}
-            <div className="grid lg:grid-cols-3 gap-8">
+            <div className="grid lg:grid-cols-3 gap-8 animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
                 {/* Quick Action */}
                 <div className="lg:col-span-2 bg-white rounded-[2rem] shadow-sm border border-slate-200 p-8 relative overflow-hidden">
                     <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2 relative z-10">
@@ -738,7 +742,7 @@ const SupervisorDashboard: React.FC = () => {
 
             {/* Expiry Alerts */}
             {alerts.length > 0 && (
-                <div className="mt-8 bg-white rounded-[2rem] shadow-sm border border-slate-200 p-8 relative overflow-hidden">
+                <div className="mt-8 bg-white rounded-[2rem] shadow-sm border border-slate-200 p-8 relative overflow-hidden animate-fade-in-up" style={{ animationDelay: '0.5s' }}>
                     <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2 relative z-10">
                         <i className="fas fa-exclamation-triangle text-red-500"></i> Expiry Alerts
                         <span className="bg-red-100 text-red-600 text-xs px-2 py-1 rounded-full">{alerts.length}</span>
@@ -865,8 +869,6 @@ const SupervisorDashboard: React.FC = () => {
                 </div>
             </div>
 
-        </div>
-
         {/* Modal: Feedback (Kudos / Flag) */}
         <Modal isOpen={feedbackModal.isOpen} onClose={() => setFeedbackModal({...feedbackModal, isOpen: false})} title={feedbackModal.type === 'kudos' ? 'Send Appreciation' : 'Issue Flag'}>
             <div className="space-y-4">
@@ -923,7 +925,7 @@ const SupervisorDashboard: React.FC = () => {
                 </button>
             </div>
         </Modal>
-
+        </div>
     </div>
   );
 };

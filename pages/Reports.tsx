@@ -12,7 +12,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useDepartment } from '../contexts/DepartmentContext';
 import { UserRole } from '../types';
-import { useFilteredUsers } from '..//hooks/useFilteredUsers';
+import { useFilteredUsers } from '../hooks/useFilteredUsers';
 import { appointmentsDb } from '../firebaseAppointments';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
@@ -48,9 +48,14 @@ const Reports: React.FC = () => {
     // --- State ---
     const { t, dir } = useLanguage();
     const { role: authRole, user: currentUser } = useAuth();
-    const { selectedDepartmentId } = useDepartment();
+    const { departments, selectedDepartmentId: contextDeptId, setSelectedDepartmentId } = useDepartment();
+    const [selectedDept, setSelectedDept] = useState<string | null>(contextDeptId);
     const [allEmployees, setAllEmployees] = useState<User[]>([]);
-    const employees = useFilteredUsers(allEmployees);
+    const baseEmployees = useFilteredUsers(allEmployees);
+    const employees = useMemo(() => {
+        if (!selectedDept) return baseEmployees;
+        return baseEmployees.filter(emp => emp.departmentId === selectedDept);
+    }, [baseEmployees, selectedDept]);
     const [actions, setActions] = useState<ActionLog[]>([]);
     const [swaps, setSwaps] = useState<any[]>([]);
     const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -376,7 +381,10 @@ const Reports: React.FC = () => {
         const maxScore = months * POINTS_PER_MONTH;
         const { start, end } = getDateRange();
         
-        return employees.map(emp => {
+        // Filter out doctors
+        const nonDoctorEmployees = employees.filter(emp => emp.role !== 'doctor' && emp.jobCategory !== 'doctor');
+
+        return nonDoctorEmployees.map(emp => {
             const empActions = baseFilteredActions.filter(act => act.employeeId === emp.id);
             
             // Calculate next leave date
@@ -442,8 +450,20 @@ const Reports: React.FC = () => {
             // Calculate productivity (exams) for this employee
             const empExams = productivityData.filter(p => p.performedByName === emp.name || p.performedByName === emp.email);
 
-            const finalScore = Math.min(maxScore + 100, Math.max(0, maxScore - totalDeductions)); 
-            const percentage = Math.round((finalScore / maxScore) * 100);
+            let finalScore = 0;
+            let percentage = 0;
+            const isDoctor = emp.role === 'doctor' || emp.jobCategory === 'doctor';
+
+            if (isDoctor) {
+                // Doctor Evaluation Logic: Base 80 + Productivity - Deductions
+                const productivityBonus = empExams.length * 2; // 2 points per exam
+                finalScore = Math.min(maxScore, Math.max(0, 80 + productivityBonus - totalDeductions));
+                percentage = Math.round((finalScore / maxScore) * 100);
+            } else {
+                // Standard Employee Logic
+                finalScore = Math.min(maxScore + 100, Math.max(0, maxScore - totalDeductions)); 
+                percentage = Math.round((finalScore / maxScore) * 100);
+            }
 
             let grade = t('grade.excellent');
             let color = 'text-emerald-500 stroke-emerald-500';
@@ -482,11 +502,7 @@ const Reports: React.FC = () => {
     }, [baseFilteredActions, actions, employees, swaps, productivityData, filterMonth, filterYear, filterFromDate, filterToDate, t, attendanceLogs, includeLateness]);
 
     const chartEvaluations = useMemo(() => {
-        return allEvaluations.filter(ev => {
-            // Exclude doctors who don't have any attendance logs (fingerprint)
-            if (ev.employee.role === 'doctor' && !ev.hasAttendance) return false;
-            return true;
-        });
+        return allEvaluations;
     }, [allEvaluations]);
 
     const needsImprovementList = useMemo(() => {
@@ -662,6 +678,19 @@ const Reports: React.FC = () => {
                         >
                             Completed Exams
                         </button>
+                    </div>
+
+                    {/* Department Filter (Global) */}
+                    <div className="flex-1 min-w-[200px]">
+                        <label className="block text-xs font-bold text-gray-400 mb-1">القسم</label>
+                        <select 
+                            className="w-full bg-slate-50 border-none rounded-lg font-bold text-slate-700 focus:ring-2 focus:ring-blue-200"
+                            value={selectedDept || ''}
+                            onChange={e => setSelectedDept(e.target.value || null)}
+                        >
+                            <option value="">جميع الأقسام</option>
+                            {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                        </select>
                     </div>
 
                     {activeTab === 'attendance' && (
@@ -916,41 +945,50 @@ const Reports: React.FC = () => {
                                         <p className="text-xs text-slate-500 mt-1">ملخص أداء جميع الموظفين للفترة المحددة</p>
                                     </div>
                                     <div className="p-0 overflow-x-auto">
-                                        <table className="w-full text-sm text-right">
-                                            <thead className="bg-white text-slate-500 font-bold text-xs uppercase border-b border-slate-100">
-                                                <tr>
-                                                    <th className="p-4">الموظف</th>
-                                                    <th className="p-4 text-center">التقييم</th>
-                                                    <th className="p-4 text-center">الخصم</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-50">
-                                                {allEvaluations.map((ev, i) => (
-                                                    <tr key={ev.employee.id} className="hover:bg-slate-50 cursor-pointer transition-colors" onClick={() => setFilterEmp(ev.employee.id)}>
-                                                        <td className="p-4">
-                                                            <div className="font-bold text-slate-800">{ev.employee.name || ev.employee.email}</div>
-                                                            <div className="text-[10px] text-slate-400 flex gap-2 mt-1">
-                                                                <span title="تأخير" className={ev.stats.lates > 0 ? 'text-orange-500' : ''}><i className="fas fa-clock"></i> {ev.stats.lates}</span>
-                                                                <span title="غياب" className={ev.stats.absences > 0 ? 'text-red-500' : ''}><i className="fas fa-user-times"></i> {ev.stats.absences}</span>
-                                                                <span title="إجازات مرضية" className={ev.stats.sickLeaves > 0 ? 'text-blue-500' : ''}><i className="fas fa-procedures"></i> {ev.stats.sickLeaves}</span>
-                                                                <span title="إجازات سنوية" className={ev.stats.annualLeaveDays > 0 ? 'text-purple-500' : ''}><i className="fas fa-plane"></i> {ev.stats.annualLeaveDays}</span>
-                                                                <span title="تبديلات" className={ev.stats.swapCount > 0 ? 'text-indigo-500' : ''}><i className="fas fa-exchange-alt"></i> {ev.stats.swapCount}</span>
-                                                                <span title="حالات منجزة" className={ev.stats.examCount > 0 ? 'text-emerald-500' : ''}><i className="fas fa-check-circle"></i> {ev.stats.examCount}</span>
-                                                            </div>
-                                                        </td>
-                                                        <td className="p-4 text-center">
-                                                            <div className={`text-lg font-black ${ev.color.split(' ')[0]}`}>{ev.percentage}%</div>
-                                                            <div className="text-[10px] font-bold text-slate-400 uppercase">{ev.grade}</div>
-                                                        </td>
-                                                        <td className="p-4 text-center">
-                                                            <span className="bg-red-50 text-red-600 px-2 py-1 rounded text-xs font-bold border border-red-100">
-                                                                -{ev.totalDeductions}
-                                                            </span>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
+                                        {departments.filter(d => !selectedDept || d.id === selectedDept).map(dept => {
+                                            const deptEvals = allEvaluations.filter(ev => ev.employee.departmentId === dept.id);
+                                            if (deptEvals.length === 0) return null;
+                                            return (
+                                                <div key={dept.id} className="mb-6">
+                                                    <h3 className="font-bold text-slate-700 p-4 bg-slate-100">{dept.name}</h3>
+                                                    <table className="w-full text-sm text-right">
+                                                        <thead className="bg-white text-slate-500 font-bold text-xs uppercase border-b border-slate-100">
+                                                            <tr>
+                                                                <th className="p-4">الموظف</th>
+                                                                <th className="p-4 text-center">التقييم</th>
+                                                                <th className="p-4 text-center">الخصم</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-50">
+                                                            {deptEvals.map((ev, i) => (
+                                                                <tr key={ev.employee.id} className="hover:bg-slate-50 cursor-pointer transition-colors" onClick={() => setFilterEmp(ev.employee.id)}>
+                                                                    <td className="p-4">
+                                                                        <div className="font-bold text-slate-800">{ev.employee.name || ev.employee.email}</div>
+                                                                        <div className="text-[10px] text-slate-400 flex gap-2 mt-1">
+                                                                            <span title="تأخير" className={ev.stats.lates > 0 ? 'text-orange-500' : ''}><i className="fas fa-clock"></i> {ev.stats.lates}</span>
+                                                                            <span title="غياب" className={ev.stats.absences > 0 ? 'text-red-500' : ''}><i className="fas fa-user-times"></i> {ev.stats.absences}</span>
+                                                                            <span title="إجازات مرضية" className={ev.stats.sickLeaves > 0 ? 'text-blue-500' : ''}><i className="fas fa-procedures"></i> {ev.stats.sickLeaves}</span>
+                                                                            <span title="إجازات سنوية" className={ev.stats.annualLeaveDays > 0 ? 'text-purple-500' : ''}><i className="fas fa-plane"></i> {ev.stats.annualLeaveDays}</span>
+                                                                            <span title="تبديلات" className={ev.stats.swapCount > 0 ? 'text-indigo-500' : ''}><i className="fas fa-exchange-alt"></i> {ev.stats.swapCount}</span>
+                                                                            <span title="حالات منجزة" className={ev.stats.examCount > 0 ? 'text-emerald-500' : ''}><i className="fas fa-check-circle"></i> {ev.stats.examCount}</span>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="p-4 text-center">
+                                                                        <div className={`text-lg font-black ${ev.color.split(' ')[0]}`}>{ev.percentage}%</div>
+                                                                        <div className="text-[10px] font-bold text-slate-400 uppercase">{ev.grade}</div>
+                                                                    </td>
+                                                                    <td className="p-4 text-center">
+                                                                        <span className="bg-red-50 text-red-600 px-2 py-1 rounded text-xs font-bold border border-red-100">
+                                                                            -{ev.totalDeductions}
+                                                                        </span>
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             )}

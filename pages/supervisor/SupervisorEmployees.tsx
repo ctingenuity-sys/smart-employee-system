@@ -244,7 +244,7 @@ const SupervisorEmployees: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { role: authRole, user: currentUser } = useAuth();
-    const { departments, selectedDepartmentId, setSelectedDepartmentId } = useDepartment();
+    const { departments, selectedDepartmentId } = useDepartment();
     
     console.log('AuthRole:', authRole, 'UserRole.ADMIN:', UserRole.ADMIN);
     const [users, setUsers] = useState<User[]>([]);
@@ -252,23 +252,17 @@ const SupervisorEmployees: React.FC = () => {
     const isFirstRender = useRef(true);
 
     useEffect(() => {
-        if (location.state?.departmentId && isFirstRender.current) {
-            isFirstRender.current = false;
-            setSelectedDepartmentFilter(location.state.departmentId);
-            if (setSelectedDepartmentId) setSelectedDepartmentId(location.state.departmentId);
-            return;
-        }
-        
         if (isFirstRender.current) {
             isFirstRender.current = false;
-        } else {
-            if (selectedDepartmentId) {
-                setSelectedDepartmentFilter(selectedDepartmentId);
-            } else {
-                setSelectedDepartmentFilter('all');
-            }
+            if (location.state?.departmentId) return; // Keep the initial state
         }
-    }, [selectedDepartmentId, location.state]);
+        
+        if (selectedDepartmentId) {
+            setSelectedDepartmentFilter(selectedDepartmentId);
+        } else {
+            setSelectedDepartmentFilter('all');
+        }
+    }, [selectedDepartmentId]);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortBy, setSortBy] = useState<'name' | 'role' | 'category'>('name');
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
@@ -419,21 +413,9 @@ const SupervisorEmployees: React.FC = () => {
                 ...u, 
                 ...(certData[u.id] || {}) 
             }));
-            
-            const filtered = merged.filter(u => {
-                if (authRole === UserRole.ADMIN) return true;
-                
-                const isAuthDoctor = (authRole && authRole.toLowerCase() === UserRole.DOCTOR.toLowerCase()) || (currentUser?.jobCategory && currentUser.jobCategory.toLowerCase() === 'doctor');
-                const isUserDoctor = (u.role && u.role.toLowerCase() === UserRole.DOCTOR.toLowerCase()) || (u.jobCategory && u.jobCategory.toLowerCase() === 'doctor');
-                
-                if (isAuthDoctor) return isUserDoctor;
-                
-                // Other roles: exclude doctors
-                return !isUserDoctor;
-            });
-            setUsers(filtered);
+            setUsers(merged);
         }
-    }, [mainUsers, certData, authRole]);
+    }, [mainUsers, certData]);
         
     useEffect(() => {
         if (currentAdminId) {

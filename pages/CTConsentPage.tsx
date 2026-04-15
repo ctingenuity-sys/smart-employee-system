@@ -251,7 +251,7 @@ const CTConsentPage: React.FC = () => {
 
                     <div style="text-align: center; font-weight: bold; font-size: 14px; margin-bottom: 10px;">Clinical Questions</div>
                     <div style="font-size: 12px; margin-bottom: 20px;">
-                        ${renderPrintQuestion('Previous contrast CT scan?', clinicalAnswers.prevContrast)}
+                        ${renderPrintQuestion('Previous contrast scan?', clinicalAnswers.prevContrast)}
                         ${clinicalAnswers.prevContrast === 'yes' ? renderPrintQuestion('Contrast allergy?', clinicalAnswers.contrastAllergy) : ''}
                         ${renderPrintQuestion('Any allergies?', clinicalAnswers.allergy)}
                         ${renderPrintQuestion('Kidney disease or failure?', clinicalAnswers.kidneyDisease)}
@@ -428,7 +428,7 @@ const CTConsentPage: React.FC = () => {
 
                     <!-- Questions -->
                     <div class="text-xs space-y-1 mb-4 shrink-0">
-                        ${renderPrintQuestion('Previous contrast CT scan?', clinicalAnswers.prevContrast)}
+                        ${renderPrintQuestion('Previous contrast scan?', clinicalAnswers.prevContrast)}
                         ${clinicalAnswers.prevContrast === 'yes' ? renderPrintQuestion('Contrast allergy?', clinicalAnswers.contrastAllergy) : ''}
                         ${renderPrintQuestion('Any allergies?', clinicalAnswers.allergy)}
                         ${renderPrintQuestion('Kidney disease or failure?', clinicalAnswers.kidneyDisease)}
@@ -659,7 +659,7 @@ const CTConsentPage: React.FC = () => {
                         </h2>
                         <div className="space-y-3 mb-8 text-sm">
                             <div className="flex justify-between items-center border-b border-dashed border-slate-200 pb-2">
-                                <span className="font-bold">{t('خضعت سابقًا لأشعة بصبغة؟', 'Previous contrast CT scan?')}</span>
+                                <span className="font-bold">{t('خضعت سابقًا لأشعة بصبغة؟', 'Previous contrast scan?')}</span>
                                 <div className="flex gap-4">
                                     <label className="flex items-center gap-1"><input type="radio" name="prevContrast" checked={clinicalAnswers.prevContrast === 'yes'} onChange={() => handleAnswerChange('prevContrast', 'yes')} /> {t('نعم', 'Yes')}</label>
                                     <label className="flex items-center gap-1"><input type="radio" name="prevContrast" checked={clinicalAnswers.prevContrast === 'no'} onChange={() => handleAnswerChange('prevContrast', 'no')} /> {t('لا', 'No')}</label>

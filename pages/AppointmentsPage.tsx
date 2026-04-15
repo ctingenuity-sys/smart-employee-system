@@ -812,7 +812,6 @@ const AppointmentsPage: React.FC = () => {
                         console.log(`Loaded ${parsed.length} records from local cache (${activeView})`);
                         setAppointments(parsed);
                         setLoading(false);
-                        // DO NOT return here! We still want to listen for live updates.
                     }
                 }
             } catch (e) {
@@ -823,53 +822,76 @@ const AppointmentsPage: React.FC = () => {
             setToast({ msg: 'جاري تحديث البيانات...', type: 'info' });
         }
 
-        // 2. Fetch from Firestore and listen for live updates
-        const collectionRef = collection(appointmentsDb, 'appointments');
-        
-        // Basic Constraints
-        const constraints: any[] = [];
+        let unsubscribe: (() => void) | null = null;
 
-        // Status Filter
-        constraints.push(where('status', '==', activeView));
+        const startListening = () => {
+            if (unsubscribe) return;
 
-        // Date Filter
-        if (activeView === 'scheduled') {
-            if (enableDateFilter) {
-                constraints.push(where('scheduledDate', '==', targetDate));
-            } else {
-                constraints.push(where('scheduledDate', '>=', today));
+            // 2. Fetch from Firestore and listen for live updates
+            const collectionRef = collection(appointmentsDb, 'appointments');
+            
+            // Basic Constraints
+            const constraints: any[] = [];
+            constraints.push(where('status', '==', activeView));
+            if (activeView === 'scheduled') {
+                if (enableDateFilter) {
+                    constraints.push(where('scheduledDate', '==', targetDate));
+                } else {
+                    constraints.push(where('scheduledDate', '>=', today));
+                }
+            } else if (activeView === 'done' || activeView === 'processing' || activeView === 'pending') {
+                constraints.push(where('date', '==', targetDate));
             }
-        } else if (activeView === 'done' || activeView === 'processing' || activeView === 'pending') {
-            // For pending, we also filter by date to keep cache manageable and relevant
-            constraints.push(where('date', '==', targetDate));
+
+            const q = query(collectionRef, ...constraints);
+
+            unsubscribe = onSnapshot(q, (snapshot: any) => {
+                const fetchedApps = snapshot.docs.map((doc: any) => {
+                    const data = doc.data();
+                    return { id: doc.id, ...data, time: data.time || '00:00' } as ExtendedAppointment;
+                });
+                
+                setAppointments(fetchedApps);
+                setLoading(false);
+                
+                try {
+                    localStorage.setItem(cacheKey, JSON.stringify(fetchedApps));
+                } catch (e) {
+                    console.warn("Cache write error", e);
+                }
+            }, (error: any) => {
+                console.error("Firebase Listen Error:", error);
+                setToast({msg: "حدث خطأ أثناء جلب البيانات المباشرة", type: 'error'});
+                setLoading(false);
+            });
+        };
+
+        const stopListening = () => {
+            if (unsubscribe) {
+                unsubscribe();
+                unsubscribe = null;
+            }
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.hidden) {
+                stopListening();
+            } else {
+                startListening();
+            }
+        };
+
+        // Initial start
+        if (!document.hidden) {
+            startListening();
         }
 
-        // Create Query
-        const q = query(collectionRef, ...constraints);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
 
-        const unsubscribe = onSnapshot(q, (snapshot: any) => {
-            const fetchedApps = snapshot.docs.map((doc: any) => {
-                const data = doc.data();
-                return { id: doc.id, ...data, time: data.time || '00:00' } as ExtendedAppointment;
-            });
-            
-            setAppointments(fetchedApps);
-            setLoading(false);
-            
-            // 3. Save to Cache
-            try {
-                localStorage.setItem(cacheKey, JSON.stringify(fetchedApps));
-            } catch (e) {
-                console.warn("Cache write error", e);
-            }
-        }, (error: any) => {
-            console.error("Firebase Listen Error:", error);
-            setToast({msg: "حدث خطأ أثناء جلب البيانات المباشرة", type: 'error'});
-            setLoading(false);
-        });
-
-        return () => unsubscribe();
-
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            stopListening();
+        };
     }, [selectedDate, activeView, enableDateFilter, isArchiveView, refreshTrigger]);
     
     // --- Client Side Filtering (Fallback/Refinement) ---
@@ -1416,9 +1438,11 @@ const AppointmentsPage: React.FC = () => {
             const updateData = {
                 status: 'scheduled',
                 scheduledDate: bookingDate,
+                date: bookingDate, // Ensure the appointment moves to the correct date tab
                 time: bookingTime || '08:00',
                 roomNumber: bookingRoom,
                 preparation: bookingPrep,
+                createdByName: currentUserName, // Update the createdByName to the person who booked it
                 notes: `${bookingAppt.notes || ''}\n📅 Booked: ${bookingDate} ${bookingTime}`
             };
 
@@ -2212,7 +2236,7 @@ const AppointmentsPage: React.FC = () => {
                                         )}
                                         {appt.nationality && <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-100">{appt.nationality}</span>}
                                         {appt.refNo && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">Inv: {appt.refNo}</span>}
-                                        {appt.createdByName && <span className="text-[10px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded border border-teal-100"><i className="fas fa-user-edit mr-1"></i>{appt.createdByName}</span>}
+                                        {activeView === 'scheduled' && appt.createdByName && <span className="text-[10px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded border border-teal-100"><i className="fas fa-user-edit mr-1"></i>{appt.createdByName}</span>}
                                     </div>
 
                                     <div className="mb-3 bg-slate-50 rounded-lg p-2 border border-slate-100 min-h-[40px]">

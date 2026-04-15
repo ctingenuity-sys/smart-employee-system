@@ -41,6 +41,7 @@ const DepartmentBookings: React.FC = () => {
     const [patientName, setPatientName] = useState('');
     const [fileNumber, setFileNumber] = useState('');
     const [phone, setPhone] = useState('');
+    const [gender, setGender] = useState('');
     const [notes, setNotes] = useState('');
     const [isBooking, setIsBooking] = useState(false);
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
@@ -157,6 +158,7 @@ const DepartmentBookings: React.FC = () => {
                     patientName,
                     fileNumber,
                     phone,
+                    gender,
                     notes,
                     updatedAt: new Date().toISOString(),
                     updatedBy: auth.currentUser?.uid || 'system'
@@ -169,6 +171,7 @@ const DepartmentBookings: React.FC = () => {
                     patientName,
                     fileNumber,
                     phone,
+                    gender,
                     notes,
                     examType: selectedModality,
                     scheduledDate: selectedDate, 
@@ -187,10 +190,11 @@ const DepartmentBookings: React.FC = () => {
             // Refresh booked slots locally
             setBookedSlots(prev => [...prev, selectedSlot]);
             
-            // Reset Form (handled by useEffect on modal close, but good to be explicit)
+            // Reset Form
             setPatientName('');
             setFileNumber('');
             setPhone('');
+            setGender('');
             setNotes('');
             setSelectedPendingId(null);
         } catch (e) {
@@ -373,7 +377,7 @@ const DepartmentBookings: React.FC = () => {
                                 onChange={e => setPatientName(e.target.value)}
                             />
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-3 gap-3">
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">File Number</label>
                                 <input 
@@ -382,6 +386,18 @@ const DepartmentBookings: React.FC = () => {
                                     value={fileNumber}
                                     onChange={e => setFileNumber(e.target.value)}
                                 />
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">{t('user.gender')}</label>
+                                <select 
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                                    value={gender}
+                                    onChange={e => setGender(e.target.value)}
+                                >
+                                    <option value="">Select</option>
+                                    <option value="male">Male</option>
+                                    <option value="female">Female</option>
+                                </select>
                             </div>
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Phone (Optional)</label>

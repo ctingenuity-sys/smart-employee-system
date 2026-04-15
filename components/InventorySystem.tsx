@@ -3,7 +3,7 @@ import { inventoryDb, inventoryStorage } from '../firebaseInventory';
 // @ts-ignore
 import { collection, addDoc, doc, updateDoc, onSnapshot, Timestamp, deleteDoc, writeBatch, getDocs, query, where } from 'firebase/firestore';
 // @ts-ignore
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { Material, Invoice, MaterialUsage, ForecastResult } from '../types';
 import Loading from '../components/Loading';
 import Toast from '../components/Toast';
@@ -11,6 +11,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useDepartment } from '../contexts/DepartmentContext';
 import { PrintHeader, PrintFooter } from './PrintLayout';
 import { GoogleGenAI } from "@google/genai";
+import imageCompression from 'browser-image-compression';
 
 interface InventorySystemProps {
     userRole: string;
@@ -236,6 +237,37 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         }
     };
 
+    const handleDeleteOldInvoices = async () => {
+        if (!window.confirm('Are you sure you want to delete invoices older than one year? This will also delete the associated images.')) return;
+        
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+        
+        const qOld = query(collection(inventoryDb, 'invoices'), where('date', '<', Timestamp.fromDate(oneYearAgo)));
+        const snap = await getDocs(qOld);
+        
+        const batch = writeBatch(inventoryDb);
+        
+        for (const d of snap.docs) {
+            const data = d.data() as Invoice;
+            if (data.imageUrl) {
+                try {
+                    // Extract path from URL if needed or just use the URL directly if storage supports it
+                    // Assuming imageUrl is a direct download URL, we need to get the reference
+                    const imageRef = ref(inventoryStorage, data.imageUrl);
+                    await deleteObject(imageRef);
+                } catch (e) {
+                    console.error("Error deleting image:", e);
+                }
+            }
+            batch.delete(d.ref);
+        }
+        
+        await batch.commit();
+        
+        setToast({ msg: 'Old invoices and images deleted', type: 'success' });
+    };
+
     const handleIncomingSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!incMaterial || !incQuantity) {
@@ -250,8 +282,15 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
             let imageUrl = null;
             if (incImage) {
-                const storageRef = ref(inventoryStorage, `invoices/${Date.now()}_${incImage.name}`);
-                await uploadBytes(storageRef, incImage);
+                const options = {
+                    maxSizeMB: 0.5,
+                    maxWidthOrHeight: 1024,
+                    useWebWorker: true
+                };
+                const compressedFile = await imageCompression(incImage, options);
+                
+                const storageRef = ref(inventoryStorage, `invoices/${Date.now()}_${compressedFile.name}`);
+                await uploadBytes(storageRef, compressedFile);
                 imageUrl = await getDownloadURL(storageRef);
             }
 
@@ -934,13 +973,19 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                             <i className="fas fa-history text-slate-400"></i> {t('inv.recent')}
                                             <span className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded-full">{displayedInvoices.length}</span>
                                         </h3>
-                                        {/* INCOMING FILTER */}
-                                        <input 
-                                            type="month" 
-                                            className="bg-white border border-slate-200 rounded-lg p-2 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-emerald-200"
-                                            value={incomingViewMonth}
-                                            onChange={e => setIncomingViewMonth(e.target.value)}
-                                        />
+                                        <div className="flex gap-2">
+                                            {isAdmin && (
+                                                <button onClick={handleDeleteOldInvoices} className="text-xs bg-red-50 text-red-600 px-3 py-2 rounded-lg font-bold hover:bg-red-100">
+                                                    <i className="fas fa-trash mr-1"></i> Delete Old (&gt;1yr)
+                                                </button>
+                                            )}
+                                            <input 
+                                                type="month" 
+                                                className="bg-white border border-slate-200 rounded-lg p-2 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-emerald-200"
+                                                value={incomingViewMonth}
+                                                onChange={e => setIncomingViewMonth(e.target.value)}
+                                            />
+                                        </div>
                                     </div>
                                     
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">

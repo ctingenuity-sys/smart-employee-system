@@ -98,9 +98,9 @@ const ExceptionScheduleView: React.FC<ExceptionScheduleViewProps> = ({
                  
                  // Reset data to single row with new columns structure
                  newException.doctorData = [{
+                     ...tpl.doctorData[0], // Copy first row data as starting point
                      id: `doc_ex_${Date.now()}`,
-                     dateRange: activeException.date,
-                     ...tpl.doctorData[0] // Copy first row data as starting point
+                     dateRange: activeException.date
                  }];
              }
         }

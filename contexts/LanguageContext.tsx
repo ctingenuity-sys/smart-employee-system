@@ -706,6 +706,7 @@ const translations: Record<string, { ar: string; en: string }> = {
   'user.dashboard.toast.geo.success': { ar: 'تم توليد كود الموقع بنجاح', en: 'Location code generated successfully' },
   'user.dashboard.toast.geo.error': { ar: 'فشل جلب الموقع، تأكد من تفعيل GPS', en: 'Failed to get location, ensure GPS is enabled' },
   'user.dashboard.toast.penalty.success': { ar: 'تم تحديث حالة الجزاء بنجاح', en: 'Penalty status updated successfully' },
+  'user.gender': { ar: 'الجنس', en: 'Gender' },
 };
 
 export const LanguageContext = createContext<LanguageContextType>({

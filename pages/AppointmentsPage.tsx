@@ -6,7 +6,7 @@ import { appointmentsDb } from '../firebaseAppointments';
 import { 
     doc, getDoc, setDoc, updateDoc, deleteDoc, 
     collection, query, where, getDocs, writeBatch, 
-    Timestamp, orderBy, limit, runTransaction, addDoc, getCountFromServer 
+    Timestamp, orderBy, limit, runTransaction, addDoc, getCountFromServer, onSnapshot 
 } from 'firebase/firestore';
 import { Appointment } from '../types';
 import Loading from '../components/Loading';
@@ -600,8 +600,8 @@ const AppointmentsPage: React.FC = () => {
                             refNo: group.ref,
                             date: group.date,
                             time: group.time,
-                            createdBy: 'Bridge',
-                            createdByName: 'System',
+                            createdBy: currentUserId || 'Bridge',
+                            createdByName: currentUserName || 'System',
                             status: 'pending',
                             createdAt: new Date().toISOString(),
                             isLocal: true // ALWAYS LOCAL for bridge data
@@ -629,8 +629,8 @@ const AppointmentsPage: React.FC = () => {
                         refNo: refNo,
                         date: date,
                         time: time,
-                        createdBy: 'Bridge',
-                        createdByName: 'System',
+                        createdBy: currentUserId || 'Bridge',
+                        createdByName: currentUserName || 'System',
                         status: 'pending',
                         createdAt: new Date().toISOString(),
                         isLocal: true // ALWAYS LOCAL for bridge data
@@ -794,85 +794,81 @@ const AppointmentsPage: React.FC = () => {
 
         setLoading(true);
 
-        const fetchAndSubscribe = async () => {
-            const today = getLocalToday();
-            const targetDate = selectedDate || today;
-            const cacheKey = `appt_cache_${activeView}_${targetDate}`;
-            
-            // Check if this is a manual refresh
-            const isManualRefresh = refreshTrigger !== lastRefreshTrigger.current;
-            lastRefreshTrigger.current = refreshTrigger;
+        const today = getLocalToday();
+        const targetDate = selectedDate || today;
+        const cacheKey = `appt_cache_${activeView}_${targetDate}`;
+        
+        // Check if this is a manual refresh
+        const isManualRefresh = refreshTrigger !== lastRefreshTrigger.current;
+        lastRefreshTrigger.current = refreshTrigger;
 
-            // 1. Try Local Cache First (Only if NOT a manual refresh)
-            if (!isManualRefresh) {
-                try {
-                    const cachedData = localStorage.getItem(cacheKey);
-                    if (cachedData) {
-                        const parsed = JSON.parse(cachedData);
-                        if (Array.isArray(parsed) && parsed.length > 0) {
-                            console.log(`Loaded ${parsed.length} records from local cache (${activeView})`);
-                            setAppointments(parsed);
-                            setLoading(false);
-                            return; 
-                        }
-                    }
-                } catch (e) {
-                    console.warn("Cache read error", e);
-                }
-            } else {
-                console.log("Manual Refresh: Bypassing Cache");
-                setToast({ msg: 'جاري تحديث البيانات...', type: 'info' });
-            }
-
-            // 2. If No Cache or Manual Refresh, Fetch from Firestore
+        // 1. Try Local Cache First (Only if NOT a manual refresh)
+        if (!isManualRefresh) {
             try {
-                const collectionRef = collection(appointmentsDb, 'appointments');
-                
-                // Basic Constraints
-                const constraints: any[] = [];
-
-                // Status Filter
-                constraints.push(where('status', '==', activeView));
-
-                // Date Filter
-                if (activeView === 'scheduled') {
-                    if (enableDateFilter) {
-                        constraints.push(where('scheduledDate', '==', targetDate));
-                    } else {
-                        constraints.push(where('scheduledDate', '>=', today));
+                const cachedData = localStorage.getItem(cacheKey);
+                if (cachedData) {
+                    const parsed = JSON.parse(cachedData);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        console.log(`Loaded ${parsed.length} records from local cache (${activeView})`);
+                        setAppointments(parsed);
+                        setLoading(false);
+                        // DO NOT return here! We still want to listen for live updates.
                     }
-                } else if (activeView === 'done' || activeView === 'processing' || activeView === 'pending') {
-                    // For pending, we also filter by date to keep cache manageable and relevant
-                    constraints.push(where('date', '==', targetDate));
                 }
-
-                // Create Query
-                const q = query(collectionRef, ...constraints);
-
-                const snapshot = await getDocs(q);
-                const fetchedApps = snapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return { id: doc.id, ...data, time: data.time || '00:00' } as ExtendedAppointment;
-                });
-                
-                setAppointments(fetchedApps);
-                
-                // 3. Save to Cache
-                try {
-                    localStorage.setItem(cacheKey, JSON.stringify(fetchedApps));
-                } catch (e) {
-                    console.warn("Cache write error", e);
-                }
-
-            } catch (error) {
-                console.error("Firebase Fetch Error:", error);
-                setToast({msg: "يرجى التحقق من اتصال الإنترنت", type: 'error'});
-            } finally {
-                setLoading(false);
+            } catch (e) {
+                console.warn("Cache read error", e);
             }
-        };
+        } else {
+            console.log("Manual Refresh: Bypassing Cache");
+            setToast({ msg: 'جاري تحديث البيانات...', type: 'info' });
+        }
 
-        fetchAndSubscribe();
+        // 2. Fetch from Firestore and listen for live updates
+        const collectionRef = collection(appointmentsDb, 'appointments');
+        
+        // Basic Constraints
+        const constraints: any[] = [];
+
+        // Status Filter
+        constraints.push(where('status', '==', activeView));
+
+        // Date Filter
+        if (activeView === 'scheduled') {
+            if (enableDateFilter) {
+                constraints.push(where('scheduledDate', '==', targetDate));
+            } else {
+                constraints.push(where('scheduledDate', '>=', today));
+            }
+        } else if (activeView === 'done' || activeView === 'processing' || activeView === 'pending') {
+            // For pending, we also filter by date to keep cache manageable and relevant
+            constraints.push(where('date', '==', targetDate));
+        }
+
+        // Create Query
+        const q = query(collectionRef, ...constraints);
+
+        const unsubscribe = onSnapshot(q, (snapshot: any) => {
+            const fetchedApps = snapshot.docs.map((doc: any) => {
+                const data = doc.data();
+                return { id: doc.id, ...data, time: data.time || '00:00' } as ExtendedAppointment;
+            });
+            
+            setAppointments(fetchedApps);
+            setLoading(false);
+            
+            // 3. Save to Cache
+            try {
+                localStorage.setItem(cacheKey, JSON.stringify(fetchedApps));
+            } catch (e) {
+                console.warn("Cache write error", e);
+            }
+        }, (error: any) => {
+            console.error("Firebase Listen Error:", error);
+            setToast({msg: "حدث خطأ أثناء جلب البيانات المباشرة", type: 'error'});
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
 
     }, [selectedDate, activeView, enableDateFilter, isArchiveView, refreshTrigger]);
     
@@ -1244,14 +1240,14 @@ const AppointmentsPage: React.FC = () => {
             // Update Local State immediately
             setAppointments(prev => prev.map(a => 
                 a.id === appt.id 
-                ? { ...a, ...updateData, time: (a.time || updateData.time) || '00:00' } as ExtendedAppointment
+                ? { ...a, ...updateData, time: (a.time || (updateData as any).time) || '00:00' } as unknown as ExtendedAppointment
                 : a
             ));
 
             // --- CACHE UPDATE: Move from Pending to Processing ---
             const today = getLocalToday();
             updateSpecificCache('pending', today, 'remove', appt);
-            updateSpecificCache('processing', today, 'add', { ...appt, ...updateData, time: (appt.time || updateData.time) || '00:00' } as ExtendedAppointment);
+            updateSpecificCache('processing', today, 'add', { ...appt, ...updateData, time: (appt.time || (updateData as any).time) || '00:00' } as unknown as ExtendedAppointment);
 
             setCurrentRegNo(regNo);
             setIsRegModalOpen(true);
@@ -1315,7 +1311,7 @@ const AppointmentsPage: React.FC = () => {
             // --- CACHE UPDATE: Move from Processing to Done ---
             const today = getLocalToday();
             updateSpecificCache('processing', today, 'remove', finishingAppt);
-            updateSpecificCache('done', today, 'add', { ...finishingAppt, ...finishData, time: (finishingAppt.time || finishData.time) || '00:00' } as ExtendedAppointment);
+            updateSpecificCache('done', today, 'add', { ...finishingAppt, ...finishData, time: (finishingAppt.time || (finishData as any).time) || '00:00' } as unknown as ExtendedAppointment);
 
             setToast({ 
                 msg: isPanic ? t('appt.toast.panic') : t('appt.toast.finish'), 
@@ -1502,7 +1498,7 @@ const AppointmentsPage: React.FC = () => {
             } else if (appt.status === 'processing') {
                 updateSpecificCache('processing', today, 'remove', appt);
             }
-            updateSpecificCache('pending', today, 'add', { ...appt, ...undoData, isLocal: true } as ExtendedAppointment);
+            updateSpecificCache('pending', today, 'add', { ...appt, ...undoData, isLocal: true } as unknown as ExtendedAppointment);
 
             setToast({ msg: t('appt.confirmCancel'), type: 'info' });
         } catch(e) { console.error(e); }
@@ -1590,7 +1586,7 @@ const AppointmentsPage: React.FC = () => {
                 fileNumber,
                 doctorName,
                 patientAge,
-                gender: gender || undefined,
+                gender: gender as any,
                 examType,
                 examList: examList, 
                 date: manualDate || selectedDate,
@@ -1600,12 +1596,15 @@ const AppointmentsPage: React.FC = () => {
                 notes,
                 preparation: preparationText, 
                 status: status as any,
-                createdBy: currentUserId,
+                createdBy: currentUserId || 'unknown',
                 createdByName: currentUserName,
                 createdAt: new Date().toISOString()
             };
 
-            await setDoc(doc(appointmentsDb, 'appointments', uniqueId), newApptData);
+            // Remove undefined values to prevent Firestore errors
+            const firestoreData = Object.fromEntries(Object.entries(newApptData).filter(([_, v]) => v !== undefined));
+
+            await setDoc(doc(appointmentsDb, 'appointments', uniqueId), firestoreData);
             
             // Optimistic update
             setAppointments(prev => [...prev, newApptData]);
@@ -1620,7 +1619,10 @@ const AppointmentsPage: React.FC = () => {
             setManualRoom(''); setSpecificExamName(''); setPreparationText('');
         } catch (e: any) { 
             console.error(e);
-            setToast({ msg: 'خطأ: ' + e.message, type: 'error' }); 
+            const errorMsg = e.message?.includes('undefined') 
+                ? 'حدث خطأ: بعض البيانات غير مكتملة أو غير صالحة.' 
+                : 'حدث خطأ أثناء الحجز: ' + (e.message || 'حاول مرة أخرى');
+            setToast({ msg: errorMsg, type: 'error' }); 
         }
     };
 
@@ -2210,6 +2212,7 @@ const AppointmentsPage: React.FC = () => {
                                         )}
                                         {appt.nationality && <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-100">{appt.nationality}</span>}
                                         {appt.refNo && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">Inv: {appt.refNo}</span>}
+                                        {appt.createdByName && <span className="text-[10px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded border border-teal-100"><i className="fas fa-user-edit mr-1"></i>{appt.createdByName}</span>}
                                     </div>
 
                                     <div className="mb-3 bg-slate-50 rounded-lg p-2 border border-slate-100 min-h-[40px]">
@@ -2256,7 +2259,7 @@ const AppointmentsPage: React.FC = () => {
                                                 
                                                 {['CT', 'MRI', 'FLUO'].includes(appt.examType) && (
                                                     <button 
-                                                        onClick={() => window.open(`#/ct-consent?name=${encodeURIComponent(appt.patientName)}&mrn=${encodeURIComponent(appt.fileNumber)}&age=${encodeURIComponent(appt.patientAge || '')}&gender=${encodeURIComponent(appt.gender || '')}&ref=${encodeURIComponent(appt.doctorName || '')}&proc=${encodeURIComponent(appt.examList?.[0] || appt.examType)}&type=${appt.examType === 'FLUO' ? 'Fluoro' : appt.examType}`, '_blank')} 
+                                                        onClick={() => window.open(`#/ct-consent?name=${encodeURIComponent(appt.patientName)}&mrn=${encodeURIComponent(appt.fileNumber || '')}&age=${encodeURIComponent(appt.patientAge || '')}&gender=${encodeURIComponent(appt.gender || '')}&ref=${encodeURIComponent(appt.doctorName || '')}&proc=${encodeURIComponent(appt.examList?.[0] || appt.examType)}&type=${appt.examType === 'FLUO' ? 'Fluoro' : appt.examType}`, '_blank')} 
                                                         className="flex-1 bg-emerald-50 border border-emerald-200 text-emerald-600 py-2 rounded-lg font-bold text-xs hover:bg-emerald-100 transition-colors cursor-pointer flex items-center justify-center gap-1"
                                                         title="Consent"
                                                     >
@@ -2276,7 +2279,7 @@ const AppointmentsPage: React.FC = () => {
                                                 
                                                 {['CT', 'MRI', 'FLUO'].includes(appt.examType) && (
                                                     <button 
-                                                        onClick={() => window.open(`#/ct-consent?name=${encodeURIComponent(appt.patientName)}&mrn=${encodeURIComponent(appt.fileNumber)}&age=${encodeURIComponent(appt.patientAge || '')}&gender=${encodeURIComponent(appt.gender || '')}&ref=${encodeURIComponent(appt.doctorName || '')}&proc=${encodeURIComponent(appt.examList?.[0] || appt.examType)}&type=${appt.examType === 'FLUO' ? 'Fluoro' : appt.examType}`, '_blank')} 
+                                                        onClick={() => window.open(`#/ct-consent?name=${encodeURIComponent(appt.patientName)}&mrn=${encodeURIComponent(appt.fileNumber || '')}&age=${encodeURIComponent(appt.patientAge || '')}&gender=${encodeURIComponent(appt.gender || '')}&ref=${encodeURIComponent(appt.doctorName || '')}&proc=${encodeURIComponent(appt.examList?.[0] || appt.examType)}&type=${appt.examType === 'FLUO' ? 'Fluoro' : appt.examType}`, '_blank')} 
                                                         className="flex-1 bg-emerald-50 border border-emerald-200 text-emerald-600 py-2 rounded-lg font-bold text-xs hover:bg-emerald-100 transition-colors cursor-pointer flex items-center justify-center gap-1"
                                                         title="Consent"
                                                     >
@@ -2437,7 +2440,7 @@ const AppointmentsPage: React.FC = () => {
                     <form onSubmit={handleManualSubmit} className="space-y-4 pt-2">
                         <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 mb-4">
                             <p className="text-xs text-blue-800 font-bold mb-2">{t('appt.manualData')}</p>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-3 gap-2">
                                 <div>
                                     <label className="text-[10px] font-bold text-slate-500">{t('date')}</label>
                                     <input type="date" className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm font-bold" value={manualDate} onChange={e=>setManualDate(e.target.value)} />
@@ -2454,42 +2457,41 @@ const AppointmentsPage: React.FC = () => {
                                         <input type="time" className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm font-bold" value={manualTime} onChange={e=>setManualTimeState(e.target.value)} />
                                     )}
                                 </div>
-                            </div>
-                            <div className="mt-2">
-                                <label className="text-[10px] font-bold text-slate-500">{t('appt.room')}</label>
-                                <input type="text" className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm" placeholder="example: MRI Room 1" value={manualRoom} onChange={e=>setManualRoom(e.target.value)} />
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-500">{t('appt.room')}</label>
+                                    <input type="text" className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm" placeholder="Room" value={manualRoom} onChange={e=>setManualRoom(e.target.value)} />
+                                </div>
                             </div>
                         </div>
 
-                        <input 
-                            className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" 
-                            placeholder={t('appt.patientName')} 
-                            value={patientName} 
-                            onChange={e => setPatientName(e.target.value)} 
-                            required 
+                        <div className="grid grid-cols-2 gap-3">
+                            <input 
+                                className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" 
+                                placeholder={t('appt.patientName')} 
+                                value={patientName} 
+                                onChange={e => setPatientName(e.target.value)} 
+                                required 
                             />
-                        <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder={t('appt.fileNo')} value={fileNumber} onChange={e=>setFileNumber(e.target.value)} />
+                            <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder={t('appt.fileNo')} value={fileNumber} onChange={e=>setFileNumber(e.target.value)} />
+                        </div>
                         
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-3 gap-3">
                             <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder={t('appt.doctor')} value={doctorName} onChange={e=>setDoctorName(e.target.value)} />
                             <input className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" placeholder={t('appt.age')} value={patientAge} onChange={e=>setPatientAge(e.target.value)} />
+                            <select className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" value={gender} onChange={e=>setGender(e.target.value as 'male'|'female'|'')}>
+                                <option value="">{t('user.gender')}</option>
+                                <option value="male">{t('user.male')}</option>
+                                <option value="female">{t('user.female')}</option>
+                            </select>
                         </div>
                         
-                        <select className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" value={gender} onChange={e=>setGender(e.target.value as 'male'|'female'|'')}>
-                            <option value="">{t('user.gender')} (اختياري)</option>
-                            <option value="male">{t('user.male')}</option>
-                            <option value="female">{t('user.female')}</option>
-                        </select>
-                        
-                        <select className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" value={examType} onChange={e=>setExamType(e.target.value)}>
-                            {MODALITIES.filter(m => m.id !== 'ALL').map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                        </select>
-
-                        <div>
-                            <label className="text-xs font-bold text-slate-500">{t('appt.specificExam')}</label>
+                        <div className="grid grid-cols-2 gap-3">
+                            <select className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" value={examType} onChange={e=>setExamType(e.target.value)}>
+                                {MODALITIES.filter(m => m.id !== 'ALL').map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                            </select>
                             <input 
-                                className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold mt-1" 
-                                placeholder="مثال: Brain MRI with Contrast" 
+                                className="w-full bg-slate-50 border-none rounded-xl p-3 font-bold" 
+                                placeholder={t('appt.specificExam')} 
                                 value={specificExamName} 
                                 onChange={e=>setSpecificExamName(e.target.value)} 
                             />
@@ -2500,7 +2502,7 @@ const AppointmentsPage: React.FC = () => {
                                 <i className="fas fa-exclamation-circle"></i>{t('appt.prepInst')}
                             </label>
                             <textarea 
-                                className="w-full bg-white border border-amber-200 rounded-lg p-2 text-sm min-h-[80px]" 
+                                className="w-full bg-white border border-amber-200 rounded-lg p-2 text-sm min-h-[60px]" 
                                 placeholder={t('appt.prepInst')}
                                 value={preparationText} 
                                 onChange={e=>setPreparationText(e.target.value)} 

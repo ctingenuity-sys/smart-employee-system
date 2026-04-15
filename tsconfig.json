@@ -26,6 +26,7 @@
       "@/*": ["./*"]
     }
   },
-  "include": ["src"],
+  "include": ["pages", "components", "contexts", "hooks", "utils", "services", "*.ts", "*.tsx"],
+  "exclude": ["vite.config.ts", "test_parse*.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

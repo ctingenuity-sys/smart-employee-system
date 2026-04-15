@@ -380,6 +380,14 @@ const translations: Record<string, { ar: string; en: string }> = {
     ar: 'تم إضافة الموعد بنجاح ✅', 
     en: 'Appointment added successfully ✅' 
   },
+  'appt.toast.started': { 
+    ar: 'تم بدء الموعد', 
+    en: 'Appointment started' 
+  },
+  'appt.toast.finish': { 
+    ar: 'تم إنهاء الموعد', 
+    en: 'Appointment finished' 
+  },
   'appt.toast.settingsUpdated': { 
     ar: 'تم تحديث الإعدادات بنجاح', 
     en: 'Settings updated successfully' 

@@ -100,6 +100,7 @@ const translations: Record<string, { ar: string; en: string }> = {
   'notif.schedule.msg': { ar: 'تم {mode} جدول شهر {month}', en: 'Schedule for {month} has been {mode}' },
   'notif.swap.update': { ar: 'تحديث على طلب التبديل', en: 'Swap Request Update' },
   'notif.swap.msg': { ar: 'تم {action} طلب التبديل الخاص بك من قبل الزميل.', en: 'Your swap request has been {action} by the colleague.' },
+  'notif.swap.msg|action:rejected': { ar: 'تم رفض طلب التبديل الخاص بك.', en: 'Your swap request has been rejected.' },
   'notif.announce.new': { ar: 'إعلان جديد', en: 'New Announcement' },
   
   // --- Penalties ---

@@ -297,6 +297,10 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                 <i className="fas fa-gavel w-6"></i>
                 <span className="font-medium">{t('nav.penalties')}</span>
               </Link>
+              <Link to="/department-bookings" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/department-bookings')}`}>
+                <i className="fas fa-calendar-check w-6"></i>
+                <span className="font-medium">Department Bookings</span>
+              </Link>
             </>
           )}
 

@@ -162,6 +162,18 @@ const UserRequests: React.FC = () => {
                 createdAt: Timestamp.now(),
                 type: 'request'
             });
+
+            // Notify Supervisor
+            await addDoc(collection(db, 'notifications'), {
+                departmentId: currentUserData?.departmentId || null,
+                targetRole: 'supervisor',
+                title: 'طلب تبديل جديد',
+                message: `طلب تبديل جديد من ${currentUserData?.name || 'زميل'}`,
+                link: '/supervisor/swaps',
+                readBy: [],
+                createdAt: Timestamp.now(),
+                type: 'request'
+            });
             setToast({ msg: t('save'), type: 'success' });
             setTargetUser(''); setSwapDetails(''); setSwapDate(''); setSwapEndDate('');
             setTimeout(() => navigate('/user/history'), 1500);

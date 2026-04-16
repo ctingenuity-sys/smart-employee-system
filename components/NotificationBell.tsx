@@ -54,6 +54,8 @@ const NotificationBell: React.FC<{ userRole: string }> = ({ userRole }) => {
                 
                 let isForMe = false;
                 if (data.userId === uid) isForMe = true;
+                // Only show notifications for supervisors if specifically targeted by role or no user/role target (global)
+                else if (userRole === 'supervisor' && (data.targetRole === 'supervisor' || (!data.userId && !data.targetRole))) isForMe = true;
                 else if (!data.userId && data.targetRole === userRole) isForMe = true;
                 else if (!data.userId && !data.targetRole) isForMe = true;
 

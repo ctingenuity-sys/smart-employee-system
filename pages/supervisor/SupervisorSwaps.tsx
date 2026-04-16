@@ -44,9 +44,6 @@ const SupervisorSwaps: React.FC = () => {
             const fetchedUsers = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
             console.log('Debug: authRole', authRole);
             const filteredUsers = fetchedUsers.filter(u => {
-                // Exclude admin/supervisor/manager
-                if (['admin', 'supervisor', 'manager'].includes(u.role)) return false;
-
                 // Doctor filtering logic
                 if (authRole === UserRole.ADMIN) return true;
                 
@@ -60,11 +57,9 @@ const SupervisorSwaps: React.FC = () => {
             });
             setUsers(filteredUsers);
         });
-        
-        const withDept = (baseQuery: any) => selectedDepartmentId ? query(baseQuery, where('departmentId', '==', selectedDepartmentId)) : baseQuery;
 
         // Pending Requests
-        const qPending = withDept(query(collection(db, 'swapRequests'), where('status', '==', 'approvedByUser')));
+        const qPending = query(collection(db, 'swapRequests'), where('status', '==', 'approvedByUser'));
         const unsubPending = onSnapshot(qPending, (snap: QuerySnapshot<DocumentData>) => {
             const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as SwapRequest));
             // Sort Pending by newest as well
@@ -73,12 +68,11 @@ const SupervisorSwaps: React.FC = () => {
                 const tB = b.createdAt?.seconds || 0;
                 return tB - tA;
             });
-            // We will filter this in the render or using a separate effect that depends on users
             setPendingRequests(list);
         });
 
         // History/Active Requests (Approved Month Swaps for Revert capability)
-        const qHistory = withDept(query(collection(db, 'swapRequests'), where('status', '==', 'approvedBySupervisor')));
+        const qHistory = query(collection(db, 'swapRequests'), where('status', '==', 'approvedBySupervisor'));
         const unsubHistory = onSnapshot(qHistory, (snap: QuerySnapshot<DocumentData>) => {
             const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as SwapRequest));
             
@@ -93,7 +87,7 @@ const SupervisorSwaps: React.FC = () => {
         });
 
         return () => { unsubUsers(); unsubPending(); unsubHistory(); };
-    }, []);
+    }, [selectedDepartmentId, authRole, currentUser]);
 
     const getUserName = (id: string) => users.find(u => u.id === id)?.name || id;
 
@@ -781,6 +775,19 @@ const SupervisorSwaps: React.FC = () => {
                   });
                   
                   batch.update(doc(db, 'swapRequests', req.id), { status });
+                  
+                  // Notify the requester
+                  await addDoc(collection(db, 'notifications'), {
+                      userId: req.from,
+                      departmentId: req.departmentId || null,
+                      title: 'notif.swap.update',
+                      message: `notif.swap.msg|action:${isApproved ? 'approvedBySup' : 'rejectedBySup'}`,
+                      link: '/user/history',
+                      readBy: [],
+                      createdAt: Timestamp.now(),
+                      type: 'request'
+                  });
+
                   setToast({ msg: `Day Swap Approved!`, type: 'success' });
               }
 
@@ -1052,14 +1059,14 @@ const SupervisorSwaps: React.FC = () => {
 
             <div className="grid gap-4">
                 {(activeTab === 'pending' ? pendingRequests : historyRequests)
-                    .filter(req => users.some(u => u.id === req.from))
+                    .filter(req => users.some(u => u.id === req.from || u.id === req.to))
                     .length === 0 ? (
                     <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-slate-200 text-slate-400">
                         {activeTab === 'pending' ? 'No pending requests' : 'No active history'}
                     </div>
                 ) : (
                     (activeTab === 'pending' ? pendingRequests : historyRequests)
-                        .filter(req => users.some(u => u.id === req.from))
+                        .filter(req => users.some(u => u.id === req.from || u.id === req.to))
                         .map(req => (
                         <div key={req.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 group hover:border-indigo-200 transition-colors">
                             <div className="flex items-center gap-4">

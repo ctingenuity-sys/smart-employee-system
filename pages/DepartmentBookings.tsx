@@ -32,6 +32,7 @@ const DepartmentBookings: React.FC = () => {
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [slots, setSlots] = useState<string[]>([]);
     const [bookedSlots, setBookedSlots] = useState<string[]>([]);
+    const [bookedAppointments, setBookedAppointments] = useState<Record<string, any>>({});
     const [loading, setLoading] = useState(false);
     const [modalitySettings, setModalitySettings] = useState<any>(DEFAULT_SETTINGS);
 
@@ -118,11 +119,19 @@ const DepartmentBookings: React.FC = () => {
                 // Looking at AppointmentsPage, it uses 'scheduledDate' for 'scheduled' view.
 
                 const snapshot = await getDocs(q);
-                const booked = snapshot.docs
-                    .map(d => d.data().time)
-                    .filter(t => t); // Filter out undefined/null times
+                const booked: string[] = [];
+                const appointments: Record<string, any> = {};
+
+                snapshot.docs.forEach(d => {
+                    const data = d.data();
+                    if (data.time) {
+                        booked.push(data.time);
+                        appointments[data.time] = data;
+                    }
+                });
                 
                 setBookedSlots(booked);
+                setBookedAppointments(appointments);
 
             } catch (e) {
                 console.error("Error fetching data", e);
@@ -297,7 +306,14 @@ const DepartmentBookings: React.FC = () => {
                                             <span className={`text-lg font-black ${isBooked ? 'text-rose-400' : 'text-emerald-700'}`}>
                                                 {slot}
                                             </span>
-                                            {isBooked && (
+                                            {isBooked && bookedAppointments[slot] && (
+                                                <div className="text-[9px] font-bold text-rose-800 mt-1 text-center truncate w-full px-1 border-t border-rose-200 mt-2 pt-1">
+                                                    <div className="truncate">{bookedAppointments[slot].patientName}</div>
+                                                    <div className="truncate">{bookedAppointments[slot].fileNumber}</div>
+                                                    <div className="truncate text-rose-600 italic">{bookedAppointments[slot].examType}</div>
+                                                </div>
+                                            )}
+                                            {isBooked && !bookedAppointments[slot] && (
                                                 <span className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full animate-pulse"></span>
                                             )}
                                         </button>

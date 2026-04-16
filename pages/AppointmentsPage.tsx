@@ -898,9 +898,24 @@ const AppointmentsPage: React.FC = () => {
     const filteredAppointments = useMemo(() => {
         let list = appointments;
 
-        // If in Archive View, we show everything in the archive without status/date filtering
+        // If in Archive View, we apply tab status and date filtering to behave like live mode
         if (isArchiveView) {
             let archiveList = [...appointments];
+            
+            // Apply Status Filtering based on activeView
+            archiveList = archiveList.filter(a => {
+                if (activeView === 'pending') return a.status === 'pending';
+                if (activeView === 'processing') return a.status === 'processing';
+                if (activeView === 'done') return a.status === 'done';
+                if (activeView === 'scheduled') return a.status === 'scheduled';
+                return true;
+            });
+
+            // Apply Date Filtering
+            if (enableDateFilter && selectedDate) {
+                 archiveList = archiveList.filter(a => a.date === selectedDate || a.scheduledDate === selectedDate);
+            }
+
             if (searchQuery) {
                 const lowerQ = searchQuery.toLowerCase();
                 archiveList = archiveList.filter(a => 

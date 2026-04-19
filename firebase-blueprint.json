@@ -27,6 +27,34 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["employeeId", "name", "expiryDate", "createdAt"]
+    },
+    "shiftHandover": {
+      "title": "Shift Handover",
+      "description": "Digital log for shift change notes.",
+      "type": "object",
+      "properties": {
+        "shiftId": { "type": "string" },
+        "fromUserId": { "type": "string" },
+        "toUserId": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shiftId", "fromUserId", "departmentId", "notes", "createdAt"]
+    },
+    "onCallSchedule": {
+      "title": "On-Call Schedule",
+      "description": "Schedule for on-call staff.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "role": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" }
+      },
+      "required": ["userId", "role", "departmentId", "date", "startTime", "endTime"]
     }
   },
   "firestore": {
@@ -37,6 +65,14 @@
     "/certifications/{certId}": {
       "schema": "certification",
       "description": "Collection of employee certifications"
+    },
+    "/shiftHandovers/{handoverId}": {
+      "schema": "shiftHandover",
+      "description": "Collection of shift handover notes"
+    },
+    "/onCallSchedules/{scheduleId}": {
+      "schema": "onCallSchedule",
+      "description": "Collection of on-call schedules"
     }
   }
 }

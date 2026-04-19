@@ -1,6 +1,6 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApp, getApps } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getAuth } from "firebase/auth";
 
@@ -25,7 +25,15 @@ try {
 }
 
 // Export services for Certificates, Licenses, Devices, FMS, Rooms
-export const db = getFirestore(app);
+let firestoreDb;
+try {
+    firestoreDb = initializeFirestore(app, {
+        experimentalForceLongPolling: true
+    });
+} catch (e) {
+    firestoreDb = getFirestore(app);
+}
+export const db = firestoreDb;
 export const storage = getStorage(app);
 storage.maxUploadRetryTime = 10000; // 10 seconds timeout
 export const auth = getAuth(app);

@@ -1,54 +1,90 @@
 import React from 'react';
 import { Penalty } from '../types';
 import { useLanguage, getTranslationKeyForArabic } from '../contexts/LanguageContext';
+import { db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { PrintHeader } from './PrintLayout';
 
 interface PenaltyPrintableProps {
   penalty: Penalty;
 }
 
-const renderStamp = (name: string, status: 'accepted' | 'rejected') => {
-  const isAccepted = status === 'accepted';
-  const colorClass = isAccepted ? 'border-blue-800 text-blue-800' : 'border-red-600 text-red-600';
-  const borderColorClass = isAccepted ? 'border-blue-800' : 'border-red-600';
-  const overlayColorClass = isAccepted ? 'text-green-600' : 'text-red-600';
-  
-  return (
-    <div className={`border-4 rounded-lg p-1 inline-block text-center font-mono font-bold uppercase relative transform -rotate-6 ${colorClass}`}>
-      <div className={`border border-opacity-50 p-1 rounded ${borderColorClass}`}>
-        <div className="text-[10px] tracking-wider mb-1">AL JEDAANI HOSPITAL</div>
-        <div className={`text-[9px] border-t border-dashed mt-[1px] pt-[1px] ${isAccepted ? 'border-blue-800/40' : 'border-red-600/40'}`}>RADIOLOGY DEPARTMENT</div>
-        <div className={`text-[11px] border-y py-[2px] my-[2px] ${isAccepted ? 'border-blue-800/30' : 'border-red-600/30'}`}>Staff</div>
-        <div className="text-[13px]">{name}</div>
-        <div className={`absolute inset-0 flex items-center justify-center text-sm font-bold opacity-70 -rotate-12 ${overlayColorClass}`}>
-          {isAccepted ? 'ACCEPTED' : 'REJECTED'}
-        </div>
-      </div>
-    </div>
-  );
-};
-
 const PenaltyPrintable: React.FC<PenaltyPrintableProps> = ({ penalty }) => {
   const { t } = useLanguage();
+  const [departmentName, setDepartmentName] = React.useState<string>('...');
   const dateStr = penalty.createdAt?.toDate ? penalty.createdAt.toDate().toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
 
-  return (
-    <div className="p-8 bg-white max-w-4xl mx-auto my-4 print:p-0 print:m-0 font-sans text-right" dir="rtl">
-      {/* Header */}
-      <div className="flex justify-between items-start mb-8 border-b-2 border-black pb-4">
-        <div className="text-left text-sm font-bold" dir="ltr">
-          <p>AL-JEDAANI GROUP OF HOSPITALS</p>
-          <p className="font-normal">Kingdom of Saudi Arabia</p>
-          <p className="font-normal">P.O. Box 7500 Jeddah 21462</p>
-        </div>
-        <div className="flex flex-col items-center">
-          <img src="/logo.png" alt="Hospital Logo" className="w-20 h-20 object-contain" />
-        </div>
-        <div className="text-right text-sm font-bold">
-          <p className="text-lg">{t('print.hospitalGroup')}</p>
-          <p className="font-normal">{t('print.saudiArabia')}</p>
-          <p className="font-normal">{t('print.poBox')}</p>
+  React.useEffect(() => {
+    const fetchDept = async () => {
+      try {
+        const userDoc = await getDoc(doc(db, 'users', penalty.employeeId));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          if (userData.departmentId) {
+            const deptDoc = await getDoc(doc(db, 'departments', userData.departmentId));
+            if (deptDoc.exists()) {
+              setDepartmentName(deptDoc.data().name);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching department for penalty print:", error);
+      }
+    };
+    fetchDept();
+  }, [penalty.employeeId]);
+
+  const renderStamp = (name: string, status: 'accepted' | 'rejected') => {
+    const isAccepted = status === 'accepted';
+    const colorClass = isAccepted ? 'border-blue-800 text-blue-800' : 'border-red-600 text-red-600';
+    const borderColorClass = isAccepted ? 'border-blue-800' : 'border-red-600';
+    const overlayColorClass = isAccepted ? 'text-green-600' : 'text-red-600';
+    
+    return (
+      <div className={`border-[3px] rounded-lg p-1 inline-flex flex-col justify-center text-center font-mono font-bold uppercase relative transform -rotate-6 ${colorClass} w-[140px] h-[85px] box-border overflow-hidden bg-white/10`}>
+        <div className={`border border-opacity-50 p-1 rounded h-full flex flex-col justify-center ${borderColorClass}`}>
+          <div className="text-[8px] tracking-tighter mb-1 border-b border-dashed pb-1">AL JEDAANI HOSPITAL</div>
+          <div className={`text-[8px] mt-[1px] pt-[1px] mb-1`}>{departmentName.toUpperCase()}</div>
+          <div className={`text-[9px] border-y py-[1px] my-[1px] ${isAccepted ? 'border-blue-800/30' : 'border-red-600/30'}`}>Staff</div>
+          <div className="text-[11px] leading-tight break-words">{name}</div>
+          <div className={`absolute inset-0 flex items-center justify-center text-base font-bold opacity-15 -rotate-12 pointer-events-none ${overlayColorClass}`}>
+            {isAccepted ? 'ACCEPTED' : 'REJECTED'}
+          </div>
         </div>
       </div>
+    );
+  };
+
+  return (
+    <div className="p-8 bg-white max-w-4xl mx-auto my-4 print:p-0 print:m-0 font-sans text-right relative" dir="rtl">
+      <style type="text/css" media="print">
+        {`
+          @media print {
+            .watermark { 
+                position: fixed; 
+                top: 50%; 
+                left: 50%; 
+                transform: translate(-50%, -50%); 
+                opacity: 0.10; 
+                width: 100%; 
+                max-width: 900px; 
+                z-index: -1; 
+                pointer-events: none; 
+            }
+          }
+        `}
+      </style>
+
+      {/* Watermark */}
+      <img src="/logo.png" className="watermark hidden print:block" alt="Watermark" />
+
+      {/* Header */}
+      <PrintHeader 
+        title={t('print.warningNotice')} 
+        subtitle="Disciplinary Notice" 
+        departmentName={departmentName} 
+        themeColor="blue"
+      />
 
       {/* Title & Date */}
       <div className="flex justify-between items-end mb-6">
@@ -89,7 +125,7 @@ const PenaltyPrintable: React.FC<PenaltyPrintableProps> = ({ penalty }) => {
             </div>
             <div className="flex justify-between items-end">
               <span className="w-32 text-left" dir="ltr">DEPT / SEC.</span>
-              <span className="flex-grow border-b border-dotted border-black mx-4 text-center text-lg">{t('print.radiologyDept')}</span>
+              <span className="flex-grow border-b border-dotted border-black mx-4 text-center text-lg">{departmentName.toUpperCase()}</span>
               <span className="w-32 text-right">{t('print.department')}</span>
             </div>
           </div>

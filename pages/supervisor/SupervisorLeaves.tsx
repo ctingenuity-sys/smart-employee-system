@@ -171,7 +171,8 @@ const SupervisorLeaves: React.FC = () => {
                 const hasManagers = (req as any).hasManagers;
                 await updateDoc(doc(db, 'leaveRequests', req.id!), { 
                     status: isApproved ? (hasManagers ? 'pending_manager' : 'approved') : 'rejected',
-                    supervisorApproval: approvalData
+                    supervisorApproval: approvalData,
+                    supervisorId: currentUserId // Explicitly set to avoid "pending" state retention
                 });
             }
             
@@ -230,7 +231,11 @@ const SupervisorLeaves: React.FC = () => {
             const userStamp = userData?.stamp || '';
             
             // Fetch department name
-            const departmentName = 'RADIOLOGY DEPARTMENT';
+            let departmentName = '...';
+            if (userData?.departmentId) {
+                const deptDoc = await getDoc(doc(db, 'departments', userData.departmentId));
+                if (deptDoc.exists()) departmentName = deptDoc.data().name;
+            }
             
             // Fetch reliever details and departments
             const relieverDataList = await Promise.all(
@@ -284,30 +289,37 @@ const SupervisorLeaves: React.FC = () => {
             // Build the HTML content
             const logoUrl = new URL('/logo.png', window.location.origin).href;
             
-            const renderStampInline = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL') => {
+            const renderStampInline = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', dept: string = departmentName) => {
+                const rotation = (-3 - Math.random() * 5).toFixed(1);
                 return `
-                    <div class="stamp-box" style="position: static; transform: none; margin: 0; z-index: 1;">
+                    <div class="stamp-box" style="position: static; transform: rotate(${rotation}deg); margin: 0; z-index: 1;">
                         <div class="stamp-inner">
-                            <div class="stamp-hospital">AL JEDAANI HOSPITAL</div>
-                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">RADIOLOGY DEPARTMENT</div>
+                            <div class="stamp-hospital">${hospital.toUpperCase()}</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
                             <div class="stamp-dept">${jobTitle}</div>
                             <div class="stamp-name">${name}</div>
+                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: green; opacity: 0.15; transform: rotate(-10deg);">
+                                APPROVED
+                            </div>
                         </div>
                     </div>
                 `;
             };
 
-            const renderStamp = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', index: number = 0, total: number = 1) => {
-                const rotation = (Math.random() * 6 - 3).toFixed(1);
+            const renderStamp = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', index: number = 0, total: number = 1, dept: string = departmentName) => {
+                const rotation = (-3 - Math.random() * 5).toFixed(1); 
                 // Spread out stamps if there are multiple (especially for relievers)
                 const offset = total > 1 ? (index - (total - 1) / 2) * 140 : 0;
                 return `
                     <div class="stamp-box" style="transform: rotate(${rotation}deg); position: absolute; top: -15px; left: calc(50% + ${offset}px); transform: translateX(-50%) rotate(${rotation}deg); z-index: 50; pointer-events: none;">
                         <div class="stamp-inner">
-                            <div class="stamp-hospital">AL JEDAANI HOSPITAL</div>
-                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">RADIOLOGY DEPARTMENT</div>
+                            <div class="stamp-hospital">${hospital.toUpperCase()}</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
                             <div class="stamp-dept">${jobTitle}</div>
                             <div class="stamp-name">${name}</div>
+                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: green; opacity: 0.15; transform: rotate(-10deg);">
+                                APPROVED
+                            </div>
                         </div>
                     </div>
                 `;
@@ -329,7 +341,7 @@ const SupervisorLeaves: React.FC = () => {
                             font-family: 'Inter', 'Cairo', sans-serif; 
                             margin: 0;
                             padding: 0;
-                            color: #000;
+                            color: #1e3a8a;
                             background: #fff;
                             font-size: 12px;
                         }
@@ -337,7 +349,7 @@ const SupervisorLeaves: React.FC = () => {
                             width: 100%;
                             max-width: 100%;
                             margin: 0 auto; 
-                            border: 1px solid #000; 
+                            border: 1px solid #1e3a8a; 
                             padding: 15px;
                             box-sizing: border-box;
                         }
@@ -347,7 +359,7 @@ const SupervisorLeaves: React.FC = () => {
                         }
                         .title-box {
                             display: inline-block;
-                            border: 2px solid #000;
+                            border: 2px solid #1e3a8a;
                             border-radius: 12px;
                             padding: 5px 30px;
                             text-align: center;
@@ -366,7 +378,7 @@ const SupervisorLeaves: React.FC = () => {
                             border-collapse: collapse;
                         }
                         td {
-                            border: 1px solid #000;
+                            border: 1px solid #1e3a8a;
                             padding: 4px 8px;
                             vertical-align: middle;
                         }
@@ -397,7 +409,7 @@ const SupervisorLeaves: React.FC = () => {
                         .checkbox {
                             width: 14px;
                             height: 14px;
-                            border: 1.5px solid #000;
+                            border: 1.5px solid #1e3a8a;
                             display: inline-block;
                             position: relative;
                         }
@@ -415,42 +427,50 @@ const SupervisorLeaves: React.FC = () => {
                             margin: 2px auto;
                         }
                         .stamp-box {
-                            border: 2px double #1e40af;
+                            border: 3px solid #1e3a8a;
                             border-radius: 6px;
-                            padding: 4px 10px;
+                            padding: 4px;
                             display: inline-block;
-                            color: #1e40af;
+                            color: #1e3a8a;
                             text-align: center;
-                            font-family: 'Cairo', sans-serif;
-                            line-height: 1.0;
-                            background: rgba(30, 64, 175, 0.03);
-                            margin: 5px auto;
-                            min-width: 130px;
+                            font-family: 'Courier New', Courier, monospace;
+                            font-weight: bold;
+                            line-height: 1.1;
+                            background: transparent;
+                            margin: 2px auto;
+                            width: 140px;
+                            height: 85px;
                             position: relative;
+                            text-transform: uppercase;
+                            box-sizing: border-box;
                             overflow: hidden;
                         }
                         .stamp-inner {
-                            border: 1px solid rgba(30, 64, 175, 0.3);
-                            padding: 3px;
-                            border-radius: 4px;
+                            border: 1px solid rgba(30, 58, 138, 0.5);
+                            padding: 2px;
+                            border-radius: 3px;
+                            height: 100%;
+                            display: flex;
+                            flex-direction: column;
+                            justify-content: center;
+                            box-sizing: border-box;
                         }
                         .stamp-hospital {
                             font-size: 8px;
-                            font-weight: bold;
-                            text-transform: uppercase;
+                            letter-spacing: 0.2px;
                             margin-bottom: 1px;
+                            border-bottom: 1px dashed rgba(30, 58, 138, 0.4);
+                            padding-bottom: 2px;
                         }
                         .stamp-dept {
                             font-size: 9px;
-                            font-weight: 800;
-                            margin-bottom: 3px;
-                            color: #1d4ed8;
+                            margin-bottom: 2px;
+                            color: #1e3a8a;
                         }
                         .stamp-name {
-                            font-weight: 900;
                             font-size: 11px;
-                            text-decoration: underline;
-                            margin-bottom: 1px;
+                            line-height: 1.2;
+                            text-decoration: none;
                         }
                         .stamp-status {
                             font-size: 7px;
@@ -460,7 +480,7 @@ const SupervisorLeaves: React.FC = () => {
                         }
 
                         @media print {
-                            .print-container { border: 1px solid #000; }
+                            .print-container { border: 1px solid #1e3a8a; }
                             .no-print { display: none; }
                         }
                         
@@ -469,9 +489,9 @@ const SupervisorLeaves: React.FC = () => {
                             position: fixed;
                             top: 50%;
                             left: 50%;
-                            transform: translate(-50%, -50%) rotate(-45deg);
-                            opacity: 0.15;
-                            width: 70%;
+                            transform: translate(-50%, -50%);
+                            opacity: 0.06;
+                            width: 80%; max-width: 800px;
                             z-index: -1;
                             pointer-events: none;
                         }
@@ -481,8 +501,14 @@ const SupervisorLeaves: React.FC = () => {
                     <img src="${logoUrl}" class="watermark" alt="Watermark" crossOrigin="anonymous" />
                     <div class="print-container">
                         <div class="header-section" style="display: flex; align-items: center; justify-content: space-between;">
-                            <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="display: flex; align-items: center; gap: 15px;">
                                 <img src="${logoUrl}" alt="Logo" style="max-height: 80px;" crossOrigin="anonymous" />
+                                <div style="display: flex; flex-direction: column; text-align: left;">
+                                    <span style="font-weight: bold; font-size: 15px; color: #1e3a8a; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
+                                    <span style="font-weight: bold; font-size: 8px; color: #1e3a8a; letter-spacing: 1px;">AL SAFA DISTRICT</span>
+                                    <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -5px;">مستشفى الجدعاني</span>
+                                    <span style="font-weight: bold; font-size: 8px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -3px;">حي الصفــــا</span>
+                                </div>
                                 ${leave.supervisorApproval?.uid ? renderStampInline(leave.supervisorApproval.name, supervisorJob, 'AL JEDAANI HOSPITAL') : ''}
                             </div>
                             <div class="title-box">

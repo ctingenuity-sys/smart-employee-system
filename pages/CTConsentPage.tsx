@@ -182,8 +182,8 @@ const CTConsentPage: React.FC = () => {
         const renderPrintQuestion = (text: string, value: string) => {
             const isYes = value === 'yes';
             const isNo = value === 'no';
-            const checkedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="black" stroke-width="1.5" fill="white"/><circle cx="7" cy="7" r="3.5" fill="black"/></svg>`);
-            const uncheckedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="black" stroke-width="1.5" fill="white"/></svg>`);
+            const checkedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="#1e3a8a" stroke-width="1.5" fill="white"/><circle cx="7" cy="7" r="3.5" fill="#1e3a8a"/></svg>`);
+            const uncheckedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="#1e3a8a" stroke-width="1.5" fill="white"/></svg>`);
             const radioYes = `<img src="data:image/svg+xml;charset=utf-8,${isYes ? checkedSvg : uncheckedSvg}" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-top: -2px;" />`;
             const radioNo = `<img src="data:image/svg+xml;charset=utf-8,${isNo ? checkedSvg : uncheckedSvg}" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-top: -2px;" />`;
 
@@ -199,14 +199,22 @@ const CTConsentPage: React.FC = () => {
         };
 
         const htmlContent = `
-            <div style="padding: 40px; font-family: 'Cairo', sans-serif; background: white; color: black; position: relative; min-height: 1100px;" dir="rtl">
+            <div style="padding: 40px; font-family: 'Cairo', sans-serif; background: white; color: #1e3a8a; position: relative; min-height: 1100px;" dir="rtl">
                 <!-- Watermark -->
-                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.15; pointer-events: none; z-index: 0;">
+                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.06; pointer-events: none; z-index: 0;">
                     <img src="${logoUrl}" style="width: 400px; max-width: 90vw; object-fit: contain;" alt="شعار المستشفى" crossOrigin="anonymous" />
                 </div>
 
                 <div style="position: relative; z-index: 10;">
-                    <div style="height: 80px;"></div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; border-bottom: 2px solid #1e3a8a; padding-bottom: 10px;">
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            <img src="${logoUrl}" style="max-height: 70px;" alt="Logo" crossOrigin="anonymous" />
+                            <div style="display: flex; flex-direction: column; text-align: left;" dir="ltr">
+                                <span style="font-weight: bold; font-size: 15px; color: #1e3a8a; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
+                                <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -4px;">مستشفى الجدعاني</span>
+                            </div>
+                        </div>
+                    </div>
                     <div style="text-align: center; font-weight: bold; font-size: 16px; margin-bottom: 20px;">
                         ${consentTitles[consentType as keyof typeof consentTitles].en}
                     </div>
@@ -214,55 +222,55 @@ const CTConsentPage: React.FC = () => {
                     <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 12px;">
                         <div style="width: 25%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Name</div>
-                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px;">${patientName}</div>
+                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px;">${patientName}</div>
                         </div>
                         <div style="width: 15%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">MRN</div>
-                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px;">${mrn}</div>
+                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px;">${mrn}</div>
                         </div>
                         <div style="width: 15%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Age</div>
-                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px;">${patientAge}</div>
+                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px;">${patientAge}</div>
                         </div>
                         <div style="width: 20%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Gender</div>
-                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px;">${patientGender === 'male' ? 'Male / ذكر' : patientGender === 'female' ? 'Female / أنثى' : ''}</div>
+                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px;">${patientGender === 'male' ? 'Male / ذكر' : patientGender === 'female' ? 'Female / أنثى' : ''}</div>
                         </div>
                         <div style="width: 25%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Date</div>
-                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px;">${date}</div>
+                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px;">${date}</div>
                         </div>
                     </div>
 
                     <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 12px;">
                         <div style="width: 33%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Referred by Dr.</div>
-                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px; text-transform: uppercase;">${referral}</div>
+                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px; text-transform: uppercase;">${referral}</div>
                         </div>
                         <div style="width: 33%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Radiologist</div>
-                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px; text-transform: uppercase;">${radiologist}</div>
+                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px; text-transform: uppercase;">${radiologist}</div>
                         </div>
                         <div style="width: 33%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Procedure</div>
-                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px;">${procedure}</div>
+                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px;">${procedure}</div>
                         </div>
                     </div>
 
                     <div style="text-align: center; font-weight: bold; font-size: 14px; margin-bottom: 10px;">Clinical Questions</div>
                     <div style="font-size: 12px; margin-bottom: 20px;">
-                        ${renderPrintQuestion('Previous contrast scan?', clinicalAnswers.prevContrast)}
+                        ${renderPrintQuestion('Previous contrast CT scan?', clinicalAnswers.prevContrast)}
                         ${clinicalAnswers.prevContrast === 'yes' ? renderPrintQuestion('Contrast allergy?', clinicalAnswers.contrastAllergy) : ''}
                         ${renderPrintQuestion('Any allergies?', clinicalAnswers.allergy)}
                         ${renderPrintQuestion('Kidney disease or failure?', clinicalAnswers.kidneyDisease)}
                         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #ccc; padding: 4px 0;">
                             <div style="width: 50%; display: flex; align-items: center;">
                                 <span style="font-weight: bold; margin-left: 8px;">Creatinine:</span>
-                                <div style="border-bottom: 1px solid black; flex: 1; text-align: center;">${clinicalAnswers.creatinine || ''}</div>
+                                <div style="border-bottom: 1px solid #1e3a8a; flex: 1; text-align: center;">${clinicalAnswers.creatinine || ''}</div>
                             </div>
                             <div style="width: 50%; display: flex; align-items: center;" dir="ltr">
                                 <span style="font-weight: bold; margin-right: 8px;">eGFR:</span>
-                                <div style="border-bottom: 1px solid black; flex: 1; text-align: center;">${clinicalAnswers.egfr || ''}</div>
+                                <div style="border-bottom: 1px solid #1e3a8a; flex: 1; text-align: center;">${clinicalAnswers.egfr || ''}</div>
                             </div>
                         </div>
                         ${renderPrintQuestion('Asthma or respiratory diseases?', clinicalAnswers.asthma)}
@@ -281,11 +289,11 @@ const CTConsentPage: React.FC = () => {
                     <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 12px;">
                         <div style="width: 33%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Name</div>
-                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px; text-transform: uppercase;">${radiologist}</div>
+                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px; text-transform: uppercase;">${radiologist}</div>
                         </div>
                         <div style="width: 33%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Signature</div>
-                            <div style="border-bottom: 1px solid black; height: 20px;"></div>
+                            <div style="border-bottom: 1px solid #1e3a8a; height: 20px;"></div>
                         </div>
                     </div>
 
@@ -297,11 +305,11 @@ const CTConsentPage: React.FC = () => {
                     <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 12px;">
                         <div style="width: 33%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">${isRep ? 'Representative Name' : 'Patient Name'}</div>
-                            <div style="border-bottom: 1px solid black; text-align: center; height: 20px;">${isRep ? repName : patientName}</div>
+                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px;">${isRep ? repName : patientName}</div>
                         </div>
                         <div style="width: 33%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">${isRep ? 'Representative Signature' : 'Patient Signature'}</div>
-                            <div style="border-bottom: 1px solid black; height: 40px; position: relative; text-align: center;">
+                            <div style="border-bottom: 1px solid #1e3a8a; height: 40px; position: relative; text-align: center;">
                                 ${patientSignature && !isRep ? `<img src="${patientSignature}" style="max-height: 35px; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);" />` : ''}
                                 ${repSignature && isRep ? `<img src="${repSignature}" style="max-height: 35px; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);" />` : ''}
                             </div>
@@ -332,8 +340,8 @@ const CTConsentPage: React.FC = () => {
             const isNo = value === 'no';
             
             // Using base64 encoded SVGs to guarantee they print regardless of browser background graphics settings
-            const checkedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="black" stroke-width="1.5" fill="white"/><circle cx="7" cy="7" r="3.5" fill="black"/></svg>`);
-            const uncheckedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="black" stroke-width="1.5" fill="white"/></svg>`);
+            const checkedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="#1e3a8a" stroke-width="1.5" fill="white"/><circle cx="7" cy="7" r="3.5" fill="#1e3a8a"/></svg>`);
+            const uncheckedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="#1e3a8a" stroke-width="1.5" fill="white"/></svg>`);
             
             const radioYes = `<img src="data:image/svg+xml;charset=utf-8,${isYes ? checkedSvg : uncheckedSvg}" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-top: -2px;" />`;
             const radioNo = `<img src="data:image/svg+xml;charset=utf-8,${isNo ? checkedSvg : uncheckedSvg}" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-top: -2px;" />`;
@@ -358,23 +366,40 @@ const CTConsentPage: React.FC = () => {
                 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
                 <script src="https://cdn.tailwindcss.com"></script>
                 <style>
-                    body { font-family: 'Cairo', sans-serif; background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: black; margin: 0; padding: 0; }
+                    body { font-family: 'Cairo', sans-serif; background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #1e3a8a; margin: 0; padding: 0; }
                     @media print {
                         @page { size: A4 portrait; margin: 0; }
                         body { width: 100vw; height: 100vh; overflow: hidden; box-sizing: border-box; }
                     }
                 </style>
             </head>
-            <body class="p-8 text-sm relative flex flex-col h-screen box-border">
+            <body class="p-8 text-sm relative flex flex-col h-screen box-border text-blue-900">
                 <!-- Watermark -->
-                <div class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0 opacity-[0.15] pointer-events-none">
+                <div class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0 opacity-[0.06] pointer-events-none">
                     <img src="${logoUrl}" style="width: 400px; max-width: 80vw; object-fit: contain;" alt="شعار المستشفى" crossOrigin="anonymous" />
                 </div>
 
                 <div class="relative z-10 flex flex-col h-full">
                     
-                    <!-- Header Placeholder -->
-                    <div class="h-24 w-full mb-6 shrink-0"></div>
+                    <!-- Header -->
+                    <div class="flex items-center justify-between mb-4 border-b-2 border-blue-900 pb-2 shrink-0">
+    <div class="flex flex-col text-left w-1/3" dir="ltr">
+        <span class="font-bold text-base text-blue-900 tracking-wide leading-tight">AL JEDAANI HOSPITAL</span>
+        <span class="font-bold text-[10px] text-blue-900 tracking-wide">AL SAFA DISTRICT</span>
+                <span class="font-bold text-[10px] text-blue-900 tracking-wide">X-ray Department</span>
+
+    </div>
+
+    <div class="flex justify-center w-1/3">
+        <img src="${logoUrl}" style="max-height: 65px;" alt="Logo" crossOrigin="anonymous" />
+    </div>
+
+    <div class="flex flex-col text-right w-1/3" dir="rtl">
+        <span class="font-bold text-xl font-[Cairo] text-blue-900 leading-tight">مستشفى الجدعاني</span>
+        <span class="font-bold text-[12px] font-[Cairo] text-blue-900">حي الصفــــا</span>
+        <span class="font-bold text-[12px] font-[Cairo] text-blue-900">قسم الأشعه</span>
+    </div>
+</div>
 
                     <!-- Title -->
                     <div class="text-center font-bold text-sm mb-4 shrink-0">
@@ -385,23 +410,23 @@ const CTConsentPage: React.FC = () => {
                     <div class="flex justify-between mb-4 text-xs shrink-0">
                         <div class="flex flex-col w-[25%] px-1">
                             <span class="font-bold text-right w-full">Name</span>
-                            <div class="border-b border-black w-full text-center h-5">${patientName}</div>
+                            <div class="border-b border-blue-900 w-full text-center h-5">${patientName}</div>
                         </div>
                         <div class="flex flex-col w-[15%] px-1">
                             <span class="font-bold text-right w-full">MRN</span>
-                            <div class="border-b border-black w-full text-center h-5">${mrn}</div>
+                            <div class="border-b border-blue-900 w-full text-center h-5">${mrn}</div>
                         </div>
                         <div class="flex flex-col w-[15%] px-1">
                             <span class="font-bold text-right w-full">Age</span>
-                            <div class="border-b border-black w-full text-center h-5">${patientAge}</div>
+                            <div class="border-b border-blue-900 w-full text-center h-5">${patientAge}</div>
                         </div>
                         <div class="flex flex-col w-[20%] px-1">
                             <span class="font-bold text-right w-full">Gender</span>
-                            <div class="border-b border-black w-full text-center h-5">${patientGender === 'male' ? 'Male / ذكر' : patientGender === 'female' ? 'Female / أنثى' : ''}</div>
+                            <div class="border-b border-blue-900 w-full text-center h-5">${patientGender === 'male' ? 'Male / ذكر' : patientGender === 'female' ? 'Female / أنثى' : ''}</div>
                         </div>
                         <div class="flex flex-col w-[25%] px-1">
                             <span class="font-bold text-right w-full">Date</span>
-                            <div class="border-b border-black w-full text-center h-5">${date}</div>
+                            <div class="border-b border-blue-900 w-full text-center h-5">${date}</div>
                         </div>
                     </div>
 
@@ -409,15 +434,15 @@ const CTConsentPage: React.FC = () => {
                     <div class="flex justify-between mb-4 text-xs shrink-0">
                         <div class="flex flex-col w-1/3 px-1">
                             <span class="font-bold text-right w-full">Referred by Dr.</span>
-                            <div class="border-b border-black w-full text-center h-5 uppercase">${referral}</div>
+                            <div class="border-b border-blue-900 w-full text-center h-5 uppercase">${referral}</div>
                         </div>
                         <div class="flex flex-col w-1/3 px-1">
                             <span class="font-bold text-right w-full">Radiologist</span>
-                            <div class="border-b border-black w-full text-center h-5 uppercase">${radiologist}</div>
+                            <div class="border-b border-blue-900 w-full text-center h-5 uppercase">${radiologist}</div>
                         </div>
                         <div class="flex flex-col w-1/3 px-1">
                             <span class="font-bold text-right w-full">Procedure</span>
-                            <div class="border-b border-black w-full text-center h-5">${procedure}</div>
+                            <div class="border-b border-blue-900 w-full text-center h-5">${procedure}</div>
                         </div>
                     </div>
 
@@ -428,7 +453,7 @@ const CTConsentPage: React.FC = () => {
 
                     <!-- Questions -->
                     <div class="text-xs space-y-1 mb-4 shrink-0">
-                        ${renderPrintQuestion('Previous contrast scan?', clinicalAnswers.prevContrast)}
+                        ${renderPrintQuestion('Previous contrast CT scan?', clinicalAnswers.prevContrast)}
                         ${clinicalAnswers.prevContrast === 'yes' ? renderPrintQuestion('Contrast allergy?', clinicalAnswers.contrastAllergy) : ''}
                         ${renderPrintQuestion('Any allergies?', clinicalAnswers.allergy)}
                         ${renderPrintQuestion('Kidney disease or failure?', clinicalAnswers.kidneyDisease)}
@@ -437,11 +462,11 @@ const CTConsentPage: React.FC = () => {
                         <div class="flex justify-between items-center border-b border-gray-300 border-dashed pb-1 pt-1">
                             <div class="flex items-center w-1/2 pl-4">
                                 <span class="font-bold whitespace-nowrap ml-2">Creatinine:</span>
-                                <div class="border-b border-black w-full text-center h-4">${clinicalAnswers.creatinine || ''}</div>
+                                <div class="border-b border-blue-900 w-full text-center h-4">${clinicalAnswers.creatinine || ''}</div>
                             </div>
                             <div class="flex items-center w-1/2 pr-4" dir="ltr">
                                 <span class="font-bold whitespace-nowrap mr-2">eGFR:</span>
-                                <div class="border-b border-black w-full text-center h-4">${clinicalAnswers.egfr ? clinicalAnswers.egfr + ' <span class="text-[10px] text-gray-600">mL/min/1.73m²</span>' : ''}</div>
+                                <div class="border-b border-blue-900 w-full text-center h-4">${clinicalAnswers.egfr ? clinicalAnswers.egfr + ' <span class="text-[10px] text-gray-600">mL/min/1.73m²</span>' : ''}</div>
                             </div>
                         </div>
 
@@ -467,11 +492,11 @@ const CTConsentPage: React.FC = () => {
                     <div class="flex justify-between mb-4 text-xs shrink-0">
                         <div class="flex flex-col w-1/3 px-1">
                             <span class="font-bold text-right w-full">Name</span>
-                            <div class="border-b border-black w-full text-center h-5 uppercase">${radiologist}</div>
+                            <div class="border-b border-blue-900 w-full text-center h-5 uppercase">${radiologist}</div>
                         </div>
                         <div class="flex flex-col w-1/3 px-1">
                             <span class="font-bold text-right w-full">Signature</span>
-                            <div class="border-b border-black w-full text-center h-5" style="font-family: 'Dancing Script', cursive; font-size: 18px; transform: translateY(-5px); color: #1e3a8a;"></div>
+                            <div class="border-b border-blue-900 w-full text-center h-5" style="font-family: 'Dancing Script', cursive; font-size: 18px; transform: translateY(-5px); color: #1e3a8a;"></div>
                         </div>
                     </div>
 
@@ -496,11 +521,11 @@ const CTConsentPage: React.FC = () => {
                     <div class="flex justify-between mb-2 text-xs shrink-0">
                         <div class="flex flex-col w-1/3 px-1">
                             <span class="font-bold text-right w-full">${isRep ? 'Representative Name' : 'Patient Name'}</span>
-                            <div class="border-b border-black w-full text-center h-5">${isRep ? repName : patientName}</div>
+                            <div class="border-b border-blue-900 w-full text-center h-5">${isRep ? repName : patientName}</div>
                         </div>
                         <div class="flex flex-col w-1/3 px-1">
                             <span class="font-bold text-right w-full">${isRep ? 'Representative Signature' : 'Patient Signature'}</span>
-                            <div class="border-b border-black w-full text-center h-10 relative">
+                            <div class="border-b border-blue-900 w-full text-center h-10 relative">
                                 ${patientSignature && !isRep ? `<img src="${patientSignature}" class="absolute bottom-0 left-1/2 -translate-x-1/2 max-h-12" />` : ''}
                                 ${repSignature && isRep ? `<img src="${repSignature}" class="absolute bottom-0 left-1/2 -translate-x-1/2 max-h-12" />` : ''}
                             </div>
@@ -659,7 +684,7 @@ const CTConsentPage: React.FC = () => {
                         </h2>
                         <div className="space-y-3 mb-8 text-sm">
                             <div className="flex justify-between items-center border-b border-dashed border-slate-200 pb-2">
-                                <span className="font-bold">{t('خضعت سابقًا لأشعة بصبغة؟', 'Previous contrast scan?')}</span>
+                                <span className="font-bold">{t('خضعت سابقًا لأشعة بصبغة؟', 'Previous contrast CT scan?')}</span>
                                 <div className="flex gap-4">
                                     <label className="flex items-center gap-1"><input type="radio" name="prevContrast" checked={clinicalAnswers.prevContrast === 'yes'} onChange={() => handleAnswerChange('prevContrast', 'yes')} /> {t('نعم', 'Yes')}</label>
                                     <label className="flex items-center gap-1"><input type="radio" name="prevContrast" checked={clinicalAnswers.prevContrast === 'no'} onChange={() => handleAnswerChange('prevContrast', 'no')} /> {t('لا', 'No')}</label>
@@ -804,11 +829,11 @@ const CTConsentPage: React.FC = () => {
                             <p className="text-sm leading-relaxed mb-6 text-slate-700 text-justify">
                                 {lang === 'ar' ? (
                                     <>
-                                        أقر بأنني قرأت وملأت هذا النموذج بدقة وأوافق وأفوض الدكتور <strong className="border-b border-black px-2">{radiologist || '________'}</strong> للقيام بإجراء <strong className="border-b border-black px-2">{procedure || '________'}</strong> باعتباره ضروريًا جدًا أو قد نصح به بواسطة الدكتور <strong className="border-b border-black px-2">{referral || '________'}</strong>. لقد تم شرح طبيعة وغرض الإجراء والمخاطر والمضاعفات المحتملة لي بالتفصيل من قبل الدكتور <strong className="border-b border-black px-2">{radiologist || '________'}</strong>.
+                                        أقر بأنني قرأت وملأت هذا النموذج بدقة وأوافق وأفوض الدكتور <strong className="border-b border-blue-900 px-2">{radiologist || '________'}</strong> للقيام بإجراء <strong className="border-b border-blue-900 px-2">{procedure || '________'}</strong> باعتباره ضروريًا جدًا أو قد نصح به بواسطة الدكتور <strong className="border-b border-blue-900 px-2">{referral || '________'}</strong>. لقد تم شرح طبيعة وغرض الإجراء والمخاطر والمضاعفات المحتملة لي بالتفصيل من قبل الدكتور <strong className="border-b border-blue-900 px-2">{radiologist || '________'}</strong>.
                                     </>
                                 ) : (
                                     <>
-                                        I confirm that I have accurately completed this form and I consent and authorize Dr. <strong className="border-b border-black px-2">{radiologist || '________'}</strong> to perform the procedure <strong className="border-b border-black px-2">{procedure || '________'}</strong>, which is either essential or recommended by Dr. <strong className="border-b border-black px-2">{referral || '________'}</strong>. The nature, purpose, risks, and possible complications of the procedure have been fully explained to me by Dr. <strong className="border-b border-black px-2">{radiologist || '________'}</strong>.
+                                        I confirm that I have accurately completed this form and I consent and authorize Dr. <strong className="border-b border-blue-900 px-2">{radiologist || '________'}</strong> to perform the procedure <strong className="border-b border-blue-900 px-2">{procedure || '________'}</strong>, which is either essential or recommended by Dr. <strong className="border-b border-blue-900 px-2">{referral || '________'}</strong>. The nature, purpose, risks, and possible complications of the procedure have been fully explained to me by Dr. <strong className="border-b border-blue-900 px-2">{radiologist || '________'}</strong>.
                                     </>
                                 )}
                             </p>

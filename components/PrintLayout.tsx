@@ -4,6 +4,7 @@ import React from 'react';
 interface PrintHeaderProps {
   title?: string;
   subtitle?: string;
+  departmentName?: string; // Added prop for dynamic department
   dateRange?: string;
   month?: string;
   note?: string; // NEW PROP
@@ -15,6 +16,7 @@ interface PrintHeaderProps {
 export const PrintHeader: React.FC<PrintHeaderProps> = ({ 
     title, 
     subtitle, 
+    departmentName, // Use dynamic department
     dateRange, 
     month, 
     note,
@@ -62,14 +64,17 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
             <div className={`w-full ${c.bg} ${topBarHeight} rounded-sm opacity-90`}></div>
 
             <div className={`flex justify-between items-end border-b border-gray-800 ${compact ? 'pb-0.5 mb-0.5' : 'pb-2 mb-2'} relative`}>
-                {/* Left: Branding */}
-                <div className="flex items-center gap-2">
-                    <div className={`${logoSize} ${c.bg} text-white flex flex-col items-center justify-center font-black rounded-lg border-white shadow-sm`}>
-                        <span className="leading-none tracking-tighter">AJ</span>
+                {/* Left: Branding with Logos */}
+                <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3">
+                        <img src="/logo.png" alt="Hospital Logo" className={`${compact ? 'w-10 h-10' : 'w-20 h-20'} object-contain`} />
+                        <img src="/cbahi.png" alt="CBAHI Logo" className={`${compact ? 'w-8 h-8' : 'w-16 h-16'} object-contain`} />
                     </div>
                     <div className="flex flex-col justify-center">
-                        <h1 className={`${compact ? 'text-sm' : 'text-2xl'} font-black ${c.primary} uppercase tracking-tight leading-none`}>AL JEDAANI GROUP</h1>
-                        <h2 className={`${compact ? 'text-[9px]' : 'text-sm'} font-bold text-gray-600 uppercase tracking-widest leading-none`}>OF HOSPITALS</h2>
+                        <h1 className={`${compact ? 'text-sm' : 'text-2xl'} font-black text-blue-900 uppercase tracking-tight leading-none`}>AL JEDAANI HOSPITAL</h1>
+                        <h1 className={`${compact ? 'text-[8px]' : 'text-[10px]'} font-bold text-blue-800 tracking-widest leading-none mt-1`}>AL SAFA DISTRICT</h1>
+                        <h2 className={`${compact ? 'text-[9px]' : 'text-sm'} font-bold text-gray-600 uppercase tracking-widest leading-none mt-1`}>مستشفى الجدعاني</h2>
+                        <h2 className={`${compact ? 'text-[9px]' : 'text-sm'} font-bold text-gray-500 tracking-widest leading-none mt-0.5`}>حي الصفــــا</h2>
                     </div>
                 </div>
                 
@@ -94,7 +99,7 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
                 {/* Right: Department Info */}
                 <div className="text-right">
                     <div className="flex flex-col items-end">
-                        <h1 className={`${deptSize} font-black ${c.primary} uppercase leading-none`}>RADIOLOGY</h1>
+                        <h1 className={`${deptSize} font-black ${c.primary} uppercase leading-none`}>{departmentName || "RADIOLOGY"}</h1>
                         <h2 className={`font-bold text-gray-400 uppercase mr-0.5 ${subTextSize}`}>Department</h2>
                     </div>
                     <div className={`mt-0.5 ${badgePadding} ${c.bg} text-white font-bold uppercase tracking-widest rounded-l-md shadow-sm`}>

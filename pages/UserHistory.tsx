@@ -248,7 +248,11 @@ const UserHistory: React.FC = () => {
             const userStamp = userData?.stamp || '';
             
             // Fetch department name
-            const departmentName = 'RADIOLOGY DEPARTMENT';
+            let departmentName = '...';
+            if (userData?.departmentId) {
+                const deptDoc = await getDoc(doc(db, 'departments', userData.departmentId));
+                if (deptDoc.exists()) departmentName = deptDoc.data().name;
+            }
             
             // Fetch reliever details and departments
             const relieverDataList = await Promise.all(
@@ -306,12 +310,12 @@ const UserHistory: React.FC = () => {
             // Build the HTML content
             const logoUrl = new URL('/logo.png', window.location.origin).href;
             
-            const renderStampInline = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL') => {
+            const renderStampInline = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', dept: string = departmentName) => {
                 return `
                     <div class="stamp-box" style="position: static; transform: none; margin: 0; z-index: 1;">
                         <div class="stamp-inner">
-                            <div class="stamp-hospital">AL JEDAANI HOSPITAL</div>
-                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">RADIOLOGY DEPARTMENT</div>
+                            <div class="stamp-hospital">${hospital.toUpperCase()}</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
                             <div class="stamp-dept">${jobTitle}</div>
                             <div class="stamp-name">${name}</div>
                         </div>
@@ -356,7 +360,7 @@ const UserHistory: React.FC = () => {
                             font-family: 'Inter', 'Cairo', sans-serif; 
                             margin: 0;
                             padding: 0;
-                            color: #000;
+                            color: #1e3a8a;
                             background: #fff;
                             font-size: 12px;
                         }
@@ -364,7 +368,7 @@ const UserHistory: React.FC = () => {
                             width: 100%;
                             max-width: 100%;
                             margin: 0 auto; 
-                            border: 1px solid #000; 
+                            border: 1px solid #1e3a8a; 
                             padding: 15px;
                             box-sizing: border-box;
                         }
@@ -374,7 +378,7 @@ const UserHistory: React.FC = () => {
                         }
                         .title-box {
                             display: inline-block;
-                            border: 2px solid #000;
+                            border: 2px solid #1e3a8a; background: rgba(30, 58, 138, 0.05);
                             border-radius: 12px;
                             padding: 5px 30px;
                             text-align: center;
@@ -393,7 +397,7 @@ const UserHistory: React.FC = () => {
                             border-collapse: collapse;
                         }
                         td {
-                            border: 1px solid #000;
+                            border: 1px solid #1e3a8a;
                             padding: 4px 8px;
                             vertical-align: middle;
                         }
@@ -424,7 +428,7 @@ const UserHistory: React.FC = () => {
                         .checkbox {
                             width: 14px;
                             height: 14px;
-                            border: 1.5px solid #000;
+                            border: 1.5px solid #1e3a8a;
                             display: inline-block;
                             position: relative;
                         }
@@ -480,7 +484,7 @@ const UserHistory: React.FC = () => {
                         }
 
                         @media print {
-                            .print-container { border: 1px solid #000; }
+                            .print-container { border: 1px solid #1e3a8a; }
                             .no-print { display: none; }
                         }
 
@@ -489,9 +493,9 @@ const UserHistory: React.FC = () => {
                             position: fixed;
                             top: 50%;
                             left: 50%;
-                            transform: translate(-50%, -50%) rotate(-45deg);
-                            opacity: 0.15;
-                            width: 70%;
+                            transform: translate(-50%, -50%);
+                            opacity: 0.06;
+                            width: 100%; max-width: 900px;
                             z-index: -1;
                             pointer-events: none;
                         }
@@ -501,8 +505,14 @@ const UserHistory: React.FC = () => {
                     <img src="${logoUrl}" class="watermark" alt="Watermark" crossOrigin="anonymous" />
                     <div class="print-container">
                         <div class="header-section" style="display: flex; align-items: center; justify-content: space-between;">
-                            <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="display: flex; align-items: center; gap: 15px;">
                                 <img src="${logoUrl}" alt="Logo" style="max-height: 80px;" crossOrigin="anonymous" />
+                                <div style="display: flex; flex-direction: column; text-align: left;">
+                                    <span style="font-weight: bold; font-size: 15px; color: #1e3a8a; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
+                                    <span style="font-weight: bold; font-size: 8px; color: #1e3a8a; letter-spacing: 1px;">AL SAFA DISTRICT</span>
+                                    <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -5px;">مستشفى الجدعاني</span>
+                                    <span style="font-weight: bold; font-size: 8px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -3px;">حي الصفــــا</span>
+                                </div>
                             </div>
                             <div class="title-box">
                                 <div class="title-ar">طلب اجازة</div>
@@ -809,18 +819,24 @@ const UserHistory: React.FC = () => {
                 }
             }
 
-            const departmentName = 'RADIOLOGY DEPARTMENT';
+            // Fetch department name
+            let departmentName = '...';
+            if (userData?.departmentId) {
+                const deptDoc = await getDoc(doc(db, 'departments', userData.departmentId));
+                if (deptDoc.exists()) departmentName = deptDoc.data().name;
+            }
+
             const logoUrl = new URL('/logo.png', window.location.origin).href;
 
-            const renderStamp = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', approved: boolean = true) => {
+            const renderStamp = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', approved: boolean = true, dept: string = departmentName) => {
                 if (!approved) return ''; // Do not render stamp if not approved
                 
                 const rotation = (Math.random() * 6 - 3).toFixed(1);
                 return `
                     <div class="stamp-box" style="transform: rotate(${rotation}deg); position: absolute; top: -15px; left: 50%; transform: translateX(-50%) rotate(${rotation}deg); z-index: 50; pointer-events: none;">
                         <div class="stamp-inner">
-                            <div class="stamp-hospital">AL JEDAANI HOSPITAL</div>
-                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">RADIOLOGY DEPARTMENT</div>
+                            <div class="stamp-hospital">${hospital.toUpperCase()}</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
                             <div class="stamp-dept">${jobTitle}</div>
                             <div class="stamp-name">${name}</div>
                             <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: green; opacity: 0.7; transform: rotate(-10deg);">
@@ -847,7 +863,7 @@ const UserHistory: React.FC = () => {
                             font-family: 'Inter', 'Cairo', sans-serif; 
                             margin: 0;
                             padding: 0;
-                            color: #000;
+                            color: #1e3a8a;
                             background: #fff;
                             font-size: 12px;
                         }
@@ -855,7 +871,7 @@ const UserHistory: React.FC = () => {
                             width: 100%;
                             max-width: 100%;
                             margin: 0 auto; 
-                            border: 1px solid #000; 
+                            border: 1px solid #1e3a8a; 
                             padding: 15px;
                             box-sizing: border-box;
                         }
@@ -865,7 +881,7 @@ const UserHistory: React.FC = () => {
                         }
                         .title-box {
                             display: inline-block;
-                            border: 2px solid #000;
+                            border: 2px solid #1e3a8a; background: rgba(30, 58, 138, 0.05);
                             border-radius: 12px;
                             padding: 5px 30px;
                             text-align: center;
@@ -884,7 +900,7 @@ const UserHistory: React.FC = () => {
                             border-collapse: collapse;
                         }
                         td {
-                            border: 1px solid #000;
+                            border: 1px solid #1e3a8a;
                             padding: 4px 8px;
                             vertical-align: middle;
                         }
@@ -915,7 +931,7 @@ const UserHistory: React.FC = () => {
                         .checkbox {
                             width: 14px;
                             height: 14px;
-                            border: 1.5px solid #000;
+                            border: 1.5px solid #1e3a8a;
                             display: inline-block;
                             position: relative;
                         }
@@ -971,7 +987,7 @@ const UserHistory: React.FC = () => {
                         }
 
                         @media print {
-                            .print-container { border: 1px solid #000; }
+                            .print-container { border: 1px solid #1e3a8a; }
                             .no-print { display: none; }
                         }
 
@@ -980,9 +996,9 @@ const UserHistory: React.FC = () => {
                             position: fixed;
                             top: 50%;
                             left: 50%;
-                            transform: translate(-50%, -50%) rotate(-45deg);
-                            opacity: 0.15;
-                            width: 70%;
+                            transform: translate(-50%, -50%);
+                            opacity: 0.06;
+                            width: 100%; max-width: 900px;
                             z-index: -1;
                             pointer-events: none;
                         }
@@ -992,8 +1008,14 @@ const UserHistory: React.FC = () => {
                     <img src="${logoUrl}" class="watermark" alt="Watermark" crossOrigin="anonymous" />
                     <div class="print-container">
                         <div class="header-section" style="display: flex; align-items: center; justify-content: space-between;">
-                            <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="display: flex; align-items: center; gap: 15px;">
                                 <img src="${logoUrl}" alt="Logo" style="max-height: 80px;" crossOrigin="anonymous" />
+                                <div style="display: flex; flex-direction: column; text-align: left;">
+                                    <span style="font-weight: bold; font-size: 15px; color: #1e3a8a; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
+                                    <span style="font-weight: bold; font-size: 8px; color: #1e3a8a; letter-spacing: 1px;">AL SAFA DISTRICT</span>
+                                    <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -5px;">مستشفى الجدعاني</span>
+                                    <span style="font-weight: bold; font-size: 8px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -3px;">حي الصفــــا</span>
+                                </div>
                             </div>
                             <div class="title-box">
                                 <div class="title-ar">طلب تبديل</div>

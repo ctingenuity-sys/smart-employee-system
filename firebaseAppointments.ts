@@ -23,8 +23,15 @@ try {
 }
 
 // Initialize Firestore with persistent cache settings (replaces deprecated enableIndexedDbPersistence)
-export const appointmentsDb = initializeFirestore(appointmentsApp, {
-    localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager()
-    })
-});
+let dbInstance;
+try {
+    dbInstance = initializeFirestore(appointmentsApp, {
+        localCache: persistentLocalCache({
+            tabManager: persistentMultipleTabManager()
+        }),
+        experimentalForceLongPolling: true
+    });
+} catch (e) {
+    dbInstance = getFirestore(appointmentsApp);
+}
+export const appointmentsDb = dbInstance;

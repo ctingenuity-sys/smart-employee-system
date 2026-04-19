@@ -2,7 +2,7 @@
 // @ts-ignore
 import { initializeApp, getApp, getApps } from "firebase/app";
 // @ts-ignore
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore } from "firebase/firestore";
 // @ts-ignore
 import { getStorage } from "firebase/storage";
 
@@ -25,5 +25,13 @@ try {
     inventoryApp = initializeApp(inventoryConfig, "inventoryApp");
 }
 
-export const inventoryDb = getFirestore(inventoryApp);
+let firestoreDb;
+try {
+    firestoreDb = initializeFirestore(inventoryApp, {
+        experimentalForceLongPolling: true
+    });
+} catch (e) {
+    firestoreDb = getFirestore(inventoryApp);
+}
+export const inventoryDb = firestoreDb;
 export const inventoryStorage = getStorage(inventoryApp);

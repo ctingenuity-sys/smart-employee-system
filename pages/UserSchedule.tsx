@@ -105,9 +105,13 @@ const SheepOverlay = () => {
 
 // ... (Keep existing helper functions: convertTo24Hour, parseMultiShifts, formatTime12, formatDateSimple, isDateInMonth, parseDateString, isOverlap, getNationalHoliday, getIslamicOccasion, checkRamadanOverlap, checkEidOverlap, getEidName, getEidNameForRange, SHIFT_DESCRIPTIONS, PersonalNotepad, Barcode)
 // Copied existing helper functions to ensure they are available
+const normalizeDigits = (str: string) => {
+    return str.replace(/[٠-٩]/g, d => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
+};
+
 const convertTo24Hour = (timeStr: string): string | null => {
     if (!timeStr) return null;
-    let s = timeStr.toLowerCase().trim();
+    let s = normalizeDigits(String(timeStr).toLowerCase().trim());
     if (/^\d{1,2}$/.test(s)) return `${s.padStart(2, '0')}:00`;
     s = s.replace(/(\d+)\.(\d+)/, '$1:$2');
     if (s.match(/\b12\s*:?\s*0{0,2}\s*mn\b/) || s.includes('midnight') || s.includes('12mn')) return '24:00';
@@ -131,7 +135,7 @@ const convertTo24Hour = (timeStr: string): string | null => {
 
 const parseMultiShifts = (text: string) => {
     if (!text) return [];
-    let cleanText = text.trim();
+    let cleanText = normalizeDigits(text.trim());
     const segments = cleanText.split(/[\/,]|\s+and\s+|&|\s+(?=\d{1,2}(?::\d{2})?\s*(?:am|pm|mn|noon))/i);
     const shifts: { start: string, end: string }[] = [];
     
@@ -141,7 +145,7 @@ const parseMultiShifts = (text: string) => {
     segments.forEach(seg => {
         const trimmed = seg.trim();
         if(!trimmed) return;
-        const rangeParts = trimmed.replace(/[()]/g, '').split(/\s*(?:[-–—]|\bto\b)\s*/i);
+        const rangeParts = trimmed.replace(/[()]/g, '').split(/\s*(?:[-–—]|\bto\b|الى|إلى)\s*/i);
         if (rangeParts.length >= 2) {
             const startStr = rangeParts[0].trim();
             const endStr = rangeParts[rangeParts.length - 1].trim(); 

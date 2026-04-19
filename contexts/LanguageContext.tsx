@@ -101,6 +101,7 @@ const translations: Record<string, { ar: string; en: string }> = {
   'notif.swap.update': { ar: 'تحديث على طلب التبديل', en: 'Swap Request Update' },
   'notif.swap.msg': { ar: 'تم {action} طلب التبديل الخاص بك من قبل الزميل.', en: 'Your swap request has been {action} by the colleague.' },
   'notif.swap.msg|action:rejected': { ar: 'تم رفض طلب التبديل الخاص بك.', en: 'Your swap request has been rejected.' },
+  'notif.schedule.msg|mode:published|month:2026-04': { ar: 'تم نشر جدول شهر أبريل ٢٠٢٦', en: 'April 2026 schedule has been published' },
   'notif.announce.new': { ar: 'إعلان جديد', en: 'New Announcement' },
   
   // --- Penalties ---

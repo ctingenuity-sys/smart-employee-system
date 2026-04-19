@@ -4,7 +4,7 @@ import { initializeApp, getApp, getApps } from "firebase/app";
 // @ts-ignore
 import { getAuth } from "firebase/auth";
 // @ts-ignore
-import { getFirestore } from "firebase/firestore"; // Removed initializeFirestore & cache
+import { getFirestore, initializeFirestore } from "firebase/firestore";
 // @ts-ignore
 import { getStorage } from "firebase/storage";
 
@@ -22,6 +22,15 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 
 // Switch to standard Firestore without offline persistence to prevent quota sync loops
-export const db = getFirestore(app);
+// Use experimentalForceLongPolling to bypass potential WebSocket issues
+let firestoreDb;
+try {
+    firestoreDb = initializeFirestore(app, {
+        experimentalForceLongPolling: true
+    });
+} catch (e) {
+    firestoreDb = getFirestore(app);
+}
+export const db = firestoreDb;
 
 export const storage = getStorage(app);

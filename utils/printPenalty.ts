@@ -40,7 +40,7 @@ export const printPenaltyDocument = (penalty: Penalty) => {
                     font-family: 'Cairo', 'Inter', sans-serif; 
                     margin: 0;
                     padding: 0;
-                    color: #000;
+                    color: #1e3a8a;
                     background: #fff;
                     font-size: 11px;
                 }
@@ -69,6 +69,7 @@ export const printPenaltyDocument = (penalty: Penalty) => {
                     text-align: right;
                     font-size: 11px;
                     font-weight: bold;
+                    line-height: 1.1; /* تقليل المسافة الرأسية بين السطور */
                 }
                 .header-logo {
                     display: flex;
@@ -76,8 +77,8 @@ export const printPenaltyDocument = (penalty: Penalty) => {
                     align-items: center;
                 }
                 .header-logo img {
-                    width: 60px;
-                    height: 60px;
+                    width: 100px;
+                    height: 100px;
                     object-fit: contain;
                 }
                 .title-section {
@@ -119,7 +120,7 @@ export const printPenaltyDocument = (penalty: Penalty) => {
                     font-family: 'Inter', sans-serif;
                 }
                 .form-container {
-                    border: 2px solid #000;
+                    border: 2px solid #1e3a8a;
                 }
                 .section {
                     border-bottom: 2px solid #000;
@@ -147,8 +148,11 @@ export const printPenaltyDocument = (penalty: Penalty) => {
                     font-family: 'Inter', sans-serif;
                 }
                 .label-ar {
-                    width: 120px;
+                    width: 100px;
                     text-align: right;
+                    font-size: 13px;
+                                        padding: 0 2px;
+
                 }
                 .value-line {
                     flex-grow: 1;
@@ -210,7 +214,7 @@ export const printPenaltyDocument = (penalty: Penalty) => {
                 .checkbox {
                     width: 16px;
                     height: 16px;
-                    border: 2px solid #000;
+                    border: 2px solid #1e3a8a;
                     display: flex;
                     align-items: center;
                     justify-content: center;
@@ -247,9 +251,10 @@ export const printPenaltyDocument = (penalty: Penalty) => {
                     position: fixed;
                     top: 50%;
                     left: 50%;
-                    transform: translate(-50%, -50%) rotate(-45deg);
-                    opacity: 0.15;
-                    width: 70%;
+                    transform: translate(-50%, -50%);
+                    opacity: 0.06;
+                    width: 50%;
+                    max-width: 500px;
                     z-index: -1;
                     pointer-events: none;
                 }
@@ -261,7 +266,8 @@ export const printPenaltyDocument = (penalty: Penalty) => {
                 <!-- Header -->
                 <div class="header-section">
                     <div class="header-text-en">
-                        <p style="margin: 0 0 4px;">AL-JEDAANI GROUP OF HOSPITALS</p>
+                        <p style="margin: 0 0 2px;">AL JEDAANI HOSPITAL</p>
+                        <p style="margin: 0 0 4px; font-weight: bold; font-size: 8px;">AL SAFA DISTRICT</p>
                         <p style="margin: 0 0 4px; font-weight: normal;">Kingdom of Saudi Arabia</p>
                         <p style="margin: 0; font-weight: normal;">P.O. Box 7500 Jeddah 21462</p>
                     </div>
@@ -269,7 +275,8 @@ export const printPenaltyDocument = (penalty: Penalty) => {
                         <img src="${logoUrl}" alt="Hospital Logo" crossOrigin="anonymous" />
                     </div>
                     <div class="header-text-ar">
-                        <p style="margin: 0 0 4px; font-size: 18px;">مجموعة مستشفيات الجدعاني</p>
+                        <p style="margin: 0 0 2px; font-size: 18px;">مستشفى الجدعاني</p>
+                        <p style="margin: 0 0 4px; font-size: 11px; font-weight: bold;">حي الصفــــا</p>
                         <p style="margin: 0 0 4px; font-weight: normal;">المملكة العربية السعودية</p>
                         <p style="margin: 0; font-weight: normal;">ص.ب ٧٥٠٠ جـدة ٢١٤٦٢</p>
                     </div>

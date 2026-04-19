@@ -221,7 +221,7 @@ const SupervisorAttendance: React.FC = () => {
             
         getDocs(qUsers).then(snap => {
             const fetchedUsers = snap.docs.map(d => ({id:d.id, ...d.data()} as User));
-           setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager', 'doctor'].includes(u.role)));
+            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
         });
     }, [selectedDepartmentId]);
 
@@ -780,9 +780,13 @@ const SupervisorAttendance: React.FC = () => {
                     if (day.absentValue > 0) {
                         const key = `${summary.userId}_${day.date}`;
                         if (!existingKeys.has(key)) {
+                            // Find user to get departmentId
+                            const userRecord = users.find(u => u.id === summary.userId);
+                            
                             const newDoc = doc(actionRef);
                             batch.set(newDoc, {
                                 employeeId: summary.userId,
+                                departmentId: userRecord?.departmentId || selectedDepartmentId || null,
                                 type: 'unjustified_absence',
                                 fromDate: day.date,
                                 toDate: day.date,

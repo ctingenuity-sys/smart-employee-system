@@ -9,6 +9,7 @@ import { useDepartment } from '../../contexts/DepartmentContext';
 import { useAuth } from '../../contexts/AuthContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
+import { PrintStyleModal } from '../../components/PrintStyleModal';
 
 const SupervisorLeaves: React.FC = () => {
     const { t, dir } = useLanguage();
@@ -56,6 +57,8 @@ const SupervisorLeaves: React.FC = () => {
         return cached ? JSON.parse(cached) : [];
     });
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'} | null>(null);
+    const [isPrintStyleModalOpen, setIsPrintStyleModalOpen] = useState(false);
+    const [itemToPrint, setItemToPrint] = useState<LeaveRequest | null>(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
 
     useEffect(() => {
@@ -205,7 +208,7 @@ const SupervisorLeaves: React.FC = () => {
         document.body.removeChild(link);
     };
 
-    const handlePrintLeave = async (leave: LeaveRequest) => {
+    const handlePrintLeave = async (leave: LeaveRequest, printStyle: 'new' | 'old' = 'new') => {
         try {
             const getJobTitle = (uData: any) => {
                 const JOB_CATEGORIES = [
@@ -287,7 +290,9 @@ const SupervisorLeaves: React.FC = () => {
             }
 
             // Build the HTML content
-            const logoUrl = new URL('/logo.png', window.location.origin).href;
+            const logoUrl = new URL(printStyle === 'old' ? '/old-logo.png' : '/logo.png', window.location.origin).href;
+            const printColor = printStyle === 'old' ? '#000000' : '#1e3a8a';
+            const printColorRgb = printStyle === 'old' ? '0, 0, 0' : '30, 58, 138';
             
             const renderStampInline = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', dept: string = departmentName) => {
                 const rotation = (-3 - Math.random() * 5).toFixed(1);
@@ -295,7 +300,7 @@ const SupervisorLeaves: React.FC = () => {
                     <div class="stamp-box" style="position: static; transform: rotate(${rotation}deg); margin: 0; z-index: 1;">
                         <div class="stamp-inner">
                             <div class="stamp-hospital">${hospital.toUpperCase()}</div>
-                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(${printColorRgb}, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
                             <div class="stamp-dept">${jobTitle}</div>
                             <div class="stamp-name">${name}</div>
                             <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: green; opacity: 0.15; transform: rotate(-10deg);">
@@ -314,7 +319,7 @@ const SupervisorLeaves: React.FC = () => {
                     <div class="stamp-box" style="transform: rotate(${rotation}deg); position: absolute; top: -15px; left: calc(50% + ${offset}px); transform: translateX(-50%) rotate(${rotation}deg); z-index: 50; pointer-events: none;">
                         <div class="stamp-inner">
                             <div class="stamp-hospital">${hospital.toUpperCase()}</div>
-                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(${printColorRgb}, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
                             <div class="stamp-dept">${jobTitle}</div>
                             <div class="stamp-name">${name}</div>
                             <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: green; opacity: 0.15; transform: rotate(-10deg);">
@@ -341,7 +346,7 @@ const SupervisorLeaves: React.FC = () => {
                             font-family: 'Inter', 'Cairo', sans-serif; 
                             margin: 0;
                             padding: 0;
-                            color: #1e3a8a;
+                            color: ${printColor};
                             background: #fff;
                             font-size: 12px;
                         }
@@ -349,7 +354,7 @@ const SupervisorLeaves: React.FC = () => {
                             width: 100%;
                             max-width: 100%;
                             margin: 0 auto; 
-                            border: 1px solid #1e3a8a; 
+                            border: 1px solid ${printColor}; 
                             padding: 15px;
                             box-sizing: border-box;
                         }
@@ -359,7 +364,7 @@ const SupervisorLeaves: React.FC = () => {
                         }
                         .title-box {
                             display: inline-block;
-                            border: 2px solid #1e3a8a;
+                            border: 2px solid ${printColor};
                             border-radius: 12px;
                             padding: 5px 30px;
                             text-align: center;
@@ -378,7 +383,7 @@ const SupervisorLeaves: React.FC = () => {
                             border-collapse: collapse;
                         }
                         td {
-                            border: 1px solid #1e3a8a;
+                            border: 1px solid ${printColor};
                             padding: 4px 8px;
                             vertical-align: middle;
                         }
@@ -409,7 +414,7 @@ const SupervisorLeaves: React.FC = () => {
                         .checkbox {
                             width: 14px;
                             height: 14px;
-                            border: 1.5px solid #1e3a8a;
+                            border: 1.5px solid ${printColor};
                             display: inline-block;
                             position: relative;
                         }
@@ -427,11 +432,11 @@ const SupervisorLeaves: React.FC = () => {
                             margin: 2px auto;
                         }
                         .stamp-box {
-                            border: 3px solid #1e3a8a;
+                            border: 3px solid ${printColor};
                             border-radius: 6px;
                             padding: 4px;
                             display: inline-block;
-                            color: #1e3a8a;
+                            color: ${printColor};
                             text-align: center;
                             font-family: 'Courier New', Courier, monospace;
                             font-weight: bold;
@@ -446,7 +451,7 @@ const SupervisorLeaves: React.FC = () => {
                             overflow: hidden;
                         }
                         .stamp-inner {
-                            border: 1px solid rgba(30, 58, 138, 0.5);
+                            border: 1px solid rgba(${printColorRgb}, 0.5);
                             padding: 2px;
                             border-radius: 3px;
                             height: 100%;
@@ -459,13 +464,13 @@ const SupervisorLeaves: React.FC = () => {
                             font-size: 8px;
                             letter-spacing: 0.2px;
                             margin-bottom: 1px;
-                            border-bottom: 1px dashed rgba(30, 58, 138, 0.4);
+                            border-bottom: 1px dashed rgba(${printColorRgb}, 0.4);
                             padding-bottom: 2px;
                         }
                         .stamp-dept {
                             font-size: 9px;
                             margin-bottom: 2px;
-                            color: #1e3a8a;
+                            color: ${printColor};
                         }
                         .stamp-name {
                             font-size: 11px;
@@ -480,7 +485,7 @@ const SupervisorLeaves: React.FC = () => {
                         }
 
                         @media print {
-                            .print-container { border: 1px solid #1e3a8a; }
+                            .print-container { border: 1px solid ${printColor}; }
                             .no-print { display: none; }
                         }
                         
@@ -504,10 +509,10 @@ const SupervisorLeaves: React.FC = () => {
                             <div style="display: flex; align-items: center; gap: 15px;">
                                 <img src="${logoUrl}" alt="Logo" style="max-height: 80px;" crossOrigin="anonymous" />
                                 <div style="display: flex; flex-direction: column; text-align: left;">
-                                    <span style="font-weight: bold; font-size: 15px; color: #1e3a8a; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
-                                    <span style="font-weight: bold; font-size: 8px; color: #1e3a8a; letter-spacing: 1px;">AL SAFA DISTRICT</span>
-                                    <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -5px;">مستشفى الجدعاني</span>
-                                    <span style="font-weight: bold; font-size: 8px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -3px;">حي الصفــــا</span>
+                                    <span style="font-weight: bold; font-size: 15px; color: ${printColor}; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
+                                    <span style="font-weight: bold; font-size: 8px; color: ${printColor}; letter-spacing: 1px;">AL SAFA DISTRICT</span>
+                                    <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: ${printColor}; margin-top: -5px;">مستشفى الجدعاني</span>
+                                    <span style="font-weight: bold; font-size: 8px; font-family: 'Cairo', sans-serif; color: ${printColor}; margin-top: -3px;">حي الصفــــا</span>
                                 </div>
                                 ${leave.supervisorApproval?.uid ? renderStampInline(leave.supervisorApproval.name, supervisorJob, 'AL JEDAANI HOSPITAL') : ''}
                             </div>
@@ -837,7 +842,10 @@ const SupervisorLeaves: React.FC = () => {
                                         {t('sup.reject')}
                                     </button>
                                 </div>
-                                <button onClick={() => handlePrintLeave(req)} className="bg-slate-100 text-slate-600 px-5 py-2 rounded-xl font-bold hover:bg-slate-200 transition-all flex items-center justify-center gap-2">
+                                <button onClick={() => {
+                                    setItemToPrint(req);
+                                    setIsPrintStyleModalOpen(true);
+                                }} className="bg-slate-100 text-slate-600 px-5 py-2 rounded-xl font-bold hover:bg-slate-200 transition-all flex items-center justify-center gap-2">
                                     <i className="fas fa-print"></i> {t('print')}
                                 </button>
                             </div>
@@ -845,6 +853,16 @@ const SupervisorLeaves: React.FC = () => {
                     ))
                 )}
             </div>
+
+            <PrintStyleModal 
+                isOpen={isPrintStyleModalOpen} 
+                onClose={() => setIsPrintStyleModalOpen(false)} 
+                onConfirm={(style) => {
+                    if (itemToPrint) {
+                        handlePrintLeave(itemToPrint, style);
+                    }
+                }} 
+            />
         </div>
     );
 };

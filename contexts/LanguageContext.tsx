@@ -398,6 +398,7 @@ const translations: Record<string, { ar: string; en: string }> = {
   },
 
   // --- Login ---,
+  'user.profile.viewLicense': { ar: 'فتح الترخيص', en: 'Open License' },
   'login.title': { ar: 'تسجيل الدخول', en: 'Login' },
   'login.subtitle': { ar: 'أدخل بياناتك للمتابعة', en: 'Enter your credentials' },
   'login.email': { ar: 'البريد الإلكتروني', en: 'Email Address' },

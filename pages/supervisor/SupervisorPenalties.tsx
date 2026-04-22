@@ -7,6 +7,7 @@ import { useFilteredUsers } from '../../hooks/useFilteredUsers';
 import PenaltyPrintable from '../../components/PenaltyPrintable';
 import { useLanguage, getTranslationKeyForArabic } from '../../contexts/LanguageContext';
 import { printPenaltyDocument } from '../../utils/printPenalty';
+import { PrintStyleModal } from '../../components/PrintStyleModal';
 
 const VIOLATION_CATEGORIES = {
     "مخالفات تتعلق بمواعيد العمل": [
@@ -77,6 +78,7 @@ const SupervisorPenalties: React.FC = () => {
     const [violationCategory, setViolationCategory] = useState(Object.keys(VIOLATION_CATEGORIES)[0]);
     const [violation, setViolation] = useState(VIOLATION_CATEGORIES[Object.keys(VIOLATION_CATEGORIES)[0] as keyof typeof VIOLATION_CATEGORIES][0]);
     const [selectedPenalty, setSelectedPenalty] = useState<Penalty | null>(null);
+    const [isPrintStyleModalOpen, setIsPrintStyleModalOpen] = useState(false);
     
     const [deductionDays, setDeductionDays] = useState<number | ''>('');
     const [suspensionDays, setSuspensionDays] = useState<number | ''>('');
@@ -327,7 +329,7 @@ const SupervisorPenalties: React.FC = () => {
                             <div className="mt-8 flex justify-center print:hidden">
                                 <button 
                                     className="px-8 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-md hover:shadow-lg flex items-center gap-2"
-                                    onClick={() => printPenaltyDocument(selectedPenalty)}
+                                    onClick={() => setIsPrintStyleModalOpen(true)}
                                 >
                                     <i className="fas fa-print text-xl"></i> {t('print')}
                                 </button>
@@ -336,6 +338,16 @@ const SupervisorPenalties: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            <PrintStyleModal 
+                isOpen={isPrintStyleModalOpen} 
+                onClose={() => setIsPrintStyleModalOpen(false)} 
+                onConfirm={(style) => {
+                    if (selectedPenalty) {
+                        printPenaltyDocument(selectedPenalty, style);
+                    }
+                }} 
+            />
         </div>
     );
 };

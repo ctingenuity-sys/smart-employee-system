@@ -1,8 +1,10 @@
 import { Penalty } from '../types';
 
-export const printPenaltyDocument = (penalty: Penalty) => {
+export const printPenaltyDocument = (penalty: Penalty, printStyle: 'new' | 'old' = 'new') => {
     const dateStr = penalty.createdAt?.toDate ? penalty.createdAt.toDate().toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
-    const logoUrl = window.location.origin + '/logo.png';
+    const logoUrl = window.location.origin + (printStyle === 'old' ? '/old-logo.png' : '/logo.png');
+    const printColor = printStyle === 'old' ? '#000000' : '#1e3a8a';
+    const printColorRgb = printStyle === 'old' ? '0, 0, 0' : '30, 58, 138';
 
     const renderStampInline = (name: string, status: 'accepted' | 'rejected') => {
         const isAccepted = status === 'accepted';
@@ -40,7 +42,7 @@ export const printPenaltyDocument = (penalty: Penalty) => {
                     font-family: 'Cairo', 'Inter', sans-serif; 
                     margin: 0;
                     padding: 0;
-                    color: #1e3a8a;
+                    color: ${printColor};
                     background: #fff;
                     font-size: 11px;
                 }
@@ -120,7 +122,7 @@ export const printPenaltyDocument = (penalty: Penalty) => {
                     font-family: 'Inter', sans-serif;
                 }
                 .form-container {
-                    border: 2px solid #1e3a8a;
+                    border: 2px solid ${printColor};
                 }
                 .section {
                     border-bottom: 2px solid #000;
@@ -214,7 +216,7 @@ export const printPenaltyDocument = (penalty: Penalty) => {
                 .checkbox {
                     width: 16px;
                     height: 16px;
-                    border: 2px solid #1e3a8a;
+                    border: 2px solid ${printColor};
                     display: flex;
                     align-items: center;
                     justify-content: center;

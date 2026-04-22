@@ -5,7 +5,7 @@ import { db as certDb } from '../../firebaseData';
 import { inventoryDb } from '../../firebaseInventory';
 // @ts-ignore
 import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, orderBy, Timestamp, where } from 'firebase/firestore';
-import { Department, User } from '../../types';
+import { Department, User, SwapRequest, LeaveRequest } from '../../types';
 import Toast from '../../components/Toast';
 import Modal from '../../components/Modal';
 // @ts-ignore
@@ -39,6 +39,8 @@ const DepartmentsPage: React.FC = () => {
         const cached = localStorage.getItem('usr_cached_dept_users');
         return cached ? JSON.parse(cached) : [];
     }); // To select managers
+    const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([]);
+    const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'} | null>(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -72,6 +74,18 @@ const DepartmentsPage: React.FC = () => {
         // Fetch Users (for manager selection)
         getDocs(collection(db, 'users')).then((snap) => {
             setUsers(snap.docs.map(d => ({ ...d.data(), id: d.id } as User)));
+        });
+
+        // Fetch Swap Requests
+        const qSwaps = query(collection(db, 'swapRequests'), where('status', '==', 'approvedByUser'));
+        getDocs(qSwaps).then(snap => {
+            setSwapRequests(snap.docs.map(d => ({ ...d.data(), id: d.id } as SwapRequest)));
+        });
+
+        // Fetch Leave Requests
+        const qLeaves = query(collection(db, 'leaveRequests'), where('status', 'in', ['pending_supervisor', 'pending_manager']));
+        getDocs(qLeaves).then(snap => {
+            setLeaveRequests(snap.docs.map(d => ({ ...d.data(), id: d.id } as LeaveRequest)));
         });
     }, [refreshTrigger]);
 
@@ -378,6 +392,35 @@ const DepartmentsPage: React.FC = () => {
                             </div>
                         </div>
                     ))}
+                </div>
+            </div>
+
+            {/* NEW: Pending Requests Section */}
+            <div className="mt-12 bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
+                <h2 className="text-2xl font-black text-slate-800 mb-6 underline decoration-indigo-500 underline-offset-8">الطلبات المعلقة</h2>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <h3 className="text-lg font-bold text-slate-700 mb-4">طلبات التبديل ({swapRequests.length})</h3>
+                        <div className="space-y-3">
+                            {swapRequests.map(r => (
+                                <div key={r.id} className="p-4 bg-purple-50 rounded-xl border border-purple-100 text-sm">
+                                    <p className="font-bold text-purple-900">{r.details}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-bold text-slate-700 mb-4">طلبات الإجازات ({leaveRequests.length})</h3>
+                        <div className="space-y-3">
+                            {leaveRequests.map(r => (
+                                <div key={r.id} className="p-4 bg-rose-50 rounded-xl border border-rose-100 text-sm">
+                                    <p className="font-bold text-rose-900">{r.reason}</p>
+                                    <p className="text-xs text-rose-700">{r.startDate} - {r.endDate}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                 </div>
             </div>
 

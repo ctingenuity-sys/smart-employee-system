@@ -8,6 +8,7 @@ import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDepartment } from '../../contexts/DepartmentContext';
 import { PrintHeader, PrintFooter } from '../../components/PrintLayout';
+import { PrintStyleModal } from '../../components/PrintStyleModal';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 
@@ -39,6 +40,8 @@ const SupervisorHistory: React.FC = () => {
     const [histFilterMonth, setHistFilterMonth] = useState(new Date().toISOString().slice(0, 7));
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'} | null>(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const [isPrintStyleModalOpen, setIsPrintStyleModalOpen] = useState(false);
+    const [itemToPrint, setItemToPrint] = useState<HistoryItem | null>(null);
 
     useEffect(() => {
         localStorage.setItem('usr_cached_sup_hist', JSON.stringify(historyData));
@@ -93,83 +96,12 @@ const SupervisorHistory: React.FC = () => {
 
     const getUserName = (id: string) => users.find(u => u.id === id)?.name || id;
 
-    const handleDelete = async (item: HistoryItem) => {
-        if(!confirm('Delete record?')) return;
-        try {
-            let collectionName = 'leaveRequests';
-            if (item.type === 'swap') collectionName = 'swapRequests';
-            else if (item.type === 'absence') collectionName = 'actions';
-            
-            await deleteDoc(doc(db, collectionName, item.id));
-            setHistoryData(prev => prev.filter(i => i.id !== item.id));
-            setToast({ msg: 'Deleted', type: 'success' });
-        } catch(e) { setToast({ msg: 'Error', type: 'error' }); }
-    };
+    
+    const handleConfirmPrint = async (style: 'new' | 'old') => {
+        if (!itemToPrint) return;
+        const item = itemToPrint;
+        setIsPrintStyleModalOpen(false);
 
-    const filteredData = useMemo(() => {
-        return historyData.filter(item => {
-            if (histFilterType !== 'all' && item.type !== histFilterType) return false;
-            if (histFilterMonth && !item.startDate?.startsWith(histFilterMonth)) return false;
-            return true;
-        }).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    }, [historyData, histFilterType, histFilterMonth]);
-
-    return (
-        <div className="max-w-6xl mx-auto px-4 py-8 animate-fade-in print:p-0 print:max-w-none" dir={dir}>
-            {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
-            
-            <PrintHeader title="Request History Report" month={histFilterMonth} subtitle="Processed Requests" themeColor="indigo" />
-
-            <div className="flex items-center gap-4 mb-8 print:hidden">
-                <button onClick={() => navigate('/supervisor')} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-300 transition-colors">
-                    <i className="fas fa-arrow-left rtl:rotate-180"></i>
-                </button>
-                <h1 className="text-2xl font-black text-slate-800">Request History</h1>
-            </div>
-
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none print:rounded-none">
-                <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap gap-4 items-center print:hidden">
-                    <select className="bg-white border-none rounded-lg text-xs font-bold p-2" value={histFilterType} onChange={e => setHistFilterType(e.target.value as any)}>
-                        <option value="all">All Types</option>
-                        <option value="swap">Swaps</option>
-                        <option value="leave">Leaves</option>
-                        <option value="absence">Absences</option>
-                    </select>
-                    <input type="month" className="bg-white border-none rounded-lg text-xs font-bold p-2" value={histFilterMonth} onChange={e => setHistFilterMonth(e.target.value)} />
-                    <button onClick={() => window.print()} className="ml-auto bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-700 flex items-center gap-2">
-                        <i className="fas fa-print"></i> Print Report
-                    </button>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                        <thead className="bg-slate-100 text-slate-500 text-xs uppercase font-bold print:bg-white print:border-b-2 print:border-slate-800 print:text-black">
-                            <tr>
-                                <th className="p-4 print:p-2">Type</th>
-                                <th className="p-4 print:p-2">User</th>
-                                <th className="p-4 print:p-2">Details</th>
-                                <th className="p-4 print:p-2">Date</th>
-                                <th className="p-4 print:p-2">Status</th>
-                                <th className="p-4 w-10 print:hidden"></th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 print:divide-slate-300">
-                            {filteredData.map(item => (
-                                <tr key={item.id} data-id={item.id} className="hover:bg-slate-50 print:break-inside-avoid">
-                                    <td className="p-4 print:p-2">
-                                        <span className={`px-2 py-1 rounded text-xs font-bold uppercase border ${item.type === 'swap' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : item.type === 'leave' ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-amber-50 text-amber-600 border-amber-100'} print:border-0 print:bg-transparent print:text-black print:p-0`}>
-                                            {item.type}
-                                        </span>
-                                    </td>
-                                    <td className="p-4 font-bold text-slate-700 print:p-2 print:text-black">{getUserName(item.userId)}</td>
-                                    <td className="p-4 text-slate-600 text-xs print:p-2 print:text-black">{item.details} {item.type === 'swap' && `→ ${getUserName(item.targetId!)}`}</td>
-                                    <td className="p-4 font-mono text-xs text-slate-500 print:p-2 print:text-black">{item.startDate} {item.endDate ? `- ${item.endDate}` : ''}</td>
-                                    <td className="p-4 print:p-2">
-                                        <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${item.status.includes('approved') ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'} print:bg-transparent print:text-black print:border print:border-black`}>
-                                            {item.status.replace(/BySupervisor|ByUser/, '')}
-                                        </span>
-                                    </td>
-                                    <td className="p-4 text-center print:hidden flex gap-2">
-                                        <button onClick={async () => {
                                             const printWindow = window.open('', '_blank');
                                             if (!printWindow) return;
 
@@ -224,10 +156,10 @@ const SupervisorHistory: React.FC = () => {
                                                     <div class="stamp-box" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(${rotation}deg); z-index: 50; pointer-events: none; ${!approved ? 'border-color: red; color: red;' : ''}">
                                                         <div class="stamp-inner" style="${!approved ? 'border-color: red;' : ''}">
                                                             <div class="stamp-hospital">${hospital.toUpperCase()}</div>
-                                                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed ${!approved ? 'red' : 'rgba(30, 58, 138, 0.4)'}; margin-top: 1px; padding-top: 1px;">${departmentName.toUpperCase()}</div>
+                                                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed ${!approved ? 'red' : 'rgba(${printColorRgb}, 0.4)'}; margin-top: 1px; padding-top: 1px;">${departmentName.toUpperCase()}</div>
                                                             <div class="stamp-dept" style="${!approved ? 'color: red;' : ''}">${jobTitle}</div>
                                                             <div class="stamp-name">${name}</div>
-                                                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: ${approved ? '#006000' : 'red'}; opacity: 0.15; transform: rotate(-10deg);">
+                                                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: ${approved ? '#329132' : 'red'}; opacity: 0.8; transform: rotate(-10deg);">
                                                                 ${approved ? 'APPROVED' : 'NOT APPROVED'}
                                                             </div>
                                                         </div>
@@ -297,7 +229,10 @@ const SupervisorHistory: React.FC = () => {
                                             else if (item.type === 'leave') { titleEn = 'LEAVE REQUEST'; titleAr = 'طلب إجازة'; }
                                             else { titleEn = 'ABSENCE RECORD'; titleAr = 'سجل غياب'; }
 
-                                            const logoUrl = new URL('/logo.png', window.location.origin).href;
+                                            const printStyle = style;
+                                            const logoUrl = new URL(printStyle === 'old' ? '/old-logo.png' : '/logo.png', window.location.origin).href;
+                                            const printColor = printStyle === 'old' ? '#000000' : '#1e3a8a';
+                                            const printColorRgb = printStyle === 'old' ? '0, 0, 0' : '30, 58, 138';
 
                                             let printContent = '';
                                             if (item.type === 'leave' || item.type === 'absence') {
@@ -310,30 +245,30 @@ const SupervisorHistory: React.FC = () => {
                                                         <style>
                                                             @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&family=Inter:wght@400;700&display=swap');
                                                             @page { size: A4; margin: 10mm; }
-                                                            body { font-family: 'Inter', 'Cairo', sans-serif; margin: 0; padding: 0; color: #1e3a8a; background: #fff; font-size: 12px; }
-                                                            .print-container { width: 100%; max-width: 100%; margin: 0 auto; border: 1px solid #1e3a8a; padding: 15px; box-sizing: border-box; }
+                                                            body { font-family: 'Inter', 'Cairo', sans-serif; margin: 0; padding: 0; color: ${printColor}; background: #fff; font-size: 12px; }
+                                                            .print-container { width: 100%; max-width: 100%; margin: 0 auto; border: 1px solid ${printColor}; padding: 15px; box-sizing: border-box; }
                                                             .header-section { text-align: center; margin-bottom: 10px; }
-                                                            .title-box { display: inline-block; border: 2px solid #1e3a8a; background: rgba(30, 58, 138, 0.05); border-radius: 12px; padding: 5px 30px; text-align: center; }
+                                                            .title-box { display: inline-block; border: 2px solid ${printColor}; background: rgba(${printColorRgb}, 0.05); border-radius: 12px; padding: 5px 30px; text-align: center; }
                                                             .title-ar { font-size: 20px; font-weight: bold; margin-bottom: 2px; }
                                                             .title-en { font-size: 14px; font-weight: bold; text-transform: uppercase; }
                                                             .date-line { text-align: left; margin-bottom: 5px; font-weight: bold; }
                                                             table { width: 100%; border-collapse: collapse; }
-                                                            td { border: 1px solid #1e3a8a; padding: 4px 8px; vertical-align: middle; }
+                                                            td { border: 1px solid ${printColor}; padding: 4px 8px; vertical-align: middle; }
                                                             .label-en { width: 25%; text-align: left; font-weight: bold; }
                                                             .label-ar { width: 25%; text-align: right; font-weight: bold; font-family: 'Cairo', sans-serif; }
                                                             .value { width: 50%; text-align: center; font-weight: bold; font-size: 13px; }
-                                                            .section-header { background: rgba(30, 58, 138, 0.05); font-weight: bold; color: #1e3a8a; }
+                                                            .section-header { background: rgba(${printColorRgb}, 0.05); font-weight: bold; color: ${printColor}; }
                                                             .section-header td { padding: 2px 0; }
                                                             .section-title-flex { display: flex; justify-content: space-between; align-items: center; padding: 0 15px; font-size: 14px; }
                                                             .checkbox-container { display: flex; align-items: center; gap: 8px; }
-                                                            .checkbox { width: 14px; height: 14px; border: 1.5px solid #1e3a8a; display: inline-block; position: relative; }
-                                                            .checkbox.checked::after { content: '✓'; position: absolute; top: -5px; left: 1px; font-size: 18px; font-weight: bold; color: #1e3a8a; }
-                                                            .stamp-box { border: 3px solid #1e3a8a; border-radius: 6px; padding: 4px; display: inline-block; color: #1e3a8a; text-align: center; font-family: 'Courier New', Courier, monospace; font-weight: bold; line-height: 1.1; background: transparent; margin: 2px auto; width: 140px; height: 85px; position: relative; text-transform: uppercase; box-sizing: border-box; overflow: hidden; }
+                                                            .checkbox { width: 14px; height: 14px; border: 1.5px solid ${printColor}; display: inline-block; position: relative; }
+                                                            .checkbox.checked::after { content: '✓'; position: absolute; top: -5px; left: 1px; font-size: 18px; font-weight: bold; color: ${printColor}; }
+                                                            .stamp-box { border: 3px solid #0e2668; border-radius: 6px; padding: 4px; display: inline-block; color: #172f70; text-align: center; font-family: 'Courier New', Courier, monospace; font-weight: bold; line-height: 1.1; background: transparent; margin: 2px auto; width: 140px; height: 85px; position: relative; text-transform: uppercase; box-sizing: border-box; overflow: hidden; }
                                                             .stamp-inner { border: 1px solid rgba(30, 58, 138, 0.5); padding: 2px; border-radius: 3px; height: 100%; display: flex; flex-direction: column; justify-content: center; box-sizing: border-box; }
                                                             .stamp-hospital { font-size: 8px; letter-spacing: 0.2px; margin-bottom: 1px; border-bottom: 1px dashed rgba(30, 58, 138, 0.4); padding-bottom: 2px; }
-                                                            .stamp-dept { font-size: 9px; margin-bottom: 2px; color: #1e3a8a; }
+                                                            .stamp-dept { font-size: 9px; margin-bottom: 2px; color: #0c2363; }
                                                             .stamp-name { font-size: 11px; line-height: 1.2; }
-                                                            @media print { .print-container { border: 1px solid #1e3a8a; } }
+                                                            @media print { .print-container { border: 1px solid ${printColor}; } }
                                                             .watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.10; width: 100%; max-width: 900px; z-index: -1; pointer-events: none; }
                                                         </style>
                                                     </head>
@@ -344,10 +279,10 @@ const SupervisorHistory: React.FC = () => {
                                                                 <div style="display: flex; align-items: center; gap: 15px;">
                                  <img src="${logoUrl}" alt="Logo" style="max-height: 80px;" crossOrigin="anonymous" />
                                  <div style="display: flex; flex-direction: column; text-align: left;">
-                                     <span style="font-weight: bold; font-size: 15px; color: #1e3a8a; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
-                                     <span style="font-weight: bold; font-size: 8px; color: #1e3a8a; letter-spacing: 1px;">AL SAFA DISTRICT</span>
-                                     <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -5px;">مستشفى الجدعاني</span>
-                                     <span style="font-weight: bold; font-size: 8px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -3px;">حي الصفــــا</span>
+                                     <span style="font-weight: bold; font-size: 15px; color: ${printColor}; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
+                                     <span style="font-weight: bold; font-size: 8px; color: ${printColor}; letter-spacing: 1px;">AL SAFA DISTRICT</span>
+                                     <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: ${printColor}; margin-top: -5px;">مستشفى الجدعاني</span>
+                                     <span style="font-weight: bold; font-size: 8px; font-family: 'Cairo', sans-serif; color: ${printColor}; margin-top: -3px;">حي الصفــــا</span>
                                  </div>
                              </div>
                                                                 <div class="title-box">
@@ -568,30 +503,30 @@ const SupervisorHistory: React.FC = () => {
                                                         <style>
                                                             @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&family=Inter:wght@400;700&display=swap');
                                                             @page { size: A4; margin: 10mm; }
-                                                            body { font-family: 'Inter', 'Cairo', sans-serif; margin: 0; padding: 0; color: #1e3a8a; background: #fff; font-size: 12px; }
-                                                            .print-container { width: 100%; max-width: 100%; margin: 0 auto; border: 1px solid #1e3a8a; padding: 15px; box-sizing: border-box; }
+                                                            body { font-family: 'Inter', 'Cairo', sans-serif; margin: 0; padding: 0; color: ${printColor}; background: #fff; font-size: 12px; }
+                                                            .print-container { width: 100%; max-width: 100%; margin: 0 auto; border: 1px solid ${printColor}; padding: 15px; box-sizing: border-box; }
                                                             .header-section { text-align: center; margin-bottom: 10px; }
-                                                            .title-box { display: inline-block; border: 2px solid #1e3a8a; background: rgba(30, 58, 138, 0.05); border-radius: 12px; padding: 5px 30px; text-align: center; }
+                                                            .title-box { display: inline-block; border: 2px solid ${printColor}; background: rgba(${printColorRgb}, 0.05); border-radius: 12px; padding: 5px 30px; text-align: center; }
                                                             .title-ar { font-size: 20px; font-weight: bold; margin-bottom: 2px; }
                                                             .title-en { font-size: 14px; font-weight: bold; text-transform: uppercase; }
                                                             .date-line { text-align: left; margin-bottom: 5px; font-weight: bold; }
                                                             table { width: 100%; border-collapse: collapse; }
-                                                            td { border: 1px solid #1e3a8a; padding: 4px 8px; vertical-align: middle; }
+                                                            td { border: 1px solid ${printColor}; padding: 4px 8px; vertical-align: middle; }
                                                             .label-en { width: 25%; text-align: left; font-weight: bold; }
                                                             .label-ar { width: 25%; text-align: right; font-weight: bold; font-family: 'Cairo', sans-serif; }
                                                             .value { width: 50%; text-align: center; font-weight: bold; font-size: 13px; }
-                                                            .section-header { background: rgba(30, 58, 138, 0.05); font-weight: bold; color: #1e3a8a; }
+                                                            .section-header { background: rgba(${printColorRgb}, 0.05); font-weight: bold; color: ${printColor}; }
                                                             .section-header td { padding: 2px 0; }
                                                             .section-title-flex { display: flex; justify-content: space-between; align-items: center; padding: 0 15px; font-size: 14px; }
                                                             .checkbox-container { display: flex; align-items: center; gap: 8px; }
-                                                            .checkbox { width: 14px; height: 14px; border: 1.5px solid #1e3a8a; display: inline-block; position: relative; }
-                                                            .checkbox.checked::after { content: '✓'; position: absolute; top: -5px; left: 1px; font-size: 18px; font-weight: bold; color: #1e3a8a; }
+                                                            .checkbox { width: 14px; height: 14px; border: 1.5px solid ${printColor}; display: inline-block; position: relative; }
+                                                            .checkbox.checked::after { content: '✓'; position: absolute; top: -5px; left: 1px; font-size: 18px; font-weight: bold; color: ${printColor}; }
                                                             .stamp-box { border: 3px solid #1e3a8a; border-radius: 6px; padding: 4px; display: inline-block; color: #1e3a8a; text-align: center; font-family: 'Courier New', Courier, monospace; font-weight: bold; line-height: 1.1; background: transparent; margin: 2px auto; width: 140px; height: 85px; position: relative; text-transform: uppercase; box-sizing: border-box; overflow: hidden; }
                                                             .stamp-inner { border: 1px solid rgba(30, 58, 138, 0.5); padding: 2px; border-radius: 3px; height: 100%; display: flex; flex-direction: column; justify-content: center; box-sizing: border-box; }
                                                             .stamp-hospital { font-size: 8px; letter-spacing: 0.2px; margin-bottom: 1px; border-bottom: 1px dashed rgba(30, 58, 138, 0.4); padding-bottom: 2px; }
                                                             .stamp-dept { font-size: 9px; margin-bottom: 2px; color: #1e3a8a; }
                                                             .stamp-name { font-size: 11px; line-height: 1.2; }
-                                                            @media print { .print-container { border: 1px solid #1e3a8a; } }
+                                                            @media print { .print-container { border: 1px solid ${printColor}; } }
                                                             .watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.10; width: 100%; max-width: 900px; z-index: -1; pointer-events: none; }
                                                         </style>
                                                     </head>
@@ -602,10 +537,10 @@ const SupervisorHistory: React.FC = () => {
                                                                 <div style="display: flex; align-items: center; gap: 15px;">
                                  <img src="${logoUrl}" alt="Logo" style="max-height: 80px;" crossOrigin="anonymous" />
                                  <div style="display: flex; flex-direction: column; text-align: left;">
-                                     <span style="font-weight: bold; font-size: 15px; color: #1e3a8a; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
-                                     <span style="font-weight: bold; font-size: 8px; color: #1e3a8a; letter-spacing: 1px;">AL SAFA DISTRICT</span>
-                                     <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -5px;">مستشفى الجدعاني</span>
-                                     <span style="font-weight: bold; font-size: 8px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -3px;">حي الصفــــا</span>
+                                     <span style="font-weight: bold; font-size: 15px; color: ${printColor}; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
+                                     <span style="font-weight: bold; font-size: 8px; color: ${printColor}; letter-spacing: 1px;">AL SAFA DISTRICT</span>
+                                     <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: ${printColor}; margin-top: -5px;">مستشفى الجدعاني</span>
+                                     <span style="font-weight: bold; font-size: 8px; font-family: 'Cairo', sans-serif; color: ${printColor}; margin-top: -3px;">حي الصفــــا</span>
                                  </div>
                              </div>
                                                                 <div class="title-box">
@@ -723,6 +658,89 @@ const SupervisorHistory: React.FC = () => {
                                                 printWindow.focus();
                                                 printWindow.print();
                                             }, 500);
+                                        
+    };
+    
+
+    const handleDelete = async (item: HistoryItem) => {
+        if(!confirm('Delete record?')) return;
+        try {
+            let collectionName = 'leaveRequests';
+            if (item.type === 'swap') collectionName = 'swapRequests';
+            else if (item.type === 'absence') collectionName = 'actions';
+            
+            await deleteDoc(doc(db, collectionName, item.id));
+            setHistoryData(prev => prev.filter(i => i.id !== item.id));
+            setToast({ msg: 'Deleted', type: 'success' });
+        } catch(e) { setToast({ msg: 'Error', type: 'error' }); }
+    };
+
+    const filteredData = useMemo(() => {
+        return historyData.filter(item => {
+            if (histFilterType !== 'all' && item.type !== histFilterType) return false;
+            if (histFilterMonth && !item.startDate?.startsWith(histFilterMonth)) return false;
+            return true;
+        }).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    }, [historyData, histFilterType, histFilterMonth]);
+
+    return (
+        <div className="max-w-6xl mx-auto px-4 py-8 animate-fade-in print:p-0 print:max-w-none" dir={dir}>
+            {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+            
+            <PrintHeader title="Request History Report" month={histFilterMonth} subtitle="Processed Requests" themeColor="indigo" />
+
+            <div className="flex items-center gap-4 mb-8 print:hidden">
+                <button onClick={() => navigate('/supervisor')} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-300 transition-colors">
+                    <i className="fas fa-arrow-left rtl:rotate-180"></i>
+                </button>
+                <h1 className="text-2xl font-black text-slate-800">Request History</h1>
+            </div>
+
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none print:rounded-none">
+                <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap gap-4 items-center print:hidden">
+                    <select className="bg-white border-none rounded-lg text-xs font-bold p-2" value={histFilterType} onChange={e => setHistFilterType(e.target.value as any)}>
+                        <option value="all">All Types</option>
+                        <option value="swap">Swaps</option>
+                        <option value="leave">Leaves</option>
+                        <option value="absence">Absences</option>
+                    </select>
+                    <input type="month" className="bg-white border-none rounded-lg text-xs font-bold p-2" value={histFilterMonth} onChange={e => setHistFilterMonth(e.target.value)} />
+                    <button onClick={() => window.print()} className="ml-auto bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-700 flex items-center gap-2">
+                        <i className="fas fa-print"></i> Print Report
+                    </button>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-slate-100 text-slate-500 text-xs uppercase font-bold print:bg-white print:border-b-2 print:border-slate-800 print:text-black">
+                            <tr>
+                                <th className="p-4 print:p-2">Type</th>
+                                <th className="p-4 print:p-2">User</th>
+                                <th className="p-4 print:p-2">Details</th>
+                                <th className="p-4 print:p-2">Date</th>
+                                <th className="p-4 print:p-2">Status</th>
+                                <th className="p-4 w-10 print:hidden"></th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 print:divide-slate-300">
+                            {filteredData.map(item => (
+                                <tr key={item.id} data-id={item.id} className="hover:bg-slate-50 print:break-inside-avoid">
+                                    <td className="p-4 print:p-2">
+                                        <span className={`px-2 py-1 rounded text-xs font-bold uppercase border ${item.type === 'swap' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : item.type === 'leave' ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-amber-50 text-amber-600 border-amber-100'} print:border-0 print:bg-transparent print:text-black print:p-0`}>
+                                            {item.type}
+                                        </span>
+                                    </td>
+                                    <td className="p-4 font-bold text-slate-700 print:p-2 print:text-black">{getUserName(item.userId)}</td>
+                                    <td className="p-4 text-slate-600 text-xs print:p-2 print:text-black">{item.details} {item.type === 'swap' && `→ ${getUserName(item.targetId!)}`}</td>
+                                    <td className="p-4 font-mono text-xs text-slate-500 print:p-2 print:text-black">{item.startDate} {item.endDate ? `- ${item.endDate}` : ''}</td>
+                                    <td className="p-4 print:p-2">
+                                        <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${item.status.includes('approved') ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'} print:bg-transparent print:text-black print:border print:border-black`}>
+                                            {item.status.replace(/BySupervisor|ByUser/, '')}
+                                        </span>
+                                    </td>
+                                    <td className="p-4 text-center print:hidden flex gap-2">
+                                        <button onClick={() => {
+                                            setItemToPrint(item);
+                                            setIsPrintStyleModalOpen(true);
                                         }} className="text-slate-300 hover:text-indigo-500"><i className="fas fa-print"></i></button>
                                         <button onClick={() => handleDelete(item)} className="text-slate-300 hover:text-red-500"><i className="fas fa-trash"></i></button>
                                     </td>
@@ -734,6 +752,7 @@ const SupervisorHistory: React.FC = () => {
             </div>
             
             <PrintFooter themeColor="indigo" />
+            <PrintStyleModal isOpen={isPrintStyleModalOpen} onClose={() => setIsPrintStyleModalOpen(false)} onConfirm={handleConfirmPrint} />
         </div>
     );
 };

@@ -91,28 +91,34 @@ const UserProfile: React.FC = () => {
                     const certs = [];
                     const docs = certData.documents || [];
                     
-                    if (certData.licenseExpiry) {
+                    const licenseDoc = docs.find((d: any) => d.category === 'license');
+                    if (certData.licenseExpiry || licenseDoc) {
                         certs.push({ 
                             id: 'license', 
+                            category: 'license',
                             name: 'License', 
-                            expiryDate: certData.licenseExpiry, 
-                            documentUrl: docs.find((d: any) => d.category === 'license')?.url 
+                            expiryDate: certData.licenseExpiry || '-', 
+                            documentUrl: licenseDoc?.url 
                         });
                     }
-                    if (certData.registrationExpiry) {
+                    const regDoc = docs.find((d: any) => d.category === 'registration');
+                    if (certData.registrationExpiry || regDoc) {
                         certs.push({ 
                             id: 'registration', 
+                            category: 'registration',
                             name: 'Registration', 
-                            expiryDate: certData.registrationExpiry, 
-                            documentUrl: docs.find((d: any) => d.category === 'registration')?.url 
+                            expiryDate: certData.registrationExpiry || '-', 
+                            documentUrl: regDoc?.url 
                         });
                     }
-                    if (certData.nrrcExpiry) {
+                    const nrrcDoc = docs.find((d: any) => d.category === 'nrrc');
+                    if (certData.nrrcExpiry || nrrcDoc) {
                         certs.push({ 
                             id: 'nrrc', 
+                            category: 'nrrc',
                             name: 'NRRC Certificate', 
-                            expiryDate: certData.nrrcExpiry, 
-                            documentUrl: docs.find((d: any) => d.category === 'nrrc')?.url 
+                            expiryDate: certData.nrrcExpiry || '-', 
+                            documentUrl: nrrcDoc?.url 
                         });
                     }
 
@@ -219,7 +225,7 @@ const UserProfile: React.FC = () => {
                 </div>
             </div>
 
-            <div className="flex justify-end mb-6">
+            <div className="flex justify-end gap-4 mb-6">
                 <button 
                     onClick={() => setIsKudosModalOpen(true)}
                     className="bg-gradient-to-r from-amber-400 to-orange-500 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-orange-200 hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2"
@@ -301,12 +307,27 @@ const UserProfile: React.FC = () => {
                         {myCertifications.length === 0 ? (
                             <p className="text-center text-slate-400 py-4 text-sm">No certifications.</p>
                         ) : (
-                            myCertifications.map(cert => (
+                            myCertifications.map(cert => {
+                                console.log('Checking certification:', cert);
+                                return (
                                 <div key={cert.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100 hover:border-slate-200 transition-colors">
                                     <div>
                                         <p className="text-sm font-bold text-slate-700">{cert.name}</p>
                                         <p className={`text-[10px] mt-1 font-mono ${cert.expiryDate !== '-' && new Date(cert.expiryDate) < new Date() ? 'text-red-500 font-bold' : 'text-slate-500'}`}>
                                             Expires: {cert.expiryDate} {cert.expiryDate !== '-' && new Date(cert.expiryDate) < new Date() ? '(Expired)' : ''}
+                                            {cert.category && cert.category.toLowerCase() === 'license' && (
+                                                <a 
+                                                    href={cert.documentUrl || '#'}
+                                                    target="_blank" 
+                                                    rel="noreferrer" 
+                                                    className={`ml-2 text-xl ${cert.documentUrl ? 'text-blue-500 hover:text-blue-600' : 'text-slate-300 cursor-not-allowed'}`}
+                                                    onClick={(e) => {
+                                                        if (!cert.documentUrl) e.preventDefault();
+                                                    }}
+                                                >
+                                                    <i className="fas fa-file-pdf"></i>
+                                                </a>
+                                            )}
                                         </p>
                                     </div>
                                     {cert.documentUrl && (
@@ -315,7 +336,8 @@ const UserProfile: React.FC = () => {
                                         </a>
                                     )}
                                 </div>
-                            ))
+                                );
+                            })
                         )}
                     </div>
                 </div>

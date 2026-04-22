@@ -5,6 +5,7 @@ import { Penalty } from '../types';
 import PenaltyPrintable from '../components/PenaltyPrintable';
 import { useLanguage, getTranslationKeyForArabic } from '../contexts/LanguageContext';
 import { printPenaltyDocument } from '../utils/printPenalty';
+import { PrintStyleModal } from '../components/PrintStyleModal';
 
 const UserPenalties: React.FC = () => {
     const { t, dir } = useLanguage();
@@ -12,6 +13,7 @@ const UserPenalties: React.FC = () => {
     const [rejectionReason, setRejectionReason] = useState('');
     const [selectedPenaltyAction, setSelectedPenaltyAction] = useState<Penalty | null>(null);
     const [selectedPenaltyPrint, setSelectedPenaltyPrint] = useState<Penalty | null>(null);
+    const [isPrintStyleModalOpen, setIsPrintStyleModalOpen] = useState(false);
 
     useEffect(() => {
         if (!auth.currentUser) return;
@@ -195,7 +197,7 @@ const UserPenalties: React.FC = () => {
                             <div className="mt-8 flex justify-center print:hidden">
                                 <button 
                                     className="px-8 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-md hover:shadow-lg flex items-center gap-2"
-                                    onClick={() => printPenaltyDocument(selectedPenaltyPrint)}
+                                    onClick={() => setIsPrintStyleModalOpen(true)}
                                 >
                                     <i className="fas fa-print text-xl"></i> {t('print')}
                                 </button>
@@ -204,6 +206,16 @@ const UserPenalties: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            <PrintStyleModal 
+                isOpen={isPrintStyleModalOpen} 
+                onClose={() => setIsPrintStyleModalOpen(false)} 
+                onConfirm={(style) => {
+                    if (selectedPenaltyPrint) {
+                        printPenaltyDocument(selectedPenaltyPrint, style);
+                    }
+                }} 
+            />
         </div>
     );
 };

@@ -11,6 +11,7 @@ import { useDepartment } from '../../contexts/DepartmentContext';
 import { useAuth } from '../../contexts/AuthContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
+import { PrintStyleModal } from '../../components/PrintStyleModal';
 
 const SupervisorSwaps: React.FC = () => {
     const { t, dir } = useLanguage();
@@ -28,6 +29,8 @@ const SupervisorSwaps: React.FC = () => {
     const [selectedReq, setSelectedReq] = useState<SwapRequest | null>(null);
     const [isOptionModalOpen, setIsOptionModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
+    const [isPrintStyleModalOpen, setIsPrintStyleModalOpen] = useState(false);
+    const [itemToPrint, setItemToPrint] = useState<SwapRequest | null>(null);
 
     // Exception Modal State
     const [isExceptionModalOpen, setIsExceptionModalOpen] = useState(false);
@@ -216,7 +219,7 @@ const SupervisorSwaps: React.FC = () => {
         }
     };
 
-    const handlePrintSwap = async (swap: SwapRequest) => {
+    const handlePrintSwap = async (swap: SwapRequest, printStyle: 'new' | 'old' = 'new') => {
         try {
             const getJobTitle = (uData: any) => {
                 const JOB_CATEGORIES = [
@@ -244,15 +247,15 @@ const SupervisorSwaps: React.FC = () => {
             const relieverJobPosition = getJobTitle(relieverData);
 
             // Fetch supervisor details
-            let supervisorJob = '-';
-            let supervisorName = '-';
             const supApp = (swap as any).supervisorApproval;
+            let supervisorJob = supApp?.jobTitle || '-';
+            let supervisorName = supApp?.name || 'Supervisor';
             if (supApp?.uid) {
                 const sDoc = await getDoc(doc(db, 'users', supApp.uid));
                 if (sDoc.exists()) {
                     const sData = sDoc.data();
-                    supervisorName = sData.name || supApp.uid;
-                    supervisorJob = sData.role || supApp.jobTitle || getJobTitle(sData);
+                    supervisorName = sData.name || supervisorName;
+                    supervisorJob = sData.role || supervisorJob || getJobTitle(sData);
                 }
             }
 
@@ -263,7 +266,9 @@ const SupervisorSwaps: React.FC = () => {
                 if (deptDoc.exists()) departmentName = deptDoc.data().name;
             }
             
-            const logoUrl = new URL('/logo.png', window.location.origin).href;
+            const logoUrl = new URL(printStyle === 'old' ? '/old-logo.png' : '/logo.png', window.location.origin).href;
+            const printColor = printStyle === 'old' ? '#000000' : '#06225e';
+           const printColorRgb = printStyle === 'old' ? '0, 0, 0' : '193,0, 0';
             
             const renderStamp = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', approved: boolean = true, dept: string = departmentName) => {
                 const rotation = (Math.random() * 6 - 3).toFixed(1);
@@ -271,7 +276,7 @@ const SupervisorSwaps: React.FC = () => {
                     <div class="stamp-box" style="transform: rotate(${rotation}deg); position: absolute; top: -15px; left: 50%; transform: translateX(-50%) rotate(${rotation}deg); z-index: 50; pointer-events: none; ${!approved ? 'border-color: red; color: red;' : ''}">
                         <div class="stamp-inner" style="${!approved ? 'border-color: red;' : ''}">
                             <div class="stamp-hospital">${hospital.toUpperCase()}</div>
-                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed ${!approved ? 'red' : 'rgba(30, 58, 138, 0.4)'}; margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed ${!approved ? 'red' : `rgba(${printColorRgb}, 0.)`}; margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
                             <div class="stamp-dept" style="${!approved ? 'color: red;' : ''}">${jobTitle}</div>
                             <div class="stamp-name">${name}</div>
                             <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: ${approved ? 'green' : 'red'}; opacity: 0.7; transform: rotate(-10deg);">
@@ -294,11 +299,11 @@ const SupervisorSwaps: React.FC = () => {
                             size: A4;
                             margin: 10mm;
                         }
-                        body { 
+                        body { -webkit-print-color-adjust: exact; print-color-adjust: exact;  
                             font-family: 'Inter', 'Cairo', sans-serif; 
                             margin: 0;
                             padding: 0;
-                            color: #1e3a8a;
+                            color: ${printColor};
                             background: #fff;
                             font-size: 12px;
                         }
@@ -306,7 +311,7 @@ const SupervisorSwaps: React.FC = () => {
                             width: 100%;
                             max-width: 100%;
                             margin: 0 auto; 
-                            border: 1px solid #1e3a8a; 
+                            border: 1px solid ${printColor}; 
                             padding: 15px;
                             box-sizing: border-box;
                         }
@@ -316,7 +321,7 @@ const SupervisorSwaps: React.FC = () => {
                         }
                         .title-box {
                             display: inline-block;
-                            border: 2px solid #1e3a8a;
+                            border: 2px solid ${printColor};
                             border-radius: 12px;
                             padding: 5px 30px;
                             text-align: center;
@@ -335,7 +340,7 @@ const SupervisorSwaps: React.FC = () => {
                             border-collapse: collapse;
                         }
                         td {
-                            border: 1px solid #1e3a8a;
+                            border: 1px solid ${printColor};
                             padding: 4px 8px;
                             vertical-align: middle;
                         }
@@ -366,7 +371,7 @@ const SupervisorSwaps: React.FC = () => {
                         .checkbox {
                             width: 14px;
                             height: 14px;
-                            border: 1.5px solid #1e3a8a;
+                            border: 1.5px solid ${printColor};
                             display: inline-block;
                             position: relative;
                         }
@@ -384,11 +389,11 @@ const SupervisorSwaps: React.FC = () => {
                             margin: 2px auto;
                         }
                         .stamp-box {
-                            border: 3px solid #1e3a8a;
+                            border: 3px solid #09338f;
                             border-radius: 6px;
                             padding: 4px 8px;
                             display: inline-block;
-                            color: #1e3a8a;
+                            color: #093697;
                             text-align: center;
                             font-family: 'Courier New', Courier, monospace;
                             font-weight: bold;
@@ -398,10 +403,10 @@ const SupervisorSwaps: React.FC = () => {
                             min-width: 100px;
                             position: relative;
                             text-transform: uppercase;
-                            box-shadow: inset 0 0 2px rgba(30, 58, 138, 0.2);
+                            box-shadow: inset 0 0 2px rgba(37, 99, 235, 0.2);
                         }
                         .stamp-inner {
-                            border: 1px solid rgba(30, 58, 138, 0.5);
+                            border: 1px solid rgba(37, 99, 235, 0.5);
                             padding: 2px;
                             border-radius: 3px;
                         }
@@ -409,20 +414,20 @@ const SupervisorSwaps: React.FC = () => {
                             font-size: 8px;
                             letter-spacing: 0.5px;
                             margin-bottom: 1px;
-                            border-bottom: 1px dashed rgba(30, 58, 138, 0.4);
+                            border-bottom: 1px dashed rgba(37, 99, 235, 0.4);
                             padding-bottom: 1px;
                         }
                         .stamp-dept {
                             font-size: 10px;
                             margin-bottom: 1px;
-                            color: #1e3a8a;
+                            color: #2563eb;
                         }
                         .stamp-name {
                             font-size: 12px;
                         }
 
                         @media print {
-                            .print-container { border: 1px solid #1e3a8a; }
+                            .print-container { border: 1px solid ${printColor}; }
                             .no-print { display: none; }
                         }
 
@@ -446,10 +451,10 @@ const SupervisorSwaps: React.FC = () => {
                             <div style="display: flex; align-items: center; gap: 15px;">
                                 <img src="${logoUrl}" alt="Logo" style="max-height: 80px;" crossOrigin="anonymous" />
                                 <div style="display: flex; flex-direction: column; text-align: left;">
-                                    <span style="font-weight: bold; font-size: 15px; color: #1e3a8a; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
-                                    <span style="font-weight: bold; font-size: 8px; color: #1e3a8a; letter-spacing: 1px;">AL SAFA DISTRICT</span>
-                                    <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -5px;">مستشفى الجدعاني</span>
-                                    <span style="font-weight: bold; font-size: 8px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -3px;">حي الصفــــا</span>
+                                    <span style="font-weight: bold; font-size: 15px; color: ${printColor}; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
+                                    <span style="font-weight: bold; font-size: 8px; color: ${printColor}; letter-spacing: 1px;">AL SAFA DISTRICT</span>
+                                    <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: ${printColor}; margin-top: -5px;">مستشفى الجدعاني</span>
+                                    <span style="font-weight: bold; font-size: 8px; font-family: 'Cairo', sans-serif; color: ${printColor}; margin-top: -3px;">حي الصفــــا</span>
                                 </div>
                             </div>
                             <div class="title-box">
@@ -673,10 +678,15 @@ const SupervisorSwaps: React.FC = () => {
                   });
 
                   // Store the option chosen in the request for reference/revert
-                  batch.update(doc(db, 'swapRequests', req.id), { 
-                      status, 
-                      swapOption: excludeFridays ? 'exclude_fridays' : 'full_month'
-                  });
+                  batch.update(doc(db, 'swapRequests', req.id), { status, swapOption: excludeFridays ? 'exclude_fridays' : 'full_month'
+                   ,
+                      supervisorApproval: {
+                          uid: currentUser?.uid || '',
+                          name: currentUser?.name || 'Supervisor',
+                          jobTitle: currentUser?.role || 'Supervisor',
+                          approved: isApproved,
+                          timestamp: Timestamp.now()
+                      } });
 
                   setToast({ msg: `Month Swapped! (${count} shifts moved)`, type: 'success' });
 
@@ -734,10 +744,15 @@ const SupervisorSwaps: React.FC = () => {
                       count++;
                   }
 
-                  batch.update(doc(db, 'swapRequests', req.id), { 
-                      status, 
-                      swapOption: excludeFridays ? 'exclude_fridays' : 'full_period'
-                  });
+                  batch.update(doc(db, 'swapRequests', req.id), { status, swapOption: excludeFridays ? 'exclude_fridays' : 'full_period'
+                   ,
+                      supervisorApproval: {
+                          uid: currentUser?.uid || '',
+                          name: currentUser?.name || 'Supervisor',
+                          jobTitle: currentUser?.role || 'Supervisor',
+                          approved: isApproved,
+                          timestamp: Timestamp.now()
+                      } });
                   setToast({ msg: `Period Swapped! (${count} days)`, type: 'success' });
 
               } else {
@@ -786,7 +801,14 @@ const SupervisorSwaps: React.FC = () => {
                       createdAt: Timestamp.now()
                   });
                   
-                  batch.update(doc(db, 'swapRequests', req.id), { status });
+                  batch.update(doc(db, 'swapRequests', req.id), { status ,
+                      supervisorApproval: {
+                          uid: currentUser?.uid || '',
+                          name: currentUser?.name || 'Supervisor',
+                          jobTitle: currentUser?.role || 'Supervisor',
+                          approved: isApproved,
+                          timestamp: Timestamp.now()
+                      } });
                   
                   // Notify the requester
                   await addDoc(collection(db, 'notifications'), {
@@ -807,7 +829,14 @@ const SupervisorSwaps: React.FC = () => {
 
           } else {
               // Reject
-              await updateDoc(doc(db, 'swapRequests', req.id), { status });
+              await updateDoc(doc(db, 'swapRequests', req.id), { status ,
+                      supervisorApproval: {
+                          uid: currentUser?.uid || '',
+                          name: currentUser?.name || 'Supervisor',
+                          jobTitle: currentUser?.role || 'Supervisor',
+                          approved: isApproved,
+                          timestamp: Timestamp.now()
+                      } });
               setToast({ msg: `Request Rejected`, type: 'success' });
           }
           
@@ -1114,14 +1143,20 @@ const SupervisorSwaps: React.FC = () => {
                                                 {t('sup.reject')}
                                             </button>
                                         </div>
-                                        <button onClick={() => handlePrintSwap(req)} className="bg-slate-100 text-slate-600 px-5 py-2 rounded-xl font-bold hover:bg-slate-200 transition-all flex items-center justify-center gap-2">
+                                        <button onClick={() => {
+                                            setItemToPrint(req);
+                                            setIsPrintStyleModalOpen(true);
+                                        }} className="bg-slate-100 text-slate-600 px-5 py-2 rounded-xl font-bold hover:bg-slate-200 transition-all flex items-center justify-center gap-2">
                                             <i className="fas fa-print"></i> {t('print')}
                                         </button>
                                     </>
                                 ) : (
                                     // HISTORY ACTIONS: REVERT & EXCEPTION
                                     <div className="flex gap-2">
-                                        <button onClick={() => handlePrintSwap(req)} className="bg-slate-100 text-slate-600 px-4 py-2 rounded-xl font-bold hover:bg-slate-200 transition-all text-xs flex items-center gap-2 shadow-sm">
+                                        <button onClick={() => {
+                                            setItemToPrint(req);
+                                            setIsPrintStyleModalOpen(true);
+                                        }} className="bg-slate-100 text-slate-600 px-4 py-2 rounded-xl font-bold hover:bg-slate-200 transition-all text-xs flex items-center gap-2 shadow-sm">
                                             <i className="fas fa-print"></i> {t('print')}
                                         </button>
                                         {req.type === 'month' && (
@@ -1233,6 +1268,15 @@ const SupervisorSwaps: React.FC = () => {
                 </div>
             </Modal>
 
+            <PrintStyleModal 
+                isOpen={isPrintStyleModalOpen} 
+                onClose={() => setIsPrintStyleModalOpen(false)} 
+                onConfirm={(style) => {
+                    if (itemToPrint) {
+                        handlePrintSwap(itemToPrint, style);
+                    }
+                }} 
+            />
         </div>
     );
 };

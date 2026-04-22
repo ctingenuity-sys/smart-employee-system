@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import SignaturePad from 'signature_pad';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
+import { PrintStyleModal } from '../components/PrintStyleModal';
 
 const CTConsentPage: React.FC = () => {
     const navigate = useNavigate();
     const [lang, setLang] = useState<'ar' | 'en'>('ar');
+    const [isPrintStyleModalOpen, setIsPrintStyleModalOpen] = useState(false);
     
     // Form State
     const [patientName, setPatientName] = useState('');
@@ -178,12 +180,14 @@ const CTConsentPage: React.FC = () => {
         const patientSignature = patientPadRef.current && !patientPadRef.current.isEmpty() ? patientPadRef.current.toDataURL() : '';
         const repSignature = repPadRef.current && !repPadRef.current.isEmpty() ? repPadRef.current.toDataURL() : '';
         const logoUrl = new URL('/logo.png', window.location.origin).href;
+        const printColor = '#1e3a8a';
+        const printColorRgb = '30, 58, 138';
 
         const renderPrintQuestion = (text: string, value: string) => {
             const isYes = value === 'yes';
             const isNo = value === 'no';
-            const checkedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="#1e3a8a" stroke-width="1.5" fill="white"/><circle cx="7" cy="7" r="3.5" fill="#1e3a8a"/></svg>`);
-            const uncheckedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="#1e3a8a" stroke-width="1.5" fill="white"/></svg>`);
+            const checkedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="${printColor}" stroke-width="1.5" fill="white"/><circle cx="7" cy="7" r="3.5" fill="${printColor}"/></svg>`);
+            const uncheckedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="${printColor}" stroke-width="1.5" fill="white"/></svg>`);
             const radioYes = `<img src="data:image/svg+xml;charset=utf-8,${isYes ? checkedSvg : uncheckedSvg}" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-top: -2px;" />`;
             const radioNo = `<img src="data:image/svg+xml;charset=utf-8,${isNo ? checkedSvg : uncheckedSvg}" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-top: -2px;" />`;
 
@@ -199,19 +203,19 @@ const CTConsentPage: React.FC = () => {
         };
 
         const htmlContent = `
-            <div style="padding: 40px; font-family: 'Cairo', sans-serif; background: white; color: #1e3a8a; position: relative; min-height: 1100px;" dir="rtl">
+            <div style="padding: 40px; font-family: 'Cairo', sans-serif; background: white; color: ${printColor}; position: relative; min-height: 1100px;" dir="rtl">
                 <!-- Watermark -->
                 <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.06; pointer-events: none; z-index: 0;">
                     <img src="${logoUrl}" style="width: 400px; max-width: 90vw; object-fit: contain;" alt="شعار المستشفى" crossOrigin="anonymous" />
                 </div>
 
                 <div style="position: relative; z-index: 10;">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; border-bottom: 2px solid #1e3a8a; padding-bottom: 10px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; border-bottom: 2px solid ${printColor}; padding-bottom: 10px;">
                         <div style="display: flex; align-items: center; gap: 15px;">
                             <img src="${logoUrl}" style="max-height: 70px;" alt="Logo" crossOrigin="anonymous" />
                             <div style="display: flex; flex-direction: column; text-align: left;" dir="ltr">
-                                <span style="font-weight: bold; font-size: 15px; color: #1e3a8a; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
-                                <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -4px;">مستشفى الجدعاني</span>
+                                <span style="font-weight: bold; font-size: 15px; color: ${printColor}; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
+                                <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: ${printColor}; margin-top: -4px;">مستشفى الجدعاني</span>
                             </div>
                         </div>
                     </div>
@@ -222,38 +226,38 @@ const CTConsentPage: React.FC = () => {
                     <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 12px;">
                         <div style="width: 25%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Name</div>
-                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px;">${patientName}</div>
+                            <div style="border-bottom: 1px solid ${printColor}; text-align: center; height: 20px;">${patientName}</div>
                         </div>
                         <div style="width: 15%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">MRN</div>
-                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px;">${mrn}</div>
+                            <div style="border-bottom: 1px solid ${printColor}; text-align: center; height: 20px;">${mrn}</div>
                         </div>
                         <div style="width: 15%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Age</div>
-                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px;">${patientAge}</div>
+                            <div style="border-bottom: 1px solid ${printColor}; text-align: center; height: 20px;">${patientAge}</div>
                         </div>
                         <div style="width: 20%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Gender</div>
-                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px;">${patientGender === 'male' ? 'Male / ذكر' : patientGender === 'female' ? 'Female / أنثى' : ''}</div>
+                            <div style="border-bottom: 1px solid ${printColor}; text-align: center; height: 20px;">${patientGender === 'male' ? 'Male / ذكر' : patientGender === 'female' ? 'Female / أنثى' : ''}</div>
                         </div>
                         <div style="width: 25%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Date</div>
-                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px;">${date}</div>
+                            <div style="border-bottom: 1px solid ${printColor}; text-align: center; height: 20px;">${date}</div>
                         </div>
                     </div>
 
                     <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 12px;">
                         <div style="width: 33%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Referred by Dr.</div>
-                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px; text-transform: uppercase;">${referral}</div>
+                            <div style="border-bottom: 1px solid ${printColor}; text-align: center; height: 20px; text-transform: uppercase;">${referral}</div>
                         </div>
                         <div style="width: 33%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Radiologist</div>
-                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px; text-transform: uppercase;">${radiologist}</div>
+                            <div style="border-bottom: 1px solid ${printColor}; text-align: center; height: 20px; text-transform: uppercase;">${radiologist}</div>
                         </div>
                         <div style="width: 33%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Procedure</div>
-                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px;">${procedure}</div>
+                            <div style="border-bottom: 1px solid ${printColor}; text-align: center; height: 20px;">${procedure}</div>
                         </div>
                     </div>
 
@@ -266,11 +270,11 @@ const CTConsentPage: React.FC = () => {
                         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #ccc; padding: 4px 0;">
                             <div style="width: 50%; display: flex; align-items: center;">
                                 <span style="font-weight: bold; margin-left: 8px;">Creatinine:</span>
-                                <div style="border-bottom: 1px solid #1e3a8a; flex: 1; text-align: center;">${clinicalAnswers.creatinine || ''}</div>
+                                <div style="border-bottom: 1px solid ${printColor}; flex: 1; text-align: center;">${clinicalAnswers.creatinine || ''}</div>
                             </div>
                             <div style="width: 50%; display: flex; align-items: center;" dir="ltr">
                                 <span style="font-weight: bold; margin-right: 8px;">eGFR:</span>
-                                <div style="border-bottom: 1px solid #1e3a8a; flex: 1; text-align: center;">${clinicalAnswers.egfr || ''}</div>
+                                <div style="border-bottom: 1px solid ${printColor}; flex: 1; text-align: center;">${clinicalAnswers.egfr || ''}</div>
                             </div>
                         </div>
                         ${renderPrintQuestion('Asthma or respiratory diseases?', clinicalAnswers.asthma)}
@@ -289,11 +293,11 @@ const CTConsentPage: React.FC = () => {
                     <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 12px;">
                         <div style="width: 33%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Name</div>
-                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px; text-transform: uppercase;">${radiologist}</div>
+                            <div style="border-bottom: 1px solid ${printColor}; text-align: center; height: 20px; text-transform: uppercase;">${radiologist}</div>
                         </div>
                         <div style="width: 33%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">Signature</div>
-                            <div style="border-bottom: 1px solid #1e3a8a; height: 20px;"></div>
+                            <div style="border-bottom: 1px solid ${printColor}; height: 20px;"></div>
                         </div>
                     </div>
 
@@ -305,11 +309,11 @@ const CTConsentPage: React.FC = () => {
                     <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 12px;">
                         <div style="width: 33%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">${isRep ? 'Representative Name' : 'Patient Name'}</div>
-                            <div style="border-bottom: 1px solid #1e3a8a; text-align: center; height: 20px;">${isRep ? repName : patientName}</div>
+                            <div style="border-bottom: 1px solid ${printColor}; text-align: center; height: 20px;">${isRep ? repName : patientName}</div>
                         </div>
                         <div style="width: 33%; padding: 0 4px;">
                             <div style="font-weight: bold; text-align: right;">${isRep ? 'Representative Signature' : 'Patient Signature'}</div>
-                            <div style="border-bottom: 1px solid #1e3a8a; height: 40px; position: relative; text-align: center;">
+                            <div style="border-bottom: 1px solid ${printColor}; height: 40px; position: relative; text-align: center;">
                                 ${patientSignature && !isRep ? `<img src="${patientSignature}" style="max-height: 35px; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);" />` : ''}
                                 ${repSignature && isRep ? `<img src="${repSignature}" style="max-height: 35px; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);" />` : ''}
                             </div>
@@ -330,18 +334,20 @@ const CTConsentPage: React.FC = () => {
         const worker = html2pdf().from(htmlContent).set(opt).save();
     };
 
-    const printAsHTML = async () => {
+    const printAsHTML = async (style: 'new' | 'old' = 'new') => {
         const patientSignature = patientPadRef.current && !patientPadRef.current.isEmpty() ? patientPadRef.current.toDataURL() : '';
         const repSignature = repPadRef.current && !repPadRef.current.isEmpty() ? repPadRef.current.toDataURL() : '';
-        const logoUrl = new URL('/logo.png', window.location.origin).href;
+        const logoUrl = new URL(style === 'old' ? '/old-logo.png' : '/logo.png', window.location.origin).href;
+        const printColor = style === 'old' ? '#000000' : '#1e3a8a';
+        const printColorRgb = style === 'old' ? '0, 0, 0' : '30, 58, 138';
 
         const renderPrintQuestion = (text: string, value: string) => {
             const isYes = value === 'yes';
             const isNo = value === 'no';
             
             // Using base64 encoded SVGs to guarantee they print regardless of browser background graphics settings
-            const checkedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="#1e3a8a" stroke-width="1.5" fill="white"/><circle cx="7" cy="7" r="3.5" fill="#1e3a8a"/></svg>`);
-            const uncheckedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="#1e3a8a" stroke-width="1.5" fill="white"/></svg>`);
+            const checkedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="${printColor}" stroke-width="1.5" fill="white"/><circle cx="7" cy="7" r="3.5" fill="${printColor}"/></svg>`);
+            const uncheckedSvg = encodeURIComponent(`<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" stroke="${printColor}" stroke-width="1.5" fill="white"/></svg>`);
             
             const radioYes = `<img src="data:image/svg+xml;charset=utf-8,${isYes ? checkedSvg : uncheckedSvg}" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-top: -2px;" />`;
             const radioNo = `<img src="data:image/svg+xml;charset=utf-8,${isNo ? checkedSvg : uncheckedSvg}" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-top: -2px;" />`;
@@ -366,7 +372,7 @@ const CTConsentPage: React.FC = () => {
                 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
                 <script src="https://cdn.tailwindcss.com"></script>
                 <style>
-                    body { font-family: 'Cairo', sans-serif; background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #1e3a8a; margin: 0; padding: 0; }
+                    body { font-family: 'Cairo', sans-serif; background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: ${printColor}; margin: 0; padding: 0; }
                     @media print {
                         @page { size: A4 portrait; margin: 0; }
                         body { width: 100vw; height: 100vh; overflow: hidden; box-sizing: border-box; }
@@ -496,7 +502,7 @@ const CTConsentPage: React.FC = () => {
                         </div>
                         <div class="flex flex-col w-1/3 px-1">
                             <span class="font-bold text-right w-full">Signature</span>
-                            <div class="border-b border-blue-900 w-full text-center h-5" style="font-family: 'Dancing Script', cursive; font-size: 18px; transform: translateY(-5px); color: #1e3a8a;"></div>
+                            <div class="border-b border-blue-900 w-full text-center h-5" style="font-family: 'Dancing Script', cursive; font-size: 18px; transform: translateY(-5px); color: ${printColor};"></div>
                         </div>
                     </div>
 
@@ -598,7 +604,7 @@ const CTConsentPage: React.FC = () => {
                     <button onClick={saveAsPDF} className="bg-emerald-600 text-white px-4 py-2 rounded-lg shadow font-bold hover:bg-emerald-700">
                         📄 {t('حفظ PDF', 'Save PDF')}
                     </button>
-                    <button onClick={printAsHTML} className="bg-slate-800 text-white px-4 py-2 rounded-lg shadow font-bold hover:bg-slate-700">
+                    <button onClick={() => setIsPrintStyleModalOpen(true)} className="bg-slate-800 text-white px-4 py-2 rounded-lg shadow font-bold hover:bg-slate-700">
                         🖨️ {t('طباعة', 'Print')}
                     </button>
                     <button onClick={resetForm} className="bg-white text-red-600 px-4 py-2 rounded-lg shadow font-bold border border-red-200 hover:bg-red-50">
@@ -888,6 +894,14 @@ const CTConsentPage: React.FC = () => {
                     </div>
                 </div>
             </div>
+            
+            <PrintStyleModal
+                isOpen={isPrintStyleModalOpen}
+                onClose={() => setIsPrintStyleModalOpen(false)}
+                onConfirm={(style) => {
+                    printAsHTML(style);
+                }}
+            />
         </div>
     );
 };

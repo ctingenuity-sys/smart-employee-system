@@ -6,6 +6,7 @@ import { SwapRequest, LeaveRequest } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
+import { PrintStyleModal } from '../components/PrintStyleModal';
 
 interface UnifiedHistoryItem {
     id: string;
@@ -34,6 +35,8 @@ const UserHistory: React.FC = () => {
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [isManager, setIsManager] = useState(false);
     const [allUsers, setAllUsers] = useState<Record<string, string>>({});
+    const [isPrintStyleModalOpen, setIsPrintStyleModalOpen] = useState(false);
+    const [itemToPrint, setItemToPrint] = useState<UnifiedHistoryItem | null>(null);
 
     useEffect(() => {
         if (!currentUserId) return;
@@ -165,7 +168,7 @@ const UserHistory: React.FC = () => {
         document.body.removeChild(link);
     };
 
-    const handlePrintLeave = async (leave: LeaveRequest) => {
+    const handlePrintLeave = async (leave: LeaveRequest, printStyle: 'new' | 'old' = 'new') => {
         try {
             const fetchWorkLocation = async (userId: string) => {
                 let loc = 'AL JEDAANI HOSPITAL';
@@ -308,14 +311,16 @@ const UserHistory: React.FC = () => {
             }
 
             // Build the HTML content
-            const logoUrl = new URL('/logo.png', window.location.origin).href;
+            const logoUrl = new URL(printStyle === 'old' ? '/old-logo.png' : '/logo.png', window.location.origin).href;
+            const printColor = printStyle === 'old' ? '#000000' : '#0b4a6e';
+            const printColorRgb = printStyle === 'old' ? '0, 0, 0' : '37, 99, 235';
             
             const renderStampInline = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', dept: string = departmentName) => {
                 return `
                     <div class="stamp-box" style="position: static; transform: none; margin: 0; z-index: 1;">
                         <div class="stamp-inner">
                             <div class="stamp-hospital">${hospital.toUpperCase()}</div>
-                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(37, 99, 235, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
                             <div class="stamp-dept">${jobTitle}</div>
                             <div class="stamp-name">${name}</div>
                         </div>
@@ -333,7 +338,7 @@ const UserHistory: React.FC = () => {
                     <div class="stamp-box" style="transform: rotate(${rotation}deg); position: absolute; top: -15px; left: calc(50% + ${offset}px); transform: translateX(-50%) rotate(${rotation}deg); z-index: 50; pointer-events: none;">
                         <div class="stamp-inner">
                             <div class="stamp-hospital">AL JEDAANI HOSPITAL</div>
-                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">RADIOLOGY DEPARTMENT</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(37, 99, 235, 0.4); margin-top: 1px; padding-top: 1px;">RADIOLOGY DEPARTMENT</div>
                             <div class="stamp-dept">${jobTitle}</div>
                             <div class="stamp-name">${name}</div>
                             <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: green; opacity: 0.7; transform: rotate(-10deg);">
@@ -356,11 +361,11 @@ const UserHistory: React.FC = () => {
                             size: A4;
                             margin: 10mm;
                         }
-                        body { 
+                        body { -webkit-print-color-adjust: exact; print-color-adjust: exact;  
                             font-family: 'Inter', 'Cairo', sans-serif; 
                             margin: 0;
                             padding: 0;
-                            color: #1e3a8a;
+                            color: ${printColor};
                             background: #fff;
                             font-size: 12px;
                         }
@@ -368,7 +373,7 @@ const UserHistory: React.FC = () => {
                             width: 100%;
                             max-width: 100%;
                             margin: 0 auto; 
-                            border: 1px solid #1e3a8a; 
+                            border: 1px solid ${printColor}; 
                             padding: 15px;
                             box-sizing: border-box;
                         }
@@ -378,7 +383,7 @@ const UserHistory: React.FC = () => {
                         }
                         .title-box {
                             display: inline-block;
-                            border: 2px solid #1e3a8a; background: rgba(30, 58, 138, 0.05);
+                            border: 2px solid ${printColor}; background: rgba(${printColorRgb}, 0.05);
                             border-radius: 12px;
                             padding: 5px 30px;
                             text-align: center;
@@ -397,7 +402,7 @@ const UserHistory: React.FC = () => {
                             border-collapse: collapse;
                         }
                         td {
-                            border: 1px solid #1e3a8a;
+                            border: 1px solid ${printColor};
                             padding: 4px 8px;
                             vertical-align: middle;
                         }
@@ -428,7 +433,7 @@ const UserHistory: React.FC = () => {
                         .checkbox {
                             width: 14px;
                             height: 14px;
-                            border: 1.5px solid #1e3a8a;
+                            border: 1.5px solid ${printColor};
                             display: inline-block;
                             position: relative;
                         }
@@ -446,11 +451,11 @@ const UserHistory: React.FC = () => {
                             margin: 2px auto;
                         }
                         .stamp-box {
-                            border: 3px solid #1e3a8a;
+                            border: 3px solid #062872;
                             border-radius: 6px;
                             padding: 4px 8px;
                             display: inline-block;
-                            color: #1e3a8a;
+                            color: #07286d;
                             text-align: center;
                             font-family: 'Courier New', Courier, monospace;
                             font-weight: bold;
@@ -460,10 +465,10 @@ const UserHistory: React.FC = () => {
                             min-width: 100px;
                             position: relative;
                             text-transform: uppercase;
-                            box-shadow: inset 0 0 2px rgba(30, 58, 138, 0.2);
+                            box-shadow: inset 0 0 2px rgba(37, 99, 235, 0.2);
                         }
                         .stamp-inner {
-                            border: 1px solid rgba(30, 58, 138, 0.5);
+                            border: 1px solid rgba(37, 99, 235, 0.5);
                             padding: 2px;
                             border-radius: 3px;
                         }
@@ -471,20 +476,20 @@ const UserHistory: React.FC = () => {
                             font-size: 8px;
                             letter-spacing: 0.5px;
                             margin-bottom: 1px;
-                            border-bottom: 1px dashed rgba(30, 58, 138, 0.4);
+                            border-bottom: 1px dashed rgba(37, 99, 235, 0.4);
                             padding-bottom: 1px;
                         }
                         .stamp-dept {
                             font-size: 10px;
                             margin-bottom: 1px;
-                            color: #1e3a8a;
+                            color: #042979;
                         }
                         .stamp-name {
                             font-size: 12px;
                         }
 
                         @media print {
-                            .print-container { border: 1px solid #1e3a8a; }
+                            .print-container { border: 1px solid ${printColor}; }
                             .no-print { display: none; }
                         }
 
@@ -508,10 +513,10 @@ const UserHistory: React.FC = () => {
                             <div style="display: flex; align-items: center; gap: 15px;">
                                 <img src="${logoUrl}" alt="Logo" style="max-height: 80px;" crossOrigin="anonymous" />
                                 <div style="display: flex; flex-direction: column; text-align: left;">
-                                    <span style="font-weight: bold; font-size: 15px; color: #1e3a8a; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
-                                    <span style="font-weight: bold; font-size: 8px; color: #1e3a8a; letter-spacing: 1px;">AL SAFA DISTRICT</span>
-                                    <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -5px;">مستشفى الجدعاني</span>
-                                    <span style="font-weight: bold; font-size: 8px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -3px;">حي الصفــــا</span>
+                                    <span style="font-weight: bold; font-size: 15px; color: ${printColor}; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
+                                    <span style="font-weight: bold; font-size: 8px; color: ${printColor}; letter-spacing: 1px;">AL SAFA DISTRICT</span>
+                                    <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: ${printColor}; margin-top: -5px;">مستشفى الجدعاني</span>
+                                    <span style="font-weight: bold; font-size: 8px; font-family: 'Cairo', sans-serif; color: ${printColor}; margin-top: -3px;">حي الصفــــا</span>
                                 </div>
                             </div>
                             <div class="title-box">
@@ -779,7 +784,7 @@ const UserHistory: React.FC = () => {
         }
     };
 
-    const handlePrintSwap = async (swap: SwapRequest) => {
+    const handlePrintSwap = async (swap: SwapRequest, printStyle: 'new' | 'old' = 'new') => {
         try {
             const getJobTitle = (uData: any) => {
                 const JOB_CATEGORIES = [
@@ -810,12 +815,16 @@ const UserHistory: React.FC = () => {
             let supervisorJob = '-';
             let supervisorName = '-';
             const supApp = (swap as any).supervisorApproval;
+            if (supApp) {
+                supervisorName = supApp.name || '-';
+                supervisorJob = supApp.jobTitle || '-';
+            }
             if (supApp?.uid) {
                 const sDoc = await getDoc(doc(db, 'users', supApp.uid));
                 if (sDoc.exists()) {
                     const sData = sDoc.data();
-                    supervisorName = sData.name || supApp.uid;
-                    supervisorJob = sData.role || supApp.jobTitle || getJobTitle(sData);
+                    supervisorName = sData.name || supervisorName || supApp.uid;
+                    supervisorJob = sData.role || supervisorJob || getJobTitle(sData);
                 }
             }
 
@@ -826,7 +835,9 @@ const UserHistory: React.FC = () => {
                 if (deptDoc.exists()) departmentName = deptDoc.data().name;
             }
 
-            const logoUrl = new URL('/logo.png', window.location.origin).href;
+            const logoUrl = new URL(printStyle === 'old' ? '/old-logo.png' : '/logo.png', window.location.origin).href;
+            const printColor = printStyle === 'old' ? '#000000' : '#2563eb';
+            const printColorRgb = printStyle === 'old' ? '0, 0, 0' : '37, 99, 235';
 
             const renderStamp = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', approved: boolean = true, dept: string = departmentName) => {
                 if (!approved) return ''; // Do not render stamp if not approved
@@ -836,7 +847,7 @@ const UserHistory: React.FC = () => {
                     <div class="stamp-box" style="transform: rotate(${rotation}deg); position: absolute; top: -15px; left: 50%; transform: translateX(-50%) rotate(${rotation}deg); z-index: 50; pointer-events: none;">
                         <div class="stamp-inner">
                             <div class="stamp-hospital">${hospital.toUpperCase()}</div>
-                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(30, 58, 138, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(37, 99, 235, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
                             <div class="stamp-dept">${jobTitle}</div>
                             <div class="stamp-name">${name}</div>
                             <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: green; opacity: 0.7; transform: rotate(-10deg);">
@@ -859,19 +870,19 @@ const UserHistory: React.FC = () => {
                             size: A4;
                             margin: 10mm;
                         }
-                        body { 
+                        body { -webkit-print-color-adjust: exact; print-color-adjust: exact;  
                             font-family: 'Inter', 'Cairo', sans-serif; 
                             margin: 0;
                             padding: 0;
-                            color: #1e3a8a;
-                            background: #fff;
+                            color: ${printColor};
+                            background: #73a8e6;
                             font-size: 12px;
                         }
                         .print-container { 
                             width: 100%;
                             max-width: 100%;
                             margin: 0 auto; 
-                            border: 1px solid #1e3a8a; 
+                            border: 1px solid ${printColor}; 
                             padding: 15px;
                             box-sizing: border-box;
                         }
@@ -881,7 +892,7 @@ const UserHistory: React.FC = () => {
                         }
                         .title-box {
                             display: inline-block;
-                            border: 2px solid #1e3a8a; background: rgba(30, 58, 138, 0.05);
+                            border: 2px solid ${printColor}; background: rgba(${printColorRgb}, 0.05);
                             border-radius: 12px;
                             padding: 5px 30px;
                             text-align: center;
@@ -900,7 +911,7 @@ const UserHistory: React.FC = () => {
                             border-collapse: collapse;
                         }
                         td {
-                            border: 1px solid #1e3a8a;
+                            border: 1px solid ${printColor};
                             padding: 4px 8px;
                             vertical-align: middle;
                         }
@@ -909,7 +920,7 @@ const UserHistory: React.FC = () => {
                         .value { width: 50%; text-align: center; font-weight: bold; font-size: 13px; }
                         
                         .section-header {
-                            background: #fff;
+                            background: #398ac0;
                             font-weight: bold;
                         }
                         .section-header td {
@@ -931,7 +942,7 @@ const UserHistory: React.FC = () => {
                         .checkbox {
                             width: 14px;
                             height: 14px;
-                            border: 1.5px solid #1e3a8a;
+                            border: 1.5px solid ${printColor};
                             display: inline-block;
                             position: relative;
                         }
@@ -949,11 +960,11 @@ const UserHistory: React.FC = () => {
                             margin: 2px auto;
                         }
                         .stamp-box {
-                            border: 3px solid #1e3a8a;
+                            border: 3px solid #113d9c;
                             border-radius: 6px;
                             padding: 4px 8px;
                             display: inline-block;
-                            color: #1e3a8a;
+                            color: #052a7a;
                             text-align: center;
                             font-family: 'Courier New', Courier, monospace;
                             font-weight: bold;
@@ -963,10 +974,10 @@ const UserHistory: React.FC = () => {
                             min-width: 100px;
                             position: relative;
                             text-transform: uppercase;
-                            box-shadow: inset 0 0 2px rgba(30, 58, 138, 0.2);
+                            box-shadow: inset 0 0 2px rgba(37, 99, 235, 0.2);
                         }
                         .stamp-inner {
-                            border: 1px solid rgba(30, 58, 138, 0.5);
+                            border: 1px solid rgba(37, 99, 235, 0.5);
                             padding: 2px;
                             border-radius: 3px;
                         }
@@ -974,20 +985,20 @@ const UserHistory: React.FC = () => {
                             font-size: 8px;
                             letter-spacing: 0.5px;
                             margin-bottom: 1px;
-                            border-bottom: 1px dashed rgba(30, 58, 138, 0.4);
+                            border-bottom: 1px dashed rgba(37, 99, 235, 0.4);
                             padding-bottom: 1px;
                         }
                         .stamp-dept {
                             font-size: 10px;
                             margin-bottom: 1px;
-                            color: #1e3a8a;
+                            color: #0d3281;
                         }
                         .stamp-name {
                             font-size: 12px;
                         }
 
                         @media print {
-                            .print-container { border: 1px solid #1e3a8a; }
+                            .print-container { border: 1px solid ${printColor}; }
                             .no-print { display: none; }
                         }
 
@@ -1011,10 +1022,10 @@ const UserHistory: React.FC = () => {
                             <div style="display: flex; align-items: center; gap: 15px;">
                                 <img src="${logoUrl}" alt="Logo" style="max-height: 80px;" crossOrigin="anonymous" />
                                 <div style="display: flex; flex-direction: column; text-align: left;">
-                                    <span style="font-weight: bold; font-size: 15px; color: #1e3a8a; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
-                                    <span style="font-weight: bold; font-size: 8px; color: #1e3a8a; letter-spacing: 1px;">AL SAFA DISTRICT</span>
-                                    <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -5px;">مستشفى الجدعاني</span>
-                                    <span style="font-weight: bold; font-size: 8px; font-family: 'Cairo', sans-serif; color: #1e3a8a; margin-top: -3px;">حي الصفــــا</span>
+                                    <span style="font-weight: bold; font-size: 15px; color: ${printColor}; letter-spacing: 1px;">AL JEDAANI HOSPITAL</span>
+                                    <span style="font-weight: bold; font-size: 8px; color: ${printColor}; letter-spacing: 1px;">AL SAFA DISTRICT</span>
+                                    <span style="font-weight: bold; font-size: 15px; font-family: 'Cairo', sans-serif; color: ${printColor}; margin-top: -5px;">مستشفى الجدعاني</span>
+                                    <span style="font-weight: bold; font-size: 8px; font-family: 'Cairo', sans-serif; color: ${printColor}; margin-top: -3px;">حي الصفــــا</span>
                                 </div>
                             </div>
                             <div class="title-box">
@@ -1250,7 +1261,7 @@ const UserHistory: React.FC = () => {
                                     </td>
                                     <td className="p-4 text-center">
                                         <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wide border ${
-                                            item.status === 'approved' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
+                                            item.status === 'approved' ? 'bg-emerald-10 text-emerald-600 border-emerald-100' : 
                                             item.status === 'rejected' ? 'bg-red-50 text-red-600 border-red-100' : 
                                             'bg-amber-50 text-amber-600 border-amber-100'
                                         }`}>
@@ -1264,7 +1275,10 @@ const UserHistory: React.FC = () => {
                                     <td className="p-4 text-center">
                                         {(item.rawType === 'leave' || item.rawType === 'swap') && item.originalData && !isManager && (
                                             <button 
-                                                onClick={() => item.rawType === 'leave' ? handlePrintLeave(item.originalData) : handlePrintSwap(item.originalData)}
+                                                onClick={() => {
+                                                    setItemToPrint(item);
+                                                    setIsPrintStyleModalOpen(true);
+                                                }}
                                                 className={`w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors flex items-center justify-center mx-auto ${
                                                     (item.rawType === 'leave' && item.originalData.managerId === currentUserId && item.status === 'pending_manager') ? 'opacity-50 cursor-not-allowed' : ''
                                                 }`}
@@ -1281,6 +1295,18 @@ const UserHistory: React.FC = () => {
                     </table>
                 </div>
             </div>
+
+            <PrintStyleModal 
+                isOpen={isPrintStyleModalOpen} 
+                onClose={() => setIsPrintStyleModalOpen(false)} 
+                onConfirm={(style) => {
+                    if (itemToPrint) {
+                        itemToPrint.rawType === 'leave' 
+                            ? handlePrintLeave(itemToPrint.originalData, style) 
+                            : handlePrintSwap(itemToPrint.originalData, style);
+                    }
+                }} 
+            />
         </div>
     );
 };

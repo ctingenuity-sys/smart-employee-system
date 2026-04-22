@@ -67,7 +67,7 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
                 {/* Left: Branding with Logos */}
                 <div className="flex items-center gap-4">
                     <div className="flex items-center gap-3">
-                        <img src="/logo.png" alt="Hospital Logo" className={`${compact ? 'w-10 h-10' : 'w-20 h-20'} object-contain`} />
+                        <img src="/old-logo.png" alt="Hospital Logo" className={`${compact ? 'w-10 h-10' : 'w-20 h-20'} object-contain`} />
                         <img src="/cbahi.png" alt="CBAHI Logo" className={`${compact ? 'w-8 h-8' : 'w-16 h-16'} object-contain`} />
                     </div>
                     <div className="flex flex-col justify-center">

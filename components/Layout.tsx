@@ -122,11 +122,11 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
 
   useEffect(() => {
       const handleAppNotification = (e: any) => {
-          setToast({ msg: `${e.detail.title}: ${e.detail.message}`, type: 'info' });
+          setToast({ msg: `${t(e.detail.title)}: ${t(e.detail.message)}`, type: 'info' });
       };
       window.addEventListener('app-notification', handleAppNotification);
       return () => window.removeEventListener('app-notification', handleAppNotification);
-  }, []);
+  }, [t]);
 
   const handleLogout = async () => {
     await signOut(auth);

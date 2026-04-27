@@ -751,6 +751,30 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
   };
 
   const t = (key: string) => {
+    if (!key) return '';
+    
+    // 1. Direct match (for hardcoded complex keys)
+    if (translations[key]?.[language]) {
+      return translations[key][language];
+    }
+    
+    // 2. Parse piped variables: "baseKey|key:value|key2:value2"
+    if (key.includes('|')) {
+      const parts = key.split('|');
+      const baseKey = parts[0];
+      let text = translations[baseKey]?.[language] || baseKey;
+      
+      for (let i = 1; i < parts.length; i++) {
+        const separatorIdx = parts[i].indexOf(':');
+        if (separatorIdx !== -1) {
+          const varName = parts[i].substring(0, separatorIdx);
+          const varVal = parts[i].substring(separatorIdx + 1);
+          text = text.replace(new RegExp(`\\{${varName}\\}`, 'g'), varVal);
+        }
+      }
+      return text;
+    }
+
     return translations[key]?.[language] || key;
   };
 

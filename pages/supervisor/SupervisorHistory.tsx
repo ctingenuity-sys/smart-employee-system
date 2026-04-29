@@ -159,7 +159,7 @@ const SupervisorHistory: React.FC = () => {
                                                             <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed ${!approved ? 'red' : 'rgba(${printColorRgb}, 0.4)'}; margin-top: 1px; padding-top: 1px;">${departmentName.toUpperCase()}</div>
                                                             <div class="stamp-dept" style="${!approved ? 'color: red;' : ''}">${jobTitle}</div>
                                                             <div class="stamp-name">${name}</div>
-                                                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: ${approved ? '#329132' : 'red'}; opacity: 0.8; transform: rotate(-10deg);">
+                                                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: ${approved ? '#006000' : 'red'}; opacity: 0.15; transform: rotate(-10deg);">
                                                                 ${approved ? 'APPROVED' : 'NOT APPROVED'}
                                                             </div>
                                                         </div>
@@ -231,8 +231,8 @@ const SupervisorHistory: React.FC = () => {
 
                                             const printStyle = style;
                                             const logoUrl = new URL(printStyle === 'old' ? '/old-logo.png' : '/logo.png', window.location.origin).href;
-                                            const printColor = printStyle === 'old' ? '#000000' : '#1e3a8a';
-                                            const printColorRgb = printStyle === 'old' ? '0, 0, 0' : '30, 58, 138';
+                                            const printColor = printStyle === 'old' ? '#000000' : '#2563eb';
+                                            const printColorRgb = printStyle === 'old' ? '0, 0, 0' : '37, 99, 235';
 
                                             let printContent = '';
                                             if (item.type === 'leave' || item.type === 'absence') {
@@ -245,7 +245,7 @@ const SupervisorHistory: React.FC = () => {
                                                         <style>
                                                             @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&family=Inter:wght@400;700&display=swap');
                                                             @page { size: A4; margin: 10mm; }
-                                                            body { font-family: 'Inter', 'Cairo', sans-serif; margin: 0; padding: 0; color: ${printColor}; background: #fff; font-size: 12px; }
+                                                            body { -webkit-print-color-adjust: exact; print-color-adjust: exact;  font-family: 'Inter', 'Cairo', sans-serif; margin: 0; padding: 0; color: ${printColor}; background: #fff; font-size: 12px; }
                                                             .print-container { width: 100%; max-width: 100%; margin: 0 auto; border: 1px solid ${printColor}; padding: 15px; box-sizing: border-box; }
                                                             .header-section { text-align: center; margin-bottom: 10px; }
                                                             .title-box { display: inline-block; border: 2px solid ${printColor}; background: rgba(${printColorRgb}, 0.05); border-radius: 12px; padding: 5px 30px; text-align: center; }
@@ -263,10 +263,10 @@ const SupervisorHistory: React.FC = () => {
                                                             .checkbox-container { display: flex; align-items: center; gap: 8px; }
                                                             .checkbox { width: 14px; height: 14px; border: 1.5px solid ${printColor}; display: inline-block; position: relative; }
                                                             .checkbox.checked::after { content: '✓'; position: absolute; top: -5px; left: 1px; font-size: 18px; font-weight: bold; color: ${printColor}; }
-                                                            .stamp-box { border: 3px solid #0e2668; border-radius: 6px; padding: 4px; display: inline-block; color: #172f70; text-align: center; font-family: 'Courier New', Courier, monospace; font-weight: bold; line-height: 1.1; background: transparent; margin: 2px auto; width: 140px; height: 85px; position: relative; text-transform: uppercase; box-sizing: border-box; overflow: hidden; }
-                                                            .stamp-inner { border: 1px solid rgba(30, 58, 138, 0.5); padding: 2px; border-radius: 3px; height: 100%; display: flex; flex-direction: column; justify-content: center; box-sizing: border-box; }
-                                                            .stamp-hospital { font-size: 8px; letter-spacing: 0.2px; margin-bottom: 1px; border-bottom: 1px dashed rgba(30, 58, 138, 0.4); padding-bottom: 2px; }
-                                                            .stamp-dept { font-size: 9px; margin-bottom: 2px; color: #0c2363; }
+                                                            .stamp-box { border: 3px solid #2563eb; border-radius: 6px; padding: 4px; display: inline-block; color: #2563eb; text-align: center; font-family: 'Courier New', Courier, monospace; font-weight: bold; line-height: 1.1; background: transparent; margin: 2px auto; width: 140px; height: 85px; position: relative; text-transform: uppercase; box-sizing: border-box; overflow: hidden; }
+                                                            .stamp-inner { border: 1px solid rgba(37, 99, 235, 0.5); padding: 2px; border-radius: 3px; height: 100%; display: flex; flex-direction: column; justify-content: center; box-sizing: border-box; }
+                                                            .stamp-hospital { font-size: 8px; letter-spacing: 0.2px; margin-bottom: 1px; border-bottom: 1px dashed rgba(37, 99, 235, 0.4); padding-bottom: 2px; }
+                                                            .stamp-dept { font-size: 9px; margin-bottom: 2px; color: #2563eb; }
                                                             .stamp-name { font-size: 11px; line-height: 1.2; }
                                                             @media print { .print-container { border: 1px solid ${printColor}; } }
                                                             .watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.10; width: 100%; max-width: 900px; z-index: -1; pointer-events: none; }
@@ -503,7 +503,7 @@ const SupervisorHistory: React.FC = () => {
                                                         <style>
                                                             @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&family=Inter:wght@400;700&display=swap');
                                                             @page { size: A4; margin: 10mm; }
-                                                            body { font-family: 'Inter', 'Cairo', sans-serif; margin: 0; padding: 0; color: ${printColor}; background: #fff; font-size: 12px; }
+                                                            body { -webkit-print-color-adjust: exact; print-color-adjust: exact;  font-family: 'Inter', 'Cairo', sans-serif; margin: 0; padding: 0; color: ${printColor}; background: #fff; font-size: 12px; }
                                                             .print-container { width: 100%; max-width: 100%; margin: 0 auto; border: 1px solid ${printColor}; padding: 15px; box-sizing: border-box; }
                                                             .header-section { text-align: center; margin-bottom: 10px; }
                                                             .title-box { display: inline-block; border: 2px solid ${printColor}; background: rgba(${printColorRgb}, 0.05); border-radius: 12px; padding: 5px 30px; text-align: center; }
@@ -521,10 +521,10 @@ const SupervisorHistory: React.FC = () => {
                                                             .checkbox-container { display: flex; align-items: center; gap: 8px; }
                                                             .checkbox { width: 14px; height: 14px; border: 1.5px solid ${printColor}; display: inline-block; position: relative; }
                                                             .checkbox.checked::after { content: '✓'; position: absolute; top: -5px; left: 1px; font-size: 18px; font-weight: bold; color: ${printColor}; }
-                                                            .stamp-box { border: 3px solid #1e3a8a; border-radius: 6px; padding: 4px; display: inline-block; color: #1e3a8a; text-align: center; font-family: 'Courier New', Courier, monospace; font-weight: bold; line-height: 1.1; background: transparent; margin: 2px auto; width: 140px; height: 85px; position: relative; text-transform: uppercase; box-sizing: border-box; overflow: hidden; }
-                                                            .stamp-inner { border: 1px solid rgba(30, 58, 138, 0.5); padding: 2px; border-radius: 3px; height: 100%; display: flex; flex-direction: column; justify-content: center; box-sizing: border-box; }
-                                                            .stamp-hospital { font-size: 8px; letter-spacing: 0.2px; margin-bottom: 1px; border-bottom: 1px dashed rgba(30, 58, 138, 0.4); padding-bottom: 2px; }
-                                                            .stamp-dept { font-size: 9px; margin-bottom: 2px; color: #1e3a8a; }
+                                                            .stamp-box { border: 3px solid #2563eb; border-radius: 6px; padding: 4px; display: inline-block; color: #2563eb; text-align: center; font-family: 'Courier New', Courier, monospace; font-weight: bold; line-height: 1.1; background: transparent; margin: 2px auto; width: 140px; height: 85px; position: relative; text-transform: uppercase; box-sizing: border-box; overflow: hidden; }
+                                                            .stamp-inner { border: 1px solid rgba(37, 99, 235, 0.5); padding: 2px; border-radius: 3px; height: 100%; display: flex; flex-direction: column; justify-content: center; box-sizing: border-box; }
+                                                            .stamp-hospital { font-size: 8px; letter-spacing: 0.2px; margin-bottom: 1px; border-bottom: 1px dashed rgba(37, 99, 235, 0.4); padding-bottom: 2px; }
+                                                            .stamp-dept { font-size: 9px; margin-bottom: 2px; color: #2563eb; }
                                                             .stamp-name { font-size: 11px; line-height: 1.2; }
                                                             @media print { .print-container { border: 1px solid ${printColor}; } }
                                                             .watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.10; width: 100%; max-width: 900px; z-index: -1; pointer-events: none; }

@@ -3,8 +3,8 @@ import { Penalty } from '../types';
 export const printPenaltyDocument = (penalty: Penalty, printStyle: 'new' | 'old' = 'new') => {
     const dateStr = penalty.createdAt?.toDate ? penalty.createdAt.toDate().toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
     const logoUrl = window.location.origin + (printStyle === 'old' ? '/old-logo.png' : '/logo.png');
-    const printColor = printStyle === 'old' ? '#000000' : '#1e3a8a';
-    const printColorRgb = printStyle === 'old' ? '0, 0, 0' : '30, 58, 138';
+    const printColor = printStyle === 'old' ? '#000000' : '#2563eb';
+    const printColorRgb = printStyle === 'old' ? '0, 0, 0' : '37, 99, 235';
 
     const renderStampInline = (name: string, status: 'accepted' | 'rejected') => {
         const isAccepted = status === 'accepted';
@@ -38,7 +38,7 @@ export const printPenaltyDocument = (penalty: Penalty, printStyle: 'new' | 'old'
                     size: A4 portrait;
                     margin: 5mm;
                 }
-                body { 
+                body { -webkit-print-color-adjust: exact; print-color-adjust: exact;  
                     font-family: 'Cairo', 'Inter', sans-serif; 
                     margin: 0;
                     padding: 0;

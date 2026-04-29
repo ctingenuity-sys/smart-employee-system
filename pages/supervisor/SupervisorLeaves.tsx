@@ -291,8 +291,8 @@ const SupervisorLeaves: React.FC = () => {
 
             // Build the HTML content
             const logoUrl = new URL(printStyle === 'old' ? '/old-logo.png' : '/logo.png', window.location.origin).href;
-            const printColor = printStyle === 'old' ? '#000000' : '#1e3a8a';
-            const printColorRgb = printStyle === 'old' ? '0, 0, 0' : '30, 58, 138';
+            const printColor = printStyle === 'old' ? '#000000' : '#2563eb';
+            const printColorRgb = printStyle === 'old' ? '0, 0, 0' : '37, 99, 235';
             
             const renderStampInline = (name: string, jobTitle: string = 'Staff', hospital: string = 'AL JEDAANI HOSPITAL', dept: string = departmentName) => {
                 const rotation = (-3 - Math.random() * 5).toFixed(1);
@@ -300,7 +300,7 @@ const SupervisorLeaves: React.FC = () => {
                     <div class="stamp-box" style="position: static; transform: rotate(${rotation}deg); margin: 0; z-index: 1;">
                         <div class="stamp-inner">
                             <div class="stamp-hospital">${hospital.toUpperCase()}</div>
-                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(${printColorRgb}, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(37, 99, 235, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
                             <div class="stamp-dept">${jobTitle}</div>
                             <div class="stamp-name">${name}</div>
                             <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: green; opacity: 0.15; transform: rotate(-10deg);">
@@ -319,7 +319,7 @@ const SupervisorLeaves: React.FC = () => {
                     <div class="stamp-box" style="transform: rotate(${rotation}deg); position: absolute; top: -15px; left: calc(50% + ${offset}px); transform: translateX(-50%) rotate(${rotation}deg); z-index: 50; pointer-events: none;">
                         <div class="stamp-inner">
                             <div class="stamp-hospital">${hospital.toUpperCase()}</div>
-                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(${printColorRgb}, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
+                            <div class="stamp-hospital" style="font-size: 9px; border-top: 1px dashed rgba(37, 99, 235, 0.4); margin-top: 1px; padding-top: 1px;">${dept.toUpperCase()}</div>
                             <div class="stamp-dept">${jobTitle}</div>
                             <div class="stamp-name">${name}</div>
                             <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: green; opacity: 0.15; transform: rotate(-10deg);">
@@ -342,7 +342,7 @@ const SupervisorLeaves: React.FC = () => {
                             size: A4;
                             margin: 10mm;
                         }
-                        body { 
+                        body { -webkit-print-color-adjust: exact; print-color-adjust: exact;  
                             font-family: 'Inter', 'Cairo', sans-serif; 
                             margin: 0;
                             padding: 0;
@@ -432,11 +432,11 @@ const SupervisorLeaves: React.FC = () => {
                             margin: 2px auto;
                         }
                         .stamp-box {
-                            border: 3px solid ${printColor};
+                            border: 3px solid #2563eb;
                             border-radius: 6px;
                             padding: 4px;
                             display: inline-block;
-                            color: ${printColor};
+                            color: #2563eb;
                             text-align: center;
                             font-family: 'Courier New', Courier, monospace;
                             font-weight: bold;
@@ -451,7 +451,7 @@ const SupervisorLeaves: React.FC = () => {
                             overflow: hidden;
                         }
                         .stamp-inner {
-                            border: 1px solid rgba(${printColorRgb}, 0.5);
+                            border: 1px solid rgba(37, 99, 235, 0.5);
                             padding: 2px;
                             border-radius: 3px;
                             height: 100%;
@@ -464,13 +464,13 @@ const SupervisorLeaves: React.FC = () => {
                             font-size: 8px;
                             letter-spacing: 0.2px;
                             margin-bottom: 1px;
-                            border-bottom: 1px dashed rgba(${printColorRgb}, 0.4);
+                            border-bottom: 1px dashed rgba(37, 99, 235, 0.4);
                             padding-bottom: 2px;
                         }
                         .stamp-dept {
                             font-size: 9px;
                             margin-bottom: 2px;
-                            color: ${printColor};
+                            color: #2563eb;
                         }
                         .stamp-name {
                             font-size: 11px;

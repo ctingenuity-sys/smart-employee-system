@@ -344,6 +344,11 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                     <span className="font-medium">{t('nav.inventory')}</span>
                  </Link>
              )}
+
+             <Link to="/cath-lab-usage" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/cath-lab-usage')}`}>
+                <i className="fas fa-heartbeat w-6 text-rose-400"></i>
+                <span className="font-medium">{t('nav.cathLabUsage')}</span>
+             </Link>
              
              {canAccess('tasks') && (
                  <Link to="/tasks" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/tasks')}`}>

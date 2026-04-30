@@ -2,22 +2,6 @@
 import React, { useState } from 'react';
 import { ModalityColumn, CommonDuty } from '../../types';
 import { PrintHeader, PrintFooter } from '../PrintLayout';
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-  useSortable,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 
 // Solid, Fixed Colors for Headers to look professional and consistent
 const fixedHeaderColors = [
@@ -77,141 +61,6 @@ const getStaffColor = (name: string): string => {
     return newColor;
 };
 
-const SortableStaffItem = ({
-    staff,
-    colIndex,
-    staffIndex,
-    isEditing,
-    onStaffDragStart,
-    handleStaffChange,
-    removeStaff,
-    getStaffColor,
-    isMatched,
-    formatDate
-}: any) => {
-    const {
-        attributes,
-        listeners,
-        setNodeRef,
-        transform,
-        transition,
-    } = useSortable({ id: `${colIndex}-${staffIndex}` });
-
-    const style = {
-        transform: CSS.Transform.toString(transform),
-        transition,
-    };
-
-    const staffColor = getStaffColor(staff.name);
-
-    return (
-        <div
-            ref={setNodeRef}
-            style={style}
-            {...attributes}
-            {...listeners}
-            draggable={isEditing}
-            onDragStart={(e) => isEditing && onStaffDragStart(e, colIndex, staffIndex)}
-            className={`relative rounded-xl border transition-all group flex flex-col items-center justify-center print-color-adjust-exact p-3 w-full shadow-sm z-10
-                ${isMatched(staff.name) && !isEditing ? 'bg-yellow-50 border-yellow-400 ring-2 ring-yellow-200' : staffColor}
-                ${isEditing ? 'cursor-grab active:cursor-grabbing hover:border-blue-300' : ''}
-                print:p-0.5 print:rounded-md print:border print:mb-0.5 print:min-h-0 print:shadow-none`}
-        >
-            {isEditing && (
-                <button
-                    onClick={(e) => { e.stopPropagation(); removeStaff(colIndex, staffIndex); }}
-                    className="absolute -top-2 -right-2 bg-red-100 text-red-500 rounded-full w-5 h-5 flex items-center justify-center hover:bg-red-200 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity z-20 print:hidden"
-                >
-                    <i className="fas fa-times text-[10px]"></i>
-                </button>
-            )}
-
-            <div className={`flex flex-col items-center gap-0 w-full justify-center`}>
-                {isEditing ? (
-                    <>
-                    <div className="w-full flex items-center gap-1 mb-1">
-                        {staff.shiftType === 'morning' && <i className="fas fa-sun text-amber-500 text-xs"></i>}
-                        {staff.shiftType === 'evening' && <i className="fas fa-cloud-sun text-orange-500 text-xs"></i>}
-                        {staff.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-xs"></i>}
-                        {staff.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-xs"></i>}
-                        {staff.shiftType === 'long_duty' && <i className="fas fa-clock text-green-500 text-sm" title="Long Duty"></i>}
-                        <input
-                            value={staff.name}
-                            onChange={(e) => handleStaffChange(colIndex, staffIndex, 'name', e.target.value)}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            className="w-full bg-white border border-slate-200 rounded px-1 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-blue-300 print:hidden font-oswald"
-                            placeholder="Name"
-                        />
-                    </div>
-                    {isEditing && (
-                        <div className="flex flex-col w-full gap-1 mt-1 print:hidden">
-                            <div className="flex gap-1">
-                                <input 
-                                    placeholder="Time"
-                                    value={staff.time || ''} 
-                                    onChange={(e) => handleStaffChange(colIndex, staffIndex, 'time', e.target.value)}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    className="w-1/2 text-xs text-slate-500 bg-white border border-slate-200 rounded px-1 focus:outline-none"
-                                />
-                                <select
-                                    value={staff.shiftType || ''}
-                                    onChange={(e) => handleStaffChange(colIndex, staffIndex, 'shiftType', e.target.value)}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    className="w-1/2 text-xs text-slate-500 bg-white border border-slate-200 rounded px-1 focus:outline-none"
-                                >
-                                    <option value="">Type</option>
-                                    <option value="morning">Morning</option>
-                                    <option value="evening">Evening</option>
-                                    <option value="night">Night</option>
-                                    <option value="broken">Broken</option>
-                                    <option value="high_broken">High Broken</option>
-                                    <option value="long_duty">Long Duty</option>
-                                </select>
-                            </div>
-                            <input 
-                                placeholder="Note (e.g. 4PM-12AM)"
-                                value={staff.note || ''} 
-                                onChange={(e) => handleStaffChange(colIndex, staffIndex, 'note', e.target.value)}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                className="w-full text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 focus:outline-none placeholder-amber-300/70"
-                            />
-                            <div className="flex gap-1">
-                                <input 
-                                    type="date"
-                                    title="Start Date Override"
-                                    value={staff.startDate || ''}
-                                    onChange={(e) => handleStaffChange(colIndex, staffIndex, 'startDate', e.target.value)}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    className="w-1/2 text-[10px] bg-white border border-slate-200 rounded px-1 focus:outline-none"
-                                />
-                                <input 
-                                    type="date"
-                                    title="End Date Override"
-                                    value={staff.endDate || ''}
-                                    onChange={(e) => handleStaffChange(colIndex, staffIndex, 'endDate', e.target.value)}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    className="w-1/2 text-[10px] bg-white border border-slate-200 rounded px-1 focus:outline-none"
-                                />
-                            </div>
-                        </div>
-                    )}
-                </>
-                ) : (
-                    <div className={`text-lg font-medium text-center whitespace-nowrap overflow-hidden text-ellipsis w-full print:hidden font-oswald tracking-wide flex items-center justify-center gap-1.5`}>
-                        {staff.shiftType === 'morning' && <i className="fas fa-sun text-amber-500 text-sm" title="Morning Shift"></i>}
-                        {staff.shiftType === 'evening' && <i className="fas fa-cloud-sun text-orange-500 text-sm" title="Evening Shift"></i>}
-                        {staff.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-sm" title="Night Shift"></i>}
-                        {staff.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-sm" title="Broken Shift"></i>}
-                        {staff.shiftType === 'high_broken' && <i className="fas fa-bolt text-red-700 text-sm" title="High Broken Shift"></i>}
-                        {staff.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-sm" title="Straight Shift"></i>}
-                        <span>{staff.name}</span>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-};
-
 // Helper to format date YYYY-MM-DD to DD/MM/YYYY
 const formatDate = (isoString: string) => {
     if (!isoString) return '';
@@ -245,7 +94,6 @@ interface GeneralScheduleViewProps {
   onReorderColumns: (fromIndex: number, toIndex: number) => void;
   onAddDuty: () => void;
   onRemoveDuty: (index: number) => void;
-  onReorderStaff: (colIndex: number, fromIndex: number, toIndex: number) => void;
 }
 
 const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({ 
@@ -266,8 +114,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
     onRemoveColumn,
     onReorderColumns,
     onAddDuty,
-    onRemoveDuty,
-    onReorderStaff
+    onRemoveDuty
 }) => {
   
   const [draggedItem, setDraggedItem] = useState<{ colIndex: number, staffIndex: number } | null>(null);
@@ -525,138 +372,160 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                 </div>
             )}
 
-            {isEditing ? (
-              <DndContext 
-                sensors={useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }))}
-                collisionDetection={closestCenter}
-                onDragEnd={(event) => {
-                    const { active, over } = event;
-                    if (over && active.id !== over.id) {
-                        const [colIndexStr, oldIndexStr] = String(active.id).split('-');
-                        const [_, newIndexStr] = String(over.id).split('-');
-                        onReorderStaff(parseInt(colIndexStr), parseInt(oldIndexStr), parseInt(newIndexStr));
-                    }
-                }}
-              >
-                  <SortableContext items={column.staff.map((_, i) => `${colIndex}-${i}`)} strategy={verticalListSortingStrategy}>
-                    {column.staff.map((staff, staffIndex) => (
-                      <SortableStaffItem
-                            key={`${colIndex}-${staffIndex}`}
-                            id={`${colIndex}-${staffIndex}`}
-                            staff={staff}
-                            colIndex={colIndex}
-                            staffIndex={staffIndex}
-                            isEditing={isEditing}
-                            onStaffDragStart={onStaffDragStart}
-                            handleStaffChange={handleStaffChange}
-                            removeStaff={removeStaff}
-                            getStaffColor={getStaffColor}
-                            isMatched={isMatched}
-                            formatDate={formatDate}
-                        />
-                    ))}
-                  </SortableContext>
-              </DndContext>
-            ) : (
-                column.staff.map((staff, staffIndex) => (
-                    <div 
-                        key={staffIndex}
-                        draggable={isEditing}
-                        onDragStart={(e) => onStaffDragStart(e, colIndex, staffIndex)} 
-                        className={`relative rounded-xl border transition-all group flex flex-col items-center justify-center print-color-adjust-exact p-3 w-full shadow-sm z-10
-                                ${isMatched(staff.name) && !isEditing ? 'bg-yellow-50 border-yellow-400 ring-2 ring-yellow-200' : getStaffColor(staff.name)} 
-                            ${isEditing ? 'cursor-grab active:cursor-grabbing hover:border-blue-300' : ''} 
-                            print:p-0.5 print:rounded-md print:border print:mb-0.5 print:min-h-0 print:shadow-none`}
+            {column.staff.map((staff, staffIndex) => {
+            const staffColor = getStaffColor(staff.name);
+            return (
+                <div 
+                    key={staffIndex}
+                    draggable={isEditing}
+                    onDragStart={(e) => onStaffDragStart(e, colIndex, staffIndex)} 
+                    className={`relative rounded-xl border transition-all group flex flex-col items-center justify-center print-color-adjust-exact p-3 w-full shadow-sm z-10
+                            ${isMatched(staff.name) && !isEditing ? 'bg-yellow-50 border-yellow-400 ring-2 ring-yellow-200' : staffColor} 
+                        ${isEditing ? 'cursor-grab active:cursor-grabbing hover:border-blue-300' : ''} 
+                        print:p-0.5 print:rounded-md print:border print:mb-0.5 print:min-h-0 print:shadow-none`}
+                >
+                {/* Delete Button */}
+                {isEditing && (
+                    <button 
+                        onClick={(e) => {e.stopPropagation(); removeStaff(colIndex, staffIndex);}}
+                        className="absolute -top-2 -right-2 bg-red-100 text-red-500 rounded-full w-5 h-5 flex items-center justify-center hover:bg-red-200 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity z-20 print:hidden"
                     >
-                        {/* Delete Button */}
-                        {isEditing && (
-                            <button 
-                                onClick={(e) => {e.stopPropagation(); removeStaff(colIndex, staffIndex);}}
-                                className="absolute -top-2 -right-2 bg-red-100 text-red-500 rounded-full w-5 h-5 flex items-center justify-center hover:bg-red-200 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity z-20 print:hidden"
-                            >
-                                <i className="fas fa-times text-[10px]"></i>
-                            </button>
-                        )}
+                        <i className="fas fa-times text-[10px]"></i>
+                    </button>
+                )}
 
-                        <div className={`flex flex-col items-center gap-0 w-full justify-center`}>
-                            {isEditing ? (
-                                <div className="w-full flex items-center gap-1 mb-1">
-                                    {staff.shiftType === 'morning' && <i className="fas fa-sun text-amber-500 text-xs"></i>}
-                                    {staff.shiftType === 'evening' && <i className="fas fa-cloud-sun text-orange-500 text-xs"></i>}
-                                    {staff.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-xs"></i>}
-                                    {staff.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-xs"></i>}
-                                    {staff.shiftType === 'long_duty' && <i className="fas fa-clock text-green-500 text-sm" title="Long Duty"></i>}
-                                    <input 
-                                        value={staff.name} 
-                                        onChange={(e) => handleStaffChange(colIndex, staffIndex, 'name', e.target.value)}
-                                        onMouseDown={(e) => e.stopPropagation()} 
-                                        className="w-full bg-white border border-slate-200 rounded px-1 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-blue-300 print:hidden font-oswald"
-                                        placeholder="Name"
-                                    />
-                                </div>
-                            ) : (
-                                <div className={`text-lg font-medium text-center whitespace-nowrap overflow-hidden text-ellipsis w-full print:hidden font-oswald tracking-wide flex items-center justify-center gap-1.5`}>
-                                        {staff.shiftType === 'morning' && <i className="fas fa-sun text-amber-500 text-sm" title="Morning Shift"></i>}
-                                        {staff.shiftType === 'evening' && <i className="fas fa-cloud-sun text-orange-500 text-sm" title="Evening Shift"></i>}
-                                        {staff.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-sm" title="Night Shift"></i>}
-                                        {staff.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-sm" title="Broken Shift"></i>}
-                                        {staff.shiftType === 'high_broken' && <i className="fas fa-bolt text-red-700 text-sm" title="High Broken Shift"></i>}
-                                        {staff.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-sm" title="Straight Shift"></i>}
-                                        <span>{staff.name}</span>
-                                </div>
-                            )}
-                            
-                            {/* View/Print Name - OSWALD FONT */}
-                            <div className={`hidden print:flex items-center justify-center gap-1 text-lg font-medium font-oswald tracking-wide print:text-black print:text-[15px] md:print:text-[16px] print:leading-tight text-center whitespace-nowrap overflow-hidden text-ellipsis w-full`}>
-                                {staff.shiftType === 'morning' && <i className="fas fa-sun text-amber-500 text-xs"></i>}
-                                {staff.shiftType === 'evening' && <i className="fas fa-cloud-sun text-orange-500 text-xs"></i>}
-                                {staff.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-xs"></i>}
-                                {staff.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-xs"></i>}
-                                {staff.shiftType === 'high_broken' && <i className="fas fa-bolt text-red-700 text-xs"></i>}
-                                {staff.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-xs"></i>}
+                <div className={`flex flex-col items-center gap-0 w-full justify-center`}>
+                    {isEditing ? (
+                        <div className="w-full flex items-center gap-1 mb-1">
+                            {staff.shiftType === 'morning' && <i className="fas fa-sun text-amber-500 text-xs"></i>}
+                            {staff.shiftType === 'evening' && <i className="fas fa-cloud-sun text-orange-500 text-xs"></i>}
+                            {staff.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-xs"></i>}
+                            {staff.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-xs"></i>}
+                            {staff.shiftType === 'long_duty' && <i className="fas fa-clock text-green-500 text-sm" title="Long Duty"></i>}
+                            <input 
+                                value={staff.name} 
+                                onChange={(e) => handleStaffChange(colIndex, staffIndex, 'name', e.target.value)}
+                                onMouseDown={(e) => e.stopPropagation()} 
+                                className="w-full bg-white border border-slate-200 rounded px-1 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-blue-300 print:hidden font-oswald"
+                                placeholder="Name"
+                            />
+                        </div>
+                    ) : (
+                        <div className={`text-lg font-medium text-center whitespace-nowrap overflow-hidden text-ellipsis w-full print:hidden font-oswald tracking-wide flex items-center justify-center gap-1.5`}>
+                                {staff.shiftType === 'morning' && <i className="fas fa-sun text-amber-500 text-sm" title="Morning Shift"></i>}
+                                {staff.shiftType === 'evening' && <i className="fas fa-cloud-sun text-orange-500 text-sm" title="Evening Shift"></i>}
+                                {staff.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-sm" title="Night Shift"></i>}
+                                {staff.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-sm" title="Broken Shift"></i>}
+                                {staff.shiftType === 'high_broken' && <i className="fas fa-bolt text-red-700 text-sm" title="High Broken Shift"></i>}
+                                {staff.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-sm" title="Straight Shift"></i>}
                                 <span>{staff.name}</span>
-                            </div>
+                        </div>
+                    )}
+                    
+                    {/* View/Print Name - OSWALD FONT */}
+                    <div className={`hidden print:flex items-center justify-center gap-1 text-lg font-medium font-oswald tracking-wide print:text-black print:text-[15px] md:print:text-[16px] print:leading-tight text-center whitespace-nowrap overflow-hidden text-ellipsis w-full`}>
+                        {staff.shiftType === 'morning' && <i className="fas fa-sun text-amber-500 text-xs"></i>}
+                        {staff.shiftType === 'evening' && <i className="fas fa-cloud-sun text-orange-500 text-xs"></i>}
+                        {staff.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-xs"></i>}
+                        {staff.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-xs"></i>}
+                        {staff.shiftType === 'high_broken' && <i className="fas fa-bolt text-red-700 text-xs"></i>}
+                        {staff.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-xs"></i>}
+                        <span>{staff.name}</span>
+                    </div>
 
-                             {staff.time && (
-                                <span className="hidden print:block text-[11px] font-mono font-bold text-slate-800 whitespace-nowrap print:text-[11px] print:leading-none print:mt-0" dir="ltr">{staff.time}</span>
-                             )}
-                             
-                             {/* NOTE DISPLAY */}
-                             {staff.note && (
-                                 <div className="hidden print:block text-[9px] text-yellow-900 bg-yellow-100/50 border border-yellow-200 px-1 rounded-md mt-0.5 print:text-[9px] print:border-0 print:bg-white/50 font-bold print:mt-0 leading-none text-center italic w-full">
-                                     {staff.note}
-                                 </div>
-                             )}
-                             
-                             {/* Specific Override Display */}
-                             {(staff.startDate && staff.endDate) && (
-                                 <div className="hidden print:block text-[9px] bg-red-50 text-red-600 px-1 rounded border border-red-100 mt-0.5 print:text-[9px] print:border-0 print:bg-white/50 print:text-red-700 font-bold print:mt-0 uppercase leading-none text-center">
-                                     FROM {formatDate(staff.startDate)} TO {formatDate(staff.endDate)}
-                                 </div>
-                             )}
-
-                             {/* VIEW MODE TIME & NOTE (Screen only) */}
-                             {staff.time && (
-                                 <div className="mt-1 text-[10px] font-black text-slate-700 bg-white/70 inline-block px-2 py-0.5 rounded border border-slate-300 uppercase tracking-tight print:hidden" dir="ltr">
-                                     {staff.time}
-                                 </div>
-                             )}
-                             {staff.note && (
-                                 <div className="mt-1 text-[10px] font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-200 italic print:hidden w-full text-center">
-                                     {staff.note}
-                                 </div>
-                             )}
-                             {(staff.startDate && staff.endDate) && (
-                                 <div className="mt-1 text-[9px] bg-red-50 text-red-600 px-1 rounded border border-red-100 print:hidden font-bold uppercase leading-none text-center">
-                                     FROM {formatDate(staff.startDate)} TO {formatDate(staff.endDate)}
-                                 </div>
-                             )}
+                     {staff.time && (
+                        <span className="hidden print:block text-[11px] font-mono font-bold text-slate-800 whitespace-nowrap print:text-[11px] print:leading-none print:mt-0" dir="ltr">{staff.time}</span>
+                     )}
+                     
+                     {/* NOTE DISPLAY */}
+                     {staff.note && (
+                         <div className="hidden print:block text-[9px] text-yellow-900 bg-yellow-100/50 border border-yellow-200 px-1 rounded-md mt-0.5 print:text-[9px] print:border-0 print:bg-white/50 font-bold print:mt-0 leading-none text-center italic w-full">
+                             {staff.note}
+                         </div>
+                     )}
+                     
+                     {/* Specific Override Display */}
+                     {(staff.startDate && staff.endDate) && (
+                         <div className="hidden print:block text-[9px] bg-red-50 text-red-600 px-1 rounded border border-red-100 mt-0.5 print:text-[9px] print:border-0 print:bg-white/50 print:text-red-700 font-bold print:mt-0 uppercase leading-none text-center">
+                             FROM {formatDate(staff.startDate)} TO {formatDate(staff.endDate)}
+                         </div>
+                     )}
+                </div>
+                
+                {/* --- EDITING EXTRA FIELDS (Time, Note, Start, End) --- */}
+                {isEditing && (
+                    <div className="flex flex-col w-full gap-1 mt-1 print:hidden">
+                        <div className="flex gap-1">
+                            <input 
+                                placeholder="Time"
+                                value={staff.time || ''} 
+                                onChange={(e) => handleStaffChange(colIndex, staffIndex, 'time', e.target.value)}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="w-1/2 text-xs text-slate-500 bg-white border border-slate-200 rounded px-1 focus:outline-none"
+                            />
+                            <select
+                                value={staff.shiftType || ''}
+                                onChange={(e) => handleStaffChange(colIndex, staffIndex, 'shiftType', e.target.value)}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="w-1/2 text-xs text-slate-500 bg-white border border-slate-200 rounded px-1 focus:outline-none"
+                            >
+                                <option value="">Type</option>
+                                <option value="morning">Morning</option>
+                                <option value="evening">Evening</option>
+                                <option value="night">Night</option>
+                                <option value="broken">Broken</option>
+                                <option value="high_broken">High Broken</option>
+                                <option value="long_duty">Long Duty</option> {/* تم التغيير هنا */}
+                            </select>
+                        </div>
+                        <input 
+                            placeholder="Note (e.g. 4PM-12AM)"
+                            value={staff.note || ''} 
+                            onChange={(e) => handleStaffChange(colIndex, staffIndex, 'note', e.target.value)}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            className="w-full text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 focus:outline-none placeholder-amber-300/70"
+                        />
+                        <div className="flex gap-1">
+                            <input 
+                                type="date"
+                                title="Start Date Override"
+                                value={staff.startDate || ''}
+                                onChange={(e) => handleStaffChange(colIndex, staffIndex, 'startDate', e.target.value)}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="w-1/2 text-[10px] bg-white border border-slate-200 rounded px-1 focus:outline-none"
+                            />
+                            <input 
+                                type="date"
+                                title="End Date Override"
+                                value={staff.endDate || ''}
+                                onChange={(e) => handleStaffChange(colIndex, staffIndex, 'endDate', e.target.value)}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="w-1/2 text-[10px] bg-white border border-slate-200 rounded px-1 focus:outline-none"
+                            />
                         </div>
                     </div>
-                ))
-            )}
+                )}
+
+                {/* VIEW MODE TIME & NOTE */}
+                {!isEditing && (
+                    <>
+                        {staff.time && (
+                            <div className="mt-1 text-[10px] font-black text-slate-700 bg-white/70 inline-block px-2 py-0.5 rounded border border-slate-300 uppercase tracking-tight print:hidden" dir="ltr">
+                                {staff.time}
+                            </div>
+                        )}
+                        {staff.note && (
+                            <div className="mt-1 text-[10px] font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-200 italic print:hidden w-full text-center">
+                                {staff.note}
+                            </div>
+                        )}
+                    </>
+                )}
+                </div>
+            );
+            })}
             
-            {isEditing && (                
+            {isEditing && (
                 <button 
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); addStaff(colIndex); }}
                 className="w-full py-2 border-2 border-dashed border-slate-200 rounded-lg text-slate-400 flex items-center justify-center gap-1 hover:border-blue-300 hover:text-blue-500 transition-colors text-xs font-medium uppercase tracking-wide z-20 relative print:hidden"
@@ -666,8 +535,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
             )}
         </div>
     </div>
-  );
-};
+  )};
 
   return (
     <div className="space-y-8 animate-fade-in print:space-y-1 print:w-full print:bg-white print:text-left print:pb-8" dir="ltr">

@@ -51,6 +51,7 @@ const ScheduleBuilder = React.lazy(() => import('./pages/ScheduleBuilder'));
 const Reports = React.lazy(() => import('./pages/Reports'));
 const AttendanceAnalyzer = React.lazy(() => import('./pages/AttendanceAnalyzer'));
 const InventoryPage = React.lazy(() => import('./pages/InventoryPage'));
+const CathLabUsage = React.lazy(() => import('./pages/CathLabUsage'));
 const CommunicationPage = React.lazy(() => import('./pages/CommunicationPage'));
 const TasksPage = React.lazy(() => import('./pages/TasksPage'));
 const TechSupportPage = React.lazy(() => import('./pages/TechSupportPage'));
@@ -208,6 +209,7 @@ const AppRoutes: React.FC = () => {
           {/* Shared Routes with Permissions */}
           <Route path="/communications" element={<ProtectedRoute requiredPermission="communications"><CommunicationPage /></ProtectedRoute>} />
           <Route path="/inventory" element={<ProtectedRoute requiredPermission="inventory"><InventoryPage /></ProtectedRoute>} />
+          <Route path="/cath-lab-usage" element={<ProtectedRoute><CathLabUsage /></ProtectedRoute>} />
           <Route path="/tasks" element={<ProtectedRoute requiredPermission="tasks"><TasksPage /></ProtectedRoute>} />
           <Route path="/tech-support" element={<ProtectedRoute requiredPermission="tech_support"><TechSupportPage /></ProtectedRoute>} />
           <Route path="/hr-assistant" element={<ProtectedRoute requiredPermission="hr_assistant"><HRAssistantPage /></ProtectedRoute>} />

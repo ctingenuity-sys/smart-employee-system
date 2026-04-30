@@ -11,6 +11,7 @@ interface PrintHeaderProps {
   themeColor?: 'slate' | 'teal' | 'purple' | 'rose' | 'indigo' | 'violet' | 'blue' | 'amber' | 'cyan' | 'emerald'; 
   hideCoverageBadge?: boolean; 
   compact?: boolean; 
+  useOldLogo?: boolean;
 }
 
 export const PrintHeader: React.FC<PrintHeaderProps> = ({ 
@@ -22,7 +23,8 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
     note,
     themeColor = 'slate',
     hideCoverageBadge = false,
-    compact = false
+    compact = false,
+    useOldLogo = false
 }) => {
     // Format month title
     let displayMonth = month || "";
@@ -67,7 +69,7 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
                 {/* Left: Branding with Logos */}
                 <div className="flex items-center gap-4">
                     <div className="flex items-center gap-3">
-                        <img src="/logo.png" alt="Hospital Logo" className={`${compact ? 'w-10 h-10' : 'w-20 h-20'} object-contain`} />
+                        <img src={useOldLogo ? "/old-logo.png" : "/logo.png"} alt="Hospital Logo" className={`${compact ? 'w-10 h-10' : 'w-20 h-20'} object-contain`} />
                         <img src="/cbahi.png" alt="CBAHI Logo" className={`${compact ? 'w-8 h-8' : 'w-16 h-16'} object-contain`} />
                     </div>
                     <div className="flex flex-col justify-center">

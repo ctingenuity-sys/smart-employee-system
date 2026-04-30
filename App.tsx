@@ -134,6 +134,7 @@ const AppRoutes: React.FC = () => {
                   {!user ? <Login /> : 
                   normalizedRole === UserRole.DOCTOR.toLowerCase() ? <Navigate to="/doctor" replace /> :
                   normalizedRole === UserRole.USER.toLowerCase() ? <Navigate to="/user" replace /> :
+                  normalizedRole === UserRole.CATH_LAB.toLowerCase() ? <Navigate to="/cath-lab-usage" replace /> :
                   normalizedRole === UserRole.ADMIN.toLowerCase() || normalizedRole === UserRole.SUPERVISOR.toLowerCase() || normalizedRole === UserRole.MANAGER.toLowerCase() ? <Navigate to="/supervisor" replace /> :
                   <div className="flex items-center justify-center h-screen bg-slate-100">
                       <div className="text-center p-8 bg-white rounded-2xl shadow-xl">

@@ -20,7 +20,9 @@ interface CathLabRecord {
     doctorName: string;
     date: string;
     stentType: string;
+    stentCount?: number;
     balloonType: string;
+    balloonCount?: number;
     departmentId: string;
     createdAt: any;
     createdBy: string;
@@ -62,7 +64,9 @@ const CathLabUsage: React.FC = () => {
     const [doctorName, setDoctorName] = useState('');
     const [recordDate, setRecordDate] = useState(new Date().toISOString().split('T')[0]);
     const [selectedStent, setSelectedStent] = useState('');
+    const [stentCount, setStentCount] = useState<number | ''>('');
     const [selectedBalloon, setSelectedBalloon] = useState('');
+    const [balloonCount, setBalloonCount] = useState<number | ''>('');
 
     // Report State
     const [reportStart, setReportStart] = useState(new Date().toISOString().split('T')[0]);
@@ -137,7 +141,9 @@ const CathLabUsage: React.FC = () => {
                 doctorName: doctorName,
                 date: recordDate,
                 stentType: selectedStent,
+                stentCount: selectedStent && stentCount ? Number(stentCount) : 0,
                 balloonType: selectedBalloon,
+                balloonCount: selectedBalloon && balloonCount ? Number(balloonCount) : 0,
                 departmentId: selectedDepartmentId,
                 createdAt: Timestamp.now(),
                 createdBy: userName
@@ -146,7 +152,9 @@ const CathLabUsage: React.FC = () => {
             setPatientName('');
             setDoctorName('');
             setSelectedStent('');
+            setStentCount('');
             setSelectedBalloon('');
+            setBalloonCount('');
             setToast({ msg: t('cath.msgSaved'), type: 'success' });
         } catch (error) {
             setToast({ msg: t('cath.msgSaveErr'), type: 'error' });
@@ -224,17 +232,23 @@ const CathLabUsage: React.FC = () => {
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-slate-700 mb-2">{t('cath.stentType')}</label>
-                                <select className="w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={selectedStent} onChange={e => setSelectedStent(e.target.value)}>
-                                    <option value="">{t('cath.stentNone')}</option>
-                                    {stents.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                </select>
+                                <div className="flex gap-2">
+                                  <select className="flex-1 border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={selectedStent} onChange={e => setSelectedStent(e.target.value)}>
+                                      <option value="">{t('cath.stentNone')}</option>
+                                      {stents.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                  </select>
+                                  <input type="number" min="1" placeholder={t('cath.count')} className="w-24 border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={stentCount} onChange={e => setStentCount(e.target.value === '' ? '' : parseInt(e.target.value))} />
+                                </div>
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-slate-700 mb-2">{t('cath.balloonType')}</label>
-                                <select className="w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={selectedBalloon} onChange={e => setSelectedBalloon(e.target.value)}>
-                                    <option value="">{t('cath.balloonNone')}</option>
-                                    {balloons.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                </select>
+                                <div className="flex gap-2">
+                                  <select className="flex-1 border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={selectedBalloon} onChange={e => setSelectedBalloon(e.target.value)}>
+                                      <option value="">{t('cath.balloonNone')}</option>
+                                      {balloons.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                  </select>
+                                  <input type="number" min="1" placeholder={t('cath.count')} className="w-24 border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={balloonCount} onChange={e => setBalloonCount(e.target.value === '' ? '' : parseInt(e.target.value))} />
+                                </div>
                             </div>
                         </div>
                         <button type="submit" className="w-full md:w-auto bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold shadow-md hover:bg-indigo-700 transition-colors">
@@ -348,8 +362,8 @@ const CathLabUsage: React.FC = () => {
                                             <td className="p-3">{r.date}</td>
                                             <td className="p-3 font-mono">{r.patientFileNumber}</td>
                                             <td className="p-3 font-bold text-slate-800 print:text-black">{r.patientName}</td>
-                                            <td className="p-3">{r.stentType || '-'}</td>
-                                            <td className="p-3">{r.balloonType || '-'}</td>
+                                            <td className="p-3">{r.stentType ? `${r.stentType} ${r.stentCount && r.stentCount > 0 ? `(x${r.stentCount})` : ''}` : '-'}</td>
+                                            <td className="p-3">{r.balloonType ? `${r.balloonType} ${r.balloonCount && r.balloonCount > 0 ? `(x${r.balloonCount})` : ''}` : '-'}</td>
                                             <td className="p-3">{r.doctorName}</td>
                                             <td className="p-3 print:hidden text-xs text-slate-500">{r.createdBy}</td>
                                             {isAdmin && (

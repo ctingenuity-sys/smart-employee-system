@@ -23,7 +23,8 @@ export enum UserRole {
   SUPERVISOR = 'supervisor',
   MANAGER = 'manager',
   USER = 'user',
-  DOCTOR = 'doctor'
+  DOCTOR = 'doctor',
+  CATH_LAB = 'cath_lab'
 }
 
 export interface Department {

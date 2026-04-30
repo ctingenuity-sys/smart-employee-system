@@ -1328,6 +1328,7 @@ const SupervisorEmployees: React.FC = () => {
                                                 <select className="input-modern" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}>
                                                     <option value="user">User</option>
                                                     <option value="doctor">Doctor</option>
+                                                    <option value="cath_lab">Cath Lab</option>
                                                     <option value="supervisor">Supervisor</option>
                                                     <option value="manager">Manager</option>
                                                     {(authRole?.toLowerCase() === UserRole.ADMIN.toLowerCase()) && <option value="admin">Admin</option>}
@@ -1620,6 +1621,7 @@ const SupervisorEmployees: React.FC = () => {
                                 >
                                     <option value="user">User</option>
                                     <option value="doctor">Doctor</option>
+                                    <option value="cath_lab">Cath Lab</option>
                                     <option value="supervisor">Supervisor</option>
                                     <option value="manager">Manager</option>
                                     {(authRole?.toLowerCase() === UserRole.ADMIN.toLowerCase()) && <option value="admin">Admin</option>}

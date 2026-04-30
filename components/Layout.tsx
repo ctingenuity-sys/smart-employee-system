@@ -313,16 +313,16 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
             </>
           )}
 
-          <div className="pt-4 mt-4 border-t border-slate-700">
+          {(userRole !== UserRole.CATH_LAB) && (
+            <div className="pt-4 mt-4 border-t border-slate-700">
              <p className="px-4 text-xs font-bold text-slate-500 mb-2">{t('nav.sharedTools')}</p>
              
-
-                           {canAccess('sup_schedule_builder') && (
+             {canAccess('sup_schedule_builder') && (
                   <Link to="/department-bookings" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/department-bookings')}`}>
                     <i className="fas fa-calendar-check w-6"></i>
                     <span className="font-medium">Department Bookings</span>
                   </Link>
-              )}
+             )}
               
              {(userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR || userRole === UserRole.MANAGER || userRole === UserRole.DOCTOR || userRole === UserRole.USER) && (
                  <Link to="/communications" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/communications')}`}>
@@ -344,12 +344,18 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                     <span className="font-medium">{t('nav.inventory')}</span>
                  </Link>
              )}
+            </div>
+          )}
 
-             <Link to="/cath-lab-usage" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/cath-lab-usage')}`}>
-                <i className="fas fa-heartbeat w-6 text-rose-400"></i>
-                <span className="font-medium">{t('nav.cathLabUsage')}</span>
-             </Link>
+             <div className={userRole === UserRole.CATH_LAB ? "pt-4 mt-4 border-t border-slate-700" : ""}>
+               <Link to="/cath-lab-usage" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/cath-lab-usage')}`}>
+                  <i className="fas fa-heartbeat w-6 text-rose-400"></i>
+                  <span className="font-medium">{t('nav.cathLabUsage')}</span>
+               </Link>
+             </div>
              
+          {(userRole !== UserRole.CATH_LAB) && (
+            <>
              {canAccess('tasks') && (
                  <Link to="/tasks" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/tasks')}`}>
                     <i className="fas fa-tasks w-6 text-amber-400"></i>
@@ -370,7 +376,8 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                     <span className="font-medium">HR Assistant</span>
                  </Link>
              )}
-          </div>
+            </>
+          )}
 
         </nav>
         

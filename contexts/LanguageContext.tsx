@@ -107,6 +107,7 @@ const translations: Record<string, { ar: string; en: string }> = {
   'cath.typeStent': { ar: 'الدعامة (Stent)', en: 'Stent' },
   'cath.typeBalloon': { ar: 'البالون (Balloon)', en: 'Balloon' },
   'cath.typeDoctor': { ar: 'طبيب (Doctor)', en: 'Doctor' },
+  'cath.count': { ar: 'العدد', en: 'Count' },
   'cath.add': { ar: 'إضافة', en: 'Add' },
   'cath.listStents': { ar: 'الدعامات (Stents)', en: 'Stents' },
   'cath.listBalloons': { ar: 'البالونات (Balloons)', en: 'Balloons' },

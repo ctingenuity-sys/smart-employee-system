@@ -13,6 +13,12 @@ interface Supply {
     name: string;
 }
 
+interface UsedSupply {
+    name: string;
+    size: string;
+    count: number;
+}
+
 interface CathLabRecord {
     id: string;
     patientFileNumber: string;
@@ -23,6 +29,8 @@ interface CathLabRecord {
     stentCount?: number;
     balloonType: string;
     balloonCount?: number;
+    stents?: UsedSupply[];
+    balloons?: UsedSupply[];
     departmentId: string;
     createdAt: any;
     createdBy: string;
@@ -63,14 +71,13 @@ const CathLabUsage: React.FC = () => {
     const [patientName, setPatientName] = useState('');
     const [doctorName, setDoctorName] = useState('');
     const [recordDate, setRecordDate] = useState(new Date().toISOString().split('T')[0]);
-    const [selectedStent, setSelectedStent] = useState('');
-    const [stentCount, setStentCount] = useState<number | ''>('');
-    const [selectedBalloon, setSelectedBalloon] = useState('');
-    const [balloonCount, setBalloonCount] = useState<number | ''>('');
+    const [stentsList, setStentsList] = useState<{name: string, size: string, count: number|''}[]>([{name: '', size: '', count: ''}]);
+    const [balloonsList, setBalloonsList] = useState<{name: string, size: string, count: number|''}[]>([{name: '', size: '', count: ''}]);
 
     // Report State
     const [reportStart, setReportStart] = useState(new Date().toISOString().split('T')[0]);
     const [reportEnd, setReportEnd] = useState(new Date().toISOString().split('T')[0]);
+    const [reportMode, setReportMode] = useState<'records' | 'summary'>('records');
 
     useEffect(() => {
         if (!selectedDepartmentId) return;
@@ -130,7 +137,10 @@ const CathLabUsage: React.FC = () => {
 
     const handleAddRecord = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!patientFile || !patientName || !doctorName || (!selectedStent && !selectedBalloon)) {
+        const validStents = stentsList.filter(s => s.name);
+        const validBalloons = balloonsList.filter(b => b.name);
+        
+        if (!patientFile || !patientName || !doctorName || (validStents.length === 0 && validBalloons.length === 0)) {
             setToast({ msg: t('cath.msgReq'), type: 'error' });
             return;
         }
@@ -140,10 +150,12 @@ const CathLabUsage: React.FC = () => {
                 patientName: patientName,
                 doctorName: doctorName,
                 date: recordDate,
-                stentType: selectedStent,
-                stentCount: selectedStent && stentCount ? Number(stentCount) : 0,
-                balloonType: selectedBalloon,
-                balloonCount: selectedBalloon && balloonCount ? Number(balloonCount) : 0,
+                stents: validStents.map(s => ({...s, count: Number(s.count) || 1})),
+                balloons: validBalloons.map(b => ({...b, count: Number(b.count) || 1})),
+                stentType: validStents.length > 0 ? validStents.map(s => s.name).join(', ') : '',
+                stentCount: validStents.reduce((acc, curr) => acc + (Number(curr.count) || 1), 0),
+                balloonType: validBalloons.length > 0 ? validBalloons.map(b => b.name).join(', ') : '',
+                balloonCount: validBalloons.reduce((acc, curr) => acc + (Number(curr.count) || 1), 0),
                 departmentId: selectedDepartmentId,
                 createdAt: Timestamp.now(),
                 createdBy: userName
@@ -151,10 +163,8 @@ const CathLabUsage: React.FC = () => {
             setPatientFile('');
             setPatientName('');
             setDoctorName('');
-            setSelectedStent('');
-            setStentCount('');
-            setSelectedBalloon('');
-            setBalloonCount('');
+            setStentsList([{name: '', size: '', count: ''}]);
+            setBalloonsList([{name: '', size: '', count: ''}]);
             setToast({ msg: t('cath.msgSaved'), type: 'success' });
         } catch (error) {
             setToast({ msg: t('cath.msgSaveErr'), type: 'error' });
@@ -176,6 +186,44 @@ const CathLabUsage: React.FC = () => {
     const stents = supplies.filter(s => s.type === 'stent');
     const balloons = supplies.filter(s => s.type === 'balloon');
     const doctors = supplies.filter(s => s.type === 'doctor');
+
+    const getSummaryData = () => {
+        const summary: Record<string, {category: string, name: string, size: string, count: number}> = {};
+        records.forEach(r => {
+            if (r.stents && r.stents.length > 0) {
+                r.stents.forEach(s => {
+                    const key = `stent_${s.name}_${s.size||'no-size'}`;
+                    if (!summary[key]) summary[key] = { category: t('cath.typeStent'), name: s.name, size: s.size||'-', count: 0 };
+                    summary[key].count += (Number(s.count) || 1);
+                });
+            } else if (r.stentType) {
+                const types = r.stentType.split(', ');
+                types.forEach(name => {
+                    if(!name) return;
+                    const key = `stent_${name}_old`;
+                    if (!summary[key]) summary[key] = { category: t('cath.typeStent'), name: name, size: '-', count: 0 };
+                    summary[key].count += types.length === 1 ? (r.stentCount || 1) : 1; 
+                });
+            }
+
+            if (r.balloons && r.balloons.length > 0) {
+                r.balloons.forEach(s => {
+                    const key = `balloon_${s.name}_${s.size||'no-size'}`;
+                    if (!summary[key]) summary[key] = { category: t('cath.typeBalloon'), name: s.name, size: s.size||'-', count: 0 };
+                    summary[key].count += (Number(s.count) || 1);
+                });
+            } else if (r.balloonType) {
+                const types = r.balloonType.split(', ');
+                types.forEach(name => {
+                    if(!name) return;
+                    const key = `balloon_${name}_old`;
+                    if (!summary[key]) summary[key] = { category: t('cath.typeBalloon'), name: name, size: '-', count: 0 };
+                    summary[key].count += types.length === 1 ? (r.balloonCount || 1) : 1;
+                });
+            }
+        });
+        return Object.values(summary).sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+    };
 
     return (
         <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -232,23 +280,33 @@ const CathLabUsage: React.FC = () => {
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-slate-700 mb-2">{t('cath.stentType')}</label>
-                                <div className="flex gap-2">
-                                  <select className="flex-1 border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={selectedStent} onChange={e => setSelectedStent(e.target.value)}>
-                                      <option value="">{t('cath.stentNone')}</option>
-                                      {stents.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                  </select>
-                                  <input type="number" min="1" placeholder={t('cath.count')} className="w-24 border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={stentCount} onChange={e => setStentCount(e.target.value === '' ? '' : parseInt(e.target.value))} />
-                                </div>
+                                {stentsList.map((stent, index) => (
+                                    <div key={index} className="flex flex-wrap md:flex-nowrap gap-2 mb-2">
+                                        <select required={index === 0 && stentsList.length === 1 && balloonsList[0].name === ''} className="flex-1 w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={stent.name} onChange={e => { const newL = [...stentsList]; newL[index].name = e.target.value; setStentsList(newL); }}>
+                                            <option value="">{t('cath.stentNone')}</option>
+                                            {stents.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                        </select>
+                                        <input type="text" placeholder={t('cath.sizeEx')} className="w-24 flex-none border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={stent.size} onChange={e => { const newL = [...stentsList]; newL[index].size = e.target.value; setStentsList(newL); }} />
+                                        <input type="number" min="1" placeholder={t('cath.count')} className="w-20 flex-none border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={stent.count} onChange={e => { const newL = [...stentsList]; newL[index].count = e.target.value === '' ? '' : parseInt(e.target.value); setStentsList(newL); }} />
+                                        {index > 0 && <button type="button" onClick={() => setStentsList(stentsList.filter((_, i) => i !== index))} className="text-red-500 px-3 hover:bg-red-50 rounded-lg"><i className="fas fa-trash"></i></button>}
+                                    </div>
+                                ))}
+                                <button type="button" onClick={() => setStentsList([...stentsList, {name:'', size:'', count:''}])} className="text-indigo-600 text-sm font-bold mt-1 bg-indigo-50 px-3 py-1 rounded-lg hover:bg-indigo-100 transition-colors"><i className="fas fa-plus"></i> {t('cath.addStent')}</button>
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-slate-700 mb-2">{t('cath.balloonType')}</label>
-                                <div className="flex gap-2">
-                                  <select className="flex-1 border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={selectedBalloon} onChange={e => setSelectedBalloon(e.target.value)}>
-                                      <option value="">{t('cath.balloonNone')}</option>
-                                      {balloons.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                  </select>
-                                  <input type="number" min="1" placeholder={t('cath.count')} className="w-24 border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={balloonCount} onChange={e => setBalloonCount(e.target.value === '' ? '' : parseInt(e.target.value))} />
-                                </div>
+                                {balloonsList.map((balloon, index) => (
+                                    <div key={index} className="flex flex-wrap md:flex-nowrap gap-2 mb-2">
+                                        <select className="flex-1 w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={balloon.name} onChange={e => { const newL = [...balloonsList]; newL[index].name = e.target.value; setBalloonsList(newL); }}>
+                                            <option value="">{t('cath.balloonNone')}</option>
+                                            {balloons.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                        </select>
+                                        <input type="text" placeholder={t('cath.sizeEx')} className="w-24 flex-none border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={balloon.size} onChange={e => { const newL = [...balloonsList]; newL[index].size = e.target.value; setBalloonsList(newL); }} />
+                                        <input type="number" min="1" placeholder={t('cath.count')} className="w-20 flex-none border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={balloon.count} onChange={e => { const newL = [...balloonsList]; newL[index].count = e.target.value === '' ? '' : parseInt(e.target.value); setBalloonsList(newL); }} />
+                                        {index > 0 && <button type="button" onClick={() => setBalloonsList(balloonsList.filter((_, i) => i !== index))} className="text-red-500 px-3 hover:bg-red-50 rounded-lg"><i className="fas fa-trash"></i></button>}
+                                    </div>
+                                ))}
+                                <button type="button" onClick={() => setBalloonsList([...balloonsList, {name:'', size:'', count:''}])} className="text-indigo-600 text-sm font-bold mt-1 bg-indigo-50 px-3 py-1 rounded-lg hover:bg-indigo-100 transition-colors"><i className="fas fa-plus"></i> {t('cath.addBalloon')}</button>
                             </div>
                         </div>
                         <button type="submit" className="w-full md:w-auto bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold shadow-md hover:bg-indigo-700 transition-colors">
@@ -323,13 +381,17 @@ const CathLabUsage: React.FC = () => {
                     
                     <div className="flex justify-between items-center mb-6 print:hidden bg-slate-50 p-4 rounded-xl border border-slate-200">
                         <div className="flex flex-wrap items-center gap-4">
+                            <div className="flex bg-white rounded-lg p-1 border border-slate-300">
+                                <button onClick={() => setReportMode('records')} className={`px-4 py-1.5 rounded-md text-sm font-bold ${reportMode === 'records' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'}`}>{t('cath.repModeRecords')}</button>
+                                <button onClick={() => setReportMode('summary')} className={`px-4 py-1.5 rounded-md text-sm font-bold ${reportMode === 'summary' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'}`}>{t('cath.repModeSummary')}</button>
+                            </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1">{t('cath.repFrom')}</label>
-                                <input type="date" className="border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500" value={reportStart} onChange={e => setReportStart(e.target.value)} />
+                                <input type="date" className="border border-slate-300 rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500" value={reportStart} onChange={e => setReportStart(e.target.value)} />
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1">{t('cath.repTo')}</label>
-                                <input type="date" className="border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500" value={reportEnd} onChange={e => setReportEnd(e.target.value)} />
+                                <input type="date" className="border border-slate-300 rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500" value={reportEnd} onChange={e => setReportEnd(e.target.value)} />
                             </div>
                         </div>
                         <button onClick={() => window.print()} className="bg-slate-800 text-white px-6 py-2 rounded-xl font-bold hover:bg-slate-700 flex items-center gap-2">
@@ -338,6 +400,7 @@ const CathLabUsage: React.FC = () => {
                     </div>
 
                     <div className="overflow-x-auto">
+                        {reportMode === 'records' ? (
                         <table className="w-full text-sm rtl:text-right ltr:text-left">
                             <thead className="bg-slate-100 text-slate-600 border-y-2 border-slate-800 print:text-black">
                                 <tr>
@@ -362,8 +425,20 @@ const CathLabUsage: React.FC = () => {
                                             <td className="p-3">{r.date}</td>
                                             <td className="p-3 font-mono">{r.patientFileNumber}</td>
                                             <td className="p-3 font-bold text-slate-800 print:text-black">{r.patientName}</td>
-                                            <td className="p-3">{r.stentType ? `${r.stentType} ${r.stentCount && r.stentCount > 0 ? `(x${r.stentCount})` : ''}` : '-'}</td>
-                                            <td className="p-3">{r.balloonType ? `${r.balloonType} ${r.balloonCount && r.balloonCount > 0 ? `(x${r.balloonCount})` : ''}` : '-'}</td>
+                                            <td className="p-3">
+                                                {r.stents && r.stents.length > 0 ? (
+                                                    r.stents.map((s, i) => <div key={i}>{s.name} {s.size ? `[${s.size}]` : ''} (x{s.count})</div>)
+                                                ) : (
+                                                    r.stentType ? `${r.stentType} ${r.stentCount && r.stentCount > 0 ? `(x${r.stentCount})` : ''}` : '-'
+                                                )}
+                                            </td>
+                                            <td className="p-3">
+                                                {r.balloons && r.balloons.length > 0 ? (
+                                                    r.balloons.map((s, i) => <div key={i}>{s.name} {s.size ? `[${s.size}]` : ''} (x{s.count})</div>)
+                                                ) : (
+                                                    r.balloonType ? `${r.balloonType} ${r.balloonCount && r.balloonCount > 0 ? `(x${r.balloonCount})` : ''}` : '-'
+                                                )}
+                                            </td>
                                             <td className="p-3">{r.doctorName}</td>
                                             <td className="p-3 print:hidden text-xs text-slate-500">{r.createdBy}</td>
                                             {isAdmin && (
@@ -376,6 +451,34 @@ const CathLabUsage: React.FC = () => {
                                 )}
                             </tbody>
                         </table>
+                        ) : (
+                        <table className="w-full text-sm rtl:text-right ltr:text-left">
+                            <thead className="bg-slate-100 text-slate-600 border-y-2 border-slate-800 print:text-black">
+                                <tr>
+                                    <th className="p-3">{t('cath.summaryType')}</th>
+                                    <th className="p-3">{t('cath.summaryName')}</th>
+                                    <th className="p-3">{t('cath.summarySize')}</th>
+                                    <th className="p-3 text-center w-32">{t('cath.summaryCount')}</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200 print:divide-slate-400 print:text-black">
+                                {getSummaryData().length === 0 ? (
+                                    <tr>
+                                        <td colSpan={4} className="p-8 text-center text-slate-500 font-bold">{t('cath.repEmpty')}</td>
+                                    </tr>
+                                ) : (
+                                    getSummaryData().map((s, idx) => (
+                                        <tr key={idx}>
+                                            <td className="p-3 font-bold text-slate-700 whitespace-nowrap">{s.category}</td>
+                                            <td className="p-3 font-medium">{s.name}</td>
+                                            <td className="p-3 text-slate-600 font-mono">{s.size}</td>
+                                            <td className="p-3 font-bold text-lg text-indigo-600 bg-indigo-50 text-center">{s.count}</td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                        )}
                     </div>
                     <PrintFooter />
                 </div>

@@ -25,6 +25,7 @@ interface CathLabRecord {
     patientName: string;
     doctorName: string;
     date: string;
+    procedureType?: string;
     stentType: string;
     stentCount?: number;
     balloonType: string;
@@ -71,6 +72,7 @@ const CathLabUsage: React.FC = () => {
     const [patientName, setPatientName] = useState('');
     const [doctorName, setDoctorName] = useState('');
     const [recordDate, setRecordDate] = useState(new Date().toISOString().split('T')[0]);
+    const [procedureType, setProcedureType] = useState('CAG');
     const [stentsList, setStentsList] = useState<{name: string, size: string, count: number|''}[]>([{name: '', size: '', count: ''}]);
     const [balloonsList, setBalloonsList] = useState<{name: string, size: string, count: number|''}[]>([{name: '', size: '', count: ''}]);
 
@@ -78,6 +80,7 @@ const CathLabUsage: React.FC = () => {
     const [reportStart, setReportStart] = useState(new Date().toISOString().split('T')[0]);
     const [reportEnd, setReportEnd] = useState(new Date().toISOString().split('T')[0]);
     const [reportMode, setReportMode] = useState<'records' | 'summary'>('records');
+    const [reportProcedureType, setReportProcedureType] = useState('all');
 
     useEffect(() => {
         if (!selectedDepartmentId) return;
@@ -140,7 +143,7 @@ const CathLabUsage: React.FC = () => {
         const validStents = stentsList.filter(s => s.name);
         const validBalloons = balloonsList.filter(b => b.name);
         
-        if (!patientFile || !patientName || !doctorName || (validStents.length === 0 && validBalloons.length === 0)) {
+        if (!patientFile || !patientName || !doctorName || (procedureType === 'CAG+PCI' && validStents.length === 0 && validBalloons.length === 0)) {
             setToast({ msg: t('cath.msgReq'), type: 'error' });
             return;
         }
@@ -150,12 +153,13 @@ const CathLabUsage: React.FC = () => {
                 patientName: patientName,
                 doctorName: doctorName,
                 date: recordDate,
-                stents: validStents.map(s => ({...s, count: Number(s.count) || 1})),
-                balloons: validBalloons.map(b => ({...b, count: Number(b.count) || 1})),
-                stentType: validStents.length > 0 ? validStents.map(s => s.name).join(', ') : '',
-                stentCount: validStents.reduce((acc, curr) => acc + (Number(curr.count) || 1), 0),
-                balloonType: validBalloons.length > 0 ? validBalloons.map(b => b.name).join(', ') : '',
-                balloonCount: validBalloons.reduce((acc, curr) => acc + (Number(curr.count) || 1), 0),
+                procedureType: procedureType,
+                stents: procedureType === 'CAG+PCI' ? validStents.map(s => ({...s, count: Number(s.count) || 1})) : [],
+                balloons: procedureType === 'CAG+PCI' ? validBalloons.map(b => ({...b, count: Number(b.count) || 1})) : [],
+                stentType: procedureType === 'CAG+PCI' && validStents.length > 0 ? validStents.map(s => s.name).join(', ') : '',
+                stentCount: procedureType === 'CAG+PCI' ? validStents.reduce((acc, curr) => acc + (Number(curr.count) || 1), 0) : 0,
+                balloonType: procedureType === 'CAG+PCI' && validBalloons.length > 0 ? validBalloons.map(b => b.name).join(', ') : '',
+                balloonCount: procedureType === 'CAG+PCI' ? validBalloons.reduce((acc, curr) => acc + (Number(curr.count) || 1), 0) : 0,
                 departmentId: selectedDepartmentId,
                 createdAt: Timestamp.now(),
                 createdBy: userName
@@ -163,6 +167,7 @@ const CathLabUsage: React.FC = () => {
             setPatientFile('');
             setPatientName('');
             setDoctorName('');
+            setProcedureType('CAG');
             setStentsList([{name: '', size: '', count: ''}]);
             setBalloonsList([{name: '', size: '', count: ''}]);
             setToast({ msg: t('cath.msgSaved'), type: 'success' });
@@ -187,9 +192,11 @@ const CathLabUsage: React.FC = () => {
     const balloons = supplies.filter(s => s.type === 'balloon');
     const doctors = supplies.filter(s => s.type === 'doctor');
 
+    const filteredRecords = records.filter(r => reportProcedureType === 'all' || r.procedureType === reportProcedureType);
+
     const getSummaryData = () => {
         const summary: Record<string, {category: string, name: string, size: string, count: number}> = {};
-        records.forEach(r => {
+        filteredRecords.forEach(r => {
             if (r.stents && r.stents.length > 0) {
                 r.stents.forEach(s => {
                     const key = `stent_${s.name}_${s.size||'no-size'}`;
@@ -279,6 +286,15 @@ const CathLabUsage: React.FC = () => {
                                 <input required type="date" className="w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={recordDate} onChange={e => setRecordDate(e.target.value)} />
                             </div>
                             <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-2">{t('cath.procedureType')}</label>
+                                <select className="w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={procedureType} onChange={e => setProcedureType(e.target.value)}>
+                                    <option value="CAG">CAG</option>
+                                    <option value="CAG+PCI">CAG+PCI</option>
+                                </select>
+                            </div>
+                            {procedureType === 'CAG+PCI' && (
+                                <>
+                                    <div>
                                 <label className="block text-sm font-bold text-slate-700 mb-2">{t('cath.stentType')}</label>
                                 {stentsList.map((stent, index) => (
                                     <div key={index} className="flex flex-wrap md:flex-nowrap gap-2 mb-2">
@@ -308,6 +324,8 @@ const CathLabUsage: React.FC = () => {
                                 ))}
                                 <button type="button" onClick={() => setBalloonsList([...balloonsList, {name:'', size:'', count:''}])} className="text-indigo-600 text-sm font-bold mt-1 bg-indigo-50 px-3 py-1 rounded-lg hover:bg-indigo-100 transition-colors"><i className="fas fa-plus"></i> {t('cath.addBalloon')}</button>
                             </div>
+                            </>
+                            )}
                         </div>
                         <button type="submit" className="w-full md:w-auto bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold shadow-md hover:bg-indigo-700 transition-colors">
                             {t('cath.save')}
@@ -386,6 +404,14 @@ const CathLabUsage: React.FC = () => {
                                 <button onClick={() => setReportMode('summary')} className={`px-4 py-1.5 rounded-md text-sm font-bold ${reportMode === 'summary' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'}`}>{t('cath.repModeSummary')}</button>
                             </div>
                             <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">{t('cath.procedureType')}</label>
+                                <select className="border border-slate-300 rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500" value={reportProcedureType} onChange={e => setReportProcedureType(e.target.value)}>
+                                    <option value="all">{t('cath.procAll')}</option>
+                                    <option value="CAG">CAG</option>
+                                    <option value="CAG+PCI">CAG+PCI</option>
+                                </select>
+                            </div>
+                            <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1">{t('cath.repFrom')}</label>
                                 <input type="date" className="border border-slate-300 rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500" value={reportStart} onChange={e => setReportStart(e.target.value)} />
                             </div>
@@ -405,6 +431,7 @@ const CathLabUsage: React.FC = () => {
                             <thead className="bg-slate-100 text-slate-600 border-y-2 border-slate-800 print:text-black">
                                 <tr>
                                     <th className="p-3">{t('cath.date')}</th>
+                                    <th className="p-3">{t('cath.procedureType')}</th>
                                     <th className="p-3">{t('cath.fileId')}</th>
                                     <th className="p-3">{t('cath.patientName')}</th>
                                     <th className="p-3">{t('cath.stentType')}</th>
@@ -415,14 +442,15 @@ const CathLabUsage: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200 print:divide-slate-400 print:text-black">
-                                {records.length === 0 ? (
+                                {filteredRecords.length === 0 ? (
                                     <tr>
-                                        <td colSpan={8} className="p-8 text-center text-slate-500 font-bold">{t('cath.repEmpty')}</td>
+                                        <td colSpan={isAdmin ? 9 : 8} className="p-8 text-center text-slate-500 font-bold">{t('cath.repEmpty')}</td>
                                     </tr>
                                 ) : (
-                                    records.map(r => (
+                                    filteredRecords.map(r => (
                                         <tr key={r.id}>
                                             <td className="p-3">{r.date}</td>
+                                            <td className="p-3 font-bold text-indigo-600">{r.procedureType || 'CAG+PCI'}</td>
                                             <td className="p-3 font-mono">{r.patientFileNumber}</td>
                                             <td className="p-3 font-bold text-slate-800 print:text-black">{r.patientName}</td>
                                             <td className="p-3">

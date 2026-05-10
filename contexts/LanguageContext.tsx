@@ -94,6 +94,8 @@ const translations: Record<string, { ar: string; en: string }> = {
   'cath.patientName': { ar: 'اسم المريض', en: 'Patient Name' },
   'cath.doctorName': { ar: 'اسم الطبيب', en: 'Doctor Name' },
   'cath.date': { ar: 'التاريخ', en: 'Date' },
+  'cath.procedureType': { ar: 'نوع الفحص', en: 'Procedure Type' },
+  'cath.procAll': { ar: 'الكل', en: 'All' },
   'cath.stentType': { ar: 'نوع الدعامة (Stent)', en: 'Stent Type' },
   'cath.stentNone': { ar: 'بدون تدعيم / اختر الدعامة', en: 'No Stent / Select Stent' },
   'cath.balloonType': { ar: 'نوع البالون (Balloon)', en: 'Balloon Type' },

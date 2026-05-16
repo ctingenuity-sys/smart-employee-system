@@ -30,6 +30,8 @@ interface CathLabRecord {
     stentCount?: number;
     balloonType: string;
     balloonCount?: number;
+    usedDcbPrevial?: boolean;
+    dcbPrevialCount?: number;
     stents?: UsedSupply[];
     balloons?: UsedSupply[];
     departmentId: string;
@@ -73,6 +75,8 @@ const CathLabUsage: React.FC = () => {
     const [doctorName, setDoctorName] = useState('');
     const [recordDate, setRecordDate] = useState(new Date().toISOString().split('T')[0]);
     const [procedureType, setProcedureType] = useState('CAG');
+    const [useDcbPrevial, setUseDcbPrevial] = useState(false);
+    const [dcbPrevialCount, setDcbPrevialCount] = useState<number|''>('');
     const [stentsList, setStentsList] = useState<{name: string, size: string, count: number|''}[]>([{name: '', size: '', count: ''}]);
     const [balloonsList, setBalloonsList] = useState<{name: string, size: string, count: number|''}[]>([{name: '', size: '', count: ''}]);
 
@@ -143,7 +147,7 @@ const CathLabUsage: React.FC = () => {
         const validStents = stentsList.filter(s => s.name);
         const validBalloons = balloonsList.filter(b => b.name);
         
-        if (!patientFile || !patientName || !doctorName || (procedureType === 'CAG+PCI' && validStents.length === 0 && validBalloons.length === 0)) {
+        if (!patientFile || !patientName || !doctorName || (procedureType === 'CAG+PCI' && validStents.length === 0 && validBalloons.length === 0 && !useDcbPrevial)) {
             setToast({ msg: t('cath.msgReq'), type: 'error' });
             return;
         }
@@ -154,6 +158,8 @@ const CathLabUsage: React.FC = () => {
                 doctorName: doctorName,
                 date: recordDate,
                 procedureType: procedureType,
+                usedDcbPrevial: procedureType === 'CAG+PCI' ? useDcbPrevial : false,
+                dcbPrevialCount: procedureType === 'CAG+PCI' && useDcbPrevial ? (Number(dcbPrevialCount) || 1) : 0,
                 stents: procedureType === 'CAG+PCI' ? validStents.map(s => ({...s, count: Number(s.count) || 1})) : [],
                 balloons: procedureType === 'CAG+PCI' ? validBalloons.map(b => ({...b, count: Number(b.count) || 1})) : [],
                 stentType: procedureType === 'CAG+PCI' && validStents.length > 0 ? validStents.map(s => s.name).join(', ') : '',
@@ -168,6 +174,8 @@ const CathLabUsage: React.FC = () => {
             setPatientName('');
             setDoctorName('');
             setProcedureType('CAG');
+            setUseDcbPrevial(false);
+            setDcbPrevialCount('');
             setStentsList([{name: '', size: '', count: ''}]);
             setBalloonsList([{name: '', size: '', count: ''}]);
             setToast({ msg: t('cath.msgSaved'), type: 'success' });
@@ -211,6 +219,12 @@ const CathLabUsage: React.FC = () => {
                     if (!summary[key]) summary[key] = { category: t('cath.typeStent'), name: name, size: '-', count: 0 };
                     summary[key].count += types.length === 1 ? (r.stentCount || 1) : 1; 
                 });
+            }
+
+            if (r.usedDcbPrevial) {
+                const key = `stent_DCB_PREVIAL_no-size`;
+                if (!summary[key]) summary[key] = { category: t('cath.typeStent'), name: 'DCB PREVIAL', size: '-', count: 0 };
+                summary[key].count += (Number(r.dcbPrevialCount) || 1);
             }
 
             if (r.balloons && r.balloons.length > 0) {
@@ -294,11 +308,22 @@ const CathLabUsage: React.FC = () => {
                             </div>
                             {procedureType === 'CAG+PCI' && (
                                 <>
+                                    <div className="md:col-span-2 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100">
+                                        <label className="flex items-center gap-3 text-sm font-bold text-indigo-900 cursor-pointer">
+                                            <input type="checkbox" className="w-5 h-5 text-indigo-600 border-indigo-300 rounded focus:ring-indigo-500" checked={useDcbPrevial} onChange={e => setUseDcbPrevial(e.target.checked)} />
+                                            {t('cath.typeStent')} DCB PREVIAL
+                                        </label>
+                                        {useDcbPrevial && (
+                                            <div className="mt-3 ml-8">
+                                                <input required type="number" min="1" placeholder={t('cath.count')} className="w-full md:w-32 border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={dcbPrevialCount} onChange={e => setDcbPrevialCount(e.target.value === '' ? '' : parseInt(e.target.value))} />
+                                            </div>
+                                        )}
+                                    </div>
                                     <div>
                                 <label className="block text-sm font-bold text-slate-700 mb-2">{t('cath.stentType')}</label>
                                 {stentsList.map((stent, index) => (
                                     <div key={index} className="flex flex-wrap md:flex-nowrap gap-2 mb-2">
-                                        <select required={index === 0 && stentsList.length === 1 && balloonsList[0].name === ''} className="flex-1 w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={stent.name} onChange={e => { const newL = [...stentsList]; newL[index].name = e.target.value; setStentsList(newL); }}>
+                                        <select required={index === 0 && stentsList.length === 1 && balloonsList[0].name === '' && !useDcbPrevial} className="flex-1 w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={stent.name} onChange={e => { const newL = [...stentsList]; newL[index].name = e.target.value; setStentsList(newL); }}>
                                             <option value="">{t('cath.stentNone')}</option>
                                             {stents.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                                         </select>
@@ -454,10 +479,11 @@ const CathLabUsage: React.FC = () => {
                                             <td className="p-3 font-mono">{r.patientFileNumber}</td>
                                             <td className="p-3 font-bold text-slate-800 print:text-black">{r.patientName}</td>
                                             <td className="p-3">
+                                                {r.usedDcbPrevial && <div className="font-bold text-indigo-700">DCB PREVIAL (x{r.dcbPrevialCount})</div>}
                                                 {r.stents && r.stents.length > 0 ? (
                                                     r.stents.map((s, i) => <div key={i}>{s.name} {s.size ? `[${s.size}]` : ''} (x{s.count})</div>)
                                                 ) : (
-                                                    r.stentType ? `${r.stentType} ${r.stentCount && r.stentCount > 0 ? `(x${r.stentCount})` : ''}` : '-'
+                                                    r.stentType ? `${r.stentType} ${r.stentCount && r.stentCount > 0 ? `(x${r.stentCount})` : ''}` : (!r.usedDcbPrevial ? '-' : null)
                                                 )}
                                             </td>
                                             <td className="p-3">

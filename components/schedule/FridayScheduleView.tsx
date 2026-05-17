@@ -423,7 +423,7 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
             )}
         </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-lg bg-white print:block print:shadow-none print:overflow-visible print:border-none print:flex-grow relative z-10 print:bg-transparent">
+      <div dir="ltr" className="overflow-x-auto rounded-xl border border-slate-200 shadow-lg bg-white print:block print:shadow-none print:overflow-visible print:border-none print:flex-grow relative z-10 print:bg-transparent">
         <table className="min-w-full divide-y divide-slate-200 print:divide-slate-900 print:border-2 print:border-slate-900 h-full print-color-adjust-exact print:table-fixed">
           <thead className={`bg-slate-50 ${activeHeaderBg} print:text-white print-color-adjust-exact`}>
            <tr className="print:h-fit">

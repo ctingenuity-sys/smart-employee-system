@@ -401,7 +401,7 @@ const renderHeader = (col: ScheduleColumn, index: number) => {
             </div>
         </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-lg bg-white print:block print:shadow-none print:overflow-visible print:border-none print:flex-grow relative z-10 print:bg-transparent">
+      <div dir="ltr" className="overflow-x-auto rounded-xl border border-slate-200 shadow-lg bg-white print:block print:shadow-none print:overflow-visible print:border-none print:flex-grow relative z-10 print:bg-transparent">
         <table className="min-w-full divide-y divide-slate-200 print:divide-slate-900 print:border-2 print:border-slate-900 h-full print-color-adjust-exact print:table-fixed">
           {/* Main Table Header */}
           <thead className={`bg-slate-50 print:bg-rose-800 print-color-adjust-exact`}>
@@ -440,7 +440,7 @@ const renderHeader = (col: ScheduleColumn, index: number) => {
                                 </div>
                                 {row.date && (
                                     <div className="text-xs font-mono text-white/80 mt-1">
-                                        {new Date(row.date).toLocaleDateString('en-US', {day:'numeric', month:'short'})}
+                                        {new Date(row.date).toLocaleDateString('en-US', {year: 'numeric', day:'numeric', month:'short'})}
                                     </div>
                                 )}
                             </div>

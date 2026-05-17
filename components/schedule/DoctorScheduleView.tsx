@@ -336,7 +336,7 @@ const DoctorScheduleView: React.FC<DoctorScheduleViewProps> = ({
             )}
         </div>
 
-      <div className="overflow-x-auto rounded-none border-2 border-slate-800 shadow-none bg-white print:block print:overflow-visible print:border-2 print:border-slate-900 print:w-full">
+      <div dir="ltr" className="overflow-x-auto rounded-none border-2 border-slate-800 shadow-none bg-white print:block print:overflow-visible print:border-2 print:border-slate-900 print:w-full">
         <table className="min-w-full divide-y divide-slate-800 border-collapse table-fixed">
           <thead className="bg-slate-200 print:bg-[#e6e7e8] print-color-adjust-exact">
             <tr className="divide-x divide-slate-800 border-b-2 border-slate-800">

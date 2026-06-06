@@ -129,6 +129,7 @@ const translations: Record<string, { ar: string; en: string }> = {
   'cath.repTitle': { ar: 'تقرير استخدام القسطرة', en: 'Cath-Lab Usage Report' },
   'cath.repFrom': { ar: 'من', en: 'From' },
   'cath.repTo': { ar: 'إلى', en: 'To' },
+  'cath.searchFileId': { ar: 'بحث برقم الملف', en: 'Search by file number' },
   'cath.repPrint': { ar: 'طباعة التقرير', en: 'Print Report' },
   'cath.repEmpty': { ar: 'لا توجد سجلات في هذه الفترة', en: 'No records found for this period' },
 

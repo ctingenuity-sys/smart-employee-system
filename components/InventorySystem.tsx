@@ -54,6 +54,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     const [reportFilter, setReportFilter] = useState<'all' | 'range'>('range');
     const [reportStart, setReportStart] = useState(new Date().toISOString().slice(0, 7));
     const [reportEnd, setReportEnd] = useState(new Date().toISOString().slice(0, 7));
+    const [reportSearch, setReportSearch] = useState('');
 
     // Incoming Tab Filter
     const [incomingViewMonth, setIncomingViewMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -506,13 +507,17 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     // 1. Filter Raw Data based on Report Settings (For Details View)
     const filteredUsages = useMemo(() => {
         return usages.filter(u => {
-            if (reportFilter === 'all') return true;
-            if (!u.date) return false;
-            const d = u.date.toDate ? u.date.toDate() : new Date(u.date.seconds * 1000);
-            const iso = d.toISOString().slice(0, 7);
-            return iso >= reportStart && iso <= reportEnd;
+            let passDate = false;
+            if (reportFilter === 'all') passDate = true;
+            else if (u.date) {
+                const d = u.date.toDate ? u.date.toDate() : new Date(u.date.seconds * 1000);
+                const iso = d.toISOString().slice(0, 7);
+                passDate = iso >= reportStart && iso <= reportEnd;
+            }
+            const passSearch = !reportSearch || (u.patientFileNumber && u.patientFileNumber.toLowerCase().includes(reportSearch.toLowerCase()));
+            return passDate && passSearch;
         });
-    }, [usages, reportFilter, reportStart, reportEnd]);
+    }, [usages, reportFilter, reportStart, reportEnd, reportSearch]);
 
     const filteredInvoices = useMemo(() => {
         return invoices.filter(inv => {
@@ -1156,24 +1161,6 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                         <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100 print:hidden">
                             <div className="flex items-center gap-2">
                                 <h2 className="text-xl font-black text-slate-800">{t('inv.rep.title')}</h2>
-                                {isAdmin && (
-                                    <>
-                                        <button 
-                                            onClick={handlePurgeCorrections}
-                                            className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-100 flex items-center gap-2 ml-4"
-                                            title="Clean old stock corrections history"
-                                        >
-                                            <i className="fas fa-broom"></i> تنظيف التصحيحات
-                                        </button>
-                                        <button 
-                                            onClick={handleFixMissingDepartmentIds}
-                                            className="bg-amber-50 text-amber-600 border border-amber-200 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-amber-100 flex items-center gap-2 ml-2"
-                                            title="استرجاع السجلات المفقودة للقسم الحالي"
-                                        >
-                                            <i className="fas fa-wrench"></i> استرجاع السجلات
-                                        </button>
-                                    </>
-                                )}
                             </div>
                             <div className="flex gap-2 items-center">
                                 <select className="bg-slate-50 border-none rounded-lg p-2 text-sm font-bold text-slate-600" value={reportFilter} onChange={e => setReportFilter(e.target.value as any)}>
@@ -1258,6 +1245,17 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                         </div>
                                     </div>
                                 )})}
+                            </div>
+                        </div>
+
+                        {/* Logs Header with Search */}
+                        <div className="flex flex-col sm:flex-row justify-between sm:items-center mt-8 mb-4 print:hidden gap-4">
+                            <h3 className="text-lg font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                                <i className="fas fa-list text-indigo-500"></i> Transaction Logs
+                            </h3>
+                            <div className="relative border border-slate-300 rounded-lg bg-white overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 max-w-sm w-full">
+                                <i className="fas fa-search absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 rtl:right-auto rtl:left-3"></i>
+                                <input type="text" placeholder={t('cath.searchFileId')} className="w-full p-2 pl-3 rtl:pl-9 rtl:pr-3 outline-none text-sm" value={reportSearch} onChange={e => setReportSearch(e.target.value)} />
                             </div>
                         </div>
 

@@ -85,6 +85,7 @@ const CathLabUsage: React.FC = () => {
     const [reportEnd, setReportEnd] = useState(new Date().toISOString().split('T')[0]);
     const [reportMode, setReportMode] = useState<'records' | 'summary'>('records');
     const [reportProcedureType, setReportProcedureType] = useState('all');
+    const [reportSearch, setReportSearch] = useState('');
 
     useEffect(() => {
         if (!selectedDepartmentId) return;
@@ -200,7 +201,11 @@ const CathLabUsage: React.FC = () => {
     const balloons = supplies.filter(s => s.type === 'balloon');
     const doctors = supplies.filter(s => s.type === 'doctor');
 
-    const filteredRecords = records.filter(r => reportProcedureType === 'all' || r.procedureType === reportProcedureType);
+    const filteredRecords = records.filter(r => {
+        const typeMatch = reportProcedureType === 'all' || r.procedureType === reportProcedureType;
+        const searchMatch = !reportSearch || r.patientFileNumber.toLowerCase().includes(reportSearch.toLowerCase());
+        return typeMatch && searchMatch;
+    });
 
     const getSummaryData = () => {
         const summary: Record<string, {category: string, name: string, size: string, count: number}> = {};
@@ -443,6 +448,13 @@ const CathLabUsage: React.FC = () => {
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1">{t('cath.repTo')}</label>
                                 <input type="date" className="border border-slate-300 rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500" value={reportEnd} onChange={e => setReportEnd(e.target.value)} />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">{t('cath.searchFileId')}</label>
+                                <div className="relative border border-slate-300 rounded-lg bg-white overflow-hidden focus-within:ring-2 focus-within:ring-blue-500">
+                                    <i className="fas fa-search absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 rtl:right-auto rtl:left-3"></i>
+                                    <input type="text" className="w-40 p-1.5 pl-3 rtl:pl-9 rtl:pr-3 outline-none" value={reportSearch} onChange={e => setReportSearch(e.target.value)} />
+                                </div>
                             </div>
                         </div>
                         <button onClick={() => window.print()} className="bg-slate-800 text-white px-6 py-2 rounded-xl font-bold hover:bg-slate-700 flex items-center gap-2">

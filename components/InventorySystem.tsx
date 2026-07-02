@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { inventoryDb, inventoryStorage } from '../firebaseInventory';
+import { db } from '../firebase';
 // @ts-ignore
 import { collection, addDoc, doc, updateDoc, onSnapshot, Timestamp, deleteDoc, writeBatch, getDocs, query, where } from 'firebase/firestore';
 // @ts-ignore
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { Material, Invoice, MaterialUsage, ForecastResult } from '../types';
+import { Material, Invoice, MaterialUsage, ForecastResult, MaterialDistribution, User } from '../types';
 import Loading from '../components/Loading';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -22,10 +23,12 @@ interface InventorySystemProps {
 const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, userEmail }) => {
     const { t, dir } = useLanguage();
     const { selectedDepartmentId } = useDepartment();
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'usage' | 'incoming' | 'materials' | 'reports'>('dashboard');
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'usage' | 'incoming' | 'materials' | 'reports' | 'distribution' | 'custody'>(userRole === 'custody_clerk' ? 'distribution' : 'dashboard');
     const [materials, setMaterials] = useState<Material[]>([]);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [usages, setUsages] = useState<MaterialUsage[]>([]);
+    const [distributions, setDistributions] = useState<MaterialDistribution[]>([]);
+    const [employees, setEmployees] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
 
@@ -37,10 +40,22 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     const [selectedMaterial, setSelectedMaterial] = useState('');
     const [usageAmount, setUsageAmount] = useState('');
     const [patientFileNumber, setPatientFileNumber] = useState('');
+    const [usageDate, setUsageDate] = useState(new Date().toISOString().split('T')[0]);
+    const [usageStaffName, setUsageStaffName] = useState(userName);
 
     const [incMaterial, setIncMaterial] = useState('');
     const [incQuantity, setIncQuantity] = useState('');
     const [incExpiry, setIncExpiry] = useState('');
+
+    const [distMaterial, setDistMaterial] = useState('');
+    const [distAmount, setDistAmount] = useState('');
+    const [distStaffName, setDistStaffName] = useState('');
+    const [distStaffEmail, setDistStaffEmail] = useState('');
+
+    const [custodyMaterial, setCustodyMaterial] = useState('');
+    const [custodyAmount, setCustodyAmount] = useState('');
+    const [custodyPatientFile, setCustodyPatientFile] = useState('');
+    const [custodyUsageDate, setCustodyUsageDate] = useState(new Date().toISOString().split('T')[0]);
     const [incImage, setIncImage] = useState<File | null>(null);
     const [uploading, setUploading] = useState(false);
 
@@ -65,6 +80,11 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         setLoading(true);
         if (!selectedDepartmentId) return;
 
+        getDocs(collection(db, 'users')).then(snap => {
+            const fetchedUsers = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
+            setEmployees(fetchedUsers.filter(u => u.departmentId === selectedDepartmentId && !['admin', 'supervisor', 'manager'].includes(u.role)));
+        }).catch(err => console.error("Failed to fetch employees:", err));
+
         const unsubMat = onSnapshot(query(collection(inventoryDb, 'materials'), where('departmentId', '==', selectedDepartmentId)), (snap: any) => {
             setMaterials(snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as Material)));
         });
@@ -85,11 +105,36 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             }));
         });
 
+        const unsubDist = onSnapshot(query(collection(inventoryDb, 'distributions'), where('departmentId', '==', selectedDepartmentId)), (snap: any) => {
+            const list = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as MaterialDistribution));
+            setDistributions(list.sort((a: any, b: any) => {
+                const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
+                const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
+                return db.getTime() - da.getTime();
+            }));
+        });
+
         setLoading(false);
-        return () => { unsubMat(); unsubInv(); unsubUse(); };
+        return () => { unsubMat(); unsubInv(); unsubUse(); unsubDist(); };
     }, [selectedDepartmentId]);
 
     // ... (rest of the component implementation)
+    const staffBalances = useMemo(() => {
+        const balances: Record<string, {name: string, materials: Record<string, number>}> = {}; 
+        distributions.forEach(d => {
+            const staffKey = d.staffEmail || d.staffName;
+            if (!balances[staffKey]) balances[staffKey] = { name: d.staffName, materials: {} };
+            balances[staffKey].materials[d.material] = (balances[staffKey].materials[d.material] || 0) + d.amount;
+        });
+        usages.forEach(u => {
+            if (!u.fromCustody) return;
+            const staffKey = u.staffEmail || u.staffName;
+            if (!balances[staffKey]) balances[staffKey] = { name: u.staffName, materials: {} };
+            balances[staffKey].materials[u.material] = (balances[staffKey].materials[u.material] || 0) - u.amount;
+        });
+        return balances;
+    }, [distributions, usages]);
+
     const frequentMaterials = useMemo(() => {
         const counts: Record<string, number> = {};
         usages.forEach(u => {
@@ -200,6 +245,12 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
     const handleUsageSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        
+        if (!isAdmin) {
+            setToast({ msg: 'غير مصرح لك بالصرف من المخزن الرئيسي', type: 'error' });
+            return;
+        }
+
         if (!selectedMaterial || !usageAmount || !patientFileNumber) {
             setToast({ msg: 'Missing Data', type: 'error' });
             return;
@@ -217,15 +268,18 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         }
 
         try {
+            const dateObj = new Date(usageDate);
+            const tsDate = isNaN(dateObj.getTime()) ? Timestamp.now() : Timestamp.fromDate(dateObj);
+
             await updateDoc(doc(inventoryDb, 'materials', mat.id), { quantity: mat.quantity - amount });
             await addDoc(collection(inventoryDb, 'usages'), {
                 material: selectedMaterial,
                 amount: amount,
                 patientFileNumber,
-                staffName: userName,
+                staffName: usageStaffName || userName,
                 staffEmail: userEmail,
                 staffRole: userRole,
-                date: Timestamp.now(),
+                date: tsDate,
                 isCorrection: false, // Explicitly mark as NOT a correction
                 departmentId: selectedDepartmentId
             });
@@ -233,6 +287,8 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             setToast({ msg: t('save'), type: 'success' });
             setUsageAmount('');
             setPatientFileNumber('');
+            setUsageDate(new Date().toISOString().split('T')[0]);
+            setUsageStaffName(userName);
         } catch (err) {
             setToast({ msg: 'Error', type: 'error' });
         }
@@ -267,6 +323,94 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         await batch.commit();
         
         setToast({ msg: 'Old invoices and images deleted', type: 'success' });
+    };
+
+    const handleDistributionSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!distMaterial || !distAmount || !distStaffName) {
+            setToast({ msg: 'Missing Data', type: 'error' });
+            return;
+        }
+
+        const mat = materials.find(m => m.name === distMaterial);
+        if (!mat) return;
+
+        const amount = parseFloat(distAmount);
+        
+        if (mat.quantity < amount) {
+            setToast({ msg: `❌ خطأ: الرصيد غير كافٍ! المتاح: ${mat.quantity}`, type: 'error' });
+            return;
+        }
+
+        try {
+            await updateDoc(doc(inventoryDb, 'materials', mat.id), { quantity: mat.quantity - amount });
+            
+            await addDoc(collection(inventoryDb, 'distributions'), {
+                material: distMaterial,
+                amount: amount,
+                staffName: distStaffName,
+                staffEmail: distStaffEmail || '',
+                distributedBy: userName,
+                date: Timestamp.now(),
+                departmentId: selectedDepartmentId
+            });
+
+            setToast({ msg: t('save'), type: 'success' });
+            setDistMaterial('');
+            setDistAmount('');
+            setDistStaffName('');
+            setDistStaffEmail('');
+        } catch (err) {
+            setToast({ msg: 'Error', type: 'error' });
+        }
+    };
+
+    const handleCustodyUsageSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!custodyMaterial || !custodyAmount || !custodyPatientFile) {
+            setToast({ msg: 'Missing Data', type: 'error' });
+            return;
+        }
+
+        const amount = parseFloat(custodyAmount);
+
+        const distributed = distributions.filter(d => d.material === custodyMaterial && (d.staffEmail === userEmail || d.staffName === userName)).reduce((sum, d) => sum + d.amount, 0);
+        const used = usages.filter(u => u.material === custodyMaterial && u.fromCustody && (u.staffEmail === userEmail || u.staffName === userName)).reduce((sum, u) => sum + u.amount, 0);
+        const balance = distributed - used;
+
+        if (amount > balance) {
+            setToast({ msg: `❌ خطأ: رصيد عهدتك غير كافٍ! المتاح: ${balance}`, type: 'error' });
+            return;
+        }
+
+        try {
+            const dateObj = new Date(custodyUsageDate);
+            const tsDate = isNaN(dateObj.getTime()) ? Timestamp.now() : Timestamp.fromDate(dateObj);
+            
+            // NOTE: We do NOT update the main materials collection here!
+            // It was already deducted when distributed to the staff member.
+
+            await addDoc(collection(inventoryDb, 'usages'), {
+                material: custodyMaterial,
+                amount: amount,
+                patientFileNumber: custodyPatientFile,
+                staffName: userName,
+                staffEmail: userEmail,
+                staffRole: userRole,
+                date: tsDate,
+                isCorrection: false,
+                fromCustody: true, // Mark this as a usage from personal custody
+                departmentId: selectedDepartmentId
+            });
+
+            setToast({ msg: t('save'), type: 'success' });
+            setCustodyMaterial('');
+            setCustodyAmount('');
+            setCustodyPatientFile('');
+            setCustodyUsageDate(new Date().toISOString().split('T')[0]);
+        } catch (err) {
+            setToast({ msg: 'Error', type: 'error' });
+        }
     };
 
     const handleIncomingSubmit = async (e: React.FormEvent) => {
@@ -472,19 +616,37 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     };
 
     const handleDeleteUsage = async (usage: MaterialUsage) => {
-        if(!confirm(t('confirm') + ' (سيتم استرجاع الكمية للمخزن)؟')) return;
+        if(!confirm(t('confirm') + (usage.fromCustody ? ' (حذف الاستهلاك من عهدة الموظف)؟' : ' (سيتم استرجاع الكمية للمخزن)؟'))) return;
         try {
-            // 1. Restore Stock
-            const mat = materials.find(m => m.name === usage.material);
-            if (mat) {
-                await updateDoc(doc(inventoryDb, 'materials', mat.id), {
-                    quantity: mat.quantity + usage.amount
-                });
+            // 1. Restore Stock (only if it wasn't from personal custody)
+            if (!usage.fromCustody) {
+                const mat = materials.find(m => m.name === usage.material);
+                if (mat) {
+                    await updateDoc(doc(inventoryDb, 'materials', mat.id), {
+                        quantity: mat.quantity + usage.amount
+                    });
+                }
             }
             
             // 2. Delete Record
             await deleteDoc(doc(inventoryDb, 'usages', usage.id));
-            setToast({ msg: 'Deleted & Stock Restored', type: 'success' });
+            setToast({ msg: 'Deleted', type: 'success' });
+        } catch (e) {
+            setToast({ msg: 'Error', type: 'error' });
+        }
+    };
+
+    const handleDeleteDistribution = async (dist: MaterialDistribution) => {
+        if(!confirm(t('confirm') + ' (سيتم استرجاع الكمية للمخزن)؟')) return;
+        try {
+            const mat = materials.find(m => m.name === dist.material);
+            if (mat) {
+                await updateDoc(doc(inventoryDb, 'materials', mat.id), {
+                    quantity: mat.quantity + dist.amount
+                });
+            }
+            await deleteDoc(doc(inventoryDb, 'distributions', dist.id));
+            setToast({ msg: 'Deleted', type: 'success' });
         } catch (e) {
             setToast({ msg: 'Error', type: 'error' });
         }
@@ -658,17 +820,36 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 </div>
                 
                 <nav className="flex-1 px-4 space-y-2">
-                    <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'dashboard' ? 'bg-slate-800 text-white shadow-lg shadow-slate-300' : 'text-slate-500 hover:bg-slate-50'}`}>
-                        <i className="fas fa-th-large w-5"></i>
-                        <span className="font-bold text-sm">{t('inv.dashboard')}</span>
-                    </button>
-                    <button onClick={() => setActiveTab('usage')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'usage' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-300' : 'text-slate-500 hover:bg-slate-50'}`}>
-                        <i className="fas fa-hand-holding-medical w-5"></i>
-                        <span className="font-bold text-sm">{t('inv.usage')}</span>
-                    </button>
+                    {userRole !== 'custody_clerk' && (
+                        <>
+                            <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'dashboard' ? 'bg-slate-800 text-white shadow-lg shadow-slate-300' : 'text-slate-500 hover:bg-slate-50'}`}>
+                                <i className="fas fa-th-large w-5"></i>
+                                <span className="font-bold text-sm">{t('inv.dashboard')}</span>
+                            </button>
+                            <button onClick={() => setActiveTab('custody')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'custody' ? 'bg-teal-600 text-white shadow-lg shadow-teal-300' : 'text-slate-500 hover:bg-slate-50'}`}>
+                                <i className="fas fa-box-open w-5"></i>
+                                <span className="font-bold text-sm">{t('inv.custody')}</span>
+                            </button>
+                        </>
+                    )}
                     
+                    {userRole === 'custody_clerk' && (
+                        <button onClick={() => setActiveTab('distribution')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'distribution' ? 'bg-orange-600 text-white shadow-lg shadow-orange-300' : 'text-slate-500 hover:bg-slate-50'}`}>
+                            <i className="fas fa-share-square w-5"></i>
+                            <span className="font-bold text-sm">{t('inv.distribution')}</span>
+                        </button>
+                    )}
+
                     {isAdmin && (
                         <>
+                            <button onClick={() => setActiveTab('usage')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'usage' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-300' : 'text-slate-500 hover:bg-slate-50'}`}>
+                                <i className="fas fa-hand-holding-medical w-5"></i>
+                                <span className="font-bold text-sm">{t('inv.usage')}</span>
+                            </button>
+                            <button onClick={() => setActiveTab('distribution')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'distribution' ? 'bg-orange-600 text-white shadow-lg shadow-orange-300' : 'text-slate-500 hover:bg-slate-50'}`}>
+                                <i className="fas fa-share-square w-5"></i>
+                                <span className="font-bold text-sm">{t('inv.distribution')}</span>
+                            </button>
                             <button onClick={() => setActiveTab('reports')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'reports' ? 'bg-purple-600 text-white shadow-lg shadow-purple-300' : 'text-slate-500 hover:bg-slate-50'}`}>
                                 <i className="fas fa-chart-bar w-5"></i>
                                 <span className="font-bold text-sm">{t('inv.reports')}</span>
@@ -698,12 +879,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 
                 {/* Mobile Navigation */}
                 <div className="lg:hidden flex overflow-x-auto gap-2 mb-6 pb-2 no-scrollbar print:hidden">
-                    {['dashboard', 'usage'].map(tab => (
-                        <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === tab ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}>
-                            {t(`inv.${tab}`)}
-                        </button>
-                    ))}
-                    {isAdmin && ['reports', 'incoming', 'materials'].map(tab => (
+                    {(isAdmin ? ['dashboard', 'usage', 'custody', 'distribution', 'reports', 'incoming', 'materials'] : userRole === 'custody_clerk' ? ['distribution'] : ['dashboard', 'custody']).map(tab => (
                         <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === tab ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}>
                             {t(`inv.${tab}`)}
                         </button>
@@ -900,6 +1076,18 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                             <label className="text-sm font-bold text-slate-600">{t('inv.usage.file')}</label>
                                             <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-200" value={patientFileNumber} onChange={e => setPatientFileNumber(e.target.value)} placeholder="File No." />
                                         </div>
+                                        {isAdmin && (
+                                            <>
+                                                <div className="space-y-2">
+                                                    <label className="text-sm font-bold text-slate-600">{t('inv.usage.date')}</label>
+                                                    <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-200" value={usageDate} onChange={e => setUsageDate(e.target.value)} />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-sm font-bold text-slate-600">{t('inv.usage.staffName')}</label>
+                                                    <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-200" value={usageStaffName} onChange={e => setUsageStaffName(e.target.value)} />
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                     <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-indigo-300 hover:bg-indigo-700 hover:scale-[1.02] transition-all active:scale-95">
                                         {t('inv.usage.confirm')}
@@ -926,6 +1114,159 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                         </div>
                                     </div>
                                 ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* --- DISTRIBUTION TAB (ADMIN / CUSTODY CLERK) --- */}
+                {(isAdmin || userRole === 'custody_clerk') && activeTab === 'distribution' && (
+                    <div className="max-w-4xl mx-auto animate-fade-in-up">
+                        <div className="grid md:grid-cols-2 gap-8 items-start">
+                            <div className="bg-white p-8 rounded-[2rem] shadow-xl shadow-orange-100 border border-orange-50">
+                                <div className="flex items-center gap-4 mb-8">
+                                    <div className="w-14 h-14 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center text-2xl"><i className="fas fa-share-square"></i></div>
+                                    <div>
+                                        <h2 className="text-2xl font-black text-slate-800">{t('inv.distribution')}</h2>
+                                        <p className="text-slate-400 text-sm">Distribute stock to staff members</p>
+                                    </div>
+                                </div>
+                                <form onSubmit={handleDistributionSubmit} className="space-y-6">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-bold text-slate-600">{t('inv.usage.material')}</label>
+                                        <div className="relative">
+                                            <select
+                                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 rtl:pr-10 ltr:pl-4 outline-none focus:ring-2 focus:ring-orange-200 font-bold text-slate-700 appearance-none"
+                                                value={distMaterial}
+                                                onChange={e => setDistMaterial(e.target.value)}
+                                            >
+                                                <option value="">...</option>
+                                                {materials.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-bold text-slate-600">{t('inv.usage.amount')}</label>
+                                            <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-orange-200" value={distAmount} onChange={e => setDistAmount(e.target.value)} placeholder="0" />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-bold text-slate-600">{t('inv.dist.staffName')}</label>
+                                            <div className="relative">
+                                                <select
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 rtl:pr-10 ltr:pl-4 font-bold outline-none focus:ring-2 focus:ring-orange-200 appearance-none text-slate-700"
+                                                    value={distStaffName}
+                                                    onChange={e => {
+                                                        const emp = employees.find(emp => emp.name === e.target.value);
+                                                        setDistStaffName(e.target.value);
+                                                        setDistStaffEmail(emp?.email || '');
+                                                    }}
+                                                >
+                                                    <option value="">...</option>
+                                                    {employees.map(emp => (
+                                                        <option key={emp.id} value={emp.name}>{emp.name}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button type="submit" className="w-full bg-orange-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-orange-300 hover:bg-orange-700 hover:scale-[1.02] transition-all active:scale-95">
+                                        {t('inv.dist.confirm')}
+                                    </button>
+                                </form>
+                            </div>
+                            <div className="space-y-4">
+                                <h3 className="font-bold text-slate-700 text-lg">Recent Distributions</h3>
+                                {distributions.slice(0, 5).map(d => (
+                                    <div key={d.id} className="bg-white p-4 rounded-2xl flex items-center gap-4 shadow-sm border border-slate-100">
+                                        <div className="w-12 h-12 bg-orange-50 text-orange-500 rounded-xl flex items-center justify-center font-black"><i className="fas fa-user-tag"></i></div>
+                                        <div className="flex-1">
+                                            <h4 className="font-bold text-slate-800">{d.material}</h4>
+                                            <div className="text-xs text-slate-500 flex items-center gap-2 mt-1">
+                                                <i className="fas fa-user text-slate-300"></i> {d.staffName}
+                                            </div>
+                                        </div>
+                                        <div className="text-center">
+                                            <span className="block font-black text-orange-600">+{d.amount}</span>
+                                            <span className="text-[10px] text-slate-400 font-mono dir-ltr">{d.date?.toDate ? d.date.toDate().toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'}) : ''}</span>
+                                            <button onClick={() => handleDeleteDistribution(d)} className="text-red-400 hover:text-red-600 ml-2" title="Delete">
+                                                <i className="fas fa-times"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* --- CUSTODY TAB (ALL USERS) --- */}
+                {activeTab === 'custody' && (
+                    <div className="max-w-4xl mx-auto animate-fade-in-up">
+                        <div className="grid md:grid-cols-2 gap-8 items-start">
+                            <div className="bg-white p-8 rounded-[2rem] shadow-xl shadow-teal-100 border border-teal-50">
+                                <div className="flex items-center gap-4 mb-8">
+                                    <div className="w-14 h-14 bg-teal-100 text-teal-600 rounded-2xl flex items-center justify-center text-2xl"><i className="fas fa-box-open"></i></div>
+                                    <div>
+                                        <h2 className="text-2xl font-black text-slate-800">{t('inv.custody.use')}</h2>
+                                        <p className="text-slate-400 text-sm">Record usage from your personal custody</p>
+                                    </div>
+                                </div>
+                                <form onSubmit={handleCustodyUsageSubmit} className="space-y-6">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-bold text-slate-600">{t('inv.usage.material')}</label>
+                                        <div className="relative">
+                                            <select
+                                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 rtl:pr-10 ltr:pl-4 outline-none focus:ring-2 focus:ring-teal-200 font-bold text-slate-700 appearance-none"
+                                                value={custodyMaterial}
+                                                onChange={e => setCustodyMaterial(e.target.value)}
+                                            >
+                                                <option value="">...</option>
+                                                {materials.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-bold text-slate-600">{t('inv.usage.amount')}</label>
+                                            <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-teal-200" value={custodyAmount} onChange={e => setCustodyAmount(e.target.value)} placeholder="0" />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-bold text-slate-600">{t('inv.usage.file')}</label>
+                                            <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-teal-200" value={custodyPatientFile} onChange={e => setCustodyPatientFile(e.target.value)} placeholder="File No." />
+                                        </div>
+                                        <div className="space-y-2 col-span-2">
+                                            <label className="text-sm font-bold text-slate-600">{t('inv.usage.date')}</label>
+                                            <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-teal-200" value={custodyUsageDate} onChange={e => setCustodyUsageDate(e.target.value)} />
+                                        </div>
+                                    </div>
+                                    <button type="submit" className="w-full bg-teal-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-teal-300 hover:bg-teal-700 hover:scale-[1.02] transition-all active:scale-95">
+                                        {t('inv.usage.confirm')}
+                                    </button>
+                                </form>
+                            </div>
+                            <div className="space-y-4">
+                                <h3 className="font-bold text-slate-700 text-lg">{t('inv.custody.balance')}</h3>
+                                {materials.map(m => {
+                                    const distributed = distributions.filter(d => d.material === m.name && (d.staffEmail === userEmail || d.staffName === userName)).reduce((sum, d) => sum + d.amount, 0);
+                                    const used = usages.filter(u => u.material === m.name && u.fromCustody && (u.staffEmail === userEmail || u.staffName === userName)).reduce((sum, u) => sum + u.amount, 0);
+                                    const balance = distributed - used;
+                                    if (distributed === 0) return null;
+                                    return (
+                                        <div key={m.id} className="bg-white p-4 rounded-2xl flex items-center gap-4 shadow-sm border border-slate-100">
+                                            <div className="w-12 h-12 bg-teal-50 text-teal-500 rounded-xl flex items-center justify-center font-black"><i className="fas fa-boxes"></i></div>
+                                            <div className="flex-1">
+                                                <h4 className="font-bold text-slate-800">{m.name}</h4>
+                                                <div className="text-xs text-slate-500 flex items-center gap-2 mt-1">
+                                                    In: {distributed} | Out: {used}
+                                                </div>
+                                            </div>
+                                            <div className="text-center">
+                                                <span className={`block font-black ${balance > 0 ? 'text-teal-600' : 'text-red-500'}`}>{balance}</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </div>
                     </div>
@@ -1292,6 +1633,45 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                 </td>
                                             )}
                                         </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Staff Custody Report */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden print:shadow-none print:border-none mt-8">
+                            <div className="p-4 border-b border-slate-100 bg-slate-50 print:bg-transparent print:border-slate-800 flex justify-between items-center">
+                                <h3 className="font-bold text-slate-800">{t('inv.custody.report')}</h3>
+                            </div>
+                            <table className="w-full text-left text-sm print:text-xs">
+                                <thead className="bg-slate-50 text-slate-500 font-bold print:bg-slate-100 print:text-black">
+                                    <tr>
+                                        <th className="p-4 border-r print:border-slate-800">{t('inv.dist.staffName')}</th>
+                                        <th className="p-4 border-r print:border-slate-800">{t('inv.usage.material')}</th>
+                                        <th className="p-4 border-r print:border-slate-800">Total In</th>
+                                        <th className="p-4 border-r print:border-slate-800">Total Out</th>
+                                        <th className="p-4 print:border-slate-800">Balance</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50 print:divide-slate-800">
+                                    {Object.entries(staffBalances).map(([email, data]) => (
+                                        Object.entries(data.materials).map(([mat, bal], idx) => {
+                                            const distSum = distributions.filter(d => d.material === mat && (d.staffEmail === email || d.staffName === email)).reduce((sum, d) => sum + d.amount, 0);
+                                            const useSum = usages.filter(u => u.material === mat && u.fromCustody && (u.staffEmail === email || u.staffName === email)).reduce((sum, u) => sum + u.amount, 0);
+                                            return (
+                                                <tr key={`${email}-${mat}`} className="hover:bg-slate-50/50 print:break-inside-avoid">
+                                                    {idx === 0 && (
+                                                        <td className="p-4 font-bold text-slate-800 border-r print:border-slate-800 print:text-black" rowSpan={Object.keys(data.materials).length}>
+                                                            {data.name}
+                                                        </td>
+                                                    )}
+                                                    <td className="p-4 font-bold text-slate-700 border-r print:border-slate-800">{mat}</td>
+                                                    <td className="p-4 text-orange-600 font-bold border-r print:border-slate-800">+{distSum}</td>
+                                                    <td className="p-4 text-teal-600 font-bold border-r print:border-slate-800">-{useSum}</td>
+                                                    <td className={`p-4 font-black ${bal > 0 ? 'text-emerald-600' : 'text-red-500'}`}>{bal}</td>
+                                                </tr>
+                                            );
+                                        })
                                     ))}
                                 </tbody>
                             </table>

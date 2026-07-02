@@ -24,7 +24,8 @@ export enum UserRole {
   MANAGER = 'manager',
   USER = 'user',
   DOCTOR = 'doctor',
-  CATH_LAB = 'cath_lab'
+  CATH_LAB = 'cath_lab',
+  CUSTODY_CLERK = 'custody_clerk'
 }
 
 export interface Department {
@@ -567,6 +568,18 @@ export interface MaterialUsage {
   staffRole: string;
   date: any; // Firestore Timestamp
   isCorrection?: boolean;
+  fromCustody?: boolean;
+}
+
+export interface MaterialDistribution {
+  id: string;
+  material: string;
+  amount: number;
+  staffName: string;
+  staffEmail: string; // The email of the person who received it
+  distributedBy: string; // The person who distributed it
+  date: any; // Firestore Timestamp
+  departmentId: string;
 }
 
 export interface ForecastResult {

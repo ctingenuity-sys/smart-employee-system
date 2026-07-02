@@ -169,6 +169,9 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
 
   const canAccess = (feature: string) => {
       if (userRole === UserRole.ADMIN) return true;
+      if (userRole === UserRole.CUSTODY_CLERK) {
+          return feature === 'inventory';
+      }
       if (!permissions) return true; // Legacy users
       return permissions.includes(feature);
   };
@@ -347,14 +350,16 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
             </div>
           )}
 
+             {userRole !== UserRole.CUSTODY_CLERK && (
              <div className={userRole === UserRole.CATH_LAB ? "pt-4 mt-4 border-t border-slate-700" : ""}>
                <Link to="/cath-lab-usage" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/cath-lab-usage')}`}>
                   <i className="fas fa-heartbeat w-6 text-rose-400"></i>
                   <span className="font-medium">{t('nav.cathLabUsage')}</span>
                </Link>
              </div>
+             )}
              
-          {(userRole !== UserRole.CATH_LAB) && (
+          {(userRole !== UserRole.CATH_LAB && userRole !== UserRole.CUSTODY_CLERK) && (
             <>
              {canAccess('tasks') && (
                  <Link to="/tasks" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/tasks')}`}>

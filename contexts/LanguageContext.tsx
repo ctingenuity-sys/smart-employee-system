@@ -130,6 +130,7 @@ const translations: Record<string, { ar: string; en: string }> = {
   'cath.repFrom': { ar: 'من', en: 'From' },
   'cath.repTo': { ar: 'إلى', en: 'To' },
   'cath.searchFileId': { ar: 'بحث برقم الملف', en: 'Search by file number' },
+  'inv.searchHint': { ar: 'بحث برقم الملف أو اسم الموظف', en: 'Search by file number or employee name' },
   'cath.repPrint': { ar: 'طباعة التقرير', en: 'Print Report' },
   'cath.repEmpty': { ar: 'لا توجد سجلات في هذه الفترة', en: 'No records found for this period' },
 

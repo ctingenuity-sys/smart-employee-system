@@ -514,7 +514,11 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 const iso = d.toISOString().slice(0, 7);
                 passDate = iso >= reportStart && iso <= reportEnd;
             }
-            const passSearch = !reportSearch || (u.patientFileNumber && u.patientFileNumber.toLowerCase().includes(reportSearch.toLowerCase()));
+            const searchLower = reportSearch.toLowerCase();
+            const passSearch = !reportSearch || 
+                (u.patientFileNumber && u.patientFileNumber.toLowerCase().includes(searchLower)) ||
+                (u.staffName && u.staffName.toLowerCase().includes(searchLower));
+            
             return passDate && passSearch;
         });
     }, [usages, reportFilter, reportStart, reportEnd, reportSearch]);
@@ -1255,7 +1259,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                             </h3>
                             <div className="relative border border-slate-300 rounded-lg bg-white overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 max-w-sm w-full">
                                 <i className="fas fa-search absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 rtl:right-auto rtl:left-3"></i>
-                                <input type="text" placeholder={t('cath.searchFileId')} className="w-full p-2 pl-3 rtl:pl-9 rtl:pr-3 outline-none text-sm" value={reportSearch} onChange={e => setReportSearch(e.target.value)} />
+                                <input type="text" placeholder={t('inv.searchHint')} className="w-full p-2 pl-3 rtl:pl-9 rtl:pr-3 outline-none text-sm" value={reportSearch} onChange={e => setReportSearch(e.target.value)} />
                             </div>
                         </div>
 

@@ -580,6 +580,9 @@ export interface MaterialDistribution {
   distributedBy: string; // The person who distributed it
   date: any; // Firestore Timestamp
   departmentId: string;
+  isTransfer?: boolean;
+  transferPartner?: string;
+  transferDirection?: 'in' | 'out';
 }
 
 export interface ForecastResult {
@@ -636,4 +639,18 @@ export interface CalculatedDailyAttendance {
     lateMinutes: number;
     earlyMinutes: number;
     status: 'Present' | 'Absent' | 'Incomplete' | 'Off';
+}
+
+export interface CustodyTransfer {
+  id: string;
+  material: string;
+  amount: number;
+  senderName: string;
+  senderEmail: string;
+  recipientName: string;
+  recipientEmail: string;
+  recipientId: string;
+  date: any;
+  status: 'pending' | 'confirmed' | 'rejected';
+  departmentId: string;
 }

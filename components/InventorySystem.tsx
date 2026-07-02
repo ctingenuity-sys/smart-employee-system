@@ -5,7 +5,7 @@ import { db } from '../firebase';
 import { collection, addDoc, doc, updateDoc, onSnapshot, Timestamp, deleteDoc, writeBatch, getDocs, query, where } from 'firebase/firestore';
 // @ts-ignore
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { Material, Invoice, MaterialUsage, ForecastResult, MaterialDistribution, User } from '../types';
+import { Material, Invoice, MaterialUsage, ForecastResult, MaterialDistribution, User, CustodyTransfer } from '../types';
 import Loading from '../components/Loading';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -28,6 +28,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [usages, setUsages] = useState<MaterialUsage[]>([]);
     const [distributions, setDistributions] = useState<MaterialDistribution[]>([]);
+    const [transfers, setTransfers] = useState<CustodyTransfer[]>([]);
     const [employees, setEmployees] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
@@ -56,6 +57,10 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     const [custodyAmount, setCustodyAmount] = useState('');
     const [custodyPatientFile, setCustodyPatientFile] = useState('');
     const [custodyUsageDate, setCustodyUsageDate] = useState(new Date().toISOString().split('T')[0]);
+    const [custodySubTab, setCustodySubTab] = useState<'use' | 'transfer'>('use');
+    const [transferMaterial, setTransferMaterial] = useState('');
+    const [transferAmount, setTransferAmount] = useState('');
+    const [transferRecipient, setTransferRecipient] = useState('');
     const [incImage, setIncImage] = useState<File | null>(null);
     const [uploading, setUploading] = useState(false);
 
@@ -114,8 +119,17 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             }));
         });
 
+        const unsubTransfers = onSnapshot(query(collection(inventoryDb, 'custody_transfers'), where('departmentId', '==', selectedDepartmentId)), (snap: any) => {
+            const list = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as CustodyTransfer));
+            setTransfers(list.sort((a: any, b: any) => {
+                const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
+                const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
+                return db.getTime() - da.getTime();
+            }));
+        });
+
         setLoading(false);
-        return () => { unsubMat(); unsubInv(); unsubUse(); unsubDist(); };
+        return () => { unsubMat(); unsubInv(); unsubUse(); unsubDist(); unsubTransfers(); };
     }, [selectedDepartmentId]);
 
     // ... (rest of the component implementation)
@@ -410,6 +424,123 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             setCustodyUsageDate(new Date().toISOString().split('T')[0]);
         } catch (err) {
             setToast({ msg: 'Error', type: 'error' });
+        }
+    };
+
+    const handleCustodyTransferSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!transferMaterial || !transferAmount || !transferRecipient) {
+            setToast({ msg: 'Missing Data', type: 'error' });
+            return;
+        }
+        const amount = parseFloat(transferAmount);
+        if (amount <= 0 || isNaN(amount)) {
+            setToast({ msg: 'الكمية يجب أن تكون أكبر من صفر', type: 'error' });
+            return;
+        }
+
+        const recipientUser = employees.find(emp => emp.id === transferRecipient);
+        if (!recipientUser) {
+            setToast({ msg: 'الموظف المستلم غير موجود', type: 'error' });
+            return;
+        }
+
+        // Check sender's balance for this material
+        const distributed = distributions.filter(d => d.material === transferMaterial && (d.staffEmail === userEmail || d.staffName === userName)).reduce((sum, d) => sum + d.amount, 0);
+        const used = usages.filter(u => u.material === transferMaterial && u.fromCustody && (u.staffEmail === userEmail || u.staffName === userName)).reduce((sum, u) => sum + u.amount, 0);
+        const balance = distributed - used;
+
+        if (amount > balance) {
+            setToast({ msg: `❌ خطأ: رصيد عهدتك غير كافٍ لنقله! المتاح: ${balance}`, type: 'error' });
+            return;
+        }
+
+        try {
+            // Create a single pending custody transfer record
+            await addDoc(collection(inventoryDb, 'custody_transfers'), {
+                material: transferMaterial,
+                amount: amount,
+                senderName: userName,
+                senderEmail: userEmail || '',
+                recipientName: recipientUser.name,
+                recipientEmail: recipientUser.email || '',
+                recipientId: recipientUser.id,
+                date: Timestamp.now(),
+                status: 'pending',
+                departmentId: selectedDepartmentId
+            });
+
+            setToast({ msg: 'تم إرسال طلب نقل العهدة بنجاح ✅ بانتظار تأكيد الاستلام والعد من الزميل المستلم', type: 'success' });
+            setTransferMaterial('');
+            setTransferAmount('');
+            setTransferRecipient('');
+        } catch (err) {
+            console.error(err);
+            setToast({ msg: 'Error transferring custody', type: 'error' });
+        }
+    };
+
+    const handleConfirmTransfer = async (transfer: CustodyTransfer) => {
+        // Double check sender's current balance before processing!
+        const senderDistributed = distributions.filter(d => d.material === transfer.material && (d.staffEmail === transfer.senderEmail || d.staffName === transfer.senderName)).reduce((sum, d) => sum + d.amount, 0);
+        const senderUsed = usages.filter(u => u.material === transfer.material && u.fromCustody && (u.staffEmail === transfer.senderEmail || u.staffName === transfer.senderName)).reduce((sum, u) => sum + u.amount, 0);
+        const senderBalance = senderDistributed - senderUsed;
+
+        if (transfer.amount > senderBalance) {
+            setToast({ msg: `❌ خطأ: رصيد عهدة المرسل غير كافٍ الآن لنقلها! المتاح لديه: ${senderBalance}`, type: 'error' });
+            return;
+        }
+
+        try {
+            // 1. Update the transfer status in custody_transfers to confirmed
+            await updateDoc(doc(inventoryDb, 'custody_transfers', transfer.id), {
+                status: 'confirmed'
+            });
+
+            // 2. Add negative distribution entry for sender
+            await addDoc(collection(inventoryDb, 'distributions'), {
+                material: transfer.material,
+                amount: -transfer.amount,
+                staffName: transfer.senderName,
+                staffEmail: transfer.senderEmail,
+                distributedBy: transfer.senderName,
+                date: Timestamp.now(),
+                departmentId: transfer.departmentId,
+                isTransfer: true,
+                transferPartner: transfer.recipientName,
+                transferDirection: 'out'
+            });
+
+            // 3. Add positive distribution entry for recipient
+            await addDoc(collection(inventoryDb, 'distributions'), {
+                material: transfer.material,
+                amount: transfer.amount,
+                staffName: transfer.recipientName,
+                staffEmail: transfer.recipientEmail,
+                distributedBy: transfer.senderName,
+                date: Timestamp.now(),
+                departmentId: transfer.departmentId,
+                isTransfer: true,
+                transferPartner: transfer.senderName,
+                transferDirection: 'in'
+            });
+
+            setToast({ msg: t('inv.custody.successConfirm'), type: 'success' });
+        } catch (err) {
+            console.error(err);
+            setToast({ msg: 'Error confirming custody transfer', type: 'error' });
+        }
+    };
+
+    const handleRejectTransfer = async (transfer: CustodyTransfer) => {
+        try {
+            await updateDoc(doc(inventoryDb, 'custody_transfers', transfer.id), {
+                status: 'rejected'
+            });
+            setToast({ msg: t('inv.custody.rejected'), type: 'info' });
+        } catch (err) {
+            console.error(err);
+            setToast({ msg: 'Error rejecting custody transfer', type: 'error' });
         }
     };
 
@@ -1182,12 +1313,21 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                         <div className="w-12 h-12 bg-orange-50 text-orange-500 rounded-xl flex items-center justify-center font-black"><i className="fas fa-user-tag"></i></div>
                                         <div className="flex-1">
                                             <h4 className="font-bold text-slate-800">{d.material}</h4>
-                                            <div className="text-xs text-slate-500 flex items-center gap-2 mt-1">
-                                                <i className="fas fa-user text-slate-300"></i> {d.staffName}
+                                            <div className="text-xs text-slate-500 flex flex-wrap items-center gap-2 mt-1">
+                                                <span className="flex items-center gap-1">
+                                                    <i className="fas fa-user text-slate-300"></i> {d.staffName}
+                                                </span>
+                                                {d.isTransfer && (
+                                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-bold">
+                                                        {d.amount < 0 ? `نقل عهدة إلى: ${d.transferPartner}` : `استلام عهدة من: ${d.transferPartner}`}
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
                                         <div className="text-center">
-                                            <span className="block font-black text-orange-600">+{d.amount}</span>
+                                            <span className={`block font-black ${d.amount < 0 ? 'text-red-500' : 'text-orange-600'}`}>
+                                                {d.amount > 0 ? `+${d.amount}` : d.amount}
+                                            </span>
                                             <span className="text-[10px] text-slate-400 font-mono dir-ltr">{d.date?.toDate ? d.date.toDate().toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'}) : ''}</span>
                                             <button onClick={() => handleDeleteDistribution(d)} className="text-red-400 hover:text-red-600 ml-2" title="Delete">
                                                 <i className="fas fa-times"></i>
@@ -1205,47 +1345,158 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                     <div className="max-w-4xl mx-auto animate-fade-in-up">
                         <div className="grid md:grid-cols-2 gap-8 items-start">
                             <div className="bg-white p-8 rounded-[2rem] shadow-xl shadow-teal-100 border border-teal-50">
-                                <div className="flex items-center gap-4 mb-8">
+                                <div className="flex items-center gap-4 mb-6">
                                     <div className="w-14 h-14 bg-teal-100 text-teal-600 rounded-2xl flex items-center justify-center text-2xl"><i className="fas fa-box-open"></i></div>
                                     <div>
-                                        <h2 className="text-2xl font-black text-slate-800">{t('inv.custody.use')}</h2>
-                                        <p className="text-slate-400 text-sm">Record usage from your personal custody</p>
+                                        <h2 className="text-2xl font-black text-slate-800">
+                                            {custodySubTab === 'use' ? t('inv.custody.use') : 'نقل عهدة لزميل'}
+                                        </h2>
+                                        <p className="text-slate-400 text-sm">
+                                            {custodySubTab === 'use' ? 'Record usage from your personal custody' : 'نقل رصيد من عهدتك الحالية إلى موظف آخر بالقسم (تسليم وردية)'}
+                                        </p>
                                     </div>
                                 </div>
-                                <form onSubmit={handleCustodyUsageSubmit} className="space-y-6">
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-bold text-slate-600">{t('inv.usage.material')}</label>
-                                        <div className="relative">
-                                            <select
-                                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 rtl:pr-10 ltr:pl-4 outline-none focus:ring-2 focus:ring-teal-200 font-bold text-slate-700 appearance-none"
-                                                value={custodyMaterial}
-                                                onChange={e => setCustodyMaterial(e.target.value)}
-                                            >
-                                                <option value="">...</option>
-                                                {materials.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-bold text-slate-600">{t('inv.usage.amount')}</label>
-                                            <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-teal-200" value={custodyAmount} onChange={e => setCustodyAmount(e.target.value)} placeholder="0" />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-bold text-slate-600">{t('inv.usage.file')}</label>
-                                            <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-teal-200" value={custodyPatientFile} onChange={e => setCustodyPatientFile(e.target.value)} placeholder="File No." />
-                                        </div>
-                                        <div className="space-y-2 col-span-2">
-                                            <label className="text-sm font-bold text-slate-600">{t('inv.usage.date')}</label>
-                                            <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-teal-200" value={custodyUsageDate} onChange={e => setCustodyUsageDate(e.target.value)} />
-                                        </div>
-                                    </div>
-                                    <button type="submit" className="w-full bg-teal-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-teal-300 hover:bg-teal-700 hover:scale-[1.02] transition-all active:scale-95">
-                                        {t('inv.usage.confirm')}
+
+                                {/* Custody Subtab Switcher */}
+                                <div className="flex bg-slate-100 p-1 rounded-xl mb-6">
+                                    <button
+                                        type="button"
+                                        onClick={() => setCustodySubTab('use')}
+                                        className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all ${custodySubTab === 'use' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                                    >
+                                        <i className="fas fa-notes-medical mr-1 ml-1"></i>
+                                        تسجيل استهلاك العهدة
                                     </button>
-                                </form>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCustodySubTab('transfer')}
+                                        className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all ${custodySubTab === 'transfer' ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                                    >
+                                        <i className="fas fa-exchange-alt mr-1 ml-1"></i>
+                                        نقل العهدة لزميل
+                                    </button>
+                                </div>
+
+                                {custodySubTab === 'use' ? (
+                                    <form onSubmit={handleCustodyUsageSubmit} className="space-y-6">
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-bold text-slate-600">{t('inv.usage.material')}</label>
+                                            <div className="relative">
+                                                <select
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 rtl:pr-10 ltr:pl-4 outline-none focus:ring-2 focus:ring-teal-200 font-bold text-slate-700 appearance-none"
+                                                    value={custodyMaterial}
+                                                    onChange={e => setCustodyMaterial(e.target.value)}
+                                                >
+                                                    <option value="">...</option>
+                                                    {materials.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <label className="text-sm font-bold text-slate-600">{t('inv.usage.amount')}</label>
+                                                <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-teal-200" value={custodyAmount} onChange={e => setCustodyAmount(e.target.value)} placeholder="0" />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-sm font-bold text-slate-600">{t('inv.usage.file')}</label>
+                                                <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-teal-200" value={custodyPatientFile} onChange={e => setCustodyPatientFile(e.target.value)} placeholder="File No." />
+                                            </div>
+                                            <div className="space-y-2 col-span-2">
+                                                <label className="text-sm font-bold text-slate-600">{t('inv.usage.date')}</label>
+                                                <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-teal-200" value={custodyUsageDate} onChange={e => setCustodyUsageDate(e.target.value)} />
+                                            </div>
+                                        </div>
+                                        <button type="submit" className="w-full bg-teal-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-teal-300 hover:bg-teal-700 hover:scale-[1.02] transition-all active:scale-95">
+                                            {t('inv.usage.confirm')}
+                                        </button>
+                                    </form>
+                                ) : (
+                                    <form onSubmit={handleCustodyTransferSubmit} className="space-y-6">
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-bold text-slate-600">المادة (Material)</label>
+                                            <div className="relative">
+                                                <select
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 rtl:pr-10 ltr:pl-4 outline-none focus:ring-2 focus:ring-teal-200 font-bold text-slate-700 appearance-none"
+                                                    value={transferMaterial}
+                                                    onChange={e => setTransferMaterial(e.target.value)}
+                                                >
+                                                    <option value="">اختر المادة لنقلها...</option>
+                                                    {materials.map(m => {
+                                                        const distributed = distributions.filter(d => d.material === m.name && (d.staffEmail === userEmail || d.staffName === userName)).reduce((sum, d) => sum + d.amount, 0);
+                                                        const used = usages.filter(u => u.material === m.name && u.fromCustody && (u.staffEmail === userEmail || u.staffName === userName)).reduce((sum, u) => sum + u.amount, 0);
+                                                        const balance = distributed - used;
+                                                        if (balance <= 0) return null;
+                                                        return <option key={m.id} value={m.name}>{m.name} (المتاح: {balance})</option>;
+                                                    })}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-2 col-span-2">
+                                                <label className="text-sm font-bold text-slate-600">الكمية المراد نقلها (Amount to transfer)</label>
+                                                <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-teal-200" value={transferAmount} onChange={e => setTransferAmount(e.target.value)} placeholder="0" />
+                                            </div>
+                                            <div className="space-y-2 col-span-2">
+                                                <label className="text-sm font-bold text-slate-600">الموظف المستلم (Recipient Employee)</label>
+                                                <select
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 outline-none focus:ring-2 focus:ring-teal-200 font-bold text-slate-700 appearance-none"
+                                                    value={transferRecipient}
+                                                    onChange={e => setTransferRecipient(e.target.value)}
+                                                >
+                                                    <option value="">اختر الموظف المستلم...</option>
+                                                    {employees.filter(emp => emp.email !== userEmail && emp.name !== userName).map(emp => (
+                                                        <option key={emp.id} value={emp.id}>{emp.name}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <button type="submit" className="w-full bg-teal-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-teal-300 hover:bg-teal-700 hover:scale-[1.02] transition-all active:scale-95">
+                                            تأكيد نقل العهدة
+                                        </button>
+                                    </form>
+                                )}
                             </div>
                             <div className="space-y-4">
+                                {transfers.filter(tr => tr.status === 'pending' && ((userEmail && tr.recipientEmail === userEmail) || tr.recipientName === userName)).length > 0 && (
+                                    <div className="bg-amber-50 p-6 rounded-[2rem] border border-amber-100 shadow-sm space-y-4">
+                                        <h3 className="font-bold text-amber-800 text-sm flex items-center gap-2">
+                                            <span className="animate-pulse inline-block w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                                            {t('inv.custody.pendingReceipts')}
+                                        </h3>
+                                        <div className="space-y-3">
+                                            {transfers.filter(tr => tr.status === 'pending' && ((userEmail && tr.recipientEmail === userEmail) || tr.recipientName === userName)).map(tr => (
+                                                <div key={tr.id} className="bg-white p-4 rounded-xl border border-amber-200 shadow-sm flex flex-col gap-3">
+                                                    <div className="flex justify-between items-start">
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-800 text-sm">{tr.material}</h4>
+                                                            <p className="text-xs text-slate-500 mt-1">
+                                                                {t('inv.custody.transferor')}: <span className="font-bold text-slate-700">{tr.senderName}</span>
+                                                            </p>
+                                                        </div>
+                                                        <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded-lg text-xs font-black">
+                                                            +{tr.amount}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            onClick={() => handleConfirmTransfer(tr)}
+                                                            className="flex-1 bg-teal-600 text-white py-2 rounded-lg text-xs font-bold hover:bg-teal-700 transition-colors"
+                                                        >
+                                                            {t('inv.custody.confirmBtn')}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleRejectTransfer(tr)}
+                                                            className="bg-slate-100 text-slate-600 hover:bg-slate-200 px-3 py-2 rounded-lg text-xs font-bold transition-colors"
+                                                        >
+                                                            {t('inv.custody.rejectBtn')}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
                                 <h3 className="font-bold text-slate-700 text-lg">{t('inv.custody.balance')}</h3>
                                 {materials.map(m => {
                                     const distributed = distributions.filter(d => d.material === m.name && (d.staffEmail === userEmail || d.staffName === userName)).reduce((sum, d) => sum + d.amount, 0);

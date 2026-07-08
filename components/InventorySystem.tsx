@@ -21,7 +21,7 @@ interface InventorySystemProps {
 }
 
 const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, userEmail }) => {
-    const { t, dir } = useLanguage();
+    const { t, dir, language } = useLanguage();
     const { selectedDepartmentId } = useDepartment();
     const [activeTab, setActiveTab] = useState<'dashboard' | 'usage' | 'incoming' | 'materials' | 'reports' | 'distribution' | 'custody'>(userRole === 'custody_clerk' ? 'distribution' : 'dashboard');
     const [materials, setMaterials] = useState<Material[]>([]);
@@ -52,6 +52,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     const [distAmount, setDistAmount] = useState('');
     const [distStaffName, setDistStaffName] = useState('');
     const [distStaffEmail, setDistStaffEmail] = useState('');
+    const [distDate, setDistDate] = useState(new Date().toISOString().split('T')[0]);
 
     const [custodyMaterial, setCustodyMaterial] = useState('');
     const [custodyAmount, setCustodyAmount] = useState('');
@@ -70,6 +71,13 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     const [correctionDate, setCorrectionDate] = useState(new Date().toISOString().split('T')[0]); 
     const [materialSearch, setMaterialSearch] = useState('');
 
+    // Supervisor Custody Dashboard & Handover state
+    const [distSubTab, setDistSubTab] = useState<'distribute' | 'monitoring' | 'handovers'>('distribute');
+    const [distMonitoringSearch, setDistMonitoringSearch] = useState('');
+    const [distMonitoringFilter, setDistMonitoringFilter] = useState<'all' | 'unused' | 'active'>('all');
+    const [distListSearch, setDistListSearch] = useState('');
+    const [expandedConsolidatedKey, setExpandedConsolidatedKey] = useState<string | null>(null);
+
     // Report Filters (Updated for Range)
     const [reportFilter, setReportFilter] = useState<'all' | 'range'>('range');
     const [reportStart, setReportStart] = useState(new Date().toISOString().slice(0, 7));
@@ -80,6 +88,29 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     const [incomingViewMonth, setIncomingViewMonth] = useState(new Date().toISOString().slice(0, 7));
 
     const isAdmin = userRole === 'admin' || userRole === 'supervisor';
+
+    const normalizedUserEmail = useMemo(() => userEmail ? userEmail.toLowerCase().trim() : '', [userEmail]);
+    const normalizedUserName = useMemo(() => userName ? userName.toLowerCase().trim() : '', [userName]);
+
+    const isUserDistribution = useMemo(() => {
+        return (d: MaterialDistribution) => {
+            const dEmail = d.staffEmail ? d.staffEmail.toLowerCase().trim() : '';
+            const dName = d.staffName ? d.staffName.toLowerCase().trim() : '';
+            return (normalizedUserEmail && dEmail === normalizedUserEmail) || 
+                   (!dEmail && normalizedUserName && dName === normalizedUserName) ||
+                   (dName === normalizedUserName);
+        };
+    }, [normalizedUserEmail, normalizedUserName]);
+
+    const isUserUsage = useMemo(() => {
+        return (u: MaterialUsage) => {
+            const uEmail = u.staffEmail ? u.staffEmail.toLowerCase().trim() : '';
+            const uName = u.staffName ? u.staffName.toLowerCase().trim() : '';
+            return (normalizedUserEmail && uEmail === normalizedUserEmail) || 
+                   (!uEmail && normalizedUserName && uName === normalizedUserName) ||
+                   (uName === normalizedUserName);
+        };
+    }, [normalizedUserEmail, normalizedUserName]);
 
     useEffect(() => {
         setLoading(true);
@@ -134,20 +165,153 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
     // ... (rest of the component implementation)
     const staffBalances = useMemo(() => {
+        const getRecordKey = (email?: string, name?: string) => {
+            if (email) return email.toLowerCase().trim();
+            if (name) return name.toLowerCase().trim();
+            return '';
+        };
         const balances: Record<string, {name: string, materials: Record<string, number>}> = {}; 
         distributions.forEach(d => {
-            const staffKey = d.staffEmail || d.staffName;
+            const staffKey = getRecordKey(d.staffEmail, d.staffName);
+            if (!staffKey) return;
             if (!balances[staffKey]) balances[staffKey] = { name: d.staffName, materials: {} };
-            balances[staffKey].materials[d.material] = (balances[staffKey].materials[d.material] || 0) + d.amount;
+            const matName = d.material.trim();
+            balances[staffKey].materials[matName] = (balances[staffKey].materials[matName] || 0) + d.amount;
         });
         usages.forEach(u => {
             if (!u.fromCustody) return;
-            const staffKey = u.staffEmail || u.staffName;
+            const staffKey = getRecordKey(u.staffEmail, u.staffName);
+            if (!staffKey) return;
             if (!balances[staffKey]) balances[staffKey] = { name: u.staffName, materials: {} };
-            balances[staffKey].materials[u.material] = (balances[staffKey].materials[u.material] || 0) - u.amount;
+            const matName = u.material.trim();
+            balances[staffKey].materials[matName] = (balances[staffKey].materials[matName] || 0) - u.amount;
         });
         return balances;
     }, [distributions, usages]);
+
+    const staffCustodyDetailed = useMemo(() => {
+        const getRecordKey = (email?: string, name?: string) => {
+            if (email) return email.toLowerCase().trim();
+            if (name) return name.toLowerCase().trim();
+            return '';
+        };
+
+        const records: Record<string, {
+            staffName: string,
+            staffEmail: string,
+            materials: Record<string, {
+                received: number,    // Sum of positive direct distributions and incoming transfers
+                used: number,        // Sum of usages from custody
+                balance: number      // Current remaining custody
+            }>
+        }> = {};
+
+        // Initialize records with employees in the department
+        employees.forEach(emp => {
+            const key = getRecordKey(emp.email, emp.name);
+            if (!key) return;
+            records[key] = {
+                staffName: emp.name,
+                staffEmail: emp.email || '',
+                materials: {}
+            };
+        });
+
+        // Process distributions
+        distributions.forEach(d => {
+            const key = getRecordKey(d.staffEmail, d.staffName);
+            if (!key) return;
+            if (!records[key]) {
+                records[key] = {
+                    staffName: d.staffName,
+                    staffEmail: d.staffEmail || '',
+                    materials: {}
+                };
+            }
+            const matName = d.material.trim();
+            if (!records[key].materials[matName]) {
+                records[key].materials[matName] = { received: 0, used: 0, balance: 0 };
+            }
+            records[key].materials[matName].balance += d.amount;
+            if (d.amount > 0) {
+                records[key].materials[matName].received += d.amount;
+            }
+        });
+
+        // Process usages
+        usages.forEach(u => {
+            if (!u.fromCustody) return;
+            const key = getRecordKey(u.staffEmail, u.staffName);
+            if (!key) return;
+            if (!records[key]) {
+                records[key] = {
+                    staffName: u.staffName,
+                    staffEmail: u.staffEmail || '',
+                    materials: {}
+                };
+            }
+            const matName = u.material.trim();
+            if (!records[key].materials[matName]) {
+                records[key].materials[matName] = { received: 0, used: 0, balance: 0 };
+            }
+            records[key].materials[matName].used += u.amount;
+            records[key].materials[matName].balance -= u.amount;
+        });
+
+        return records;
+    }, [distributions, usages, employees]);
+
+    const consolidatedTransfers = useMemo(() => {
+        const groups: Record<string, {
+            key: string,
+            senderName: string,
+            senderEmail: string,
+            recipientName: string,
+            recipientEmail: string,
+            material: string,
+            totalAmount: number,
+            status: 'pending' | 'confirmed' | 'rejected',
+            dates: Date[],
+            items: CustodyTransfer[]
+        }> = {};
+
+        transfers.forEach(tr => {
+            const key = `${tr.senderName}_${tr.recipientName}_${tr.material}_${tr.status}`;
+            const d = tr.date?.toDate ? tr.date.toDate() : new Date(tr.date?.seconds * 1000 || Date.now());
+            if (!groups[key]) {
+                groups[key] = {
+                    key,
+                    senderName: tr.senderName,
+                    senderEmail: tr.senderEmail,
+                    recipientName: tr.recipientName,
+                    recipientEmail: tr.recipientEmail,
+                    material: tr.material,
+                    totalAmount: 0,
+                    status: tr.status,
+                    dates: [],
+                    items: []
+                };
+            }
+            groups[key].totalAmount += tr.amount;
+            groups[key].dates.push(d);
+            groups[key].items.push(tr);
+        });
+
+        // Sort items inside each group by date descending
+        Object.values(groups).forEach(g => {
+            g.items.sort((a, b) => {
+                const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000 || Date.now());
+                const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000 || Date.now());
+                return db.getTime() - da.getTime();
+            });
+        });
+
+        return Object.values(groups).sort((a, b) => {
+            const maxA = Math.max(...a.dates.map(d => d.getTime()));
+            const maxB = Math.max(...b.dates.map(d => d.getTime()));
+            return maxB - maxA;
+        });
+    }, [transfers]);
 
     const frequentMaterials = useMemo(() => {
         const counts: Record<string, number> = {};
@@ -359,13 +523,22 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         try {
             await updateDoc(doc(inventoryDb, 'materials', mat.id), { quantity: mat.quantity - amount });
             
+            const dateObj = new Date(distDate);
+            const todayStr = new Date().toISOString().split('T')[0];
+            if (distDate === todayStr) {
+                dateObj.setHours(new Date().getHours(), new Date().getMinutes(), new Date().getSeconds());
+            } else {
+                dateObj.setHours(12, 0, 0);
+            }
+            const tsDate = isNaN(dateObj.getTime()) ? Timestamp.now() : Timestamp.fromDate(dateObj);
+
             await addDoc(collection(inventoryDb, 'distributions'), {
                 material: distMaterial,
                 amount: amount,
                 staffName: distStaffName,
                 staffEmail: distStaffEmail || '',
                 distributedBy: userName,
-                date: Timestamp.now(),
+                date: tsDate,
                 departmentId: selectedDepartmentId
             });
 
@@ -374,6 +547,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             setDistAmount('');
             setDistStaffName('');
             setDistStaffEmail('');
+            setDistDate(new Date().toISOString().split('T')[0]);
         } catch (err) {
             setToast({ msg: 'Error', type: 'error' });
         }
@@ -388,8 +562,8 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
         const amount = parseFloat(custodyAmount);
 
-        const distributed = distributions.filter(d => d.material === custodyMaterial && (d.staffEmail === userEmail || d.staffName === userName)).reduce((sum, d) => sum + d.amount, 0);
-        const used = usages.filter(u => u.material === custodyMaterial && u.fromCustody && (u.staffEmail === userEmail || u.staffName === userName)).reduce((sum, u) => sum + u.amount, 0);
+        const distributed = distributions.filter(d => d.material.trim() === custodyMaterial.trim() && isUserDistribution(d)).reduce((sum, d) => sum + d.amount, 0);
+        const used = usages.filter(u => u.material.trim() === custodyMaterial.trim() && u.fromCustody && isUserUsage(u)).reduce((sum, u) => sum + u.amount, 0);
         const balance = distributed - used;
 
         if (amount > balance) {
@@ -446,8 +620,8 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         }
 
         // Check sender's balance for this material
-        const distributed = distributions.filter(d => d.material === transferMaterial && (d.staffEmail === userEmail || d.staffName === userName)).reduce((sum, d) => sum + d.amount, 0);
-        const used = usages.filter(u => u.material === transferMaterial && u.fromCustody && (u.staffEmail === userEmail || u.staffName === userName)).reduce((sum, u) => sum + u.amount, 0);
+        const distributed = distributions.filter(d => d.material.trim() === transferMaterial.trim() && isUserDistribution(d)).reduce((sum, d) => sum + d.amount, 0);
+        const used = usages.filter(u => u.material.trim() === transferMaterial.trim() && u.fromCustody && isUserUsage(u)).reduce((sum, u) => sum + u.amount, 0);
         const balance = distributed - used;
 
         if (amount > balance) {
@@ -482,8 +656,27 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
     const handleConfirmTransfer = async (transfer: CustodyTransfer) => {
         // Double check sender's current balance before processing!
-        const senderDistributed = distributions.filter(d => d.material === transfer.material && (d.staffEmail === transfer.senderEmail || d.staffName === transfer.senderName)).reduce((sum, d) => sum + d.amount, 0);
-        const senderUsed = usages.filter(u => u.material === transfer.material && u.fromCustody && (u.staffEmail === transfer.senderEmail || u.staffName === transfer.senderName)).reduce((sum, u) => sum + u.amount, 0);
+        const normalizedSenderEmail = transfer.senderEmail ? transfer.senderEmail.toLowerCase().trim() : '';
+        const normalizedSenderName = transfer.senderName ? transfer.senderName.toLowerCase().trim() : '';
+        const senderMat = transfer.material.trim();
+
+        const senderDistributed = distributions.filter(d => 
+            d.material.trim() === senderMat && 
+            (
+                (d.staffEmail && d.staffEmail.toLowerCase().trim() === normalizedSenderEmail) || 
+                (d.staffName && d.staffName.toLowerCase().trim() === normalizedSenderName)
+            )
+        ).reduce((sum, d) => sum + d.amount, 0);
+
+        const senderUsed = usages.filter(u => 
+            u.material.trim() === senderMat && 
+            u.fromCustody && 
+            (
+                (u.staffEmail && u.staffEmail.toLowerCase().trim() === normalizedSenderEmail) || 
+                (u.staffName && u.staffName.toLowerCase().trim() === normalizedSenderName)
+            )
+        ).reduce((sum, u) => sum + u.amount, 0);
+
         const senderBalance = senderDistributed - senderUsed;
 
         if (transfer.amount > senderBalance) {
@@ -1252,91 +1445,445 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
                 {/* --- DISTRIBUTION TAB (ADMIN / CUSTODY CLERK) --- */}
                 {(isAdmin || userRole === 'custody_clerk') && activeTab === 'distribution' && (
-                    <div className="max-w-4xl mx-auto animate-fade-in-up">
-                        <div className="grid md:grid-cols-2 gap-8 items-start">
-                            <div className="bg-white p-8 rounded-[2rem] shadow-xl shadow-orange-100 border border-orange-50">
-                                <div className="flex items-center gap-4 mb-8">
-                                    <div className="w-14 h-14 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center text-2xl"><i className="fas fa-share-square"></i></div>
-                                    <div>
-                                        <h2 className="text-2xl font-black text-slate-800">{t('inv.distribution')}</h2>
-                                        <p className="text-slate-400 text-sm">Distribute stock to staff members</p>
-                                    </div>
-                                </div>
-                                <form onSubmit={handleDistributionSubmit} className="space-y-6">
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-bold text-slate-600">{t('inv.usage.material')}</label>
-                                        <div className="relative">
-                                            <select
-                                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 rtl:pr-10 ltr:pl-4 outline-none focus:ring-2 focus:ring-orange-200 font-bold text-slate-700 appearance-none"
-                                                value={distMaterial}
-                                                onChange={e => setDistMaterial(e.target.value)}
-                                            >
-                                                <option value="">...</option>
-                                                {materials.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
-                                            </select>
+                    <div className="max-w-4xl mx-auto animate-fade-in-up space-y-6">
+                        {/* Tab Switcher for Admin / Custody Clerk */}
+                        <div className="flex bg-slate-100 p-1.5 rounded-[1.5rem] shadow-sm border border-slate-200">
+                            <button
+                                type="button"
+                                onClick={() => setDistSubTab('distribute')}
+                                className={`flex-1 py-3 rounded-xl text-xs md:text-sm font-bold transition-all flex items-center justify-center gap-2 ${distSubTab === 'distribute' ? 'bg-orange-600 text-white shadow-md' : 'text-slate-600 hover:text-slate-800'}`}
+                            >
+                                <i className="fas fa-share-square"></i>
+                                {t('inv.distribution')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setDistSubTab('monitoring')}
+                                className={`flex-1 py-3 rounded-xl text-xs md:text-sm font-bold transition-all flex items-center justify-center gap-2 ${distSubTab === 'monitoring' ? 'bg-orange-600 text-white shadow-md' : 'text-slate-600 hover:text-slate-800'}`}
+                            >
+                                <i className="fas fa-eye animate-pulse-slow"></i>
+                                {t('inv.custody.monitor')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setDistSubTab('handovers')}
+                                className={`flex-1 py-3 rounded-xl text-xs md:text-sm font-bold transition-all flex items-center justify-center gap-2 ${distSubTab === 'handovers' ? 'bg-orange-600 text-white shadow-md' : 'text-slate-600 hover:text-slate-800'}`}
+                            >
+                                <i className="fas fa-exchange-alt"></i>
+                                {t('inv.custody.handoverLog')}
+                            </button>
+                        </div>
+
+                        {distSubTab === 'distribute' && (
+                            <div className="grid md:grid-cols-2 gap-8 items-start">
+                                <div className="bg-white p-8 rounded-[2rem] shadow-xl shadow-orange-100 border border-orange-50">
+                                    <div className="flex items-center gap-4 mb-8">
+                                        <div className="w-14 h-14 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center text-2xl"><i className="fas fa-share-square"></i></div>
+                                        <div>
+                                            <h2 className="text-2xl font-black text-slate-800">{t('inv.distribution')}</h2>
+                                            <p className="text-slate-400 text-sm">{t('inv.dist.subtitle')}</p>
                                         </div>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-4">
+                                    <form onSubmit={handleDistributionSubmit} className="space-y-6">
                                         <div className="space-y-2">
-                                            <label className="text-sm font-bold text-slate-600">{t('inv.usage.amount')}</label>
-                                            <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-orange-200" value={distAmount} onChange={e => setDistAmount(e.target.value)} placeholder="0" />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-bold text-slate-600">{t('inv.dist.staffName')}</label>
+                                            <label className="text-sm font-bold text-slate-600">{t('inv.usage.material')}</label>
                                             <div className="relative">
                                                 <select
-                                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 rtl:pr-10 ltr:pl-4 font-bold outline-none focus:ring-2 focus:ring-orange-200 appearance-none text-slate-700"
-                                                    value={distStaffName}
-                                                    onChange={e => {
-                                                        const emp = employees.find(emp => emp.name === e.target.value);
-                                                        setDistStaffName(e.target.value);
-                                                        setDistStaffEmail(emp?.email || '');
-                                                    }}
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 rtl:pr-10 ltr:pl-4 outline-none focus:ring-2 focus:ring-orange-200 font-bold text-slate-700 appearance-none"
+                                                    value={distMaterial}
+                                                    onChange={e => setDistMaterial(e.target.value)}
                                                 >
                                                     <option value="">...</option>
-                                                    {employees.map(emp => (
-                                                        <option key={emp.id} value={emp.name}>{emp.name}</option>
+                                                    {materials.map(m => (
+                                                        <option key={m.id} value={m.name}>
+                                                            {m.name} {t('inv.dist.remainingInStock|qty:' + m.quantity)}
+                                                        </option>
                                                     ))}
                                                 </select>
                                             </div>
                                         </div>
-                                    </div>
-                                    <button type="submit" className="w-full bg-orange-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-orange-300 hover:bg-orange-700 hover:scale-[1.02] transition-all active:scale-95">
-                                        {t('inv.dist.confirm')}
-                                    </button>
-                                </form>
-                            </div>
-                            <div className="space-y-4">
-                                <h3 className="font-bold text-slate-700 text-lg">Recent Distributions</h3>
-                                {distributions.slice(0, 5).map(d => (
-                                    <div key={d.id} className="bg-white p-4 rounded-2xl flex items-center gap-4 shadow-sm border border-slate-100">
-                                        <div className="w-12 h-12 bg-orange-50 text-orange-500 rounded-xl flex items-center justify-center font-black"><i className="fas fa-user-tag"></i></div>
-                                        <div className="flex-1">
-                                            <h4 className="font-bold text-slate-800">{d.material}</h4>
-                                            <div className="text-xs text-slate-500 flex flex-wrap items-center gap-2 mt-1">
-                                                <span className="flex items-center gap-1">
-                                                    <i className="fas fa-user text-slate-300"></i> {d.staffName}
-                                                </span>
-                                                {d.isTransfer && (
-                                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-bold">
-                                                        {d.amount < 0 ? `نقل عهدة إلى: ${d.transferPartner}` : `استلام عهدة من: ${d.transferPartner}`}
-                                                    </span>
-                                                )}
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <label className="text-sm font-bold text-slate-600">{t('inv.usage.amount')}</label>
+                                                <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-orange-200" value={distAmount} onChange={e => setDistAmount(e.target.value)} placeholder="0" />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-sm font-bold text-slate-600">{t('inv.dist.staffName')}</label>
+                                                <div className="relative">
+                                                    <select
+                                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 rtl:pr-10 ltr:pl-4 font-bold outline-none focus:ring-2 focus:ring-orange-200 appearance-none text-slate-700"
+                                                        value={distStaffName}
+                                                        onChange={e => {
+                                                            const emp = employees.find(emp => emp.name === e.target.value);
+                                                            setDistStaffName(e.target.value);
+                                                            setDistStaffEmail(emp?.email || '');
+                                                        }}
+                                                    >
+                                                        <option value="">...</option>
+                                                        {employees.map(emp => (
+                                                            <option key={emp.id} value={emp.name}>{emp.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2 col-span-2">
+                                                <label className="text-sm font-bold text-slate-600">{t('inv.dist.date')}</label>
+                                                <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-orange-200 text-slate-600" value={distDate} onChange={e => setDistDate(e.target.value)} />
                                             </div>
                                         </div>
-                                        <div className="text-center">
-                                            <span className={`block font-black ${d.amount < 0 ? 'text-red-500' : 'text-orange-600'}`}>
-                                                {d.amount > 0 ? `+${d.amount}` : d.amount}
-                                            </span>
-                                            <span className="text-[10px] text-slate-400 font-mono dir-ltr">{d.date?.toDate ? d.date.toDate().toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'}) : ''}</span>
-                                            <button onClick={() => handleDeleteDistribution(d)} className="text-red-400 hover:text-red-600 ml-2" title="Delete">
-                                                <i className="fas fa-times"></i>
-                                            </button>
-                                        </div>
+                                        <button type="submit" className="w-full bg-orange-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-orange-300 hover:bg-orange-700 hover:scale-[1.02] transition-all active:scale-95">
+                                            {t('inv.dist.confirm')}
+                                        </button>
+                                    </form>
+                                </div>
+                                <div className="space-y-4 bg-white p-6 rounded-[2rem] shadow-xl border border-slate-50">
+                                    <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                                        <h3 className="font-bold text-slate-800 text-lg">{t('inv.dist.log')}</h3>
+                                        <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-lg">{t('inv.custody.total')}: {distributions.length}</span>
                                     </div>
-                                ))}
+                                    
+                                    {/* Distributions Search bar */}
+                                    <div className="relative">
+                                        <i className="fas fa-search absolute right-3 top-3 text-slate-400 text-xs"></i>
+                                        <input
+                                            type="text"
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pr-8 pl-4 text-xs font-bold outline-none focus:ring-2 focus:ring-orange-200"
+                                            placeholder={t('inv.dist.searchPlaceholder')}
+                                            value={distListSearch}
+                                            onChange={e => setDistListSearch(e.target.value)}
+                                        />
+                                    </div>
+
+                                    <div className="space-y-3 max-h-[450px] overflow-y-auto pr-1">
+                                        {distributions
+                                            .filter(d => {
+                                                if (!distListSearch) return true;
+                                                const s = distListSearch.toLowerCase();
+                                                return d.material.toLowerCase().includes(s) ||
+                                                    d.staffName.toLowerCase().includes(s) ||
+                                                    (d.distributedBy && d.distributedBy.toLowerCase().includes(s)) ||
+                                                    (d.transferPartner && d.transferPartner.toLowerCase().includes(s));
+                                            })
+                                            .map(d => (
+                                                <div key={d.id} className="bg-slate-50 hover:bg-orange-50/30 p-3.5 rounded-xl flex items-center gap-3 shadow-sm border border-slate-100/80 transition-all">
+                                                    <div className="w-10 h-10 bg-orange-100 text-orange-600 rounded-xl flex items-center justify-center font-black text-sm shrink-0"><i className="fas fa-user-tag"></i></div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <h4 className="font-bold text-slate-800 text-sm truncate">{d.material}</h4>
+                                                        <div className="text-[10px] text-slate-500 space-y-0.5 mt-0.5">
+                                                            <div className="flex items-center gap-1.5 truncate">
+                                                                <i className="fas fa-user text-slate-300 text-[9px]"></i> 
+                                                                <span>المستلم: <strong className="text-slate-700">{d.staffName}</strong></span>
+                                                            </div>
+                                                            {d.distributedBy && (
+                                                                <div className="flex items-center gap-1.5 truncate">
+                                                                    <i className="fas fa-user-shield text-slate-300 text-[9px]"></i> 
+                                                                    <span>بواسطة: <strong className="text-slate-700">{d.distributedBy}</strong></span>
+                                                                </div>
+                                                            )}
+                                                            {d.isTransfer && (
+                                                                <div className="mt-1">
+                                                                    <span className="inline-block text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-bold">
+                                                                        {d.amount < 0 ? `نقل عهدة إلى: ${d.transferPartner}` : `استلام عهدة من: ${d.transferPartner}`}
+                                                                    </span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-center shrink-0 flex flex-col items-end gap-1">
+                                                        <span className={`block font-black text-sm ${d.amount < 0 ? 'text-red-500' : 'text-orange-600'}`}>
+                                                            {d.amount > 0 ? `+${d.amount}` : d.amount}
+                                                        </span>
+                                                        <span className="text-[9px] text-slate-400 font-mono dir-ltr">{d.date?.toDate ? `${d.date.toDate().toLocaleDateString('en-US')} ${d.date.toDate().toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})}` : ''}</span>
+                                                        <button onClick={() => handleDeleteDistribution(d)} className="text-red-400 hover:text-red-600 text-xs mt-1" title="Delete">
+                                                            <i className="fas fa-trash-alt"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                    </div>
+                                </div>
                             </div>
-                        </div>
+                        )}
+
+                        {distSubTab === 'monitoring' && (
+                            <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-slate-50 space-y-6">
+                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-4">
+                                    <div>
+                                        <h2 className="text-xl font-black text-slate-800">{t('inv.custody.monitor')}</h2>
+                                        <p className="text-slate-400 text-xs mt-0.5">{t('inv.custody.monitorDesc')}</p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setDistMonitoringFilter('all')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${distMonitoringFilter === 'all' ? 'bg-orange-600 text-white shadow' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+                                        >
+                                            {t('inv.dist.all')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setDistMonitoringFilter('unused')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${distMonitoringFilter === 'unused' ? 'bg-amber-500 text-white shadow' : 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'}`}
+                                        >
+                                            <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                                            {t('inv.custody.notUsed')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setDistMonitoringFilter('active')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${distMonitoringFilter === 'active' ? 'bg-teal-600 text-white shadow' : 'bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200'}`}
+                                        >
+                                            {t('inv.custody.partiallyUsed')}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="relative">
+                                    <i className="fas fa-search absolute right-3.5 top-3.5 text-slate-400 text-sm"></i>
+                                    <input
+                                        type="text"
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pr-10 ltr:pl-4 outline-none focus:ring-2 focus:ring-orange-200"
+                                        placeholder={t('inv.custody.searchPlaceholder')}
+                                        value={distMonitoringSearch}
+                                        onChange={e => setDistMonitoringSearch(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="space-y-6">
+                                    {Object.values(staffCustodyDetailed)
+                                        .filter(record => {
+                                            if (distMonitoringSearch) {
+                                                const searchLower = distMonitoringSearch.toLowerCase();
+                                                const matchesStaff = record.staffName.toLowerCase().includes(searchLower);
+                                                const matchesMaterial = Object.keys(record.materials).some(mName => mName.toLowerCase().includes(searchLower));
+                                                if (!matchesStaff && !matchesMaterial) return false;
+                                            }
+                                            return true;
+                                        })
+                                        .map(record => {
+                                            const filteredMaterials = Object.entries(record.materials).filter(([mName, stat]) => {
+                                                if (distMonitoringSearch) {
+                                                    const s = distMonitoringSearch.toLowerCase();
+                                                    if (!record.staffName.toLowerCase().includes(s) && !mName.toLowerCase().includes(s)) return false;
+                                                }
+
+                                                const isUnused = stat.received > 0 && stat.used === 0 && stat.balance > 0;
+                                                const isActive = stat.used > 0 && stat.balance > 0;
+
+                                                if (distMonitoringFilter === 'unused') return isUnused;
+                                                if (distMonitoringFilter === 'active') return isActive;
+                                                return stat.received > 0;
+                                            });
+
+                                            if (filteredMaterials.length === 0) return null;
+
+                                            return (
+                                                <div key={record.staffName} className="border border-slate-100 bg-slate-50/50 rounded-2xl p-5 space-y-4 shadow-sm animate-fade-in">
+                                                    <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center"><i className="fas fa-user text-sm"></i></div>
+                                                            <div>
+                                                                 <h4 className="font-bold text-slate-800 text-base">{record.staffName}</h4>
+                                                                 <p className="text-[10px] text-slate-400 font-mono">{record.staffEmail}</p>
+                                                            </div>
+                                                        </div>
+                                                        <span className="text-[10px] bg-slate-200 text-slate-600 px-2.5 py-1 rounded-full font-bold">{t('inv.custody.custodiesCount|count:' + filteredMaterials.length)}</span>
+                                                    </div>
+
+                                                    <div className="grid sm:grid-cols-2 gap-4">
+                                                        {filteredMaterials.map(([mName, stat]) => {
+                                                            const isUnused = stat.received > 0 && stat.used === 0 && stat.balance > 0;
+                                                            return (
+                                                                <div
+                                                                    key={mName}
+                                                                    className={`p-4 rounded-xl shadow-xs transition-all border ${
+                                                                        isUnused
+                                                                            ? 'bg-amber-50/70 border-amber-300 shadow-amber-50 relative overflow-hidden'
+                                                                            : 'bg-white border-slate-100'
+                                                                    }`}
+                                                                >
+                                                                    {isUnused && (
+                                                                        <div className="absolute top-0 left-0 right-0 h-1 bg-amber-400 animate-pulse"></div>
+                                                                    )}
+                                                                    <div className="flex justify-between items-start mb-2">
+                                                                        <h5 className="font-bold text-slate-800 text-sm truncate w-2/3" title={mName}>{mName}</h5>
+                                                                        {isUnused ? (
+                                                                            <span className="flex items-center gap-1 text-[9px] bg-amber-500 text-white font-black px-1.5 py-0.5 rounded-md animate-pulse">
+                                                                                <i className="fas fa-exclamation-triangle"></i>
+                                                                                {t('inv.custody.unusedWarning')}
+                                                                            </span>
+                                                                        ) : stat.balance === 0 ? (
+                                                                            <span className="text-[9px] bg-slate-200 text-slate-600 font-bold px-1.5 py-0.5 rounded-md">
+                                                                                {t('inv.custody.fullyConsumed')}
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="text-[9px] bg-teal-500 text-white font-bold px-1.5 py-0.5 rounded-md">
+                                                                                {t('inv.custody.partiallyUsed')} ✅
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="grid grid-cols-3 gap-1 text-center bg-slate-50 p-2 rounded-lg text-xs mt-2 border border-slate-100 font-bold">
+                                                                        <div>
+                                                                            <span className="block text-[8px] text-slate-400 font-bold">{t('inv.custody.received')}</span>
+                                                                            <span className="text-slate-700">{stat.received}</span>
+                                                                        </div>
+                                                                        <div>
+                                                                            <span className="block text-[8px] text-slate-400 font-bold">{t('inv.custody.consumed')}</span>
+                                                                            <span className="text-slate-700">{stat.used}</span>
+                                                                        </div>
+                                                                        <div>
+                                                                            <span className="block text-[8px] text-slate-400 font-bold">{t('inv.custody.remaining')}</span>
+                                                                            <span className={`font-black ${stat.balance > 0 ? 'text-teal-600' : 'text-slate-400'}`}>{stat.balance}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+
+                                    {Object.values(staffCustodyDetailed).length === 0 && (
+                                        <div className="text-center py-12 text-slate-400">
+                                            <i className="fas fa-users-slash text-3xl mb-2"></i>
+                                            <p className="text-sm">{t('inv.custody.noStaff')}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {distSubTab === 'handovers' && (
+                            <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-slate-50 space-y-6 animate-fade-in">
+                                <div className="border-b border-slate-100 pb-4">
+                                    <h2 className="text-xl font-black text-slate-800">{t('inv.custody.handoverLog')}</h2>
+                                    <p className="text-slate-400 text-xs mt-0.5">{t('inv.custody.handoverLogDesc')}</p>
+                                </div>
+
+                                <div className="space-y-4">
+                                    {consolidatedTransfers.length === 0 ? (
+                                        <div className="text-center py-16 text-slate-400 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-100">
+                                            <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-3 shadow-xs">
+                                                <i className="fas fa-exchange-alt text-2xl opacity-40"></i>
+                                            </div>
+                                            <p className="font-bold">{t('inv.custody.noHandovers')}</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {consolidatedTransfers.map(group => {
+                                                const isExpanded = expandedConsolidatedKey === group.key;
+                                                return (
+                                                    <div
+                                                        key={group.key}
+                                                        className={`border rounded-2xl transition-all shadow-sm ${
+                                                            group.status === 'pending'
+                                                                ? 'bg-amber-50/40 border-amber-200'
+                                                                : group.status === 'rejected'
+                                                                ? 'bg-red-50/20 border-red-100'
+                                                                : 'bg-white border-slate-100 hover:shadow-md'
+                                                        }`}
+                                                    >
+                                                        {/* Main summary row */}
+                                                        <div 
+                                                            className="p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 cursor-pointer select-none" 
+                                                            onClick={() => setExpandedConsolidatedKey(isExpanded ? null : group.key)}
+                                                        >
+                                                            <div className="flex-1 space-y-2">
+                                                                {/* Sender & Recipient Header */}
+                                                                <div className="flex flex-wrap items-center gap-2 font-bold text-sm">
+                                                                    <span className="text-slate-700 bg-slate-100 px-3 py-1 rounded-full">{group.senderName}</span>
+                                                                    <span className="text-indigo-500 font-black px-1">
+                                                                        <i className="fas fa-long-arrow-alt-left text-lg align-middle animate-pulse-slow"></i>
+                                                                    </span>
+                                                                    <span className="text-slate-700 bg-indigo-50 px-3 py-1 rounded-full">{group.recipientName}</span>
+                                                                </div>
+
+                                                                {/* Material and consolidated amount */}
+                                                                <div className="flex items-center gap-3 mt-1.5">
+                                                                    <span className="text-sm font-extrabold text-slate-800">{group.material}</span>
+                                                                    <span className="text-slate-300">|</span>
+                                                                    <span className="text-xs text-slate-500 font-bold flex items-center gap-1">
+                                                                        <i className="fas fa-layer-group text-slate-400"></i>
+                                                                        {t('inv.custody.total')}: <strong className="text-indigo-600 text-sm font-black">{group.totalAmount}</strong> {t('inv.custody.units')}
+                                                                    </span>
+                                                                    <span className="text-slate-300">|</span>
+                                                                    <span className="text-xs text-slate-500 font-bold">
+                                                                        {t('inv.custody.transferCount|count:' + group.items.length)}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Right actions and status */}
+                                                            <div className="flex items-center gap-3 shrink-0 self-end md:self-auto">
+                                                                {group.status === 'pending' ? (
+                                                                    <span className="bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-xs font-black flex items-center gap-1.5 animate-pulse">
+                                                                        {t('inv.custody.pendingReceipt')}
+                                                                    </span>
+                                                                ) : group.status === 'rejected' ? (
+                                                                    <span className="bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-bold">
+                                                                        {t('inv.custody.rejectedStatus')}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-xs font-bold">
+                                                                        {t('inv.custody.confirmedStatus')}
+                                                                    </span>
+                                                                )}
+                                                                
+                                                                <button type="button" className="text-slate-400 hover:text-slate-600 p-2 hover:bg-slate-100 rounded-full transition-colors">
+                                                                    <i className={`fas ${isExpanded ? 'fa-chevron-up' : 'fa-chevron-down'} text-sm`}></i>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Expanded transaction details list */}
+                                                        {isExpanded && (
+                                                            <div className="border-t border-slate-100 bg-slate-50/50 p-5 rounded-b-2xl space-y-3 animate-fade-in-down">
+                                                                <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider mb-2 flex items-center gap-1">
+                                                                    <i className="fas fa-list-ul"></i>
+                                                                    {t('inv.custody.individualMovements|count:' + group.items.length)}
+                                                                </p>
+                                                                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                                                    {group.items.map((item, idx) => {
+                                                                        const d = item.date?.toDate ? item.date.toDate() : new Date(item.date?.seconds * 1000 || Date.now());
+                                                                        return (
+                                                                            <div key={item.id || idx} className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs flex justify-between items-center text-xs">
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <span className="bg-slate-100 text-slate-600 w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px]">
+                                                                                        {idx + 1}
+                                                                                    </span>
+                                                                                    <span className="text-slate-600 font-medium">
+                                                                                        {d.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                                                    </span>
+                                                                                    <span className="text-slate-300">•</span>
+                                                                                    <span className="text-slate-500 font-mono">
+                                                                                        {d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <div className="flex items-center gap-3 font-bold">
+                                                                                    <span className="font-extrabold text-slate-800">
+                                                                                        {item.amount} {t('inv.custody.units')}
+                                                                                    </span>
+                                                                                    {group.status === 'pending' && (
+                                                                                        <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 font-bold">
+                                                                                            {t('inv.custody.pendingCount')}
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -1422,8 +1969,8 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                 >
                                                     <option value="">اختر المادة لنقلها...</option>
                                                     {materials.map(m => {
-                                                        const distributed = distributions.filter(d => d.material === m.name && (d.staffEmail === userEmail || d.staffName === userName)).reduce((sum, d) => sum + d.amount, 0);
-                                                        const used = usages.filter(u => u.material === m.name && u.fromCustody && (u.staffEmail === userEmail || u.staffName === userName)).reduce((sum, u) => sum + u.amount, 0);
+                                                        const distributed = distributions.filter(d => d.material.trim() === m.name.trim() && isUserDistribution(d)).reduce((sum, d) => sum + d.amount, 0);
+                                                        const used = usages.filter(u => u.material.trim() === m.name.trim() && u.fromCustody && isUserUsage(u)).reduce((sum, u) => sum + u.amount, 0);
                                                         const balance = distributed - used;
                                                         if (balance <= 0) return null;
                                                         return <option key={m.id} value={m.name}>{m.name} (المتاح: {balance})</option>;
@@ -1499,8 +2046,8 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
                                 <h3 className="font-bold text-slate-700 text-lg">{t('inv.custody.balance')}</h3>
                                 {materials.map(m => {
-                                    const distributed = distributions.filter(d => d.material === m.name && (d.staffEmail === userEmail || d.staffName === userName)).reduce((sum, d) => sum + d.amount, 0);
-                                    const used = usages.filter(u => u.material === m.name && u.fromCustody && (u.staffEmail === userEmail || u.staffName === userName)).reduce((sum, u) => sum + u.amount, 0);
+                                    const distributed = distributions.filter(d => d.material.trim() === m.name.trim() && isUserDistribution(d)).reduce((sum, d) => sum + d.amount, 0);
+                                    const used = usages.filter(u => u.material.trim() === m.name.trim() && u.fromCustody && isUserUsage(u)).reduce((sum, u) => sum + u.amount, 0);
                                     const balance = distributed - used;
                                     if (distributed === 0) return null;
                                     return (

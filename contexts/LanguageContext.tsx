@@ -651,6 +651,13 @@ const translations: Record<string, { ar: string; en: string }> = {
   'inv.custody.recipientNotFound': { ar: 'الموظف المستلم غير موجود', en: 'Recipient employee not found' },
   'inv.custody.pendingCount': { ar: 'بانتظار العد', en: 'Pending Count' },
   
+  'inv.print.options': { ar: 'خيارات محتوى التقرير للطباعة', en: 'Report Content Options for Printing' },
+  'inv.print.materialBreakdown': { ar: 'تفاصيل وتحليل أصناف المواد (Material Breakdown)', en: 'Material Breakdown & Analysis' },
+  'inv.print.transactionLogs': { ar: 'سجل العمليات والحركات (Transaction Logs)', en: 'Detailed Transaction Logs' },
+  'inv.print.staffCustody': { ar: 'تقرير وأرصدة عهد الموظفين (Staff Custody Report)', en: 'Staff Custody Balance Report' },
+  'inv.print.all': { ar: 'تضمين جميع الأقسام', en: 'Include All Sections' },
+  'inv.print.warning': { ar: 'ملاحظة: الأقسام غير المحددة سيتم إخفاؤها تلقائياً من الصفحة والنسخة المطبوعة.', en: 'Note: Unchecked sections will be hidden automatically from the page and the printed version.' },
+  
   'inv.stat.low': { ar: 'مواد أوشكت على النفاذ', en: 'Low Stock Items' },
   'inv.stat.expiry': { ar: 'تنتهي صلاحيتها قريباً', en: 'Expiring Soon' },
   'inv.stat.total': { ar: 'إجمالي الوحدات بالمخزن', en: 'Total Units in Stock' },

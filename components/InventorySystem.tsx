@@ -84,6 +84,11 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     const [reportEnd, setReportEnd] = useState(new Date().toISOString().slice(0, 7));
     const [reportSearch, setReportSearch] = useState('');
 
+    // Print Options Toggles
+    const [printMaterialBreakdown, setPrintMaterialBreakdown] = useState(true);
+    const [printTransactionLogs, setPrintTransactionLogs] = useState(true);
+    const [printStaffCustody, setPrintStaffCustody] = useState(true);
+
     // Incoming Tab Filter
     const [incomingViewMonth, setIncomingViewMonth] = useState(new Date().toISOString().slice(0, 7));
 
@@ -2301,179 +2306,383 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                         
                         <PrintHeader title={t('inv.rep.title')} subtitle="TRANSACTION LOG" />
 
-                        <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100 print:hidden">
+                        {/* Control Panel: Filters & Print Trigger */}
+                        <div className="flex flex-col sm:flex-row justify-between sm:items-center bg-white p-5 rounded-2xl shadow-sm border border-slate-150 print:hidden gap-4">
                             <div className="flex items-center gap-2">
-                                <h2 className="text-xl font-black text-slate-800">{t('inv.rep.title')}</h2>
+                                <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center text-lg shadow-sm">
+                                    <i className="fas fa-file-invoice"></i>
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-black text-slate-800">{t('inv.rep.title')}</h2>
+                                    <p className="text-xs text-slate-400">تنسيق وتصدير تقارير المخزون الرئيسي والعهد</p>
+                                </div>
                             </div>
-                            <div className="flex gap-2 items-center">
-                                <select className="bg-slate-50 border-none rounded-lg p-2 text-sm font-bold text-slate-600" value={reportFilter} onChange={e => setReportFilter(e.target.value as any)}>
+                            <div className="flex flex-wrap gap-2 items-center">
+                                <select className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-indigo-100" value={reportFilter} onChange={e => setReportFilter(e.target.value as any)}>
                                     <option value="all">All Time</option>
                                     <option value="range">Date Range</option>
                                 </select>
                                 {reportFilter === 'range' && (
-                                    <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-1">
-                                        <input type="month" className="bg-transparent border-none text-sm p-1" value={reportStart} onChange={e => setReportStart(e.target.value)} />
+                                    <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl p-2">
+                                        <input type="month" className="bg-transparent border-none text-sm p-1 font-bold text-slate-600 outline-none" value={reportStart} onChange={e => setReportStart(e.target.value)} />
                                         <span className="text-slate-400 font-bold">➜</span>
-                                        <input type="month" className="bg-transparent border-none text-sm p-1" value={reportEnd} onChange={e => setReportEnd(e.target.value)} />
+                                        <input type="month" className="bg-transparent border-none text-sm p-1 font-bold text-slate-600 outline-none" value={reportEnd} onChange={e => setReportEnd(e.target.value)} />
                                     </div>
                                 )}
-                                <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-700"><i className="fas fa-print rtl:ml-2 ltr:mr-2"></i> {t('print')}</button>
+                                <button onClick={() => window.print()} className="bg-indigo-600 text-white px-5 py-3 rounded-xl text-sm font-bold hover:bg-indigo-750 transition-all flex items-center gap-2 shadow-lg shadow-indigo-100 hover:scale-[1.01] active:scale-95">
+                                    <i className="fas fa-print"></i> {t('print')}
+                                </button>
                             </div>
                         </div>
 
-                        {/* Detailed Material Breakdown (NEW REVERSE CALCULATION LOGIC) */}
-                        <div className="print:break-inside-avoid">
-                            <h3 className="text-lg font-black text-slate-700 mb-4 uppercase tracking-wider flex items-center gap-2">
-                                <i className="fas fa-cubes text-indigo-500"></i> Material Breakdown
-                                <span className="text-xs font-normal text-slate-400 ml-2">
-                                    ({reportFilter === 'range' ? `${reportStart} ➜ ${reportEnd}` : 'All Time'})
-                                </span>
-                            </h3>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                                {materialStats.map(([matName, stat]) => {
-                                    // With Reverse Calculation, `endBalance` is derived directly from Current Stock + Future transactions.
-                                    // `startBalance` is derived from `endBalance` - In + Out.
-                                    // This guarantees the final number matches the inventory exactly.
-                                    
-                                    return (
-                                    <div key={matName} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                                        <div className="bg-slate-50 p-4 border-b border-slate-100">
-                                            <h4 className="font-bold text-slate-800 text-lg truncate" title={matName}>{matName}</h4>
-                                        </div>
-                                        
-                                        <div className="p-4">
-                                            {/* Stock Flow Visualization */}
-                                            <div className="flex items-center justify-between mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                                <div className="text-center">
-                                                    <span className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Open</span>
-                                                    <span className="block text-sm font-black text-slate-600">{stat.startBalance}</span>
-                                                </div>
-                                                <div className="text-slate-300"><i className="fas fa-plus"></i></div>
-                                                <div className="text-center">
-                                                    <span className="block text-[10px] text-emerald-500 font-bold uppercase mb-1">Added</span>
-                                                    <span className="block text-sm font-black text-emerald-600">{stat.periodIn}</span>
-                                                </div>
-                                                <div className="text-slate-300"><i className="fas fa-minus"></i></div>
-                                                <div className="text-center">
-                                                    <span className="block text-[10px] text-red-500 font-bold uppercase mb-1">Used</span>
-                                                    <span className="block text-sm font-black text-red-600">{stat.periodOut}</span>
-                                                </div>
-                                            </div>
-                                            
-                                            {/* Net Result (Matching Actual Stock) */}
-                                            <div className="flex justify-between items-center mb-4">
-                                                 <span className="text-xs font-bold text-slate-500 uppercase">Net Balance</span>
-                                                 <span className="text-xl font-black text-slate-800 bg-slate-100 px-3 py-1 rounded-lg">
-                                                     {stat.endBalance}
-                                                 </span>
-                                            </div>
+                        {/* --- Print Settings Control Card (Screen Only) --- */}
+                        <div className="bg-gradient-to-br from-indigo-50/70 to-blue-50/50 border border-indigo-100/80 p-5 rounded-2xl shadow-sm print:hidden space-y-4">
+                            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                                <div>
+                                    <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm sm:text-base">
+                                        <i className="fas fa-sliders-h text-indigo-600"></i> {t('inv.print.options')}
+                                    </h3>
+                                    <p className="text-xs text-slate-500 mt-1">{t('inv.print.warning')}</p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => {
+                                            const allOn = !printMaterialBreakdown || !printTransactionLogs || !printStaffCustody;
+                                            setPrintMaterialBreakdown(allOn);
+                                            setPrintTransactionLogs(allOn);
+                                            setPrintStaffCustody(allOn);
+                                        }}
+                                        className="text-xs font-bold px-3 py-2 rounded-lg bg-indigo-100 hover:bg-indigo-200 text-indigo-700 transition-colors flex items-center gap-1.5"
+                                    >
+                                        <i className="fas fa-check-double"></i> {t('inv.print.all')}
+                                    </button>
+                                </div>
+                            </div>
 
-                                            {/* Usage Breakdown */}
-                                            <div>
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 border-b border-slate-100 pb-1">Usage By Staff</p>
-                                                <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar pr-1">
-                                                    {Object.entries(stat.staffUsage).length === 0 ? (
-                                                        <p className="text-xs text-slate-400 italic text-center py-2">No usage recorded</p>
-                                                    ) : (
-                                                        Object.entries(stat.staffUsage).sort((a,b)=>b[1]-a[1]).map(([staff, amount]) => (
-                                                            <div key={staff} className="flex justify-between items-center text-xs">
-                                                                <span className="text-slate-600 font-medium truncate w-2/3" title={staff}>{staff}</span>
-                                                                <span className="font-bold text-slate-800 bg-slate-100 px-1.5 rounded">{amount}</span>
-                                                            </div>
-                                                        ))
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <label className={`flex items-start gap-3 p-3 bg-white rounded-xl border cursor-pointer transition-all hover:border-indigo-300 ${printMaterialBreakdown ? 'border-indigo-400 ring-2 ring-indigo-50/50' : 'border-slate-200'}`}>
+                                    <input 
+                                        type="checkbox" 
+                                        className="mt-1 rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4" 
+                                        checked={printMaterialBreakdown} 
+                                        onChange={e => setPrintMaterialBreakdown(e.target.checked)} 
+                                    />
+                                    <div>
+                                        <span className="block font-black text-slate-800 text-xs">{t('inv.print.materialBreakdown')}</span>
+                                        <span className="block text-[10px] text-slate-400 mt-0.5">تحليل استهلاك رصيد الصبغات والمواد والعهد النشطة</span>
                                     </div>
-                                )})}
+                                </label>
+
+                                <label className={`flex items-start gap-3 p-3 bg-white rounded-xl border cursor-pointer transition-all hover:border-indigo-300 ${printTransactionLogs ? 'border-indigo-400 ring-2 ring-indigo-50/50' : 'border-slate-200'}`}>
+                                    <input 
+                                        type="checkbox" 
+                                        className="mt-1 rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4" 
+                                        checked={printTransactionLogs} 
+                                        onChange={e => setPrintTransactionLogs(e.target.checked)} 
+                                    />
+                                    <div>
+                                        <span className="block font-black text-slate-800 text-xs">{t('inv.print.transactionLogs')}</span>
+                                        <span className="block text-[10px] text-slate-400 mt-0.5">سجل العمليات المفصل لجميع الصرف والتوريد</span>
+                                    </div>
+                                </label>
+
+                                <label className={`flex items-start gap-3 p-3 bg-white rounded-xl border cursor-pointer transition-all hover:border-indigo-300 ${printStaffCustody ? 'border-indigo-400 ring-2 ring-indigo-50/50' : 'border-slate-200'}`}>
+                                    <input 
+                                        type="checkbox" 
+                                        className="mt-1 rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4" 
+                                        checked={printStaffCustody} 
+                                        onChange={e => setPrintStaffCustody(e.target.checked)} 
+                                    />
+                                    <div>
+                                        <span className="block font-black text-slate-800 text-xs">{t('inv.print.staffCustody')}</span>
+                                        <span className="block text-[10px] text-slate-400 mt-0.5">تقرير أرصدة العهد الفردية لجميع الموظفين بالقسم</span>
+                                    </div>
+                                </label>
                             </div>
                         </div>
 
-                        {/* Logs Header with Search */}
-                        <div className="flex flex-col sm:flex-row justify-between sm:items-center mt-8 mb-4 print:hidden gap-4">
-                            <h3 className="text-lg font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
-                                <i className="fas fa-list text-indigo-500"></i> Transaction Logs
-                            </h3>
-                            <div className="relative border border-slate-300 rounded-lg bg-white overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 max-w-sm w-full">
-                                <i className="fas fa-search absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 rtl:right-auto rtl:left-3"></i>
-                                <input type="text" placeholder={t('inv.searchHint')} className="w-full p-2 pl-3 rtl:pl-9 rtl:pr-3 outline-none text-sm" value={reportSearch} onChange={e => setReportSearch(e.target.value)} />
-                            </div>
-                        </div>
+                        {/* --- SECTION 1: DETAILED MATERIAL BREAKDOWN --- */}
+                        {printMaterialBreakdown && (
+                            <div className="space-y-4 print:break-inside-avoid">
+                                <h3 className="text-lg font-black text-slate-700 uppercase tracking-wider flex items-center gap-2 border-b border-slate-100 pb-2 print:border-slate-300">
+                                    <i className="fas fa-cubes text-indigo-500"></i> {t('inv.print.materialBreakdown')}
+                                    <span className="text-xs font-normal text-slate-400 ml-2">
+                                        ({reportFilter === 'range' ? `${reportStart} ➜ ${reportEnd}` : 'All Time'})
+                                    </span>
+                                </h3>
+                                
+                                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                                    {materialStats.map(([matName, stat]) => {
+                                        // 1. Calculate Active Custody Holders for this specific material
+                                        const activeCustodies = Object.entries(staffBalances)
+                                            .map(([email, data]) => ({
+                                                name: data.name,
+                                                balance: data.materials[matName.trim()] || 0
+                                            }))
+                                            .filter(c => c.balance > 0);
 
-                        {/* Original Detailed Log Table */}
-                        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none print:rounded-none">
-                            <table className={`w-full text-sm ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
-                                <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 print:bg-white print:border-b-2 print:border-slate-800 print:text-black">
-                                    <tr>
-                                        <th className="p-4 border-r print:border-slate-800">{t('date')}</th>
-                                        <th className="p-4 border-r print:border-slate-800">{t('inv.usage.material')}</th>
-                                        <th className="p-4 border-r print:border-slate-800">{t('inv.usage.amount')}</th>
-                                        <th className="p-4 border-r print:border-slate-800">{t('role.user')}</th>
-                                        <th className="p-4">{t('inv.usage.file')}</th>
-                                        {isAdmin && <th className="p-4 print:hidden w-10"></th>}
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50 print:divide-slate-800">
-                                    {filteredUsages.map(u => (
-                                        <tr key={u.id} className="hover:bg-slate-50/50 print:break-inside-avoid group">
-                                            <td className="p-4 font-mono text-slate-500 dir-ltr print:text-black border-r print:border-slate-800">{u.date?.toDate ? u.date.toDate().toLocaleDateString('en-US') : 'N/A'}</td>
-                                            <td className="p-4 font-bold text-slate-800 border-r print:border-slate-800">{u.material}</td>
-                                            <td className="p-4 font-bold text-red-500 border-r print:border-slate-800">-{u.amount}</td>
-                                            <td className="p-4 text-slate-600 border-r print:border-slate-800 print:text-black">{u.staffName}</td>
-                                            <td className="p-4 font-mono text-slate-500 print:text-black">{u.patientFileNumber}</td>
-                                            {isAdmin && (
-                                                <td className="p-4 print:hidden text-center">
-                                                    <button onClick={() => handleDeleteUsage(u)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all" title="Delete & Restore Stock">
-                                                        <i className="fas fa-trash"></i>
-                                                    </button>
-                                                </td>
-                                            )}
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                        // 2. Get Recent Transactions (Usages & Invoices) for this specific material inside period
+                                        const materialUsages = usages.filter(u => u.material.trim() === matName.trim() && (reportFilter === 'all' || (() => {
+                                            const d = u.date?.toDate ? u.date.toDate() : new Date((u.date?.seconds || 0) * 1000);
+                                            const isoMonth = d.toISOString().slice(0, 7);
+                                            return isoMonth >= reportStart && isoMonth <= reportEnd;
+                                        })()));
 
-                        {/* Staff Custody Report */}
-                        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden print:shadow-none print:border-none mt-8">
-                            <div className="p-4 border-b border-slate-100 bg-slate-50 print:bg-transparent print:border-slate-800 flex justify-between items-center">
-                                <h3 className="font-bold text-slate-800">{t('inv.custody.report')}</h3>
+                                        const materialInvoices = invoices.filter(inv => inv.material.trim() === matName.trim() && (reportFilter === 'all' || (() => {
+                                            const d = inv.date?.toDate ? inv.date.toDate() : new Date((inv.date?.seconds || 0) * 1000);
+                                            const isoMonth = d.toISOString().slice(0, 7);
+                                            return isoMonth >= reportStart && isoMonth <= reportEnd;
+                                        })()));
+
+                                        const recentActions = [
+                                            ...materialUsages.map(u => ({
+                                                type: 'usage',
+                                                date: u.date,
+                                                amount: u.amount,
+                                                user: u.staffName,
+                                                ref: u.patientFileNumber || ''
+                                            })),
+                                            ...materialInvoices.map(inv => ({
+                                                type: 'invoice',
+                                                date: inv.date,
+                                                amount: inv.quantityAdded,
+                                                user: inv.createdBy || 'System',
+                                                ref: (inv as any).invoiceNumber || 'Invoice'
+                                            }))
+                                        ].sort((a, b) => {
+                                            const da = a.date?.toDate ? a.date.toDate().getTime() : (a.date?.seconds || 0) * 1000;
+                                            const db = b.date?.toDate ? b.date.toDate().getTime() : (b.date?.seconds || 0) * 1000;
+                                            return db - da;
+                                        }).slice(0, 5);
+
+                                        return (
+                                            <div key={matName} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-all print:break-inside-avoid print:border-slate-400 print:shadow-none flex flex-col">
+                                                {/* Card Header */}
+                                                <div className="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center print:bg-slate-100 print:border-slate-300">
+                                                    <h4 className="font-bold text-slate-800 text-base truncate pr-2" title={matName}>{matName}</h4>
+                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${stat.endBalance <= 10 ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
+                                                        {stat.endBalance <= 10 ? 'Low Stock' : 'Good Level'}
+                                                    </span>
+                                                </div>
+                                                
+                                                {/* Card Body */}
+                                                <div className="p-4 space-y-4 flex-1 flex flex-col justify-between">
+                                                    <div>
+                                                        {/* Stock Flow Visualization */}
+                                                        <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100 print:bg-slate-50 print:border-slate-200 mb-3">
+                                                            <div className="text-center">
+                                                                <span className="block text-[9px] text-slate-400 font-bold uppercase mb-0.5">Open</span>
+                                                                <span className="block text-xs font-black text-slate-600">{stat.startBalance}</span>
+                                                            </div>
+                                                            <div className="text-slate-300 text-[10px]"><i className="fas fa-plus"></i></div>
+                                                            <div className="text-center">
+                                                                <span className="block text-[9px] text-emerald-500 font-bold uppercase mb-0.5">Added</span>
+                                                                <span className="block text-xs font-black text-emerald-600">+{stat.periodIn}</span>
+                                                            </div>
+                                                            <div className="text-slate-300 text-[10px]"><i className="fas fa-minus"></i></div>
+                                                            <div className="text-center">
+                                                                <span className="block text-[9px] text-red-500 font-bold uppercase mb-0.5">Used</span>
+                                                                <span className="block text-xs font-black text-red-600">-{stat.periodOut}</span>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Net Result */}
+                                                        <div className="flex justify-between items-center border-b border-slate-100 pb-2 mb-3">
+                                                             <span className="text-[11px] font-bold text-slate-500 uppercase">Net Balance</span>
+                                                             <span className="text-base font-black text-slate-800 bg-slate-100 px-2.5 py-0.5 rounded-lg print:bg-slate-200">
+                                                                 {stat.endBalance}
+                                                             </span>
+                                                        </div>
+
+                                                        {/* Grid: Staff Usage & Staff Custody */}
+                                                        <div className="grid grid-cols-2 gap-4 border-b border-slate-100 pb-3 mb-3">
+                                                            {/* Usage Breakdown */}
+                                                            <div className="border-r border-slate-150 pr-2">
+                                                                <p className="text-[9px] font-bold text-slate-400 uppercase mb-1.5 pb-0.5 border-b border-slate-100 flex items-center gap-1">
+                                                                    <i className="fas fa-user-tag text-indigo-400 text-[8px]"></i> Usage By Staff
+                                                                </p>
+                                                                <div className="space-y-1 max-h-24 overflow-y-auto custom-scrollbar">
+                                                                    {Object.entries(stat.staffUsage).length === 0 ? (
+                                                                        <p className="text-[9px] text-slate-400 italic text-center py-1">No usage</p>
+                                                                    ) : (
+                                                                        Object.entries(stat.staffUsage).sort((a,b)=>b[1]-a[1]).map(([staff, amount]) => (
+                                                                            <div key={staff} className="flex justify-between items-center text-[10px]">
+                                                                                <span className="text-slate-600 font-medium truncate w-2/3" title={staff}>{staff}</span>
+                                                                                <span className="font-bold text-slate-800 bg-slate-100 px-1 rounded">{amount}</span>
+                                                                            </div>
+                                                                        ))
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Custody Balances */}
+                                                            <div>
+                                                                <p className="text-[9px] font-bold text-slate-400 uppercase mb-1.5 pb-0.5 border-b border-slate-100 flex items-center gap-1">
+                                                                    <i className="fas fa-briefcase text-teal-400 text-[8px]"></i> Active Custody
+                                                                </p>
+                                                                <div className="space-y-1 max-h-24 overflow-y-auto custom-scrollbar">
+                                                                    {activeCustodies.length === 0 ? (
+                                                                        <p className="text-[9px] text-slate-400 italic text-center py-1">No custody</p>
+                                                                    ) : (
+                                                                        activeCustodies.sort((a,b)=>b.balance-a.balance).map(cust => (
+                                                                            <div key={cust.name} className="flex justify-between items-center text-[10px]">
+                                                                                <span className="text-slate-600 font-medium truncate w-2/3" title={cust.name}>{cust.name}</span>
+                                                                                <span className="font-bold text-teal-600 bg-teal-50 px-1 rounded">{cust.balance}</span>
+                                                                            </div>
+                                                                        ))
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Recent Activities Section */}
+                                                    <div>
+                                                        <p className="text-[9px] font-bold text-slate-400 uppercase mb-1.5 pb-0.5 border-b border-slate-100 flex items-center gap-1">
+                                                            <i className="fas fa-history text-indigo-400 text-[8px]"></i> Recent Activity
+                                                        </p>
+                                                        <div className="space-y-1">
+                                                            {recentActions.length === 0 ? (
+                                                                <p className="text-[9px] text-slate-400 italic text-center py-1">No activities</p>
+                                                            ) : (
+                                                                recentActions.map((act, i) => {
+                                                                    const dateString = act.date?.toDate ? act.date.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'N/A';
+                                                                    return (
+                                                                        <div key={i} className="flex justify-between items-center text-[9px] bg-slate-50 p-1 rounded border border-slate-100">
+                                                                            <span className="text-slate-400">{dateString}</span>
+                                                                            <span className="text-slate-600 truncate max-w-[80px]" title={act.user}>{act.user}</span>
+                                                                            <span className={`font-black ${act.type === 'invoice' ? 'text-emerald-600' : 'text-red-500'}`}>
+                                                                                {act.type === 'invoice' ? `+${act.amount}` : `-${act.amount}`}
+                                                                            </span>
+                                                                        </div>
+                                                                    );
+                                                                })
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             </div>
-                            <table className="w-full text-left text-sm print:text-xs">
-                                <thead className="bg-slate-50 text-slate-500 font-bold print:bg-slate-100 print:text-black">
-                                    <tr>
-                                        <th className="p-4 border-r print:border-slate-800">{t('inv.dist.staffName')}</th>
-                                        <th className="p-4 border-r print:border-slate-800">{t('inv.usage.material')}</th>
-                                        <th className="p-4 border-r print:border-slate-800">Total In</th>
-                                        <th className="p-4 border-r print:border-slate-800">Total Out</th>
-                                        <th className="p-4 print:border-slate-800">Balance</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50 print:divide-slate-800">
-                                    {Object.entries(staffBalances).map(([email, data]) => (
-                                        Object.entries(data.materials).map(([mat, bal], idx) => {
-                                            const distSum = distributions.filter(d => d.material === mat && (d.staffEmail === email || d.staffName === email)).reduce((sum, d) => sum + d.amount, 0);
-                                            const useSum = usages.filter(u => u.material === mat && u.fromCustody && (u.staffEmail === email || u.staffName === email)).reduce((sum, u) => sum + u.amount, 0);
-                                            return (
-                                                <tr key={`${email}-${mat}`} className="hover:bg-slate-50/50 print:break-inside-avoid">
-                                                    {idx === 0 && (
-                                                        <td className="p-4 font-bold text-slate-800 border-r print:border-slate-800 print:text-black" rowSpan={Object.keys(data.materials).length}>
-                                                            {data.name}
+                        )}
+
+                        {/* --- SECTION 2: TRANSACTION LOGS --- */}
+                        {printTransactionLogs && (
+                            <div className="space-y-4 print:break-inside-avoid print:mt-8">
+                                {/* Logs Header with Search */}
+                                <div className="flex flex-col sm:flex-row justify-between sm:items-center mt-8 mb-4 print:hidden gap-4">
+                                    <h3 className="text-lg font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                                        <i className="fas fa-list text-indigo-500"></i> {t('inv.print.transactionLogs')}
+                                    </h3>
+                                    <div className="relative border border-slate-200 rounded-xl bg-white overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 max-w-sm w-full shadow-sm">
+                                        <i className="fas fa-search absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 rtl:right-auto rtl:left-3"></i>
+                                        <input type="text" placeholder={t('inv.searchHint')} className="w-full p-3 pl-3 rtl:pl-9 rtl:pr-3 outline-none text-sm font-medium" value={reportSearch} onChange={e => setReportSearch(e.target.value)} />
+                                    </div>
+                                </div>
+
+                                <div className="hidden print:block mb-3">
+                                    <h3 className="text-lg font-black text-slate-700 uppercase tracking-wider flex items-center gap-2 border-b border-slate-100 pb-2 print:border-slate-300">
+                                        <i className="fas fa-list text-indigo-500"></i> {t('inv.print.transactionLogs')}
+                                    </h3>
+                                </div>
+
+                                {/* Original Detailed Log Table */}
+                                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-400 print:shadow-none print:rounded-none">
+                                    <table className={`w-full text-sm ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
+                                        <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 print:bg-slate-100 print:border-b print:border-slate-400 print:text-black">
+                                            <tr>
+                                                <th className="p-4 border-r print:border-slate-400">{t('date')}</th>
+                                                <th className="p-4 border-r print:border-slate-400">{t('inv.usage.material')}</th>
+                                                <th className="p-4 border-r print:border-slate-400">{t('inv.usage.amount')}</th>
+                                                <th className="p-4 border-r print:border-slate-400">{t('role.user')}</th>
+                                                <th className="p-4">{t('inv.usage.file')}</th>
+                                                {isAdmin && <th className="p-4 print:hidden w-10"></th>}
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 print:divide-slate-300">
+                                            {filteredUsages.map(u => (
+                                                <tr key={u.id} className="hover:bg-slate-50/50 print:break-inside-avoid group">
+                                                    <td className="p-4 font-mono text-slate-500 dir-ltr print:text-black border-r print:border-slate-400">{u.date?.toDate ? u.date.toDate().toLocaleDateString('en-US') : 'N/A'}</td>
+                                                    <td className="p-4 font-bold text-slate-800 border-r print:border-slate-400">{u.material}</td>
+                                                    <td className="p-4 font-bold text-red-500 border-r print:border-slate-400">-{u.amount}</td>
+                                                    <td className="p-4 text-slate-600 border-r print:border-slate-400 print:text-black">{u.staffName}</td>
+                                                    <td className="p-4 font-mono text-slate-500 print:text-black">{u.patientFileNumber}</td>
+                                                    {isAdmin && (
+                                                        <td className="p-4 print:hidden text-center">
+                                                            <button onClick={() => handleDeleteUsage(u)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all" title="Delete & Restore Stock">
+                                                                <i className="fas fa-trash"></i>
+                                                            </button>
                                                         </td>
                                                     )}
-                                                    <td className="p-4 font-bold text-slate-700 border-r print:border-slate-800">{mat}</td>
-                                                    <td className="p-4 text-orange-600 font-bold border-r print:border-slate-800">+{distSum}</td>
-                                                    <td className="p-4 text-teal-600 font-bold border-r print:border-slate-800">-{useSum}</td>
-                                                    <td className={`p-4 font-black ${bal > 0 ? 'text-emerald-600' : 'text-red-500'}`}>{bal}</td>
                                                 </tr>
-                                            );
-                                        })
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                            ))}
+                                            {filteredUsages.length === 0 && (
+                                                <tr>
+                                                    <td colSpan={isAdmin ? 6 : 5} className="text-center py-8 text-slate-400 italic bg-slate-50/50">
+                                                        No records found
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* --- SECTION 3: STAFF CUSTODY REPORT --- */}
+                        {printStaffCustody && (
+                            <div className="space-y-4 print:break-inside-avoid print:mt-8">
+                                <div className="mt-8 mb-4">
+                                    <h3 className="text-lg font-black text-slate-700 uppercase tracking-wider flex items-center gap-2 border-b border-slate-100 pb-2 print:border-slate-300">
+                                        <i className="fas fa-briefcase text-indigo-500"></i> {t('inv.print.staffCustody')}
+                                    </h3>
+                                </div>
+
+                                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:shadow-none print:border print:border-slate-400 print:rounded-none">
+                                    <table className="w-full text-left text-sm print:text-xs">
+                                        <thead className="bg-slate-50 text-slate-500 font-bold print:bg-slate-100 print:border-b print:border-slate-400 print:text-black">
+                                            <tr>
+                                                <th className="p-4 border-r print:border-slate-400">{t('inv.dist.staffName')}</th>
+                                                <th className="p-4 border-r print:border-slate-400">{t('inv.usage.material')}</th>
+                                                <th className="p-4 border-r print:border-slate-400">Total In</th>
+                                                <th className="p-4 border-r print:border-slate-400">Total Out</th>
+                                                <th className="p-4 print:border-slate-400">Balance</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 print:divide-slate-300">
+                                            {Object.entries(staffBalances).map(([email, data]) => (
+                                                Object.entries(data.materials).map(([mat, bal], idx) => {
+                                                    const distSum = distributions.filter(d => d.material === mat && (d.staffEmail === email || d.staffName === email)).reduce((sum, d) => sum + d.amount, 0);
+                                                    const useSum = usages.filter(u => u.material === mat && u.fromCustody && (u.staffEmail === email || u.staffName === email)).reduce((sum, u) => sum + u.amount, 0);
+                                                    return (
+                                                        <tr key={`${email}-${mat}`} className="hover:bg-slate-50/50 print:break-inside-avoid">
+                                                            {idx === 0 && (
+                                                                <td className="p-4 font-bold text-slate-800 border-r print:border-slate-400 print:text-black" rowSpan={Object.keys(data.materials).length}>
+                                                                    {data.name}
+                                                                </td>
+                                                            )}
+                                                            <td className="p-4 font-bold text-slate-700 border-r print:border-slate-400">{mat}</td>
+                                                            <td className="p-4 text-orange-600 font-bold border-r print:border-slate-400">+{distSum}</td>
+                                                            <td className="p-4 text-teal-600 font-bold border-r print:border-slate-400 text-teal-600 font-bold">-{useSum}</td>
+                                                            <td className={`p-4 font-black ${bal > 0 ? 'text-emerald-600' : 'text-red-500'}`}>{bal}</td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            ))}
+                                            {Object.keys(staffBalances).length === 0 && (
+                                                <tr>
+                                                    <td colSpan={5} className="text-center py-8 text-slate-400 italic bg-slate-50/50">
+                                                        No active custody balances
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
                         
                         <PrintFooter />
                     </div>

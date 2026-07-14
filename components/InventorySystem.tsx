@@ -997,7 +997,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
     // 1. Filter Raw Data based on Report Settings (For Details View)
     const filteredUsages = useMemo(() => {
-        return usages.filter(u => {
+        const list = usages.filter(u => {
             let passDate = false;
             if (reportFilter === 'all') passDate = true;
             else if (u.date) {
@@ -1011,6 +1011,13 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 (u.staffName && u.staffName.toLowerCase().includes(searchLower));
             
             return passDate && passSearch;
+        });
+
+        // Explicitly sort descending by date and time
+        return list.sort((a, b) => {
+            const da = a.date?.toDate ? a.date.toDate().getTime() : (a.date?.seconds || 0) * 1000;
+            const db = b.date?.toDate ? b.date.toDate().getTime() : (b.date?.seconds || 0) * 1000;
+            return db - da;
         });
     }, [usages, reportFilter, reportStart, reportEnd, reportSearch]);
 
@@ -1996,7 +2003,11 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                     onChange={e => setTransferRecipient(e.target.value)}
                                                 >
                                                     <option value="">اختر الموظف المستلم...</option>
-                                                    {employees.filter(emp => emp.email !== userEmail && emp.name !== userName).map(emp => (
+                                                    {employees.filter(emp => 
+                                                        emp.email !== userEmail && 
+                                                        emp.name !== userName && 
+                                                        !['admin', 'supervisor', 'manager', 'custody_clerk'].includes(emp.role)
+                                                    ).map(emp => (
                                                         <option key={emp.id} value={emp.id}>{emp.name}</option>
                                                     ))}
                                                 </select>
@@ -2048,6 +2059,57 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                         </div>
                                     </div>
                                 )}
+
+                                {/* أحدث تسجيلات الصبغة للموظف بترتيب الوقت والتاريخ */}
+                                <div className="mb-6 pb-6 border-b border-slate-150">
+                                    <h3 className="font-black text-slate-700 text-lg mb-4 flex items-center gap-2">
+                                        <i className="fas fa-history text-teal-600"></i>
+                                        أحدث تسجيلاتك للصبغة (استهلاك العهدة)
+                                    </h3>
+                                    
+                                    {usages.filter(isUserUsage).length === 0 ? (
+                                        <p className="text-sm text-slate-400 text-center py-6 bg-slate-50 rounded-2xl border border-dashed border-slate-200">لا توجد تسجيلات استهلاك سابقة لك بعد</p>
+                                    ) : (
+                                        <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                                            {usages
+                                                .filter(isUserUsage)
+                                                .sort((a, b) => {
+                                                     const da = a.date?.toDate ? a.date.toDate().getTime() : (a.date?.seconds || 0) * 1000;
+                                                     const db = b.date?.toDate ? b.date.toDate().getTime() : (b.date?.seconds || 0) * 1000;
+                                                     return db - da;
+                                                })
+                                                .map(u => {
+                                                    const d = u.date?.toDate ? u.date.toDate() : new Date((u.date?.seconds || 0) * 1000);
+                                                    return (
+                                                        <div key={u.id} className="bg-white p-4 rounded-2xl shadow-xs border border-slate-100 hover:shadow-sm transition-all flex items-center gap-3">
+                                                            <div className="w-10 h-10 bg-teal-50 text-teal-600 rounded-xl flex items-center justify-center font-black text-sm shrink-0">
+                                                                <i className="fas fa-file-medical"></i>
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="flex justify-between items-start">
+                                                                    <h4 className="font-bold text-slate-800 text-sm truncate">{u.material}</h4>
+                                                                    <span className="text-red-500 font-extrabold text-sm">
+                                                                        -{u.amount}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="text-[10px] text-slate-500 mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                                                                    {u.patientFileNumber && (
+                                                                        <span className="flex items-center gap-1">
+                                                                            <i className="fas fa-folder text-slate-300"></i>
+                                                                            ملف: <strong className="text-slate-700">{u.patientFileNumber}</strong>
+                                                                        </span>
+                                                                    )}
+                                                                    <span className="text-slate-400 font-mono">
+                                                                        {d.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' })} - {d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                        </div>
+                                    )}
+                                </div>
 
                                 <h3 className="font-bold text-slate-700 text-lg">{t('inv.custody.balance')}</h3>
                                 {materials.map(m => {

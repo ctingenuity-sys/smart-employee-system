@@ -101,9 +101,10 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         return (d: MaterialDistribution) => {
             const dEmail = d.staffEmail ? d.staffEmail.toLowerCase().trim() : '';
             const dName = d.staffName ? d.staffName.toLowerCase().trim() : '';
-            return (normalizedUserEmail && dEmail === normalizedUserEmail) || 
-                   (!dEmail && normalizedUserName && dName === normalizedUserName) ||
-                   (dName === normalizedUserName);
+            if (dEmail && normalizedUserEmail) {
+                return dEmail === normalizedUserEmail;
+            }
+            return !!(normalizedUserName && dName === normalizedUserName);
         };
     }, [normalizedUserEmail, normalizedUserName]);
 
@@ -111,9 +112,10 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         return (u: MaterialUsage) => {
             const uEmail = u.staffEmail ? u.staffEmail.toLowerCase().trim() : '';
             const uName = u.staffName ? u.staffName.toLowerCase().trim() : '';
-            return (normalizedUserEmail && uEmail === normalizedUserEmail) || 
-                   (!uEmail && normalizedUserName && uName === normalizedUserName) ||
-                   (uName === normalizedUserName);
+            if (uEmail && normalizedUserEmail) {
+                return uEmail === normalizedUserEmail;
+            }
+            return !!(normalizedUserName && uName === normalizedUserName);
         };
     }, [normalizedUserEmail, normalizedUserName]);
 
@@ -683,22 +685,25 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         const normalizedSenderName = transfer.senderName ? transfer.senderName.toLowerCase().trim() : '';
         const senderMat = transfer.material.trim();
 
-        const senderDistributed = distributions.filter(d => 
-            d.material.trim() === senderMat && 
-            (
-                (d.staffEmail && d.staffEmail.toLowerCase().trim() === normalizedSenderEmail) || 
-                (d.staffName && d.staffName.toLowerCase().trim() === normalizedSenderName)
-            )
-        ).reduce((sum, d) => sum + d.amount, 0);
+        const senderDistributed = distributions.filter(d => {
+            if (d.material.trim() !== senderMat) return false;
+            const dEmail = d.staffEmail ? d.staffEmail.toLowerCase().trim() : '';
+            const dName = d.staffName ? d.staffName.toLowerCase().trim() : '';
+            if (dEmail && normalizedSenderEmail) {
+                return dEmail === normalizedSenderEmail;
+            }
+            return !!(normalizedSenderName && dName === normalizedSenderName);
+        }).reduce((sum, d) => sum + d.amount, 0);
 
-        const senderUsed = usages.filter(u => 
-            u.material.trim() === senderMat && 
-            u.fromCustody && 
-            (
-                (u.staffEmail && u.staffEmail.toLowerCase().trim() === normalizedSenderEmail) || 
-                (u.staffName && u.staffName.toLowerCase().trim() === normalizedSenderName)
-            )
-        ).reduce((sum, u) => sum + u.amount, 0);
+        const senderUsed = usages.filter(u => {
+            if (u.material.trim() !== senderMat || !u.fromCustody) return false;
+            const uEmail = u.staffEmail ? u.staffEmail.toLowerCase().trim() : '';
+            const uName = u.staffName ? u.staffName.toLowerCase().trim() : '';
+            if (uEmail && normalizedSenderEmail) {
+                return uEmail === normalizedSenderEmail;
+            }
+            return !!(normalizedSenderName && uName === normalizedSenderName);
+        }).reduce((sum, u) => sum + u.amount, 0);
 
         const senderBalance = senderDistributed - senderUsed;
 
@@ -2744,12 +2749,17 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 print:divide-slate-300">
-                                            {Object.entries(staffBalances).map(([email, data]) => (
+                                            {Object.entries(staffBalances).map(([emailKey, data]) => (
                                                 Object.entries(data.materials).map(([mat, bal], idx) => {
-                                                    const distSum = distributions.filter(d => d.material === mat && (d.staffEmail === email || d.staffName === email)).reduce((sum, d) => sum + d.amount, 0);
-                                                    const useSum = usages.filter(u => u.material === mat && u.fromCustody && (u.staffEmail === email || u.staffName === email)).reduce((sum, u) => sum + u.amount, 0);
+                                                    const getStaffKey = (em?: string, nm?: string) => {
+                                                        if (em) return em.toLowerCase().trim();
+                                                        if (nm) return nm.toLowerCase().trim();
+                                                        return '';
+                                                    };
+                                                    const distSum = distributions.filter(d => d.material === mat && getStaffKey(d.staffEmail, d.staffName) === emailKey).reduce((sum, d) => sum + d.amount, 0);
+                                                    const useSum = usages.filter(u => u.material === mat && u.fromCustody && getStaffKey(u.staffEmail, u.staffName) === emailKey).reduce((sum, u) => sum + u.amount, 0);
                                                     return (
-                                                        <tr key={`${email}-${mat}`} className="hover:bg-slate-50/50 print:break-inside-avoid">
+                                                        <tr key={`${emailKey}-${mat}`} className="hover:bg-slate-50/50 print:break-inside-avoid">
                                                             {idx === 0 && (
                                                                 <td className="p-4 font-bold text-slate-800 border-r print:border-slate-400 print:text-black" rowSpan={Object.keys(data.materials).length}>
                                                                     {data.name}

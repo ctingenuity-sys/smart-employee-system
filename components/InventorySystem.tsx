@@ -451,7 +451,15 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         }
 
         try {
-            const dateObj = new Date(usageDate);
+            const [y, mVal, dVal] = usageDate.split('-').map(Number);
+            const dateObj = new Date(y, mVal - 1, dVal);
+            const now = new Date();
+            const todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+            if (usageDate === todayStr) {
+                dateObj.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+            } else {
+                dateObj.setHours(12, 0, 0);
+            }
             const tsDate = isNaN(dateObj.getTime()) ? Timestamp.now() : Timestamp.fromDate(dateObj);
 
             await updateDoc(doc(inventoryDb, 'materials', mat.id), { quantity: mat.quantity - amount });
@@ -528,10 +536,12 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         try {
             await updateDoc(doc(inventoryDb, 'materials', mat.id), { quantity: mat.quantity - amount });
             
-            const dateObj = new Date(distDate);
-            const todayStr = new Date().toISOString().split('T')[0];
+            const [y, mVal, dVal] = distDate.split('-').map(Number);
+            const dateObj = new Date(y, mVal - 1, dVal);
+            const now = new Date();
+            const todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
             if (distDate === todayStr) {
-                dateObj.setHours(new Date().getHours(), new Date().getMinutes(), new Date().getSeconds());
+                dateObj.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
             } else {
                 dateObj.setHours(12, 0, 0);
             }
@@ -577,7 +587,15 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         }
 
         try {
-            const dateObj = new Date(custodyUsageDate);
+            const [y, mVal, dVal] = custodyUsageDate.split('-').map(Number);
+            const dateObj = new Date(y, mVal - 1, dVal);
+            const now = new Date();
+            const todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+            if (custodyUsageDate === todayStr) {
+                dateObj.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+            } else {
+                dateObj.setHours(12, 0, 0);
+            }
             const tsDate = isNaN(dateObj.getTime()) ? Timestamp.now() : Timestamp.fromDate(dateObj);
             
             // NOTE: We do NOT update the main materials collection here!
@@ -796,7 +814,19 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         if (!newMatName || !newMatQty) return;
         try {
             const qty = parseFloat(newMatQty);
-            const correctionTs = correctionDate ? Timestamp.fromDate(new Date(correctionDate)) : Timestamp.now();
+            let correctionTs = Timestamp.now();
+            if (correctionDate) {
+                const [y, mVal, dVal] = correctionDate.split('-').map(Number);
+                const dateObj = new Date(y, mVal - 1, dVal);
+                const now = new Date();
+                const todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+                if (correctionDate === todayStr) {
+                    dateObj.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+                } else {
+                    dateObj.setHours(12, 0, 0);
+                }
+                correctionTs = isNaN(dateObj.getTime()) ? Timestamp.now() : Timestamp.fromDate(dateObj);
+            }
 
             if (editingMat) {
                 // CORRECTION MODE

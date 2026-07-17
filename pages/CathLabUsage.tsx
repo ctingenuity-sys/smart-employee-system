@@ -9,7 +9,7 @@ import { PrintHeader, PrintFooter } from '../components/PrintLayout';
 
 interface Supply {
     id: string;
-    type: 'stent' | 'balloon' | 'doctor';
+    type: 'stent' | 'balloon' | 'dcb' | 'doctor' | 'procedure';
     name: string;
 }
 
@@ -34,6 +34,7 @@ interface CathLabRecord {
     dcbPrevialCount?: number;
     stents?: UsedSupply[];
     balloons?: UsedSupply[];
+    dcbs?: UsedSupply[];
     departmentId: string;
     createdAt: any;
     createdBy: string;
@@ -67,7 +68,7 @@ const CathLabUsage: React.FC = () => {
 
     // Management State
     const [newSupplyName, setNewSupplyName] = useState('');
-    const [newSupplyType, setNewSupplyType] = useState<'stent' | 'balloon' | 'doctor'>('stent');
+    const [newSupplyType, setNewSupplyType] = useState<'stent' | 'balloon' | 'dcb' | 'doctor' | 'procedure'>('stent');
 
     // Form State
     const [patientFile, setPatientFile] = useState('');
@@ -75,10 +76,19 @@ const CathLabUsage: React.FC = () => {
     const [doctorName, setDoctorName] = useState('');
     const [recordDate, setRecordDate] = useState(new Date().toISOString().split('T')[0]);
     const [procedureType, setProcedureType] = useState('CAG');
-    const [useDcbPrevial, setUseDcbPrevial] = useState(false);
-    const [dcbPrevialCount, setDcbPrevialCount] = useState<number|''>('');
-    const [stentsList, setStentsList] = useState<{name: string, size: string, count: number|''}[]>([{name: '', size: '', count: ''}]);
-    const [balloonsList, setBalloonsList] = useState<{name: string, size: string, count: number|''}[]>([{name: '', size: '', count: ''}]);
+    const [customProcedureType, setCustomProcedureType] = useState('');
+    const [showSupplies, setShowSupplies] = useState(false);
+    const [selectedDcbsMap, setSelectedDcbsMap] = useState<Record<string, { checked: boolean, size: string, count: number|'' }>>({});
+    const [stentsList, setStentsList] = useState<{name: string, size: string, count: number|'', isCustom?: boolean}[]>([{name: '', size: '', count: '', isCustom: false}]);
+    const [balloonsList, setBalloonsList] = useState<{name: string, size: string, count: number|'', isCustom?: boolean}[]>([{name: '', size: '', count: '', isCustom: false}]);
+
+    useEffect(() => {
+        if (procedureType && (procedureType === 'CAG+PCI' || procedureType.toLowerCase().includes('pci'))) {
+            setShowSupplies(true);
+        } else {
+            setShowSupplies(false);
+        }
+    }, [procedureType]);
 
     // Report State
     const [reportStart, setReportStart] = useState(new Date().toISOString().split('T')[0]);
@@ -145,10 +155,28 @@ const CathLabUsage: React.FC = () => {
 
     const handleAddRecord = async (e: React.FormEvent) => {
         e.preventDefault();
-        const validStents = stentsList.filter(s => s.name);
-        const validBalloons = balloonsList.filter(b => b.name);
+        const finalProcedure = procedureType === '__custom__' ? customProcedureType : procedureType;
+        const validStents = showSupplies ? stentsList.filter(s => s.name) : [];
+        const validBalloons = showSupplies ? balloonsList.filter(b => b.name) : [];
         
-        if (!patientFile || !patientName || !doctorName || (procedureType === 'CAG+PCI' && validStents.length === 0 && validBalloons.length === 0 && !useDcbPrevial)) {
+        const validDcbs = showSupplies 
+            ? Object.entries(selectedDcbsMap)
+                .filter(([_, val]) => val.checked)
+                .map(([id, val]) => {
+                    const supplyItem = dcbs.find(d => d.id === id);
+                    return {
+                        name: supplyItem ? supplyItem.name : 'DCB',
+                        size: val.size,
+                        count: Number(val.count) || 1
+                    };
+                })
+            : [];
+        
+        const dcbPrevialItem = validDcbs.find(d => d.name.toLowerCase().includes('previal') || d.name.toLowerCase().includes('dcb previal'));
+        const finalUsedDcbPrevial = !!dcbPrevialItem;
+        const finalDcbPrevialCount = dcbPrevialItem ? (Number(dcbPrevialItem.count) || 1) : 0;
+
+        if (!patientFile || !patientName || !doctorName || (showSupplies && validStents.length === 0 && validBalloons.length === 0 && !finalUsedDcbPrevial && validDcbs.length === 0)) {
             setToast({ msg: t('cath.msgReq'), type: 'error' });
             return;
         }
@@ -158,15 +186,16 @@ const CathLabUsage: React.FC = () => {
                 patientName: patientName,
                 doctorName: doctorName,
                 date: recordDate,
-                procedureType: procedureType,
-                usedDcbPrevial: procedureType === 'CAG+PCI' ? useDcbPrevial : false,
-                dcbPrevialCount: procedureType === 'CAG+PCI' && useDcbPrevial ? (Number(dcbPrevialCount) || 1) : 0,
-                stents: procedureType === 'CAG+PCI' ? validStents.map(s => ({...s, count: Number(s.count) || 1})) : [],
-                balloons: procedureType === 'CAG+PCI' ? validBalloons.map(b => ({...b, count: Number(b.count) || 1})) : [],
-                stentType: procedureType === 'CAG+PCI' && validStents.length > 0 ? validStents.map(s => s.name).join(', ') : '',
-                stentCount: procedureType === 'CAG+PCI' ? validStents.reduce((acc, curr) => acc + (Number(curr.count) || 1), 0) : 0,
-                balloonType: procedureType === 'CAG+PCI' && validBalloons.length > 0 ? validBalloons.map(b => b.name).join(', ') : '',
-                balloonCount: procedureType === 'CAG+PCI' ? validBalloons.reduce((acc, curr) => acc + (Number(curr.count) || 1), 0) : 0,
+                procedureType: finalProcedure,
+                usedDcbPrevial: showSupplies ? finalUsedDcbPrevial : false,
+                dcbPrevialCount: showSupplies && finalUsedDcbPrevial ? finalDcbPrevialCount : 0,
+                stents: showSupplies ? validStents.map(s => ({name: s.name, size: s.size, count: Number(s.count) || 1})) : [],
+                balloons: showSupplies ? validBalloons.map(b => ({name: b.name, size: b.size, count: Number(b.count) || 1})) : [],
+                dcbs: showSupplies ? validDcbs.map(d => ({name: d.name, size: d.size, count: Number(d.count) || 1})) : [],
+                stentType: showSupplies && validStents.length > 0 ? validStents.map(s => s.name).join(', ') : '',
+                stentCount: showSupplies ? validStents.reduce((acc, curr) => acc + (Number(curr.count) || 1), 0) : 0,
+                balloonType: showSupplies && balloonsList.length > 0 ? balloonsList.filter(b => b.name).map(b => b.name).join(', ') : '',
+                balloonCount: showSupplies ? validBalloons.reduce((acc, curr) => acc + (Number(curr.count) || 1), 0) : 0,
                 departmentId: selectedDepartmentId,
                 createdAt: Timestamp.now(),
                 createdBy: userName
@@ -175,10 +204,10 @@ const CathLabUsage: React.FC = () => {
             setPatientName('');
             setDoctorName('');
             setProcedureType('CAG');
-            setUseDcbPrevial(false);
-            setDcbPrevialCount('');
-            setStentsList([{name: '', size: '', count: ''}]);
-            setBalloonsList([{name: '', size: '', count: ''}]);
+            setCustomProcedureType('');
+            setSelectedDcbsMap({});
+            setStentsList([{name: '', size: '', count: '', isCustom: false}]);
+            setBalloonsList([{name: '', size: '', count: '', isCustom: false}]);
             setToast({ msg: t('cath.msgSaved'), type: 'success' });
         } catch (error) {
             setToast({ msg: t('cath.msgSaveErr'), type: 'error' });
@@ -199,7 +228,27 @@ const CathLabUsage: React.FC = () => {
     const isAdmin = userRole === 'admin' || userRole === 'supervisor';
     const stents = supplies.filter(s => s.type === 'stent');
     const balloons = supplies.filter(s => s.type === 'balloon');
+    const dcbs = supplies.filter(s => s.type === 'dcb');
     const doctors = supplies.filter(s => s.type === 'doctor');
+    const procedures = supplies.filter(s => s.type === 'procedure');
+    const hasAnyDcb = Object.values(selectedDcbsMap).some(d => d.checked);
+
+    const uniqueProcedures = React.useMemo(() => {
+        const setOfProcs = new Set<string>();
+        setOfProcs.add('CAG');
+        setOfProcs.add('CAG+PCI');
+        records.forEach(r => {
+            if (r.procedureType) {
+                setOfProcs.add(r.procedureType);
+            }
+        });
+        procedures.forEach(p => {
+            if (p.name) {
+                setOfProcs.add(p.name);
+            }
+        });
+        return Array.from(setOfProcs);
+    }, [records, procedures]);
 
     const filteredRecords = records.filter(r => {
         const typeMatch = reportProcedureType === 'all' || r.procedureType === reportProcedureType;
@@ -226,9 +275,15 @@ const CathLabUsage: React.FC = () => {
                 });
             }
 
-            if (r.usedDcbPrevial) {
-                const key = `stent_DCB_PREVIAL_no-size`;
-                if (!summary[key]) summary[key] = { category: t('cath.typeStent'), name: 'DCB PREVIAL', size: '-', count: 0 };
+            if (r.dcbs && r.dcbs.length > 0) {
+                r.dcbs.forEach(d => {
+                    const key = `dcb_${d.name}_${d.size||'no-size'}`;
+                    if (!summary[key]) summary[key] = { category: t('cath.typeDcb') || 'DCB', name: d.name, size: d.size||'-', count: 0 };
+                    summary[key].count += (Number(d.count) || 1);
+                });
+            } else if (r.usedDcbPrevial) {
+                const key = `dcb_DCB_PREVIAL_no-size`;
+                if (!summary[key]) summary[key] = { category: t('cath.typeDcb') || 'DCB', name: 'DCB PREVIAL', size: '-', count: 0 };
                 summary[key].count += (Number(r.dcbPrevialCount) || 1);
             }
 
@@ -306,55 +361,210 @@ const CathLabUsage: React.FC = () => {
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-slate-700 mb-2">{t('cath.procedureType')}</label>
-                                <select className="w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={procedureType} onChange={e => setProcedureType(e.target.value)}>
+                                <select required className="w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500 font-bold" value={procedureType} onChange={e => {
+                                    setProcedureType(e.target.value);
+                                    if (e.target.value !== '__custom__') {
+                                        setCustomProcedureType('');
+                                    }
+                                }}>
                                     <option value="CAG">CAG</option>
                                     <option value="CAG+PCI">CAG+PCI</option>
+                                    {procedures.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                                    <option value="__custom__">{t('cath.procedureOther')}</option>
                                 </select>
+                                {procedureType === '__custom__' && (
+                                    <div className="mt-3">
+                                        <input required type="text" className="w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500 font-bold" value={customProcedureType} onChange={e => setCustomProcedureType(e.target.value)} placeholder={t('cath.procedurePlaceholder')} />
+                                    </div>
+                                )}
                             </div>
-                            {procedureType === 'CAG+PCI' && (
+                            <div className="md:col-span-2">
+                                <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer bg-slate-50 p-3 rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors">
+                                    <input type="checkbox" className="w-5 h-5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500" checked={showSupplies} onChange={e => setShowSupplies(e.target.checked)} />
+                                    <span>هل يتطلب هذا الفحص تسجيل مستلزمات (دعامات وبالونات)؟</span>
+                                </label>
+                            </div>
+                            {showSupplies && (
                                 <>
-                                    <div className="md:col-span-2 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100">
-                                        <label className="flex items-center gap-3 text-sm font-bold text-indigo-900 cursor-pointer">
-                                            <input type="checkbox" className="w-5 h-5 text-indigo-600 border-indigo-300 rounded focus:ring-indigo-500" checked={useDcbPrevial} onChange={e => setUseDcbPrevial(e.target.checked)} />
-                                            {t('cath.typeStent')} DCB PREVIAL
-                                        </label>
-                                        {useDcbPrevial && (
-                                            <div className="mt-3 ml-8">
-                                                <input required type="number" min="1" placeholder={t('cath.count')} className="w-full md:w-32 border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={dcbPrevialCount} onChange={e => setDcbPrevialCount(e.target.value === '' ? '' : parseInt(e.target.value))} />
+                                                                    <div className="md:col-span-2 bg-indigo-50/10 p-5 rounded-2xl border border-indigo-100/50">
+                                        <label className="block text-sm font-bold text-slate-800 mb-3">{t('cath.typeDcb') || 'بالون مغلف بالدواء (DCB)'}</label>
+                                        {dcbs.length === 0 ? (
+                                            <div className="p-4 bg-slate-50 text-slate-500 rounded-xl border border-slate-200 text-sm font-bold text-center">
+                                                {t('cath.noDcbsAvailable') || 'لم يتم إضافة بالونات DCB بعد. يمكنك إضافتها من تبويب إدارة المستلزمات.'}
+                                            </div>
+                                        ) : (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                {dcbs.map(dcb => {
+                                                    const mapVal = selectedDcbsMap[dcb.id] || { checked: false, size: '', count: '' };
+                                                    return (
+                                                        <div key={dcb.id} className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 flex flex-col justify-between">
+                                                            <label className="flex items-center gap-3 text-sm font-bold text-indigo-950 cursor-pointer select-none">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    className="w-5 h-5 text-indigo-600 border-indigo-300 rounded focus:ring-indigo-500"
+                                                                    checked={mapVal.checked}
+                                                                    onChange={e => {
+                                                                        setSelectedDcbsMap(prev => ({
+                                                                            ...prev,
+                                                                            [dcb.id]: {
+                                                                                ...mapVal,
+                                                                                checked: e.target.checked,
+                                                                                count: e.target.checked && mapVal.count === '' ? 1 : mapVal.count
+                                                                            }
+                                                                        }));
+                                                                    }}
+                                                                />
+                                                                <span>{dcb.name}</span>
+                                                            </label>
+                                                            {mapVal.checked && (
+                                                                <div className="mt-3 ml-8 flex gap-2">
+                                                                    <div className="flex-1">
+                                                                        <input
+                                                                            type="text"
+                                                                            placeholder={t('cath.sizeEx')}
+                                                                            className="w-full border border-slate-300 rounded-xl p-2 outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-center text-sm"
+                                                                            value={mapVal.size}
+                                                                            onChange={e => {
+                                                                                setSelectedDcbsMap(prev => ({
+                                                                                    ...prev,
+                                                                                    [dcb.id]: {
+                                                                                        ...mapVal,
+                                                                                        size: e.target.value
+                                                                                    }
+                                                                                }));
+                                                                            }}
+                                                                        />
+                                                                    </div>
+                                                                    <div className="w-20">
+                                                                        <input
+                                                                            required
+                                                                            type="number"
+                                                                            min="1"
+                                                                            placeholder={t('cath.count')}
+                                                                            className="w-full border border-slate-300 rounded-xl p-2 outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-center text-sm"
+                                                                            value={mapVal.count}
+                                                                            onChange={e => {
+                                                                                setSelectedDcbsMap(prev => ({
+                                                                                    ...prev,
+                                                                                    [dcb.id]: {
+                                                                                        ...mapVal,
+                                                                                        count: e.target.value === '' ? '' : parseInt(e.target.value)
+                                                                                    }
+                                                                                }));
+                                                                            }}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         )}
                                     </div>
                                     <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">{t('cath.stentType')}</label>
-                                {stentsList.map((stent, index) => (
-                                    <div key={index} className="flex flex-wrap md:flex-nowrap gap-2 mb-2">
-                                        <select required={index === 0 && stentsList.length === 1 && balloonsList[0].name === '' && !useDcbPrevial} className="flex-1 w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={stent.name} onChange={e => { const newL = [...stentsList]; newL[index].name = e.target.value; setStentsList(newL); }}>
-                                            <option value="">{t('cath.stentNone')}</option>
-                                            {stents.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                        </select>
-                                        <input type="text" placeholder={t('cath.sizeEx')} className="w-24 flex-none border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={stent.size} onChange={e => { const newL = [...stentsList]; newL[index].size = e.target.value; setStentsList(newL); }} />
-                                        <input type="number" min="1" placeholder={t('cath.count')} className="w-20 flex-none border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={stent.count} onChange={e => { const newL = [...stentsList]; newL[index].count = e.target.value === '' ? '' : parseInt(e.target.value); setStentsList(newL); }} />
-                                        {index > 0 && <button type="button" onClick={() => setStentsList(stentsList.filter((_, i) => i !== index))} className="text-red-500 px-3 hover:bg-red-50 rounded-lg"><i className="fas fa-trash"></i></button>}
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">{t('cath.stentType')}</label>
+                                        {stentsList.map((stent, index) => (
+                                            <div key={index} className="flex flex-wrap md:flex-nowrap gap-2 mb-2 items-center">
+                                                {stent.isCustom ? (
+                                                    <input
+                                                        required={index === 0 && stentsList.length === 1 && balloonsList[0].name === '' && !hasAnyDcb}
+                                                        type="text"
+                                                        placeholder={t('cath.customStentPlaceholder')}
+                                                        className="flex-1 w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                                                        value={stent.name}
+                                                        onChange={e => {
+                                                            const newL = [...stentsList];
+                                                            newL[index].name = e.target.value;
+                                                            setStentsList(newL);
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <select
+                                                        required={index === 0 && stentsList.length === 1 && balloonsList[0].name === '' && !hasAnyDcb}
+                                                        className="flex-1 w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                                                        value={stent.name}
+                                                        onChange={e => {
+                                                            const newL = [...stentsList];
+                                                            newL[index].name = e.target.value;
+                                                            setStentsList(newL);
+                                                        }}
+                                                    >
+                                                        <option value="">{t('cath.stentNone')}</option>
+                                                        {stents.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                                    </select>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    title={stent.isCustom ? t('cath.toggleSelect') : t('cath.toggleManual')}
+                                                    onClick={() => {
+                                                        const newL = [...stentsList];
+                                                        newL[index].isCustom = !stent.isCustom;
+                                                        newL[index].name = '';
+                                                        setStentsList(newL);
+                                                    }}
+                                                    className="p-3 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl border border-slate-200"
+                                                >
+                                                    <i className={stent.isCustom ? "fas fa-list" : "fas fa-keyboard"}></i>
+                                                </button>
+                                                <input type="text" placeholder={t('cath.sizeEx')} className="w-24 flex-none border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={stent.size} onChange={e => { const newL = [...stentsList]; newL[index].size = e.target.value; setStentsList(newL); }} />
+                                                <input type="number" min="1" placeholder={t('cath.count')} className="w-20 flex-none border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={stent.count} onChange={e => { const newL = [...stentsList]; newL[index].count = e.target.value === '' ? '' : parseInt(e.target.value); setStentsList(newL); }} />
+                                                {index > 0 && <button type="button" onClick={() => setStentsList(stentsList.filter((_, i) => i !== index))} className="text-red-500 px-3 hover:bg-red-50 rounded-lg"><i className="fas fa-trash"></i></button>}
+                                            </div>
+                                        ))}
+                                        <button type="button" onClick={() => setStentsList([...stentsList, {name:'', size:'', count:'', isCustom: false}])} className="text-indigo-600 text-sm font-bold mt-1 bg-indigo-50 px-3 py-1 rounded-lg hover:bg-indigo-100 transition-colors"><i className="fas fa-plus"></i> {t('cath.addStent')}</button>
                                     </div>
-                                ))}
-                                <button type="button" onClick={() => setStentsList([...stentsList, {name:'', size:'', count:''}])} className="text-indigo-600 text-sm font-bold mt-1 bg-indigo-50 px-3 py-1 rounded-lg hover:bg-indigo-100 transition-colors"><i className="fas fa-plus"></i> {t('cath.addStent')}</button>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">{t('cath.balloonType')}</label>
-                                {balloonsList.map((balloon, index) => (
-                                    <div key={index} className="flex flex-wrap md:flex-nowrap gap-2 mb-2">
-                                        <select className="flex-1 w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={balloon.name} onChange={e => { const newL = [...balloonsList]; newL[index].name = e.target.value; setBalloonsList(newL); }}>
-                                            <option value="">{t('cath.balloonNone')}</option>
-                                            {balloons.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                        </select>
-                                        <input type="text" placeholder={t('cath.sizeEx')} className="w-24 flex-none border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={balloon.size} onChange={e => { const newL = [...balloonsList]; newL[index].size = e.target.value; setBalloonsList(newL); }} />
-                                        <input type="number" min="1" placeholder={t('cath.count')} className="w-20 flex-none border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={balloon.count} onChange={e => { const newL = [...balloonsList]; newL[index].count = e.target.value === '' ? '' : parseInt(e.target.value); setBalloonsList(newL); }} />
-                                        {index > 0 && <button type="button" onClick={() => setBalloonsList(balloonsList.filter((_, i) => i !== index))} className="text-red-500 px-3 hover:bg-red-50 rounded-lg"><i className="fas fa-trash"></i></button>}
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">{t('cath.balloonType')}</label>
+                                        {balloonsList.map((balloon, index) => (
+                                            <div key={index} className="flex flex-wrap md:flex-nowrap gap-2 mb-2 items-center">
+                                                {balloon.isCustom ? (
+                                                    <input
+                                                        type="text"
+                                                        placeholder={t('cath.customBalloonPlaceholder')}
+                                                        className="flex-1 w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                                                        value={balloon.name}
+                                                        onChange={e => {
+                                                            const newL = [...balloonsList];
+                                                            newL[index].name = e.target.value;
+                                                            setBalloonsList(newL);
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <select
+                                                        className="flex-1 w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                                                        value={balloon.name}
+                                                        onChange={e => {
+                                                            const newL = [...balloonsList];
+                                                            newL[index].name = e.target.value;
+                                                            setBalloonsList(newL);
+                                                        }}
+                                                    >
+                                                        <option value="">{t('cath.balloonNone')}</option>
+                                                        {balloons.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                                    </select>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    title={balloon.isCustom ? t('cath.toggleSelect') : t('cath.toggleManual')}
+                                                    onClick={() => {
+                                                        const newL = [...balloonsList];
+                                                        newL[index].isCustom = !balloon.isCustom;
+                                                        newL[index].name = '';
+                                                        setBalloonsList(newL);
+                                                    }}
+                                                    className="p-3 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl border border-slate-200"
+                                                >
+                                                    <i className={balloon.isCustom ? "fas fa-list" : "fas fa-keyboard"}></i>
+                                                </button>
+                                                <input type="text" placeholder={t('cath.sizeEx')} className="w-24 flex-none border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={balloon.size} onChange={e => { const newL = [...balloonsList]; newL[index].size = e.target.value; setBalloonsList(newL); }} />
+                                                <input type="number" min="1" placeholder={t('cath.count')} className="w-20 flex-none border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500" value={balloon.count} onChange={e => { const newL = [...balloonsList]; newL[index].count = e.target.value === '' ? '' : parseInt(e.target.value); setBalloonsList(newL); }} />
+                                                {index > 0 && <button type="button" onClick={() => setBalloonsList(balloonsList.filter((_, i) => i !== index))} className="text-red-500 px-3 hover:bg-red-50 rounded-lg"><i className="fas fa-trash"></i></button>}
+                                            </div>
+                                        ))}
+                                        <button type="button" onClick={() => setBalloonsList([...balloonsList, {name:'', size:'', count:'', isCustom: false}])} className="text-indigo-600 text-sm font-bold mt-1 bg-indigo-50 px-3 py-1 rounded-lg hover:bg-indigo-100 transition-colors"><i className="fas fa-plus"></i> {t('cath.addBalloon')}</button>
                                     </div>
-                                ))}
-                                <button type="button" onClick={() => setBalloonsList([...balloonsList, {name:'', size:'', count:''}])} className="text-indigo-600 text-sm font-bold mt-1 bg-indigo-50 px-3 py-1 rounded-lg hover:bg-indigo-100 transition-colors"><i className="fas fa-plus"></i> {t('cath.addBalloon')}</button>
-                            </div>
-                            </>
+                                </>
                             )}
                         </div>
                         <button type="submit" className="w-full md:w-auto bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold shadow-md hover:bg-indigo-700 transition-colors">
@@ -376,44 +586,68 @@ const CathLabUsage: React.FC = () => {
                         </div>
                         <div className="w-1/3">
                             <label className="block text-sm font-bold text-slate-700 mb-2">{t('cath.manageType')}</label>
-                            <select className="w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-emerald-500" value={newSupplyType} onChange={e => setNewSupplyType(e.target.value as 'stent'|'balloon'|'doctor')}>
+                            <select className="w-full border border-slate-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-emerald-500 font-bold" value={newSupplyType} onChange={e => setNewSupplyType(e.target.value as 'stent'|'balloon'|'dcb'|'doctor'|'procedure')}>
                                 <option value="stent">{t('cath.typeStent')}</option>
                                 <option value="balloon">{t('cath.typeBalloon')}</option>
+                                <option value="dcb">{t('cath.typeDcb') || 'بالون (DCB)'}</option>
                                 <option value="doctor">{t('cath.typeDoctor')}</option>
+                                <option value="procedure">{t('cath.typeProcedure')}</option>
                             </select>
                         </div>
                         <button type="submit" className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-emerald-700">{t('cath.add')}</button>
                     </form>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                         <div>
-                            <h3 className="font-bold text-slate-700 mb-4 bg-slate-100 p-2 rounded-lg text-center">{t('cath.listStents')}</h3>
+                            <h3 className="font-bold text-slate-700 mb-4 bg-slate-100 p-2 rounded-lg text-center text-xs md:text-sm">{t('cath.listStents')}</h3>
                             <ul className="space-y-2">
                                 {stents.map(s => (
                                     <li key={s.id} className="flex justify-between items-center p-3 border border-slate-200 rounded-lg bg-slate-50">
-                                        <span className="font-bold">{s.name}</span>
+                                        <span className="font-bold text-xs md:text-sm">{s.name}</span>
                                         <button type="button" onClick={() => handleDeleteSupply(s.id)} className="text-red-500 hover:text-red-700"><i className="fas fa-trash"></i></button>
                                     </li>
                                 ))}
                             </ul>
                         </div>
                         <div>
-                            <h3 className="font-bold text-slate-700 mb-4 bg-slate-100 p-2 rounded-lg text-center">{t('cath.listBalloons')}</h3>
+                            <h3 className="font-bold text-slate-700 mb-4 bg-slate-100 p-2 rounded-lg text-center text-xs md:text-sm">{t('cath.listBalloons')}</h3>
                             <ul className="space-y-2">
                                 {balloons.map(s => (
                                     <li key={s.id} className="flex justify-between items-center p-3 border border-slate-200 rounded-lg bg-slate-50">
-                                        <span className="font-bold">{s.name}</span>
+                                        <span className="font-bold text-xs md:text-sm">{s.name}</span>
                                         <button type="button" onClick={() => handleDeleteSupply(s.id)} className="text-red-500 hover:text-red-700"><i className="fas fa-trash"></i></button>
                                     </li>
                                 ))}
                             </ul>
                         </div>
                         <div>
-                            <h3 className="font-bold text-slate-700 mb-4 bg-slate-100 p-2 rounded-lg text-center">{t('cath.listDoctors')}</h3>
+                            <h3 className="font-bold text-slate-700 mb-4 bg-slate-100 p-2 rounded-lg text-center text-xs md:text-sm">{t('cath.listDcbs') || 'بالونات (DCB)'}</h3>
+                            <ul className="space-y-2">
+                                {dcbs.map(s => (
+                                    <li key={s.id} className="flex justify-between items-center p-3 border border-slate-200 rounded-lg bg-slate-50">
+                                        <span className="font-bold text-xs md:text-sm">{s.name}</span>
+                                        <button type="button" onClick={() => handleDeleteSupply(s.id)} className="text-red-500 hover:text-red-700"><i className="fas fa-trash"></i></button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                        <div>
+                            <h3 className="font-bold text-slate-700 mb-4 bg-slate-100 p-2 rounded-lg text-center text-xs md:text-sm">{t('cath.listDoctors')}</h3>
                             <ul className="space-y-2">
                                 {doctors.map(s => (
                                     <li key={s.id} className="flex justify-between items-center p-3 border border-slate-200 rounded-lg bg-slate-50">
-                                        <span className="font-bold">{s.name}</span>
+                                        <span className="font-bold text-xs md:text-sm">{s.name}</span>
+                                        <button type="button" onClick={() => handleDeleteSupply(s.id)} className="text-red-500 hover:text-red-700"><i className="fas fa-trash"></i></button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                        <div>
+                            <h3 className="font-bold text-slate-700 mb-4 bg-slate-100 p-2 rounded-lg text-center text-xs md:text-sm">{t('cath.listProcedures')}</h3>
+                            <ul className="space-y-2">
+                                {procedures.map(s => (
+                                    <li key={s.id} className="flex justify-between items-center p-3 border border-slate-200 rounded-lg bg-slate-50">
+                                        <span className="font-bold text-xs md:text-sm">{s.name}</span>
                                         <button type="button" onClick={() => handleDeleteSupply(s.id)} className="text-red-500 hover:text-red-700"><i className="fas fa-trash"></i></button>
                                     </li>
                                 ))}
@@ -435,10 +669,11 @@ const CathLabUsage: React.FC = () => {
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1">{t('cath.procedureType')}</label>
-                                <select className="border border-slate-300 rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500" value={reportProcedureType} onChange={e => setReportProcedureType(e.target.value)}>
+                                <select className="border border-slate-300 rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500 font-bold" value={reportProcedureType} onChange={e => setReportProcedureType(e.target.value)}>
                                     <option value="all">{t('cath.procAll')}</option>
-                                    <option value="CAG">CAG</option>
-                                    <option value="CAG+PCI">CAG+PCI</option>
+                                    {uniqueProcedures.map(p => (
+                                        <option key={p} value={p}>{p}</option>
+                                    ))}
                                 </select>
                             </div>
                             <div>
@@ -473,6 +708,7 @@ const CathLabUsage: React.FC = () => {
                                     <th className="p-3">{t('cath.patientName')}</th>
                                     <th className="p-3">{t('cath.stentType')}</th>
                                     <th className="p-3">{t('cath.balloonType')}</th>
+                                    <th className="p-3">{t('cath.typeDcb') || 'بالون DCB'}</th>
                                     <th className="p-3">{t('cath.doctorName')}</th>
                                     <th className="p-3 print:hidden">{t('cath.by')}</th>
                                     {isAdmin && <th className="p-3 print:hidden"></th>}
@@ -481,7 +717,7 @@ const CathLabUsage: React.FC = () => {
                             <tbody className="divide-y divide-slate-200 print:divide-slate-400 print:text-black">
                                 {filteredRecords.length === 0 ? (
                                     <tr>
-                                        <td colSpan={isAdmin ? 9 : 8} className="p-8 text-center text-slate-500 font-bold">{t('cath.repEmpty')}</td>
+                                        <td colSpan={isAdmin ? 10 : 9} className="p-8 text-center text-slate-500 font-bold">{t('cath.repEmpty')}</td>
                                     </tr>
                                 ) : (
                                     filteredRecords.map(r => (
@@ -491,11 +727,10 @@ const CathLabUsage: React.FC = () => {
                                             <td className="p-3 font-mono">{r.patientFileNumber}</td>
                                             <td className="p-3 font-bold text-slate-800 print:text-black">{r.patientName}</td>
                                             <td className="p-3">
-                                                {r.usedDcbPrevial && <div className="font-bold text-indigo-700">DCB PREVIAL (x{r.dcbPrevialCount})</div>}
                                                 {r.stents && r.stents.length > 0 ? (
                                                     r.stents.map((s, i) => <div key={i}>{s.name} {s.size ? `[${s.size}]` : ''} (x{s.count})</div>)
                                                 ) : (
-                                                    r.stentType ? `${r.stentType} ${r.stentCount && r.stentCount > 0 ? `(x${r.stentCount})` : ''}` : (!r.usedDcbPrevial ? '-' : null)
+                                                    r.stentType ? `${r.stentType} ${r.stentCount && r.stentCount > 0 ? `(x${r.stentCount})` : ''}` : '-'
                                                 )}
                                             </td>
                                             <td className="p-3">
@@ -503,6 +738,14 @@ const CathLabUsage: React.FC = () => {
                                                     r.balloons.map((s, i) => <div key={i}>{s.name} {s.size ? `[${s.size}]` : ''} (x{s.count})</div>)
                                                 ) : (
                                                     r.balloonType ? `${r.balloonType} ${r.balloonCount && r.balloonCount > 0 ? `(x${r.balloonCount})` : ''}` : '-'
+                                                )}
+                                            </td>
+                                            <td className="p-3">
+                                                {r.usedDcbPrevial && <div className="font-bold text-indigo-700">DCB PREVIAL (x{r.dcbPrevialCount})</div>}
+                                                {r.dcbs && r.dcbs.length > 0 ? (
+                                                    r.dcbs.map((d, i) => <div key={i}>{d.name} {d.size ? `[${d.size}]` : ''} (x{d.count})</div>)
+                                                ) : (
+                                                    !r.usedDcbPrevial ? '-' : null
                                                 )}
                                             </td>
                                             <td className="p-3">{r.doctorName}</td>

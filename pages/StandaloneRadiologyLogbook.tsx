@@ -45,6 +45,7 @@ export interface StandaloneCase {
     status: 'completed' | 'waiting' | 'in-progress';
     source: 'IHMS_AUTO' | 'CLICK' | 'MANUAL';
     timestamp: number;
+    isEmptySlot?: boolean;
 }
 
 export const MODALITY_CONFIG: Record<string, { nameAr: string; nameEn: string; prefix: string; color: string; bg: string; border: string; text: string; lightBg: string }> = {

@@ -65,6 +65,7 @@ const DepartmentBookings = React.lazy(() => import('./pages/DepartmentBookings')
 const CTConsentPage = React.lazy(() => import('./pages/CTConsentPage'));
 
 const ModalityLogbook = React.lazy(() => import('./pages/ModalityLogbook'));
+const StandaloneRadiologyLogbook = React.lazy(() => import('./pages/StandaloneRadiologyLogbook'));
 
 // --- Protected Route Component ---
 interface ProtectedRouteProps {
@@ -126,6 +127,8 @@ const AppRoutes: React.FC = () => {
         <Routes>
           {/* Public Routes */}
           <Route path="/ticket/:id" element={<Suspense fallback={<Loading />}><PatientTicket /></Suspense>} />
+          <Route path="/radiology-logbook" element={<Suspense fallback={<Loading />}><StandaloneRadiologyLogbook /></Suspense>} />
+          <Route path="/standalone-logbook" element={<Suspense fallback={<Loading />}><StandaloneRadiologyLogbook /></Suspense>} />
 
           <Route
             path="/login"

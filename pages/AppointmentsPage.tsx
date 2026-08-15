@@ -2092,6 +2092,10 @@ const AppointmentsPage: React.FC = () => {
                             <i className="fas fa-archive"></i>
                         </button>
 
+                        <button onClick={() => window.open('#/radiology-logbook', '_blank')} className="bg-amber-500 text-slate-950 w-fit px-3 h-9 rounded-lg flex items-center justify-center font-black shadow-lg hover:bg-amber-400 transition-all gap-1.5 text-xs" title="دفتر وسجل الأشعة المستقل (Excel & Numbers)">
+                            <i className="fas fa-book-medical"></i> <span className="hidden md:inline">دفتر الأشعة المستقل</span>
+                        </button>
+
                         <button onClick={() => window.open('#/ct-consent', '_blank')} className="bg-emerald-600 text-white w-fit px-4 h-9 rounded-lg flex items-center justify-center font-bold shadow-lg hover:bg-emerald-500 transition-all gap-2" title="Consent Form">
                             <i className="fas fa-file-medical"></i> <span className="hidden md:inline">Consent Form</span>
                         </button>

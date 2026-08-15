@@ -326,6 +326,11 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                     <span className="font-medium">Department Bookings</span>
                   </Link>
              )}
+
+             <Link to="/radiology-logbook" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/radiology-logbook')}`}>
+                <i className="fas fa-book-medical w-6 text-amber-400"></i>
+                <span className="font-medium">سجل الأشعة المستقل (Excel)</span>
+             </Link>
               
              {(userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR || userRole === UserRole.MANAGER || userRole === UserRole.DOCTOR || userRole === UserRole.USER) && (
                  <Link to="/communications" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/communications')}`}>

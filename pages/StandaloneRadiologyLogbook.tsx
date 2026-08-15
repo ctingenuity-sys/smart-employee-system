@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import { useLanguage } from '../contexts/LanguageContext';
 
@@ -46,6 +47,8 @@ export interface StandaloneCase {
     source: 'IHMS_AUTO' | 'CLICK' | 'MANUAL';
     timestamp: number;
     isEmptySlot?: boolean;
+    usGender?: 'M' | 'F';        // خيار السونار: ذَكَر M / أُنثى F
+    usSubSerial?: string;       // الترقيم المتسلسل بالدور الخاص بالسونار (مثال: US-M-001 أو US-F-001)
 }
 
 export const MODALITY_CONFIG: Record<string, { nameAr: string; nameEn: string; prefix: string; color: string; bg: string; border: string; text: string; lightBg: string }> = {
@@ -58,7 +61,7 @@ export const MODALITY_CONFIG: Record<string, { nameAr: string; nameEn: string; p
     'MAMMO': { nameAr: 'الماموجرام (Mammography)', nameEn: 'Mammography', prefix: 'MG', color: 'rose', bg: 'bg-rose-600', border: 'border-rose-600', text: 'text-rose-600', lightBg: 'bg-rose-50 text-rose-800 border-rose-300' },
 };
 
-export const DEFAULT_TECH_PRESETS: string[] = ['فني الأشعة', 'د. طارق', 'أحمد', 'محمد', 'محمود', 'سارة'];
+export const DEFAULT_TECH_PRESETS: string[] = ['UNKNOWN', 'TAREK', 'AHMED', 'SAYED', 'IBRAHIM', 'MAQSOUD','ALI','TAHER','ANGEL','NAIF','GAMAL','REFAL','RAGHAD','MARYAM','LAYALI','LAYAN','RANA','ALOTAIBI','FAISAL','HEFDHI','RAGHAD.N','HASHIM'];
 
 const getLocalToday = () => {
     const now = new Date();
@@ -341,7 +344,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
         if (saved) {
             try { return JSON.parse(saved); } catch (e) {}
         }
-        return ['فني الأشعة', 'د. طارق', 'أحمد', 'محمد', 'محمود', 'سارة'];
+        return ['UNKNOWN', 'TAREK', 'AHMED', 'SAYED', 'IBRAHIM', 'MAQSOUD','ALI','TAHER','ANGEL','NAIF','GAMAL','REFAL','RAGHAD','MARYAM','LAYALI','LAYAN','RANA','ALOTAIBI','FAISAL','HEFDHI','RAGHAD.N','HASHIM'];
     });
 
     // Load Counter Configuration from LocalStorage
@@ -352,6 +355,23 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
         }
         return { 'X-RAY': 1, 'CT': 1, 'MRI': 1, 'US': 1, 'FLUO': 1, 'MAMMO': 1, 'OTHER': 1 };
     });
+
+    // Ultrasound Male (M) and Female (F) Ordered Counters
+    const [usMaleCounter, setUsMaleCounter] = useState<number>(() => {
+        const saved = localStorage.getItem('stand_us_male_counter');
+        return saved ? Math.max(1, parseInt(saved, 10) || 1) : 1;
+    });
+
+    const [usFemaleCounter, setUsFemaleCounter] = useState<number>(() => {
+        const saved = localStorage.getItem('stand_us_female_counter');
+        return saved ? Math.max(1, parseInt(saved, 10) || 1) : 1;
+    });
+
+    // Sticker Widget State (طباعة ستيكر 2.5 × 5 سم)
+    const [stickerCase, setStickerCase] = useState<StandaloneCase | null>(null);
+    const [isStickerWidgetOpen, setIsStickerWidgetOpen] = useState<boolean>(false);
+    const [usGenderChoice, setUsGenderChoice] = useState<'M' | 'F'>('M');
+    const [usCustomSeqNum, setUsCustomSeqNum] = useState<string>('');
 
     // Load Incoming Staging Queue from LocalStorage
     const [incomingQueue, setIncomingQueue] = useState<IncomingPatient[]>(() => {
@@ -383,6 +403,14 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
     useEffect(() => {
         localStorage.setItem('stand_modality_counters', JSON.stringify(counters));
     }, [counters]);
+
+    useEffect(() => {
+        localStorage.setItem('stand_us_male_counter', String(usMaleCounter));
+    }, [usMaleCounter]);
+
+    useEffect(() => {
+        localStorage.setItem('stand_us_female_counter', String(usFemaleCounter));
+    }, [usFemaleCounter]);
 
     useEffect(() => {
         localStorage.setItem('stand_tech_name', selectedTechnician);
@@ -537,6 +565,69 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
         time: getCurrentTime()
     });
 
+    // --- Sticker Printing Helpers (2.5 x 5 cm Thermal Sticker) ---
+    const openStickerForCase = (item: StandaloneCase) => {
+        setStickerCase(item);
+        if (item.modality === 'US') {
+            const isFem = item.gender?.toLowerCase().startsWith('f') || item.gender === 'female' || item.gender === 'أنثى' || item.usGender === 'F';
+            const defaultGender = item.usGender || (isFem ? 'F' : 'M');
+            setUsGenderChoice(defaultGender);
+            if (item.usSubSerial) {
+                setUsCustomSeqNum(item.usSubSerial);
+            } else {
+                const num = defaultGender === 'F' ? usFemaleCounter : usMaleCounter;
+                setUsCustomSeqNum(`US-${defaultGender}-${String(num).padStart(3, '0')}`);
+            }
+        }
+        setIsStickerWidgetOpen(true);
+    };
+
+    const handleToggleUsGender = (newGender: 'M' | 'F') => {
+        setUsGenderChoice(newGender);
+        if (!stickerCase) return;
+
+        let newSubSerial = '';
+        if (newGender === 'F') {
+            newSubSerial = stickerCase.usGender === 'F' && stickerCase.usSubSerial ? stickerCase.usSubSerial : `US-F-${String(usFemaleCounter).padStart(3, '0')}`;
+        } else {
+            newSubSerial = stickerCase.usGender === 'M' && stickerCase.usSubSerial ? stickerCase.usSubSerial : `US-M-${String(usMaleCounter).padStart(3, '0')}`;
+        }
+        setUsCustomSeqNum(newSubSerial);
+
+        // Update case in list so choice persists
+        setCases(prev => prev.map(c => {
+            if (c.id === stickerCase.id) {
+                return {
+                    ...c,
+                    usGender: newGender,
+                    usSubSerial: newSubSerial
+                };
+            }
+            return c;
+        }));
+        setStickerCase(prev => prev ? { ...prev, usGender: newGender, usSubSerial: newSubSerial } : null);
+    };
+
+    const handlePrintSticker = () => {
+        if (!stickerCase) return;
+
+        // Inject dynamic page dimensions style specifically for thermal label printing (50mm x 25mm)
+        let styleEl = document.getElementById('sticker-print-page-style');
+        if (!styleEl) {
+            styleEl = document.createElement('style');
+            styleEl.id = 'sticker-print-page-style';
+            document.head.appendChild(styleEl);
+        }
+        styleEl.innerHTML = `@page { size: 50mm 25mm !important; margin: 0mm !important; }`;
+
+        document.body.classList.add('print-sticker-only');
+        window.print();
+        setTimeout(() => {
+            document.body.classList.remove('print-sticker-only');
+            if (styleEl) styleEl.innerHTML = '';
+        }, 500);
+    };
+
     // Helper to update a specific modality's starting/next counter
     const setModalityStartingNumber = (mod: string, startNum: number) => {
         const validNum = Math.max(1, startNum || 1);
@@ -597,8 +688,10 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                 };
                 setCases(updated);
                 showToast(`تم تحديث فحص إضافي للمريض: ${existing.patientName} (رقم الأشعة: ${existing.modalitySerial})`, 'info');
+                openStickerForCase(updated[existingIndex]);
             } else {
                 showToast(`المريض مسجل مسبقاً برقم أشعة: ${existing.modalitySerial}`, 'info');
+                openStickerForCase(existing);
             }
             setIncomingQueue(prev => prev.filter(p => !(p.fileNumber === String(patient.fileNumber).trim() && p.modality === detectedMod && (patient.refNo && p.refNo ? p.refNo === patient.refNo : true))));
             return existing;
@@ -613,6 +706,23 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
             ...prev,
             [detectedMod]: nextSerial + 1
         }));
+
+        // Ultrasound Male / Female Counter Assignment
+        let usGenderVal: 'M' | 'F' | undefined = undefined;
+        let usSubSerialVal: string | undefined = undefined;
+
+        if (detectedMod === 'US') {
+            const isFem = patient.gender?.toLowerCase().startsWith('f') || patient.gender === 'female' || patient.gender === 'أنثى';
+            if (isFem) {
+                usGenderVal = 'F';
+                usSubSerialVal = `US-F-${String(usFemaleCounter).padStart(3, '0')}`;
+                setUsFemaleCounter(prev => prev + 1);
+            } else {
+                usGenderVal = 'M';
+                usSubSerialVal = `US-M-${String(usMaleCounter).padStart(3, '0')}`;
+                setUsMaleCounter(prev => prev + 1);
+            }
+        }
 
         const newCase: StandaloneCase = {
             id: `case_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -635,10 +745,15 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
             technicianName: assignedTech,
             status: 'completed',
             source: patient.source || 'CLICK',
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            usGender: usGenderVal,
+            usSubSerial: usSubSerialVal
         };
 
         setCases(prev => [newCase, ...prev]);
+
+        // Automatically open the sticker preview widget in bottom corner
+        openStickerForCase(newCase);
 
         // Remove from Incoming Queue if present
         setIncomingQueue(prev => prev.filter(p => !(
@@ -1359,7 +1474,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
         // Format data sheet
         const sheetData: (string | number)[][] = [
-            ['سجل فحص الأشعة الرقمي - مستشفى / مركز الأشعة والتصوير الطبي'],
+            ['سجل فحص الأشعة الرقمي - قسم الأشعه '],
             [`القسم: ${modalityTitle}`, `التاريخ: ${selectedDate || 'كافة الأيام'}`, `إجمالي الحالات: ${targetCases.length}`],
             [],
             ['م', 'رقم الأشعة التسلسلي', 'القسم', 'رقم الملف (MRN)', 'اسم المريض', 'الفحص المطلوب', 'الطبيب المعالج / المحول', 'التاريخ', 'الوقت', 'القائم بالفحص (الفني)', 'ملاحظات']
@@ -1609,13 +1724,13 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 setActiveModalityForCounter(targetMod);
                                 setIsCounterModalOpen(true);
                             }}
-                            className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow transition-all"
-                            title="انقر لتحديد الرقم الذي سيبدأ من عنده تسجيل الحالات"
+                            className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow transition-all cursor-pointer"
+                            title={txt("انقر لتحديد الرقم الذي سيبدأ من عنده تسجيل الحالات", "Click to set starting serial number for new cases")}
                         >
                             <i className="fas fa-list-ol text-amber-400"></i>
-                            <span>تحديد رقم البداية</span>
+                            <span>{txt('تحديد رقم البداية', 'Set Start Serial')}</span>
                             <span className="bg-amber-400 text-slate-950 px-1.5 py-0.2 rounded font-mono font-bold text-[10px]">
-                                {activeTab !== 'ALL' ? `${MODALITY_CONFIG[activeTab]?.prefix}-${String(counters[activeTab] || 1).padStart(3, '0')}` : 'العدادات'}
+                                {activeTab !== 'ALL' ? `${MODALITY_CONFIG[activeTab]?.prefix}-${String(counters[activeTab] || 1).padStart(3, '0')}` : txt('العدادات', 'Counters')}
                             </span>
                         </button>
 
@@ -1624,11 +1739,11 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setIsTechDropdownOpen(prev => !prev)}
-                                className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 hover:border-amber-400/50 px-3 py-2 rounded-xl text-xs font-black flex items-center gap-2 shadow transition-all"
-                                title="انقر لاختيار الفني الحالي أو إدارة وتعديل الأسماء"
+                                className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 hover:border-amber-400/50 px-3 py-2 rounded-xl text-xs font-black flex items-center gap-2 shadow transition-all cursor-pointer"
+                                title={txt("انقر لاختيار الفني الحالي أو إدارة وتعديل الأسماء", "Click to select active technician or manage names")}
                             >
                                 <i className="fas fa-user-md text-amber-400"></i>
-                                <span className="text-slate-300 text-[11px] hidden sm:inline">الفني:</span>
+                                <span className="text-slate-300 text-[11px] hidden sm:inline">{txt('الفني:', 'Tech:')}</span>
                                 <span className="font-bold text-white bg-slate-950 px-2 py-0.5 rounded-lg border border-slate-700 max-w-[120px] truncate">
                                     {selectedTechnician}
                                 </span>
@@ -1636,10 +1751,10 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             </button>
 
                             {isTechDropdownOpen && (
-                                <div className="absolute left-0 mt-2 w-64 bg-white text-slate-800 rounded-2xl shadow-2xl border border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95">
+                                <div className={`absolute ${isEn ? 'right-0' : 'left-0'} mt-2 w-64 bg-white text-slate-800 rounded-2xl shadow-2xl border border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95`}>
                                     <div className="px-3.5 py-1.5 border-b border-slate-100 flex items-center justify-between">
-                                        <span className="text-[11px] font-black text-slate-500">اختر الفني القائم بالفحص:</span>
-                                        <span className="text-[10px] text-indigo-600 font-bold">{techPresets.length} فنيين</span>
+                                        <span className="text-[11px] font-black text-slate-500">{txt('اختر الفني القائم بالفحص:', 'Select Active Technician:')}</span>
+                                        <span className="text-[10px] text-indigo-600 font-bold">{techPresets.length} {txt('فنيين', 'Techs')}</span>
                                     </div>
                                     <div className="max-h-52 overflow-y-auto py-1">
                                         {techPresets.map(preset => (
@@ -1650,9 +1765,9 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                                     setSelectedTechnician(preset);
                                                     setFastTech(preset);
                                                     setIsTechDropdownOpen(false);
-                                                    showToast(`تم تعيين الفني النشط: ${preset}`, 'success');
+                                                    showToast(`${txt('تم تعيين الفني النشط:', 'Active Tech set to:')} ${preset}`, 'success');
                                                 }}
-                                                className={`w-full text-right px-3.5 py-2 text-xs font-bold flex items-center justify-between hover:bg-indigo-50 transition ${
+                                                className={`w-full ${isEn ? 'text-left' : 'text-right'} px-3.5 py-2 text-xs font-bold flex items-center justify-between hover:bg-indigo-50 transition cursor-pointer ${
                                                     selectedTechnician === preset ? 'bg-indigo-50 text-indigo-700 font-black' : 'text-slate-700'
                                                 }`}
                                             >
@@ -1668,10 +1783,10 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                                 setIsTechDropdownOpen(false);
                                                 setIsTechManagerOpen(true);
                                             }}
-                                            className="w-full text-center bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-black py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 transition shadow-xs"
+                                            className="w-full text-center bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-black py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer"
                                         >
                                             <i className="fas fa-user-edit text-xs"></i>
-                                            <span>إدارة وتعديل أسماء الفنيين</span>
+                                            <span>{txt('إدارة وتعديل أسماء الفنيين', 'Manage Technician Names')}</span>
                                         </button>
                                     </div>
                                 </div>
@@ -1681,72 +1796,72 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                         {/* Daily Staff Workload Statistics Button */}
                         <button
                             onClick={() => setIsTechStatsModalOpen(true)}
-                            className="bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-2 rounded-xl text-xs font-black flex items-center gap-2 shadow-md transition-all"
-                            title="إحصائيات إنجاز وحالات كل موظف اليوم"
+                            className="bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-2 rounded-xl text-xs font-black flex items-center gap-2 shadow-md transition-all cursor-pointer"
+                            title={txt("إحصائيات إنجاز وحالات كل موظف اليوم", "Daily staff workload & case statistics")}
                         >
                             <i className="fas fa-chart-pie text-amber-300"></i>
-                            <span>إحصائيات الموظفين</span>
+                            <span>{txt('إحصائيات الموظفين', 'Staff Workload')}</span>
                             <span className="bg-amber-400 text-slate-950 font-mono font-black px-1.5 py-0.2 rounded text-[10px]">
-                                {technicianDailyStats.filter(s => s.total > 0).length} اليوم
+                                {technicianDailyStats.filter(s => s.total > 0).length} {txt('اليوم', 'Today')}
                             </span>
                         </button>
 
                         {/* Standalone Offline Hub Button */}
                         <button
                             onClick={() => setIsOfflineModalOpen(true)}
-                            className="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow transition-all"
-                            title="نظام مستقل يعمل أوفلاين 100% بدون إنترنت وبدون تسجيل دخول"
+                            className="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow transition-all cursor-pointer"
+                            title={txt("نظام مستقل يعمل أوفلاين 100% بدون إنترنت وبدون تسجيل دخول", "100% Offline Standalone System")}
                         >
                             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                            <span>أوفلاين 100% (مستقل)</span>
+                            <span>{txt('أوفلاين 100% (مستقل)', '100% Offline (Standalone)')}</span>
                             <i className="fas fa-laptop-medical text-[10px] text-emerald-400"></i>
                         </button>
 
                         {/* Bridge Help & Script */}
                         <button
                             onClick={() => setIsBridgeInfoOpen(true)}
-                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-700 shadow transition-all"
-                            title="طريقة الربط بالنقر المباشر في الـ IHMS"
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-700 shadow transition-all cursor-pointer"
+                            title={txt("طريقة الربط بالنقر المباشر في الـ IHMS", "IHMS Direct Click Bridge Info")}
                         >
                             <i className="fas fa-satellite-dish text-indigo-400"></i>
-                            <span>ربط الـ IHMS</span>
+                            <span>{txt('ربط الـ IHMS', 'IHMS Bridge')}</span>
                         </button>
 
                         {/* Export to Excel */}
                         <button
                             onClick={() => exportToExcel(activeTab)}
-                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg transition-all"
-                            title="تنزيل شيت إكسل للقسم المختار"
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg transition-all cursor-pointer"
+                            title={txt("تنزيل شيت إكسل للقسم المختار", "Download Excel sheet for selected modality")}
                         >
                             <i className="fas fa-file-excel text-emerald-200"></i>
-                            <span>تصدير إكسل ({activeTab === 'ALL' ? 'الكل' : MODALITY_CONFIG[activeTab]?.prefix})</span>
+                            <span>{txt('تصدير إكسل', 'Export Excel')} ({activeTab === 'ALL' ? txt('الكل', 'All') : MODALITY_CONFIG[activeTab]?.prefix})</span>
                         </button>
 
                         {/* Copy Table to Clipboard */}
                         <button
                             onClick={copyTableToExcelClipboard}
-                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-700 transition-all"
-                            title="نسخ الجدول ولصقه مباشرة في إكسل (Ctrl+V)"
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-700 transition-all cursor-pointer"
+                            title={txt("نسخ الجدول ولصقه مباشرة في إكسل (Ctrl+V)", "Copy table to clipboard for Excel (Ctrl+V)")}
                         >
                             <i className="fas fa-copy text-amber-400"></i>
-                            <span className="hidden sm:inline">نسخ لإكسل</span>
+                            <span className="hidden sm:inline">{txt('نسخ لإكسل', 'Copy to Excel')}</span>
                         </button>
 
                         {/* Export Modality Sheets Modal */}
                         <button
                             onClick={() => setIsExportModalOpen(true)}
-                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-700 transition-all"
-                            title="تصدير شيتات الأقسام منفصلة"
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-700 transition-all cursor-pointer"
+                            title={txt("تصدير شيتات الأقسام منفصلة", "Export separate department sheets")}
                         >
                             <i className="fas fa-layer-group text-indigo-400"></i>
-                            <span>شيتات الأقسام</span>
+                            <span>{txt('شيتات الأقسام', 'Modality Sheets')}</span>
                         </button>
 
                         {/* Settings & Counters */}
                         <button
                             onClick={() => setIsSettingsOpen(true)}
-                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 w-9 h-9 rounded-xl flex items-center justify-center border border-slate-700 transition-all"
-                            title="إعدادات العدادات والفنيين"
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 w-9 h-9 rounded-xl flex items-center justify-center border border-slate-700 transition-all cursor-pointer"
+                            title={txt("إعدادات العدادات والفنيين", "Settings & Counters")}
                         >
                             <i className="fas fa-sliders-h"></i>
                         </button>
@@ -1766,10 +1881,10 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 });
                                 setIsManualModalOpen(true);
                             }}
-                            className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black px-3.5 py-2 rounded-xl text-xs flex items-center gap-1 shadow-lg transition-all"
+                            className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black px-3.5 py-2 rounded-xl text-xs flex items-center gap-1 shadow-lg transition-all cursor-pointer"
                         >
                             <i className="fas fa-plus"></i>
-                            <span>تسجيل يدوي</span>
+                            <span>{txt('تسجيل يدوي', 'Manual Register')}</span>
                         </button>
                     </div>
                 </div>
@@ -1783,12 +1898,12 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                     <form onSubmit={handleFastRegister} className="flex flex-wrap items-center gap-2">
                         <div className="flex items-center gap-1.5 bg-amber-50 text-amber-900 border border-amber-200 px-3 py-1.5 rounded-xl text-xs font-black">
                             <i className="fas fa-bolt text-amber-500"></i>
-                            <span>تسجيل سريع:</span>
+                            <span>{txt('تسجيل سريع:', 'Quick Register:')}</span>
                         </div>
 
                         <input
                             type="text"
-                            placeholder="رقم الملف (MRN)"
+                            placeholder={txt("رقم الملف (MRN)", "File No. (MRN)")}
                             value={fastMRN}
                             onChange={e => setFastMRN(e.target.value)}
                             className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-mono font-bold w-28 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -1796,7 +1911,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
                         <input
                             type="text"
-                            placeholder="اسم المريض (اختياري)"
+                            placeholder={txt("اسم المريض (اختياري)", "Patient Name (Optional)")}
                             value={fastName}
                             onChange={e => setFastName(e.target.value)}
                             className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold flex-1 min-w-[140px] focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -1804,7 +1919,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
                         <input
                             type="text"
-                            placeholder="اسم الفحص (مثال: CT Brain / US Pelvis)"
+                            placeholder={txt("اسم الفحص (مثال: CT Brain / US Pelvis)", "Exam Name (e.g., CT Brain / US Pelvis)")}
                             value={fastExam}
                             onChange={e => {
                                 const val = e.target.value;
@@ -1817,27 +1932,27 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                         <select
                             value={fastMod}
                             onChange={e => setFastMod(e.target.value as any)}
-                            className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                         >
-                            <option value="X-RAY">أشعة عادية (XR)</option>
-                            <option value="CT">مقطعية (CT)</option>
-                            <option value="MRI">رنين (MRI)</option>
-                            <option value="US">سونار (US)</option>
-                            <option value="FLUO">فلورو وصبغة (FL)</option>
-                            <option value="MAMMO">مامو (MG)</option>
+                            <option value="X-RAY">{txt('أشعة عادية (XR)', 'Plain X-Ray (XR)')}</option>
+                            <option value="CT">{txt('مقطعية (CT)', 'CT Scan (CT)')}</option>
+                            <option value="MRI">{txt('رنين (MRI)', 'MRI Scan (MRI)')}</option>
+                            <option value="US">{txt('سونار (US)', 'Ultrasound (US)')}</option>
+                            <option value="FLUO">{txt('فلورو وصبغة (FL)', 'Fluoroscopy (FL)')}</option>
+                            <option value="MAMMO">{txt('مامو (MG)', 'Mammography (MG)')}</option>
                         </select>
 
                         {/* Starting / Next Serial Number Widget in Quick Bar */}
                         <div className="flex items-center gap-1.5 bg-indigo-50/80 border border-indigo-200 rounded-xl px-2.5 py-1 text-xs">
-                            <span className="text-indigo-900 font-bold text-[11px]">الرقم القادم:</span>
+                            <span className="text-indigo-900 font-bold text-[11px]">{txt('الرقم القادم:', 'Next Serial:')}</span>
                             <button
                                 type="button"
                                 onClick={() => {
                                     setActiveModalityForCounter(fastMod);
                                     setIsCounterModalOpen(true);
                                 }}
-                                className="inline-flex items-center gap-1 font-mono font-black text-indigo-700 bg-white px-2 py-0.5 rounded-lg border border-indigo-300 hover:border-amber-400 hover:bg-amber-50 transition"
-                                title="انقر لتعديل رقم البداية"
+                                className="inline-flex items-center gap-1 font-mono font-black text-indigo-700 bg-white px-2 py-0.5 rounded-lg border border-indigo-300 hover:border-amber-400 hover:bg-amber-50 transition cursor-pointer"
+                                title={txt("انقر لتعديل رقم البداية", "Click to edit start serial")}
                             >
                                 <span>{MODALITY_CONFIG[fastMod]?.prefix}-{String(counters[fastMod] || 1).padStart(3, '0')}</span>
                                 <i className="fas fa-pencil-alt text-[10px] text-indigo-500"></i>
@@ -1854,7 +1969,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                     setSelectedTechnician(e.target.value);
                                 }}
                                 className="bg-transparent border-none text-xs font-bold text-slate-800 focus:outline-none cursor-pointer max-w-[120px]"
-                                title="اختر الفني القائم بالفحص"
+                                title={txt("اختر الفني القائم بالفحص", "Select performing technician")}
                             >
                                 {techPresets.map(preset => (
                                     <option key={preset} value={preset}>{preset}</option>
@@ -1863,8 +1978,8 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setIsTechManagerOpen(true)}
-                                className="text-indigo-600 hover:text-indigo-800 p-0.5 text-xs font-bold"
-                                title="إضافة فني جديد"
+                                className="text-indigo-600 hover:text-indigo-800 p-0.5 text-xs font-bold cursor-pointer"
+                                title={txt("إضافة فني جديد", "Add new technician")}
                             >
                                 <i className="fas fa-plus-circle"></i>
                             </button>
@@ -1872,17 +1987,17 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
                         <button
                             type="submit"
-                            className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-1.5 rounded-xl text-xs flex items-center gap-1.5 shadow transition"
+                            className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-1.5 rounded-xl text-xs flex items-center gap-1.5 shadow transition cursor-pointer"
                         >
                             <i className="fas fa-check"></i>
-                            <span>تسجيل واستخراج رقم</span>
+                            <span>{txt('تسجيل واستخراج رقم', 'Register & Generate No.')}</span>
                         </button>
                     </form>
 
                     {/* Quick Technician Chips */}
                     <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-100 text-[11px]">
                         <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="text-slate-400 font-bold">الفني القائم بالفحص:</span>
+                            <span className="text-slate-400 font-bold">{txt('الفني القائم بالفحص:', 'Performing Technician:')}</span>
                             {techPresets.map(preset => (
                                 <button
                                     key={preset}
@@ -1890,9 +2005,9 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                     onClick={() => {
                                         setSelectedTechnician(preset);
                                         setFastTech(preset);
-                                        showToast(`تم تعيين القائم بالفحص: ${preset}`, 'info');
+                                        showToast(`${txt('تم تعيين القائم بالفحص:', 'Performing Tech set to:')} ${preset}`, 'info');
                                     }}
-                                    className={`px-2 py-0.5 rounded-lg border font-bold transition-all ${
+                                    className={`px-2 py-0.5 rounded-lg border font-bold transition-all cursor-pointer ${
                                         selectedTechnician === preset
                                             ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-xs'
                                             : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
@@ -1906,10 +2021,10 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                         <button
                             type="button"
                             onClick={() => setIsTechManagerOpen(true)}
-                            className="text-indigo-600 hover:text-indigo-800 font-black text-xs flex items-center gap-1 transition"
+                            className="text-indigo-600 hover:text-indigo-800 font-black text-xs flex items-center gap-1 transition cursor-pointer"
                         >
                             <i className="fas fa-user-plus text-[10px]"></i>
-                            <span>إضافة / تعديل أسماء الفنيين</span>
+                            <span>{txt('إضافة / تعديل أسماء الفنيين', 'Add / Edit Tech Names')}</span>
                         </button>
                     </div>
                 </div>
@@ -1917,21 +2032,21 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                 {/* STAFF DAILY WORKLOAD QUICK BAR (شريط متابعة إنجاز وحالات كل موظف اليوم) */}
                 <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl p-3.5 mb-5 shadow-md border border-indigo-800/40 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
-                        <div className="flex items-center gap-1.5 text-xs font-black text-amber-400 pl-3 border-l border-slate-700/80">
+                        <div className={`flex items-center gap-1.5 text-xs font-black text-amber-400 ${isEn ? 'pr-3 border-r' : 'pl-3 border-l'} border-slate-700/80`}>
                             <i className="fas fa-users-cog"></i>
-                            <span>إنجاز الموظفين ({selectedDate || 'اليوم'}):</span>
+                            <span>{txt('إنجاز الموظفين', 'Staff Achievements')} ({selectedDate || txt('اليوم', 'Today')}):</span>
                         </div>
 
                         {/* Filter All Employees */}
                         <button
                             onClick={() => setSelectedTechFilter('ALL')}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                            className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
                                 selectedTechFilter === 'ALL'
                                     ? 'bg-amber-400 text-slate-950 shadow-md scale-105'
                                     : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
                             }`}
                         >
-                            <span>كافة الموظفين</span>
+                            <span>{txt('كافة الموظفين', 'All Staff')}</span>
                             <span className="bg-black/20 font-mono px-1.5 py-0.2 rounded text-[10px] font-bold">{modalityStats['ALL']}</span>
                         </button>
 
@@ -1940,18 +2055,18 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <button
                                 key={tech.name}
                                 onClick={() => setSelectedTechFilter(tech.name === selectedTechFilter ? 'ALL' : tech.name)}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                                     selectedTechFilter === tech.name
                                         ? 'bg-indigo-600 text-white shadow-md ring-2 ring-amber-400 scale-105'
                                         : 'bg-slate-800/80 text-slate-200 hover:bg-slate-700'
                                 }`}
-                                title={`انقر لعرض حالات ${tech.name} فقط في الجدول`}
+                                title={txt(`انقر لعرض حالات ${tech.name} فقط في الجدول`, `Click to filter logbook for ${tech.name}`)}
                             >
                                 <span>{tech.name}</span>
                                 <span className={`font-mono font-black px-1.5 py-0.2 rounded text-[10px] ${
                                     tech.total > 0 ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-400'
                                 }`}>
-                                    {tech.total} حالة
+                                    {tech.total} {txt('حالة', 'cases')}
                                 </span>
                             </button>
                         ))}
@@ -1961,20 +2076,20 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                     <div className="flex items-center gap-2">
                         <button
                             onClick={() => setIsTechManagerOpen(true)}
-                            className="text-xs bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition"
-                            title="إضافة وتعديل أسماء الموظفين"
+                            className="text-xs bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition cursor-pointer"
+                            title={txt("إضافة وتعديل أسماء الموظفين", "Manage staff names")}
                         >
                             <i className="fas fa-user-edit text-xs"></i>
-                            <span>إدارة الأسماء</span>
+                            <span>{txt('إدارة الأسماء', 'Manage Names')}</span>
                         </button>
 
                         <button
                             onClick={() => setIsTechStatsModalOpen(true)}
-                            className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-xl font-black flex items-center gap-1.5 shadow transition"
-                            title="عرض التقرير المفصل مع الأقسام والنسب"
+                            className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-xl font-black flex items-center gap-1.5 shadow transition cursor-pointer"
+                            title={txt("عرض التقرير المفصل مع الأقسام والنسب", "Show detailed report with breakdown")}
                         >
                             <i className="fas fa-chart-pie text-xs"></i>
-                            <span>التقرير المفصل</span>
+                            <span>{txt('التقرير المفصل', 'Detailed Report')}</span>
                         </button>
                     </div>
                 </div>
@@ -1988,13 +2103,13 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             </div>
                             <div>
                                 <h2 className="font-black text-base flex items-center gap-2">
-                                    <span>قائمة المرضى الواردين من IHMS</span>
+                                    <span>{txt('قائمة المرضى الواردين من IHMS', 'Incoming Patients Queue (IHMS)')}</span>
                                     <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 text-xs px-2.5 py-0.5 rounded-full font-mono font-bold">
-                                        {incomingQueue.length} حالة في الانتظار
+                                        {incomingQueue.length} {txt('حالة في الانتظار', 'cases waiting')}
                                     </span>
                                 </h2>
                                 <p className="text-xs text-indigo-200">
-                                    💡 <strong>تنظيم الحالات بحسب الموداليتي ورقم الفاتورة:</strong> يتم تجميع فحوصات نفس القسم في مربع واحد، وعند حضور المريض اضغط [تسجيل] لأخذ الرقم التسلسلي فوراً.
+                                    💡 <strong>{txt('تنظيم الحالات بحسب الموداليتي ورقم الفاتورة:', 'Organized by Modality & Bill:')}</strong> {txt('يتم تجميع فحوصات نفس القسم في مربع واحد، وعند حضور المريض اضغط [تسجيل] لأخذ الرقم التسلسلي فوراً.', 'Exams for the same modality are grouped together. Click [Register] when patient arrives to assign serial.')}
                                 </p>
                             </div>
                         </div>
@@ -2004,37 +2119,37 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <button
                                 onClick={() => {
                                     setIncomingSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-                                    showToast(`ترتيب الانتظار حسب الوقت: ${incomingSortOrder === 'asc' ? 'من الأحدث إلى الأقدم' : 'من الأقدم إلى الأحدث'}`, 'info');
+                                    showToast(`${txt('ترتيب الانتظار حسب الوقت:', 'Waiting queue sort by time:')} ${incomingSortOrder === 'asc' ? txt('من الأحدث إلى الأقدم', 'Newest First') : txt('من الأقدم إلى الأحدث', 'Oldest First')}`, 'info');
                                 }}
-                                className="bg-indigo-900/80 hover:bg-indigo-800 text-amber-300 border border-indigo-700/60 rounded-xl px-2.5 py-1.5 text-xs font-bold flex items-center gap-1.5 transition"
-                                title="تبديل ترتيب الوقت في قائمة الانتظار"
+                                className="bg-indigo-900/80 hover:bg-indigo-800 text-amber-300 border border-indigo-700/60 rounded-xl px-2.5 py-1.5 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                                title={txt("تبديل ترتيب الوقت في قائمة الانتظار", "Toggle time sort order in waiting queue")}
                             >
                                 <i className="fas fa-clock"></i>
-                                <span>ترتيب بالوقت: {incomingSortOrder === 'asc' ? 'الأقدم أولاً ↑' : 'الأحدث أولاً ↓'}</span>
+                                <span>{txt('ترتيب بالوقت:', 'Sort Time:')} {incomingSortOrder === 'asc' ? txt('الأقدم أولاً ↑', 'Oldest First ↑') : txt('الأحدث أولاً ↓', 'Newest First ↓')}</span>
                             </button>
 
                             <div className="relative w-52">
-                                <i className="fas fa-search absolute right-3 top-2 text-indigo-300 text-xs"></i>
+                                <i className={`fas fa-search absolute ${isEn ? 'left-3' : 'right-3'} top-2 text-indigo-300 text-xs`}></i>
                                 <input
                                     type="text"
-                                    placeholder="بحث بملف، اسم، فحص، فاتورة..."
+                                    placeholder={txt("بحث بملف، اسم، فحص، فاتورة...", "Search MRN, name, exam, bill...")}
                                     value={incomingSearch}
                                     onChange={e => setIncomingSearch(e.target.value)}
-                                    className="w-full bg-indigo-900/60 border border-indigo-700/60 rounded-xl pr-8 pl-3 py-1.5 text-xs text-white placeholder-indigo-300 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                    className={`w-full bg-indigo-900/60 border border-indigo-700/60 rounded-xl ${isEn ? 'pl-8 pr-3' : 'pr-8 pl-3'} py-1.5 text-xs text-white placeholder-indigo-300 focus:outline-none focus:ring-1 focus:ring-amber-400`}
                                 />
                             </div>
 
                             {incomingQueue.length > 0 && (
                                 <button
                                     onClick={() => {
-                                        if (confirm('هل تريد مسح قائمة الانتظار الحالية؟')) {
+                                        if (confirm(txt('هل تريد مسح قائمة الانتظار الحالية؟', 'Do you want to clear current waiting queue?'))) {
                                             setIncomingQueue([]);
-                                            showToast('تم إفراغ قائمة الانتظار', 'info');
+                                            showToast(txt('تم إفراغ قائمة الانتظار', 'Waiting queue cleared'), 'info');
                                         }
                                     }}
-                                    className="text-xs text-indigo-300 hover:text-rose-400 underline px-2 py-1"
+                                    className="text-xs text-indigo-300 hover:text-rose-400 underline px-2 py-1 cursor-pointer"
                                 >
-                                    إفراغ القائمة
+                                    {txt('إفراغ القائمة', 'Clear Queue')}
                                 </button>
                             )}
                         </div>
@@ -2042,15 +2157,15 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
                     {/* Modality Filter Pills for Incoming Queue (نفس نظام صفحة المواعيد) */}
                     <div className="flex flex-wrap items-center gap-2 mb-4 bg-indigo-950/60 p-2 rounded-2xl border border-indigo-900/50">
-                        <span className="text-xs font-bold text-indigo-300 ml-1">تصفية الوارد:</span>
+                        <span className="text-xs font-bold text-indigo-300 mx-1">{txt('تصفية الوارد:', 'Filter Incoming:')}</span>
                         {[
-                            { key: 'ALL', label: 'كافة الأقسام', icon: 'fa-layer-group', bg: 'bg-indigo-600' },
-                            { key: 'X-RAY', label: 'XR أشعة عادية', icon: 'fa-x-ray', bg: 'bg-slate-700' },
-                            { key: 'CT', label: 'CT مقطعية', icon: 'fa-circle-notch', bg: 'bg-emerald-600' },
-                            { key: 'MRI', label: 'MRI رنين', icon: 'fa-magnet', bg: 'bg-blue-600' },
-                            { key: 'US', label: 'US سونار', icon: 'fa-wave-square', bg: 'bg-teal-600' },
-                            { key: 'FLUO', label: 'FL فلورو', icon: 'fa-flask', bg: 'bg-amber-600' },
-                            { key: 'MAMMO', label: 'MG مامو', icon: 'fa-ribbon', bg: 'bg-rose-600' }
+                            { key: 'ALL', labelAr: 'كافة الأقسام', labelEn: 'All Modalities', icon: 'fa-layer-group', bg: 'bg-indigo-600' },
+                            { key: 'X-RAY', labelAr: 'XR أشعة عادية', labelEn: 'XR Plain X-Ray', icon: 'fa-x-ray', bg: 'bg-slate-700' },
+                            { key: 'CT', labelAr: 'CT مقطعية', labelEn: 'CT Scan', icon: 'fa-circle-notch', bg: 'bg-emerald-600' },
+                            { key: 'MRI', labelAr: 'MRI رنين', labelEn: 'MRI Scan', icon: 'fa-magnet', bg: 'bg-blue-600' },
+                            { key: 'US', labelAr: 'US سونار', labelEn: 'Ultrasound', icon: 'fa-wave-square', bg: 'bg-teal-600' },
+                            { key: 'FLUO', labelAr: 'FL فلورو', labelEn: 'Fluoroscopy', icon: 'fa-flask', bg: 'bg-amber-600' },
+                            { key: 'MAMMO', labelAr: 'MG مامو', labelEn: 'Mammography', icon: 'fa-ribbon', bg: 'bg-rose-600' }
                         ].map(tab => {
                             const isSelected = incomingModalityFilter === tab.key;
                             const count = incomingModalityCounts[tab.key as keyof typeof incomingModalityCounts] || 0;
@@ -2058,14 +2173,14 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 <button
                                     key={tab.key}
                                     onClick={() => setIncomingModalityFilter(tab.key)}
-                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
                                         isSelected
                                             ? `${tab.bg} text-white shadow-md ring-2 ring-amber-400`
                                             : 'bg-slate-900/80 text-slate-300 hover:bg-slate-800'
                                     }`}
                                 >
                                     <i className={`fas ${tab.icon} text-[11px]`}></i>
-                                    <span>{tab.label}</span>
+                                    <span>{txt(tab.labelAr, tab.labelEn)}</span>
                                     <span className={`font-mono text-[10px] px-1.5 py-0.2 rounded font-black ${
                                         count > 0 ? 'bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-400'
                                     }`}>
@@ -2080,14 +2195,15 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                     {filteredIncoming.length === 0 ? (
                         <div className="py-8 text-center text-indigo-300/70 border border-dashed border-indigo-800/40 rounded-2xl bg-indigo-950/20">
                             <i className="fas fa-satellite-dish text-2xl mb-2 text-indigo-400 animate-pulse"></i>
-                            <p className="font-bold text-xs">لا توجد حالات واردة في هذا القسم حالياً...</p>
-                            <p className="text-[11px] text-indigo-400 mt-0.5">عند فتح شاشة الأشعة في IHMS أو النقر على الحالة ستظهر هنا فوراً مرتبة بالوقت</p>
+                            <p className="font-bold text-xs">{txt('لا توجد حالات واردة في هذا القسم حالياً...', 'No incoming cases in this modality currently...')}</p>
+                            <p className="text-[11px] text-indigo-400 mt-0.5">{txt('عند فتح شاشة الأشعة في IHMS أو النقر على الحالة ستظهر هنا فوراً مرتبة بالوقت', 'When opening the radiology screen in IHMS or clicking a patient, they will appear here instantly.')}</p>
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 max-h-96 overflow-y-auto pr-1">
                             {filteredIncoming.map(item => {
                                 const modConf = MODALITY_CONFIG[item.modality] || MODALITY_CONFIG['X-RAY'];
                                 const examCount = (item.examList && item.examList.length > 0) ? item.examList.length : 1;
+                                const modName = isEn ? modConf.nameEn : modConf.nameAr;
                                 
                                 return (
                                     <div
@@ -2101,12 +2217,12 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                                     <span className={`inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-0.5 rounded-lg ${modConf.bg} text-white shadow-xs`}>
                                                         <span>{modConf.prefix}</span>
                                                         <span>•</span>
-                                                        <span>{modConf.nameAr.split(' ')[0]}</span>
+                                                        <span>{modName.split(' ')[0]}</span>
                                                     </span>
 
                                                     {item.refNo && (
                                                         <span className="text-[10px] font-mono font-bold text-slate-300 bg-slate-900/80 px-2 py-0.5 rounded border border-slate-700">
-                                                            فاتورة: {item.refNo}
+                                                            {txt('فاتورة:', 'Bill:')} {item.refNo}
                                                         </span>
                                                     )}
                                                 </div>
@@ -2125,12 +2241,12 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                             {/* Metadata Chips (MRN, Age, Gender, Doctor, Cash/Insurance) */}
                                             <div className="flex flex-wrap items-center gap-1.5 mb-2.5 text-[11px]">
                                                 <span className="font-mono font-bold text-slate-200 bg-slate-900/90 px-2 py-0.5 rounded border border-slate-700">
-                                                    ملف: {item.fileNumber || '-'}
+                                                    {txt('ملف:', 'File:')} {item.fileNumber || '-'}
                                                 </span>
 
                                                 {item.age && (
                                                     <span className="text-slate-300 bg-slate-900/70 px-1.5 py-0.5 rounded border border-slate-700/60 font-medium">
-                                                        {item.age} سنة
+                                                        {item.age} {txt('سنة', 'yrs')}
                                                     </span>
                                                 )}
 
@@ -2138,7 +2254,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
                                                         item.gender === 'female' ? 'bg-pink-950/60 text-pink-300 border-pink-800/60' : 'bg-sky-950/60 text-sky-300 border-sky-800/60'
                                                     }`}>
-                                                        {item.gender === 'female' ? 'أنثى' : 'ذكر'}
+                                                        {item.gender === 'female' ? txt('أنثى', 'Female') : txt('ذكر', 'Male')}
                                                     </span>
                                                 )}
 
@@ -2146,12 +2262,12 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
                                                         item.isCash ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60' : 'bg-indigo-950/60 text-indigo-300 border-indigo-800/60'
                                                     }`}>
-                                                        {item.isCash ? 'كاش' : 'تأمين'}
+                                                        {item.isCash ? txt('كاش', 'Cash') : txt('تأمين', 'Insurance')}
                                                     </span>
                                                 )}
 
                                                 <span className="text-slate-400 text-[10px] truncate max-w-[130px]" title={item.doctorName}>
-                                                    د. {item.doctorName || 'العيادة'}
+                                                    {txt('د.', 'Dr.')} {item.doctorName || txt('العيادة', 'Clinic')}
                                                 </span>
                                             </div>
 
@@ -2160,11 +2276,11 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                                 <div className="flex items-center justify-between mb-1.5">
                                                     <span className="text-[11px] font-bold text-amber-300 flex items-center gap-1">
                                                         <i className="fas fa-layer-group text-[10px]"></i>
-                                                        <span>الفحوصات المطلوبة</span>
+                                                        <span>{txt('الفحوصات المطلوبة', 'Requested Exams')}</span>
                                                     </span>
                                                     {examCount > 1 && (
                                                         <span className="bg-amber-400/20 text-amber-300 text-[10px] font-black px-1.5 py-0.2 rounded font-mono">
-                                                            {examCount} فحوصات
+                                                            {examCount} {txt('فحوصات', 'exams')}
                                                         </span>
                                                     )}
                                                 </div>
@@ -2185,29 +2301,29 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                             {/* Department Override & Technician Selector */}
                                             <div className="pt-2 border-t border-slate-700/60 grid grid-cols-2 gap-1.5">
                                                 <div>
-                                                    <span className="text-[10px] text-slate-400 font-bold block mb-0.5">القسم:</span>
+                                                    <span className="text-[10px] text-slate-400 font-bold block mb-0.5">{txt('القسم:', 'Modality:')}</span>
                                                     <select
                                                         value={item.modality}
                                                         onChange={e => updateIncomingModality(item.id, e.target.value as any)}
                                                         className={`w-full text-[10px] font-black px-2 py-1 rounded-lg border-none cursor-pointer focus:ring-1 focus:ring-amber-400 ${modConf.bg} text-white`}
-                                                        title="تغيير قسم الأشعة للحالة قبل التسجيل"
+                                                        title={txt("تغيير قسم الأشعة للحالة قبل التسجيل", "Change modality before registering")}
                                                     >
-                                                        <option value="X-RAY">XR عادية</option>
-                                                        <option value="CT">CT مقطعية</option>
-                                                        <option value="MRI">MRI رنين</option>
-                                                        <option value="US">US سونار</option>
-                                                        <option value="FLUO">FL فلورو</option>
-                                                        <option value="MAMMO">MG مامو</option>
+                                                        <option value="X-RAY">XR {txt('عادية', 'X-Ray')}</option>
+                                                        <option value="CT">CT {txt('مقطعية', 'Scan')}</option>
+                                                        <option value="MRI">MRI {txt('رنين', 'Scan')}</option>
+                                                        <option value="US">US {txt('سونار', 'Ultrasound')}</option>
+                                                        <option value="FLUO">FL {txt('فلورو', 'Fluoro')}</option>
+                                                        <option value="MAMMO">MG {txt('مامو', 'Mammo')}</option>
                                                     </select>
                                                 </div>
 
                                                 <div>
-                                                    <span className="text-[10px] text-slate-400 font-bold block mb-0.5">القائم بالفحص:</span>
+                                                    <span className="text-[10px] text-slate-400 font-bold block mb-0.5">{txt('القائم بالفحص:', 'Technician:')}</span>
                                                     <select
                                                         value={item.technicianName || selectedTechnician}
                                                         onChange={e => updateIncomingTech(item.id, e.target.value)}
                                                         className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[11px] text-amber-300 font-bold focus:outline-none focus:ring-1 focus:ring-amber-400 cursor-pointer"
-                                                        title="اختر الفني القائم بالفحص"
+                                                        title={txt("اختر الفني القائم بالفحص", "Select performing technician")}
                                                     >
                                                         {techPresets.map(preset => (
                                                             <option key={preset} value={preset}>{preset}</option>
@@ -2242,7 +2358,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                             className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-lg transition-all active:scale-95 cursor-pointer"
                                         >
                                             <i className="fas fa-check-circle text-sm"></i>
-                                            <span>تسجيل في سجل الأشعة واستخراج رقم السجل</span>
+                                            <span>{txt('تسجيل في سجل الأشعة واستخراج رقم السجل', 'Register Case & Generate Logbook Serial')}</span>
                                         </button>
                                     </div>
                                 );
@@ -2258,12 +2374,13 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                         const isActive = activeTab === modKey;
                         const count = modalityStats[modKey as keyof typeof modalityStats] || 0;
                         const nextNum = counters[modKey] || 1;
+                        const titleName = isEn ? conf.nameEn : conf.nameAr;
 
                         return (
                             <div
                                 key={modKey}
                                 onClick={() => setActiveTab(modKey)}
-                                className={`p-3 rounded-2xl border text-right transition-all flex flex-col justify-between relative overflow-hidden cursor-pointer ${
+                                className={`p-3 rounded-2xl border ${isEn ? 'text-left' : 'text-right'} transition-all flex flex-col justify-between relative overflow-hidden cursor-pointer ${
                                     isActive
                                         ? `${conf.bg} text-white shadow-lg border-transparent scale-[1.02]`
                                         : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
@@ -2280,13 +2397,13 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                     </span>
                                 </div>
                                 <div className="font-bold text-xs truncate">
-                                    {conf.nameAr}
+                                    {titleName}
                                 </div>
                                 
                                 {modKey !== 'ALL' && (
                                     <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-100/20 text-[10px]">
                                         <span className={isActive ? 'text-white/80' : 'text-slate-400 font-medium'}>
-                                            القادم: <strong className="font-mono">{conf.prefix}-{String(nextNum).padStart(3, '0')}</strong>
+                                            {txt('القادم:', 'Next:')} <strong className="font-mono">{conf.prefix}-{String(nextNum).padStart(3, '0')}</strong>
                                         </span>
                                         <button
                                             type="button"
@@ -2296,7 +2413,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                                 setIsCounterModalOpen(true);
                                             }}
                                             className={`p-1 rounded transition ${isActive ? 'hover:bg-white/20 text-white' : 'hover:bg-amber-100 text-amber-600'}`}
-                                            title={`تغيير رقم بداية التسجيل لـ ${conf.nameAr}`}
+                                            title={txt(`تغيير رقم بداية التسجيل لـ ${conf.nameAr}`, `Edit start serial for ${conf.nameEn}`)}
                                         >
                                             <i className="fas fa-sliders-h text-[10px]"></i>
                                         </button>
@@ -2315,8 +2432,8 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <div className={`w-3.5 h-3.5 rounded-full ${MODALITY_CONFIG[activeTab]?.bg || 'bg-indigo-600'}`}></div>
                             <div>
                                 <h2 className="font-black text-slate-800 text-sm">
-                                    دفتر سجل: {MODALITY_CONFIG[activeTab]?.nameAr || activeTab} 
-                                    <span className="text-xs text-slate-500 font-bold mr-2">({filteredCases.length} حالة مسجلة)</span>
+                                    {txt('دفتر سجل:', 'Logbook:')} {isEn ? MODALITY_CONFIG[activeTab]?.nameEn || activeTab : MODALITY_CONFIG[activeTab]?.nameAr || activeTab} 
+                                    <span className={`text-xs text-slate-500 font-bold ${isEn ? 'ml-2' : 'mr-2'}`}>({filteredCases.length} {txt('حالة مسجلة', 'registered cases')})</span>
                                 </h2>
                             </div>
                         </div>
@@ -2330,11 +2447,11 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                         setActiveModalityForCounter(activeTab as any);
                                         setIsCounterModalOpen(true);
                                     }}
-                                    className="bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 px-3 py-1 rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-xs"
-                                    title="تحديد الرقم الذي سيبدأ منه تسجيل الحالات القادمة في هذا القسم"
+                                    className="bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 px-3 py-1 rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+                                    title={txt("تحديد الرقم الذي سيبدأ منه تسجيل الحالات القادمة في هذا القسم", "Set start serial for upcoming cases in this department")}
                                 >
                                     <i className="fas fa-list-ol text-amber-600"></i>
-                                    <span>رقم البداية القادم:</span>
+                                    <span>{txt('رقم البداية القادم:', 'Next Start Serial:')}</span>
                                     <span className="font-mono bg-amber-200/80 px-1.5 py-0.2 rounded font-bold">
                                         {MODALITY_CONFIG[activeTab]?.prefix}-{String(counters[activeTab] || 1).padStart(3, '0')}
                                     </span>
@@ -2353,34 +2470,34 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             </div>
 
                             <div className="relative w-44">
-                                <i className="fas fa-search absolute right-2.5 top-2 text-slate-400 text-xs"></i>
+                                <i className={`fas fa-search absolute ${isEn ? 'left-2.5' : 'right-2.5'} top-2 text-slate-400 text-xs`}></i>
                                 <input
                                     type="text"
-                                    placeholder="بحث في السجل..."
+                                    placeholder={txt("بحث في السجل...", "Search logbook...")}
                                     value={searchQuery}
                                     onChange={e => setSearchQuery(e.target.value)}
-                                    className="w-full bg-white border border-slate-200 rounded-xl pr-7 pl-3 py-1 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                    className={`w-full bg-white border border-slate-200 rounded-xl ${isEn ? 'pl-7 pr-3' : 'pr-7 pl-3'} py-1 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500`}
                                 />
                             </div>
 
                             {/* Export to Excel (.xlsx) */}
                             <button
                                 onClick={() => exportToExcel(activeTab)}
-                                className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-xs transition"
-                                title="تصدير ملف إكسل رسمي (.xlsx)"
+                                className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                                title={txt("تصدير ملف إكسل رسمي (.xlsx)", "Export official Excel file (.xlsx)")}
                             >
                                 <i className="fas fa-file-excel text-emerald-100"></i>
-                                <span>تصدير إكسل (.xlsx)</span>
+                                <span>{txt('تصدير إكسل (.xlsx)', 'Export Excel (.xlsx)')}</span>
                             </button>
 
                             {/* Print Preview & Print Table */}
                             <button
                                 onClick={() => setIsPrintPreviewOpen(true)}
-                                className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-xs transition"
-                                title="معاينة وطباعة جدول السجل الرسمي"
+                                className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                                title={txt("معاينة وطباعة جدول السجل الرسمي", "Preview & print official logbook")}
                             >
                                 <i className="fas fa-print"></i>
-                                <span>طباعة السجل</span>
+                                <span>{txt('طباعة السجل', 'Print Logbook')}</span>
                             </button>
                         </div>
                     </div>
@@ -2410,7 +2527,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 }`}
                             >
                                 <i className="fas fa-clock"></i>
-                                <span>الوقت ({sortField === 'time' ? (sortDirection === 'asc' ? 'الأقدم أولاً ↑' : 'الأحدث أولاً ↓') : 'الوقت'})</span>
+                                <span>{txt('الوقت', 'Time')} ({sortField === 'time' ? (sortDirection === 'asc' ? txt('الأقدم أولاً ↑', 'Oldest First ↑') : txt('الأحدث أولاً ↓', 'Newest First ↓')) : txt('الوقت', 'Time')})</span>
                             </button>
 
                             {/* Sort by Serial */}
@@ -2430,7 +2547,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 }`}
                             >
                                 <i className="fas fa-hashtag"></i>
-                                <span>رقم الأشعة ({sortField === 'serialNo' ? (sortDirection === 'asc' ? 'تصاعدي ↑' : 'تنازلي ↓') : 'الرقم'})</span>
+                                <span>{txt('رقم الأشعة', 'X-Ray Serial')} ({sortField === 'serialNo' ? (sortDirection === 'asc' ? txt('تصاعدي ↑', 'Ascending ↑') : txt('تنازلي ↓', 'Descending ↓')) : txt('الرقم', 'Serial')})</span>
                             </button>
 
                             {/* Sort by Patient Name */}
@@ -2450,18 +2567,18 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 }`}
                             >
                                 <i className="fas fa-user"></i>
-                                <span>اسم المريض (أ-ي)</span>
+                                <span>{txt('اسم المريض (أ-ي)', 'Patient Name (A-Z)')}</span>
                             </button>
                         </div>
 
                         <div className="text-[11px] text-slate-500 font-bold">
-                            💡 انقر على عناوين الأعمدة في الجدول أدناه لعكس الترتيب
+                            💡 {txt('انقر على عناوين الأعمدة في الجدول أدناه لعكس الترتيب', 'Click table column headers below to toggle sort direction')}
                         </div>
                     </div>
 
                     {/* Data Table */}
                     <div className="overflow-x-auto">
-                        <table className="w-full text-right text-xs border-collapse">
+                        <table className={`w-full text-xs border-collapse ${isEn ? 'text-left' : 'text-right'}`}>
                             <thead>
                                 <tr className="bg-slate-800 text-white font-bold select-none">
                                     <th className="p-3.5 text-center w-12">#</th>
@@ -2471,10 +2588,10 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                             else { setSortField('serialNo'); setSortDirection('asc'); }
                                         }}
                                         className="p-3.5 text-center cursor-pointer hover:bg-slate-700 transition"
-                                        title="انقر للترتيب برقم الأشعة"
+                                        title={txt('انقر للترتيب برقم الأشعة', 'Click to sort by X-Ray serial')}
                                     >
                                         <div className="flex items-center justify-center gap-1">
-                                            <span>رقم الأشعة التسلسلي</span>
+                                            <span>{txt('رقم الأشعة التسلسلي', 'X-Ray Serial No.')}</span>
                                             {sortField === 'serialNo' ? (
                                                 <i className={`fas fa-sort-${sortDirection === 'asc' ? 'up' : 'down'} text-amber-400`}></i>
                                             ) : (
@@ -2482,17 +2599,17 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                             )}
                                         </div>
                                     </th>
-                                    <th className="p-3.5 text-center">القسم</th>
+                                    <th className="p-3.5 text-center">{txt('القسم', 'Modality')}</th>
                                     <th 
                                         onClick={() => {
                                             if (sortField === 'fileNumber') setSortDirection(p => p === 'asc' ? 'desc' : 'asc');
                                             else { setSortField('fileNumber'); setSortDirection('asc'); }
                                         }}
                                         className="p-3.5 cursor-pointer hover:bg-slate-700 transition"
-                                        title="انقر للترتيب برقم الملف"
+                                        title={txt('انقر للترتيب برقم الملف', 'Click to sort by File No.')}
                                     >
                                         <div className="flex items-center gap-1">
-                                            <span>رقم الملف (MRN)</span>
+                                            <span>{txt('رقم الملف (MRN)', 'File No. (MRN)')}</span>
                                             {sortField === 'fileNumber' && (
                                                 <i className={`fas fa-sort-${sortDirection === 'asc' ? 'up' : 'down'} text-amber-400`}></i>
                                             )}
@@ -2504,39 +2621,39 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                             else { setSortField('patientName'); setSortDirection('asc'); }
                                         }}
                                         className="p-3.5 cursor-pointer hover:bg-slate-700 transition"
-                                        title="انقر للترتيب باسم المريض"
+                                        title={txt('انقر للترتيب باسم المريض', 'Click to sort by Patient Name')}
                                     >
                                         <div className="flex items-center gap-1">
-                                            <span>اسم المريض</span>
+                                            <span>{txt('اسم المريض', 'Patient Name')}</span>
                                             {sortField === 'patientName' && (
                                                 <i className={`fas fa-sort-${sortDirection === 'asc' ? 'up' : 'down'} text-amber-400`}></i>
                                             )}
                                         </div>
                                     </th>
-                                    <th className="p-3.5">الفحص المطلوب</th>
-                                    <th className="p-3.5">الطبيب المحول</th>
+                                    <th className="p-3.5">{txt('الفحص المطلوب', 'Requested Exam')}</th>
+                                    <th className="p-3.5">{txt('الطبيب المحول', 'Referring Doctor')}</th>
                                     <th 
                                         onClick={() => {
                                             if (sortField === 'time') setSortDirection(p => p === 'asc' ? 'desc' : 'asc');
                                             else { setSortField('time'); setSortDirection('asc'); }
                                         }}
                                         className="p-3.5 text-center cursor-pointer hover:bg-slate-700 transition bg-slate-700/60 select-none"
-                                        title={sortField === 'time' ? `الوقت: ${sortDirection === 'asc' ? 'مرتب تصاعدياً من الأقدم للأحدث (انقر للقلب)' : 'مرتب تنازلياً من الأحدث للأقدم (انقر للقلب)'}` : 'انقر للترتيب بوقت الفحص'}
+                                        title={sortField === 'time' ? (sortDirection === 'asc' ? txt('الوقت: مرتب تصاعدياً من الأقدم للأحدث (انقر للقلب)', 'Time: Ascending (oldest to newest)') : txt('الوقت: مرتب تنازلياً من الأحدث للأقدم (انقر للقلب)', 'Time: Descending (newest to oldest)')) : txt('انقر للترتيب بوقت الفحص', 'Click to sort by exam time')}
                                     >
                                         <div className="flex items-center justify-center gap-1.5 text-amber-300">
                                             <i className="fas fa-clock text-xs"></i>
-                                            <span>الوقت</span>
+                                            <span>{txt('الوقت', 'Time')}</span>
                                             {sortField === 'time' ? (
                                                 <span className="inline-flex items-center text-[10px] bg-amber-400/20 text-amber-300 px-1.5 py-0.5 rounded font-mono">
-                                                    {sortDirection === 'asc' ? '↑ أقدم' : '↓ أحدث'}
+                                                    {sortDirection === 'asc' ? txt('↑ أقدم', '↑ Oldest') : txt('↓ أحدث', '↓ Newest')}
                                                 </span>
                                             ) : (
                                                 <i className="fas fa-sort text-slate-400 text-[10px]"></i>
                                             )}
                                         </div>
                                     </th>
-                                    <th className="p-3.5 text-center">القائم بالفحص (الفني)</th>
-                                    <th className="p-3.5 text-center w-14">إجراء</th>
+                                    <th className="p-3.5 text-center">{txt('القائم بالفحص (الفني)', 'Technician')}</th>
+                                    <th className="p-3.5 text-center w-14">{txt('إجراء', 'Actions')}</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 font-medium">
@@ -2546,8 +2663,8 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                             <div className="w-14 h-14 bg-slate-100 text-slate-300 rounded-full flex items-center justify-center mx-auto mb-2 text-xl">
                                                 <i className="fas fa-book-open"></i>
                                             </div>
-                                            <p className="font-bold text-slate-600">لا توجد حالات مسجلة في هذا القسم لتاريخ {selectedDate || 'المحدد'}</p>
-                                            <p className="text-xs text-slate-400 mt-1">عند وصول ورقة المريض، اضغط على زر التسجيل في قائمة الوارد أعلاه ليأخذ رقمه فوراً</p>
+                                            <p className="font-bold text-slate-600">{txt(`لا توجد حالات مسجلة في هذا القسم لتاريخ ${selectedDate || 'المحدد'}`, `No cases recorded in this section for date ${selectedDate || 'selected'}`)}</p>
+                                            <p className="text-xs text-slate-400 mt-1">{txt('عند وصول ورقة المريض، اضغط على زر التسجيل في قائمة الوارد أعلاه ليأخذ رقمه فوراً', 'When a patient arrives, click Register in the incoming queue above to assign a serial number')}</p>
                                         </td>
                                     </tr>
                                 ) : (
@@ -2709,17 +2826,27 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                                         )}
 
                                                         {!isVacant && (
-                                                            <button
-                                                                onClick={() => {
-                                                                    setEditingCase({ ...item });
-                                                                    setIsCustomEditTech(false);
-                                                                    setIsEditCaseModalOpen(true);
-                                                                }}
-                                                                className="text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 p-1.5 rounded-lg transition border border-indigo-200/80 cursor-pointer"
-                                                                title={txt('تعديل بيانات الحالة واختيار القائم بالفحص', 'Edit case details')}
-                                                            >
-                                                                <i className="fas fa-edit text-xs"></i>
-                                                            </button>
+                                                            <>
+                                                                <button
+                                                                    onClick={() => openStickerForCase(item)}
+                                                                    className="text-teal-700 hover:text-teal-900 bg-teal-50 hover:bg-teal-100 px-2 py-1 rounded-lg transition text-xs font-bold flex items-center gap-1 border border-teal-200/80 shadow-2xs cursor-pointer"
+                                                                    title={txt('طباعة ستيكر حراري (2.5×5 سم)', 'Print Sticker (2.5x5cm)')}
+                                                                >
+                                                                    <i className="fas fa-barcode text-[11px]"></i>
+                                                                    <span className="hidden xl:inline text-[11px]">{txt('ستيكر', 'Sticker')}</span>
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setEditingCase({ ...item });
+                                                                        setIsCustomEditTech(false);
+                                                                        setIsEditCaseModalOpen(true);
+                                                                    }}
+                                                                    className="text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 p-1.5 rounded-lg transition border border-indigo-200/80 cursor-pointer"
+                                                                    title={txt('تعديل بيانات الحالة واختيار القائم بالفحص', 'Edit case details')}
+                                                                >
+                                                                    <i className="fas fa-edit text-xs"></i>
+                                                                </button>
+                                                            </>
                                                         )}
 
                                                         <button
@@ -2744,7 +2871,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                 <div className="mt-6 flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200 text-xs">
                     <div className="flex items-center gap-2 text-slate-600">
                         <i className="fas fa-shield-alt text-emerald-600 text-base"></i>
-                        <span>البيانات محفوظة في متصفحك محلياً بشكل دائم بدون إنترنت أو فايربيز.</span>
+                        <span>{txt('البيانات محفوظة في متصفحك محلياً بشكل دائم بدون إنترنت أو فايربيز.', 'Data is permanently saved locally in your browser offline without internet or Firebase.')}</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <button
@@ -2752,11 +2879,11 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-xl transition flex items-center gap-1.5"
                         >
                             <i className="fas fa-download text-indigo-600"></i>
-                            <span>تنزيل نسخة احتياطية (JSON)</span>
+                            <span>{txt('تنزيل نسخة احتياطية (JSON)', 'Download Backup (JSON)')}</span>
                         </button>
                         <label className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer">
                             <i className="fas fa-upload text-emerald-600"></i>
-                            <span>استعادة نسخة</span>
+                            <span>{txt('استعادة نسخة', 'Restore Backup')}</span>
                             <input type="file" accept=".json" onChange={handleRestoreJSON} className="hidden" />
                         </label>
                     </div>
@@ -2766,29 +2893,29 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
             {/* MODAL: BRIDGE SETUP & DIRECT CLICK INSTRUCTIONS */}
             {isBridgeInfoOpen && (
                 <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full p-6 border border-slate-200">
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full p-6 border border-slate-200" dir={isEn ? "ltr" : "rtl"}>
                         <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
                             <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
-                                <i className="fas fa-satellite-dish text-indigo-600"></i> ربط الـ IHMS والتقاط النقر المباشر
+                                <i className="fas fa-satellite-dish text-indigo-600"></i> {txt('ربط الـ IHMS والتقاط النقر المباشر', 'IHMS Bridge & Direct Row Click Capture')}
                             </h3>
-                            <button onClick={() => setIsBridgeInfoOpen(false)} className="text-slate-400 hover:text-slate-600">
+                            <button onClick={() => setIsBridgeInfoOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
                                 <i className="fas fa-times"></i>
                             </button>
                         </div>
 
                         <div className="space-y-4 text-xs text-slate-600 leading-relaxed">
                             <div className="bg-emerald-50 text-emerald-900 border border-emerald-200 p-3 rounded-2xl">
-                                <p className="font-bold mb-1">🎯 تم تحديث سكريبت الإضافة ليدعم:</p>
+                                <p className="font-bold mb-1">🎯 {txt('تم تحديث سكريبت الإضافة ليدعم:', 'Extension script updated to support:')}</p>
                                 <ul className="list-disc list-inside space-y-1">
-                                    <li><strong>التمييز الذكي لكافة الأقسام (CT, MRI, US, FLUO, MAMMO, X-RAY)</strong> دون دمجها في الأشعة العادية.</li>
-                                    <li><strong>التقاط النقر على صف المريض في الـ IHMS فوراً</strong> مع إضاءة خضراء تفاعلية على الصف في شاشة المستشفى.</li>
-                                    <li><strong>استقبال الحالات عبر كافة القنوات المباشرة</strong> بدون الحاجة لإنترنت.</li>
+                                    <li><strong>{txt('التمييز الذكي لكافة الأقسام (CT, MRI, US, FLUO, MAMMO, X-RAY)', 'Smart multi-modality classification (CT, MRI, US, FLUO, MAMMO, X-RAY)')}</strong> {txt('دون دمجها في الأشعة العادية.', 'without merging into plain X-ray.')}</li>
+                                    <li><strong>{txt('التقاط النقر على صف المريض في الـ IHMS فوراً', 'Instant capture when clicking patient row in IHMS')}</strong> {txt('مع إضاءة خضراء تفاعلية على الصف في شاشة المستشفى.', 'with interactive green highlight on hospital screen.')}</li>
+                                    <li><strong>{txt('استقبال الحالات عبر كافة القنوات المباشرة', 'Receive patient cases via all direct channels')}</strong> {txt('بدون الحاجة لإنترنت.', 'completely offline.')}</li>
                                 </ul>
                             </div>
 
                             <div>
-                                <label className="block font-black text-slate-800 mb-1.5">طريقة التحديث بخطوة واحدة:</label>
-                                <p>قم بتحميل سكريبت الإضافة الجديد بالأسفل واستبدل ملف <code className="bg-slate-100 px-1 py-0.5 rounded font-mono font-bold">smart-bridge.js</code> في مجلد الإضافة بمتصفحك ثم أعد تحميل صفحة الـ IHMS.</p>
+                                <label className="block font-black text-slate-800 mb-1.5">{txt('طريقة التحديث بخطوة واحدة:', '1-Step Update Instructions:')}</label>
+                                <p>{txt('قم بتحميل سكريبت الإضافة الجديد بالأسفل واستبدل ملف', 'Download the updated extension script below and replace')} <code className="bg-slate-100 px-1 py-0.5 rounded font-mono font-bold">smart-bridge.js</code> {txt('في مجلد الإضافة بمتصفحك ثم أعد تحميل صفحة الـ IHMS.', 'file in your browser extension folder then reload IHMS page.')}</p>
                             </div>
 
                             <div className="flex gap-2 pt-2">
@@ -2890,18 +3017,18 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                         a.href = URL.createObjectURL(blob);
                                         a.download = 'smart-bridge.js';
                                         a.click();
-                                        showToast('تم تحميل سكريبت الإضافة المحدث (smart-bridge.js)', 'success');
+                                        showToast(txt('تم تحميل سكريبت الإضافة المحدث (smart-bridge.js)', 'Downloaded updated extension script (smart-bridge.js)'), 'success');
                                     }}
-                                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs shadow transition flex items-center justify-center gap-1.5"
+                                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
                                 >
                                     <i className="fas fa-download"></i>
-                                    <span>تحميل سكريبت الإضافة المحدث (smart-bridge.js)</span>
+                                    <span>{txt('تحميل سكريبت الإضافة المحدث (smart-bridge.js)', 'Download Updated Script (smart-bridge.js)')}</span>
                                 </button>
                                 <button
                                     onClick={() => setIsBridgeInfoOpen(false)}
-                                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-xl text-xs transition"
+                                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-xl text-xs transition cursor-pointer"
                                 >
-                                    إغلاق
+                                    {txt('إغلاق', 'Close')}
                                 </button>
                             </div>
                         </div>
@@ -2920,12 +3047,12 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 </div>
                                 <div>
                                     <div className="flex items-center gap-2">
-                                        <h3 className="text-base font-black text-slate-900">تعديل بيانات الحالة</h3>
+                                        <h3 className="text-base font-black text-slate-900">{txt('تعديل بيانات الحالة', 'Edit Case Details')}</h3>
                                         <span className="font-mono text-xs font-black bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-lg border border-indigo-200">
                                             {editingCase.modalitySerial}
                                         </span>
                                     </div>
-                                    <p className="text-[11px] text-slate-500 font-medium">تعديل تفاصيل الفحص وتعيين الموظف / الفني القائم بالفحص</p>
+                                    <p className="text-[11px] text-slate-500 font-medium">{txt('تعديل تفاصيل الفحص وتعيين الموظف / الفني القائم بالفحص', 'Modify exam details and assign performing technician')}</p>
                                 </div>
                             </div>
                             <button
@@ -2970,7 +3097,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             {/* MRN & Modality */}
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1">رقم الملف (MRN)</label>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1">{txt('رقم الملف (MRN)', 'File No. (MRN)')}</label>
                                     <input
                                         type="text"
                                         value={editingCase.fileNumber}
@@ -2979,7 +3106,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1">القسم (Modality)</label>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1">{txt('القسم (Modality)', 'Modality')}</label>
                                     <select
                                         value={editingCase.modality}
                                         onChange={e => {
@@ -2994,19 +3121,19 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                         }}
                                         className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
                                     >
-                                        <option value="X-RAY">أشعة عادية (X-Ray)</option>
-                                        <option value="CT">أشعة مقطعية (CT)</option>
-                                        <option value="MRI">رنين مغناطيسي (MRI)</option>
-                                        <option value="US">موجات صوتية / سونار (US)</option>
-                                        <option value="FLUO">فلوروسكوبي وصبغة (Fluoroscopy)</option>
-                                        <option value="MAMMO">ماموجرام (Mammography)</option>
+                                        <option value="X-RAY">{txt('أشعة عادية (X-Ray)', 'X-Ray')}</option>
+                                        <option value="CT">{txt('أشعة مقطعية (CT)', 'CT Scan')}</option>
+                                        <option value="MRI">{txt('رنين مغناطيسي (MRI)', 'MRI')}</option>
+                                        <option value="US">{txt('موجات صوتية / سونار (US)', 'Ultrasound (US)')}</option>
+                                        <option value="FLUO">{txt('فلوروسكوبي وصبغة (Fluoroscopy)', 'Fluoroscopy (FLUO)')}</option>
+                                        <option value="MAMMO">{txt('ماموجرام (Mammography)', 'Mammography (MAMMO)')}</option>
                                     </select>
                                 </div>
                             </div>
 
                             {/* Exam Name */}
                             <div>
-                                <label className="block text-xs font-bold text-slate-700 mb-1">اسم الفحص المطلوب</label>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">{txt('اسم الفحص المطلوب', 'Requested Exam Name')}</label>
                                 <input
                                     type="text"
                                     value={editingCase.examName}
@@ -3020,21 +3147,21 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 <div className="flex items-center justify-between mb-1.5">
                                     <label className="text-xs font-black text-slate-800 flex items-center gap-1.5">
                                         <i className="fas fa-user-check text-amber-600 text-sm"></i>
-                                        <span>القائم بالفحص (اختر الموظف / الفني):</span>
+                                        <span>{txt('القائم بالفحص (اختر الموظف / الفني):', 'Performing Technician:')}</span>
                                     </label>
                                     <button
                                         type="button"
                                         onClick={() => setIsCustomEditTech(!isCustomEditTech)}
-                                        className="text-[11px] text-indigo-700 hover:text-indigo-900 font-bold underline"
+                                        className="text-[11px] text-indigo-700 hover:text-indigo-900 font-bold underline cursor-pointer"
                                     >
-                                        {isCustomEditTech ? 'الرجوع للقائمة المنسدلة' : 'كتابة اسم يدوي'}
+                                        {isCustomEditTech ? txt('الرجوع للقائمة المنسدلة', 'Back to list') : txt('كتابة اسم يدوي', 'Custom name')}
                                     </button>
                                 </div>
 
                                 {isCustomEditTech ? (
                                     <input
                                         type="text"
-                                        placeholder="اكتب اسم الموظف..."
+                                        placeholder={txt('اكتب اسم الموظف...', 'Type technician name...')}
                                         value={editingCase.technicianName || ''}
                                         onChange={e => setEditingCase({ ...editingCase, technicianName: e.target.value })}
                                         className="w-full bg-white border-2 border-indigo-400 rounded-xl px-3 py-2 text-xs font-black text-slate-900 focus:outline-none shadow-xs"
@@ -3057,7 +3184,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
                                 {/* Quick Selection Chips */}
                                 <div className="mt-2.5 pt-2 border-t border-amber-200/50">
-                                    <span className="text-[10px] font-bold text-slate-500 block mb-1">اختيار سريع بنقرة واحدة:</span>
+                                    <span className="text-[10px] font-bold text-slate-500 block mb-1">{txt('اختيار سريع بنقرة واحدة:', '1-Click Quick Select:')}</span>
                                     <div className="flex flex-wrap gap-1.5">
                                         {techPresets.map(preset => {
                                             const isSelected = (editingCase.technicianName || selectedTechnician) === preset;
@@ -3069,7 +3196,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                                         setEditingCase({ ...editingCase, technicianName: preset });
                                                         setIsCustomEditTech(false);
                                                     }}
-                                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${
+                                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
                                                         isSelected
                                                             ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-xs scale-105 font-black'
                                                             : 'bg-white text-slate-700 border-slate-200 hover:bg-amber-100 hover:border-amber-300'
@@ -3086,7 +3213,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             {/* Doctor & Time */}
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1">الطبيب المحول</label>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1">{txt('الطبيب المحول', 'Referring Doctor')}</label>
                                     <input
                                         type="text"
                                         value={editingCase.doctorName || ''}
@@ -3095,7 +3222,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1">الوقت</label>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1">{txt('الوقت', 'Time')}</label>
                                     <input
                                         type="time"
                                         value={editingCase.time || ''}
@@ -3109,10 +3236,10 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <div className="flex gap-2 pt-3 border-t border-slate-100">
                                 <button
                                     type="submit"
-                                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black py-2.5 rounded-xl text-xs shadow-lg transition flex items-center justify-center gap-1.5"
+                                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black py-2.5 rounded-xl text-xs shadow-lg transition flex items-center justify-center gap-1.5 cursor-pointer"
                                 >
                                     <i className="fas fa-check"></i>
-                                    <span>حفظ تعديلات الحالة</span>
+                                    <span>{txt('حفظ تعديلات الحالة', 'Save Case Changes')}</span>
                                 </button>
                                 <button
                                     type="button"
@@ -3120,9 +3247,9 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                         setIsEditCaseModalOpen(false);
                                         setEditingCase(null);
                                     }}
-                                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-xl text-xs transition"
+                                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-xl text-xs transition cursor-pointer"
                                 >
-                                    إلغاء
+                                    {txt('إلغاء', 'Cancel')}
                                 </button>
                             </div>
                         </form>
@@ -3136,7 +3263,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                     <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
                         <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
                             <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
-                                <i className="fas fa-user-plus text-indigo-600"></i> تسجيل حالة يدوياً بالدفتر
+                                <i className="fas fa-user-plus text-indigo-600"></i> {txt('تسجيل حالة يدوياً بالدفتر', 'Register Case Manually')}
                             </h3>
                             <button onClick={() => setIsManualModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                                 <i className="fas fa-times"></i>
@@ -3145,11 +3272,11 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
                         <form onSubmit={e => {
                             e.preventDefault();
-                            if (!manualForm.patientName && !manualForm.fileNumber) return showToast('يرجى إدخال اسم المريض أو رقم الملف', 'error');
+                            if (!manualForm.patientName && !manualForm.fileNumber) return showToast(txt('يرجى إدخال اسم المريض أو رقم الملف', 'Please enter patient name or file number'), 'error');
                             registerPatient({
-                                patientName: manualForm.patientName || `مريض ملف (${manualForm.fileNumber})`,
+                                patientName: manualForm.patientName || `${txt('مريض ملف', 'Patient File')} (${manualForm.fileNumber})`,
                                 fileNumber: manualForm.fileNumber,
-                                examName: manualForm.examName || 'فحص أشعة',
+                                examName: manualForm.examName || txt('فحص أشعة', 'Radiology Exam'),
                                 modality: manualForm.modality,
                                 doctorName: manualForm.doctorName,
                                 technicianName: manualForm.technicianName || selectedTechnician,
@@ -3160,10 +3287,10 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             setIsManualModalOpen(false);
                         }} className="space-y-3">
                             <div>
-                                <label className="block text-xs font-bold text-slate-600 mb-1">اسم المريض</label>
+                                <label className="block text-xs font-bold text-slate-600 mb-1">{txt('اسم المريض', 'Patient Name')}</label>
                                 <input
                                     type="text"
-                                    placeholder="مثال: محمد أحمد علي"
+                                    placeholder={txt('مثال: محمد أحمد علي', 'e.g., John Doe')}
                                     value={manualForm.patientName}
                                     onChange={e => setManualForm({ ...manualForm, patientName: e.target.value })}
                                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
@@ -3172,37 +3299,37 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-600 mb-1">رقم الملف (MRN)</label>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">{txt('رقم الملف (MRN)', 'File Number (MRN)')}</label>
                                     <input
                                         type="text"
-                                        placeholder="مثال: 45892"
+                                        placeholder={txt('مثال: 45892', 'e.g. 45892')}
                                         value={manualForm.fileNumber}
                                         onChange={e => setManualForm({ ...manualForm, fileNumber: e.target.value })}
                                         className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-600 mb-1">القسم (Modality)</label>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">{txt('القسم (Modality)', 'Modality')}</label>
                                     <select
                                         value={manualForm.modality}
                                         onChange={e => setManualForm({ ...manualForm, modality: e.target.value as any })}
                                         className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                                     >
-                                        <option value="X-RAY">أشعة عادية (X-Ray)</option>
-                                        <option value="CT">أشعة مقطعية (CT)</option>
-                                        <option value="MRI">رنين مغناطيسي (MRI)</option>
-                                        <option value="US">موجات صوتية / سونار (US)</option>
-                                        <option value="FLUO">فلوروسكوبي وصبغة (Fluoroscopy)</option>
-                                        <option value="MAMMO">ماموجرام (Mammography)</option>
+                                        <option value="X-RAY">{txt('أشعة عادية (X-Ray)', 'X-Ray')}</option>
+                                        <option value="CT">{txt('أشعة مقطعية (CT)', 'CT Scan')}</option>
+                                        <option value="MRI">{txt('رنين مغناطيسي (MRI)', 'MRI')}</option>
+                                        <option value="US">{txt('موجات صوتية / سونار (US)', 'Ultrasound (US)')}</option>
+                                        <option value="FLUO">{txt('فلوروسكوبي وصبغة (Fluoroscopy)', 'Fluoroscopy')}</option>
+                                        <option value="MAMMO">{txt('ماموجرام (Mammography)', 'Mammography')}</option>
                                     </select>
                                 </div>
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-slate-600 mb-1">اسم الفحص</label>
+                                <label className="block text-xs font-bold text-slate-600 mb-1">{txt('اسم الفحص', 'Exam Name')}</label>
                                 <input
                                     type="text"
-                                    placeholder="مثال: Chest PA / CT Brain with Contrast"
+                                    placeholder={txt('مثال: Chest PA / CT Brain with Contrast', 'e.g., Chest PA / CT Brain')}
                                     value={manualForm.examName}
                                     onChange={e => {
                                         const val = e.target.value;
@@ -3216,7 +3343,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <div>
                                 <label className="block text-xs font-bold text-slate-600 mb-1">
                                     <i className="fas fa-user-tag text-indigo-600 ml-1"></i>
-                                    القائم بالفحص (اختر الموظف / الفني)
+                                    {txt('القائم بالفحص (اختر الموظف / الفني)', 'Technician (Select Staff / Tech)')}
                                 </label>
                                 <select
                                     value={manualForm.technicianName || selectedTechnician}
@@ -3250,17 +3377,17 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-600 mb-1">الطبيب المحول</label>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">{txt('الطبيب المحول', 'Referring Doctor')}</label>
                                     <input
                                         type="text"
-                                        placeholder="د. العيادة الخارجية"
+                                        placeholder={txt('د. العيادة الخارجية', 'Dr. Outpatient')}
                                         value={manualForm.doctorName}
                                         onChange={e => setManualForm({ ...manualForm, doctorName: e.target.value })}
                                         className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-600 mb-1">الوقت</label>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">{txt('الوقت', 'Time')}</label>
                                     <input
                                         type="time"
                                         value={manualForm.time}
@@ -3275,14 +3402,14 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                     type="submit"
                                     className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg transition"
                                 >
-                                    حفظ وتوليد رقم الأشعة
+                                    {txt('حفظ وتوليد رقم الأشعة', 'Save & Generate X-Ray No.')}
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => setIsManualModalOpen(false)}
                                     className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-xl text-xs transition"
                                 >
-                                    إلغاء
+                                    {txt('إلغاء', 'Cancel')}
                                 </button>
                             </div>
                         </form>
@@ -3296,7 +3423,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                     <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
                         <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
                             <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
-                                <i className="fas fa-sliders-h text-indigo-600"></i> إعدادات العدادات والفنيين
+                                <i className="fas fa-sliders-h text-indigo-600"></i> {txt('إعدادات العدادات والفنيين', 'Counters & Technicians Settings')}
                             </h3>
                             <button onClick={() => setIsSettingsOpen(false)} className="text-slate-400 hover:text-slate-600">
                                 <i className="fas fa-times"></i>
@@ -3305,7 +3432,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
                         <div className="space-y-4">
                             <div>
-                                <label className="block text-xs font-bold text-slate-600 mb-1">اسم الفني الافتراضي (القائم بالتسجيل)</label>
+                                <label className="block text-xs font-bold text-slate-600 mb-1">{txt('اسم الفني الافتراضي (القائم بالتسجيل)', 'Default Technician Name')}</label>
                                 <input
                                     type="text"
                                     value={selectedTechnician}
@@ -3315,7 +3442,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-slate-600 mb-1">قائمة أسماء الفنيين السريعة (افصل بفاصلة)</label>
+                                <label className="block text-xs font-bold text-slate-600 mb-1">{txt('قائمة أسماء الفنيين السريعة (افصل بفاصلة)', 'Quick Tech Presets (comma-separated)')}</label>
                                 <input
                                     type="text"
                                     value={techPresets.join(', ')}
@@ -3325,7 +3452,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             </div>
 
                             <div className="border-t border-slate-100 pt-3">
-                                <h4 className="text-xs font-black text-slate-700 mb-2">بداية ترقيم العداد الحالي لكل قسم:</h4>
+                                <h4 className="text-xs font-black text-slate-700 mb-2">{txt('بداية ترقيم العداد الحالي لكل قسم:', 'Starting serial number for each modality:')}</h4>
                                 <div className="grid grid-cols-2 gap-2">
                                     {(['X-RAY', 'CT', 'MRI', 'US', 'FLUO', 'MAMMO'] as const).map(mod => (
                                         <div key={mod} className="bg-slate-50 p-2 rounded-xl border border-slate-200 flex items-center justify-between">
@@ -3343,17 +3470,45 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                         </div>
                                     ))}
                                 </div>
+
+                                <div className="bg-teal-50/70 p-2.5 rounded-xl border border-teal-200 mt-2">
+                                    <label className="block text-[11px] font-black text-teal-900 mb-1.5">
+                                        🎯 {txt('ترقيم بداية السونار المنفصل بالدور (M / F):', 'Ultrasound Separate Counters (M / F):')}
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div className="bg-white p-1.5 rounded-lg border border-teal-200 flex items-center justify-between">
+                                            <span className="text-xs font-bold text-blue-700">US-M:</span>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                value={usMaleCounter}
+                                                onChange={e => setUsMaleCounter(Math.max(1, parseInt(e.target.value) || 1))}
+                                                className="w-16 bg-slate-50 border border-slate-300 rounded text-center font-mono font-bold text-xs py-0.5"
+                                            />
+                                        </div>
+                                        <div className="bg-white p-1.5 rounded-lg border border-teal-200 flex items-center justify-between">
+                                            <span className="text-xs font-bold text-rose-700">US-F:</span>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                value={usFemaleCounter}
+                                                onChange={e => setUsFemaleCounter(Math.max(1, parseInt(e.target.value) || 1))}
+                                                className="w-16 bg-slate-50 border border-slate-300 rounded text-center font-mono font-bold text-xs py-0.5"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="pt-3">
                                 <button
                                     onClick={() => {
                                         setIsSettingsOpen(false);
-                                        showToast('تم حفظ إعدادات العدادات والفنيين بنجاح', 'success');
+                                        showToast(txt('تم حفظ إعدادات العدادات والفنيين بنجاح', 'Settings saved successfully'), 'success');
                                     }}
-                                    className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg transition"
+                                    className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg transition cursor-pointer"
                                 >
-                                    إغلاق وحفظ الإعدادات
+                                    {txt('إغلاق وحفظ الإعدادات', 'Save & Close Settings')}
                                 </button>
                             </div>
                         </div>
@@ -3372,9 +3527,9 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 </div>
                                 <div>
                                     <h3 className="text-base font-black text-slate-900">
-                                        تحديد رقم بداية التسجيل
+                                        {txt('تحديد رقم بداية التسجيل', 'Set Starting Serial Number')}
                                     </h3>
-                                    <p className="text-[11px] text-slate-500 font-medium">حدد الرقم التسلسلي الذي سيبدأ من عنده تسجيل المرضى القادمين</p>
+                                    <p className="text-[11px] text-slate-500 font-medium">{txt('حدد الرقم التسلسلي الذي سيبدأ من عنده تسجيل المرضى القادمين', 'Specify the starting serial number for upcoming patient registrations')}</p>
                                 </div>
                             </div>
                             <button onClick={() => setIsCounterModalOpen(false)} className="text-slate-400 hover:text-slate-600 w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-100">
@@ -3384,7 +3539,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
                         {/* Modality Tabs Selector Inside Modal */}
                         <div className="mb-4">
-                            <label className="block text-xs font-bold text-slate-600 mb-1.5">اختر القسم المراد تعديل بداية رقمه:</label>
+                            <label className="block text-xs font-bold text-slate-600 mb-1.5">{txt('اختر القسم المراد تعديل بداية رقمه:', 'Select modality to edit starting serial:')}</label>
                             <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 bg-slate-100 p-1 rounded-2xl">
                                 {(['X-RAY', 'CT', 'MRI', 'US', 'FLUO', 'MAMMO'] as const).map(mod => {
                                     const isCurrent = activeModalityForCounter === mod;
@@ -3401,7 +3556,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                             }`}
                                         >
                                             <span>{conf.prefix}</span>
-                                            <span className="text-[10px] opacity-80">{conf.nameAr.split(' ')[0]}</span>
+                                            <span className="text-[10px] opacity-80">{isEn ? conf.nameEn.split(' ')[0] : conf.nameAr.split(' ')[0]}</span>
                                         </button>
                                     );
                                 })}
@@ -3413,10 +3568,10 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <div className="flex items-center justify-between mb-2">
                                 <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
                                     <span className={`w-2.5 h-2.5 rounded-full ${MODALITY_CONFIG[activeModalityForCounter]?.bg || 'bg-indigo-600'}`}></span>
-                                    قسم {MODALITY_CONFIG[activeModalityForCounter]?.nameAr}:
+                                    {txt('قسم', 'Modality:')} {isEn ? MODALITY_CONFIG[activeModalityForCounter]?.nameEn : MODALITY_CONFIG[activeModalityForCounter]?.nameAr}:
                                 </span>
                                 <span className="text-xs text-indigo-700 font-bold bg-indigo-100/70 px-2 py-0.5 rounded-md">
-                                    معاينة الرقم: <strong className="font-mono">{MODALITY_CONFIG[activeModalityForCounter]?.prefix}-{String(counters[activeModalityForCounter] || 1).padStart(3, '0')}</strong>
+                                    {txt('معاينة الرقم:', 'Preview:')} <strong className="font-mono">{MODALITY_CONFIG[activeModalityForCounter]?.prefix}-{String(counters[activeModalityForCounter] || 1).padStart(3, '0')}</strong>
                                 </span>
                             </div>
 
@@ -3424,8 +3579,8 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 <button
                                     type="button"
                                     onClick={() => setModalityStartingNumber(activeModalityForCounter, Math.max(1, (counters[activeModalityForCounter] || 1) - 1))}
-                                    className="w-10 h-10 bg-white border border-slate-300 hover:bg-slate-100 rounded-xl font-black text-base text-slate-700 flex items-center justify-center shadow-xs"
-                                    title="إنقاص 1"
+                                    className="w-10 h-10 bg-white border border-slate-300 hover:bg-slate-100 rounded-xl font-black text-base text-slate-700 flex items-center justify-center shadow-xs cursor-pointer"
+                                    title={txt("إنقاص 1", "Decrease 1")}
                                 >
                                     -
                                 </button>
@@ -3442,8 +3597,8 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 <button
                                     type="button"
                                     onClick={() => setModalityStartingNumber(activeModalityForCounter, (counters[activeModalityForCounter] || 1) + 1)}
-                                    className="w-10 h-10 bg-white border border-slate-300 hover:bg-slate-100 rounded-xl font-black text-base text-slate-700 flex items-center justify-center shadow-xs"
-                                    title="زيادة 1"
+                                    className="w-10 h-10 bg-white border border-slate-300 hover:bg-slate-100 rounded-xl font-black text-base text-slate-700 flex items-center justify-center shadow-xs cursor-pointer"
+                                    title={txt("زيادة 1", "Increase 1")}
                                 >
                                     +
                                 </button>
@@ -3451,27 +3606,57 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
                             {/* Quick Presets for Current Modality */}
                             <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                                <span className="text-[11px] font-bold text-slate-500">أرقام سريعة:</span>
+                                <span className="text-[11px] font-bold text-slate-500">{txt('أرقام سريعة:', 'Quick Presets:')}</span>
                                 {[1, 50, 100, 200, 500].map(presetNum => (
                                     <button
                                         key={presetNum}
                                         type="button"
                                         onClick={() => setModalityStartingNumber(activeModalityForCounter, presetNum)}
-                                        className={`px-2.5 py-1 rounded-lg border font-mono font-bold text-xs transition ${
+                                        className={`px-2.5 py-1 rounded-lg border font-mono font-bold text-xs transition cursor-pointer ${
                                             counters[activeModalityForCounter] === presetNum
                                                 ? 'bg-amber-500 text-slate-950 border-amber-600'
                                                 : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                                         }`}
                                     >
-                                        ابدأ من {presetNum}
+                                        {txt(`ابدأ من ${presetNum}`, `Start at ${presetNum}`)}
                                     </button>
                                 ))}
                             </div>
+
+                            {activeModalityForCounter === 'US' && (
+                                <div className="mt-3 pt-3 border-t border-teal-200 bg-teal-50/80 p-2.5 rounded-xl">
+                                    <label className="block text-xs font-black text-teal-900 mb-2">
+                                        🎯 {txt('ترقيم بداية السونار المنفصل بالدور (ذكور M / إناث F):', 'Ultrasound Separate Ordered Counters (Male M / Female F):')}
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div className="bg-white p-2 rounded-lg border border-teal-200 flex flex-col gap-1">
+                                            <span className="text-[11px] font-bold text-blue-700">M (ذكور - Male):</span>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                value={usMaleCounter}
+                                                onChange={e => setUsMaleCounter(Math.max(1, parseInt(e.target.value) || 1))}
+                                                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono font-bold text-xs"
+                                            />
+                                        </div>
+                                        <div className="bg-white p-2 rounded-lg border border-teal-200 flex flex-col gap-1">
+                                            <span className="text-[11px] font-bold text-rose-700">F (إناث - Female):</span>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                value={usFemaleCounter}
+                                                onChange={e => setUsFemaleCounter(Math.max(1, parseInt(e.target.value) || 1))}
+                                                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono font-bold text-xs"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Summary of all modalities starting numbers */}
                         <div className="border-t border-slate-100 pt-3 mb-4">
-                            <label className="block text-xs font-black text-slate-700 mb-2">أرقام البداية الحالية لكافة الأقسام:</label>
+                            <label className="block text-xs font-black text-slate-700 mb-2">{txt('أرقام البداية الحالية لكافة الأقسام:', 'Current starting numbers for all modalities:')}</label>
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                                 {(['X-RAY', 'CT', 'MRI', 'US', 'FLUO', 'MAMMO'] as const).map(mod => {
                                     const conf = MODALITY_CONFIG[mod];
@@ -3492,8 +3677,8 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                                 <button
                                                     type="button"
                                                     onClick={() => setModalityStartingNumber(mod, 1)}
-                                                    className="text-[10px] text-slate-400 hover:text-rose-600 p-0.5"
-                                                    title="إعادة لـ 1"
+                                                    className="text-[10px] text-slate-400 hover:text-rose-600 p-0.5 cursor-pointer"
+                                                    title={txt("إعادة لـ 1", "Reset to 1")}
                                                 >
                                                     <i className="fas fa-undo"></i>
                                                 </button>
@@ -3509,7 +3694,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => {
-                                    if (confirm('هل تريد تصفير بداية التسجيل لكافة الأقسام لتبدأ من رقم 1؟')) {
+                                    if (confirm(txt('هل تريد تصفير بداية التسجيل لكافة الأقسام لتبدأ من رقم 1؟', 'Reset starting numbers for all modalities to 1?'))) {
                                         setCounters({
                                             'X-RAY': 1,
                                             'CT': 1,
@@ -3519,25 +3704,25 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                             'MAMMO': 1,
                                             'OTHER': 1
                                         });
-                                        showToast('تم تصفير كافة العدادات لتبدأ من رقم 1', 'info');
+                                        showToast(txt('تم تصفير كافة العدادات لتبدأ من رقم 1', 'All counters reset to 1'), 'info');
                                     }
                                 }}
-                                className="bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-600 font-bold px-3 py-2 rounded-xl text-xs transition flex items-center gap-1.5"
+                                className="bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-600 font-bold px-3 py-2 rounded-xl text-xs transition flex items-center gap-1.5 cursor-pointer"
                             >
                                 <i className="fas fa-redo-alt"></i>
-                                <span>تصفير الكل لـ 1</span>
+                                <span>{txt('تصفير الكل لـ 1', 'Reset All to 1')}</span>
                             </button>
 
                             <button
                                 type="button"
                                 onClick={() => {
                                     setIsCounterModalOpen(false);
-                                    showToast('تم اعتماد رقم بداية التسجيل بنجاح', 'success');
+                                    showToast(txt('تم اعتماد رقم بداية التسجيل بنجاح', 'Starting serial number applied successfully'), 'success');
                                 }}
-                                className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black py-2.5 rounded-xl text-xs shadow-lg transition flex items-center justify-center gap-1.5"
+                                className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black py-2.5 rounded-xl text-xs shadow-lg transition flex items-center justify-center gap-1.5 cursor-pointer"
                             >
                                 <i className="fas fa-check"></i>
-                                <span>حفظ واعتماد رقم البداية</span>
+                                <span>{txt('حفظ واعتماد رقم البداية', 'Save & Apply Starting Serial')}</span>
                             </button>
                         </div>
                     </div>
@@ -3550,7 +3735,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                     <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
                         <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
                             <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
-                                <i className="fas fa-file-excel text-emerald-600"></i> تصدير ملفات إكسل للأقسام
+                                <i className="fas fa-file-excel text-emerald-600"></i> {txt('تصدير ملفات إكسل للأقسام', 'Export Department Excel Files')}
                             </h3>
                             <button onClick={() => setIsExportModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                                 <i className="fas fa-times"></i>
@@ -3558,93 +3743,93 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                         </div>
 
                         <div className="space-y-2.5">
-                            <p className="text-xs text-slate-500 mb-3">اختر القسم الذي ترغب في استخراج شيت إكسل منفصل له لتاريخ ({selectedDate || 'كافة الأيام'}):</p>
+                            <p className="text-xs text-slate-500 mb-3">{txt(`اختر القسم الذي ترغب في استخراج شيت إكسل منفصل له لتاريخ (${selectedDate || 'كافة الأيام'}):`, `Select department to export Excel sheet for date (${selectedDate || 'All dates'}):`)}</p>
                             
                             <button
                                 onClick={() => { exportToExcel('X-RAY'); setIsExportModalOpen(false); }}
-                                className="w-full text-right p-3 rounded-xl border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition flex items-center justify-between font-bold text-xs"
+                                className="w-full text-start p-3 rounded-xl border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition flex items-center justify-between font-bold text-xs cursor-pointer"
                             >
                                 <span className="flex items-center gap-2">
                                     <span className="w-2.5 h-2.5 rounded-full bg-slate-700"></span>
-                                    ملف إكسل: قسم الأشعة العادية (X-Ray)
+                                    {txt('ملف إكسل: قسم الأشعة العادية (X-Ray)', 'Excel File: X-Ray Department')}
                                 </span>
-                                <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-700">{modalityStats['X-RAY']} حالة</span>
+                                <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-700">{modalityStats['X-RAY']} {txt('حالة', 'cases')}</span>
                             </button>
 
                             <button
                                 onClick={() => { exportToExcel('CT'); setIsExportModalOpen(false); }}
-                                className="w-full text-right p-3 rounded-xl border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50 transition flex items-center justify-between font-bold text-xs"
+                                className="w-full text-start p-3 rounded-xl border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50 transition flex items-center justify-between font-bold text-xs cursor-pointer"
                             >
                                 <span className="flex items-center gap-2">
                                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
-                                    ملف إكسل: قسم الأشعة المقطعية (CT Scan)
+                                    {txt('ملف إكسل: قسم الأشعة المقطعية (CT Scan)', 'Excel File: CT Scan Department')}
                                 </span>
-                                <span className="font-mono bg-emerald-100 px-2 py-0.5 rounded text-emerald-800">{modalityStats['CT']} حالة</span>
+                                <span className="font-mono bg-emerald-100 px-2 py-0.5 rounded text-emerald-800">{modalityStats['CT']} {txt('حالة', 'cases')}</span>
                             </button>
 
                             <button
                                 onClick={() => { exportToExcel('MRI'); setIsExportModalOpen(false); }}
-                                className="w-full text-right p-3 rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition flex items-center justify-between font-bold text-xs"
+                                className="w-full text-start p-3 rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition flex items-center justify-between font-bold text-xs cursor-pointer"
                             >
                                 <span className="flex items-center gap-2">
                                     <span className="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
-                                    ملف إكسل: قسم الرنين المغناطيسي (MRI)
+                                    {txt('ملف إكسل: قسم الرنين المغناطيسي (MRI)', 'Excel File: MRI Department')}
                                 </span>
-                                <span className="font-mono bg-blue-100 px-2 py-0.5 rounded text-blue-800">{modalityStats['MRI']} حالة</span>
+                                <span className="font-mono bg-blue-100 px-2 py-0.5 rounded text-blue-800">{modalityStats['MRI']} {txt('حالة', 'cases')}</span>
                             </button>
 
                             <button
                                 onClick={() => { exportToExcel('US'); setIsExportModalOpen(false); }}
-                                className="w-full text-right p-3 rounded-xl border border-slate-200 hover:border-teal-400 hover:bg-teal-50 transition flex items-center justify-between font-bold text-xs"
+                                className="w-full text-start p-3 rounded-xl border border-slate-200 hover:border-teal-400 hover:bg-teal-50 transition flex items-center justify-between font-bold text-xs cursor-pointer"
                             >
                                 <span className="flex items-center gap-2">
                                     <span className="w-2.5 h-2.5 rounded-full bg-teal-600"></span>
-                                    ملف إكسل: قسم السونار والموجات الصوتية (US)
+                                    {txt('ملف إكسل: قسم السونار والموجات الصوتية (US)', 'Excel File: Ultrasound Department')}
                                 </span>
-                                <span className="font-mono bg-teal-100 px-2 py-0.5 rounded text-teal-800">{modalityStats['US']} حالة</span>
+                                <span className="font-mono bg-teal-100 px-2 py-0.5 rounded text-teal-800">{modalityStats['US']} {txt('حالة', 'cases')}</span>
                             </button>
 
                             <button
                                 onClick={() => { exportToExcel('FLUO'); setIsExportModalOpen(false); }}
-                                className="w-full text-right p-3 rounded-xl border border-slate-200 hover:border-amber-400 hover:bg-amber-50 transition flex items-center justify-between font-bold text-xs"
+                                className="w-full text-start p-3 rounded-xl border border-slate-200 hover:border-amber-400 hover:bg-amber-50 transition flex items-center justify-between font-bold text-xs cursor-pointer"
                             >
                                 <span className="flex items-center gap-2">
                                     <span className="w-2.5 h-2.5 rounded-full bg-amber-600"></span>
-                                    ملف إكسل: قسم الفلوروسكوبي والصبغة (FLUO)
+                                    {txt('ملف إكسل: قسم الفلوروسكوبي والصبغة (FLUO)', 'Excel File: Fluoroscopy Department')}
                                 </span>
-                                <span className="font-mono bg-amber-100 px-2 py-0.5 rounded text-amber-900">{modalityStats['FLUO']} حالة</span>
+                                <span className="font-mono bg-amber-100 px-2 py-0.5 rounded text-amber-900">{modalityStats['FLUO']} {txt('حالة', 'cases')}</span>
                             </button>
 
                             {/* Master Multi-Sheet Workbook (.xlsx) */}
                             <button
                                 onClick={() => { exportMultiSheetExcelWorkbook(); setIsExportModalOpen(false); }}
-                                className="w-full text-right p-3 rounded-xl border-2 border-emerald-500 bg-emerald-50 text-emerald-950 font-black text-xs hover:bg-emerald-100 transition flex items-center justify-between shadow-xs"
+                                className="w-full text-start p-3 rounded-xl border-2 border-emerald-500 bg-emerald-50 text-emerald-950 font-black text-xs hover:bg-emerald-100 transition flex items-center justify-between shadow-xs cursor-pointer"
                             >
                                 <span className="flex items-center gap-2">
                                     <i className="fas fa-file-excel text-emerald-600 text-sm"></i>
-                                    <span>تحميل مصنف إكسل كامل (.xlsx) يحتوي كافة الأقسام في شيتات منفصلة</span>
+                                    <span>{txt('تحميل مصنف إكسل كامل (.xlsx) يحتوي كافة الأقسام في شيتات منفصلة', 'Download full Excel Workbook (.xlsx) with all departments in separate sheets')}</span>
                                 </span>
                                 <span className="font-mono bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded">.XLSX</span>
                             </button>
 
                             <button
                                 onClick={() => { exportToExcel('ALL'); setIsExportModalOpen(false); }}
-                                className="w-full text-right p-3 rounded-xl border-2 border-indigo-500 bg-indigo-50 text-indigo-900 font-black text-xs hover:bg-indigo-100 transition flex items-center justify-between"
+                                className="w-full text-start p-3 rounded-xl border-2 border-indigo-500 bg-indigo-50 text-indigo-900 font-black text-xs hover:bg-indigo-100 transition flex items-center justify-between cursor-pointer"
                             >
                                 <span className="flex items-center gap-2">
                                     <i className="fas fa-layer-group text-indigo-600"></i>
-                                    تصدير شيت شامل لكافة الأقسام معاً (.xlsx)
+                                    {txt('تصدير شيت شامل لكافة الأقسام معاً (.xlsx)', 'Export Master Sheet for All Departments (.xlsx)')}
                                 </span>
-                                <span className="font-mono bg-indigo-200 px-2 py-0.5 rounded">{modalityStats['ALL']} حالة</span>
+                                <span className="font-mono bg-indigo-200 px-2 py-0.5 rounded">{modalityStats['ALL']} {txt('حالة', 'cases')}</span>
                             </button>
 
                             <div className="pt-2">
                                 <button
                                     onClick={() => { exportAllDepartmentsZip(); setIsExportModalOpen(false); }}
-                                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-2"
+                                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-2 cursor-pointer"
                                 >
                                     <i className="fas fa-file-archive text-amber-400"></i>
-                                    <span>تحميل ملفات منفصلة (.xlsx) لكل قسم دفعة واحدة</span>
+                                    <span>{txt('تحميل ملفات منفصلة (.xlsx) لكل قسم دفعة واحدة', 'Download separate Excel files (.xlsx) for each department')}</span>
                                 </button>
                             </div>
                         </div>
@@ -3662,22 +3847,22 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                     <i className="fas fa-user-edit"></i>
                                 </div>
                                 <div>
-                                    <h3 className="text-base font-black text-slate-900">إدارة وتعديل أسماء فنيي وموظفي الأشعة</h3>
-                                    <p className="text-xs text-slate-500">إضافة، تعديل، وحذف الأسماء المعروضة في القوائم وسجل الحالات</p>
+                                    <h3 className="text-base font-black text-slate-900">{txt('إدارة وتعديل أسماء فنيي وموظفي الأشعة', 'Manage & Edit Technician Names')}</h3>
+                                    <p className="text-xs text-slate-500">{txt('إضافة، تعديل، وحذف الأسماء المعروضة في القوائم وسجل الحالات', 'Add, edit, and remove names displayed in options and logbook')}</p>
                                 </div>
                             </div>
-                            <button onClick={() => setIsTechManagerOpen(false)} className="text-slate-400 hover:text-slate-600 p-2">
+                            <button onClick={() => setIsTechManagerOpen(false)} className="text-slate-400 hover:text-slate-600 p-2 cursor-pointer">
                                 <i className="fas fa-times"></i>
                             </button>
                         </div>
 
                         {/* Add New Technician Input Bar */}
                         <div className="mb-5">
-                            <label className="block text-xs font-black text-slate-700 mb-1.5">إضافة موظف / فني جديد:</label>
+                            <label className="block text-xs font-black text-slate-700 mb-1.5">{txt('إضافة موظف / فني جديد:', 'Add New Staff / Technician:')}</label>
                             <div className="flex items-center gap-2">
                                 <input
                                     type="text"
-                                    placeholder="اكتب اسم الموظف (مثال: أ. محمد عبد الله)..."
+                                    placeholder={txt('اكتب اسم الموظف (مثال: أ. محمد عبد الله)...', 'Type staff name (e.g. John Doe)...')}
                                     value={newTechName}
                                     onChange={e => setNewTechName(e.target.value)}
                                     onKeyDown={e => {
@@ -3687,10 +3872,10 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 />
                                 <button
                                     onClick={() => handleAddTechnician()}
-                                    className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 shadow-md transition active:scale-95"
+                                    className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 shadow-md transition active:scale-95 cursor-pointer"
                                 >
                                     <i className="fas fa-plus"></i>
-                                    <span>إضافة</span>
+                                    <span>{txt('إضافة', 'Add')}</span>
                                 </button>
                             </div>
                         </div>
@@ -3698,12 +3883,12 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                         {/* Existing Technicians List */}
                         <div className="border border-slate-200 rounded-2xl p-3 bg-slate-50/50 mb-4 max-h-64 overflow-y-auto">
                             <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-200/80 text-[11px] font-black text-slate-500">
-                                <span>قائمة الأسماء الحالية ({techPresets.length})</span>
-                                <span>الإجراءات</span>
+                                <span>{txt(`قائمة الأسماء الحالية (${techPresets.length})`, `Current Names List (${techPresets.length})`)}</span>
+                                <span>{txt('الإجراءات', 'Actions')}</span>
                             </div>
 
                             {techPresets.length === 0 ? (
-                                <p className="text-center py-6 text-xs text-slate-400 font-bold">لا يوجد أسماء مضافة حالياً. أضف أسماء موظفي القسم بالأعلى.</p>
+                                <p className="text-center py-6 text-xs text-slate-400 font-bold">{txt('لا يوجد أسماء مضافة حالياً. أضف أسماء موظفي القسم بالأعلى.', 'No names currently added. Add department staff above.')}</p>
                             ) : (
                                 <div className="space-y-1.5">
                                     {techPresets.map((techName, index) => {
@@ -3734,17 +3919,17 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                                         />
                                                         <button
                                                             onClick={() => handleUpdateTechnician(index)}
-                                                            className="bg-emerald-600 text-white px-2 py-1 rounded-lg text-xs font-bold shadow-xs hover:bg-emerald-500"
-                                                            title="حفظ التعديل"
+                                                            className="bg-emerald-600 text-white px-2 py-1 rounded-lg text-xs font-bold shadow-xs hover:bg-emerald-500 cursor-pointer"
+                                                            title={txt("حفظ التعديل", "Save Edit")}
                                                         >
-                                                            حفظ
+                                                            {txt('حفظ', 'Save')}
                                                         </button>
                                                         <button
                                                             onClick={() => setEditingTechPresetIndex(null)}
-                                                            className="bg-slate-200 text-slate-700 px-2 py-1 rounded-lg text-xs font-bold hover:bg-slate-300"
-                                                            title="إلغاء"
+                                                            className="bg-slate-200 text-slate-700 px-2 py-1 rounded-lg text-xs font-bold hover:bg-slate-300 cursor-pointer"
+                                                            title={txt("إلغاء", "Cancel")}
                                                         >
-                                                            إلغاء
+                                                            {txt('إلغاء', 'Cancel')}
                                                         </button>
                                                     </div>
                                                 ) : (
@@ -3757,7 +3942,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                                         </span>
                                                         {isActiveSelected && (
                                                             <span className="bg-amber-500 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded-full shadow-xs">
-                                                                النشط حالياً
+                                                                {txt('النشط حالياً', 'Active Currently')}
                                                             </span>
                                                         )}
                                                     </div>
@@ -3770,12 +3955,12 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                                                 onClick={() => {
                                                                     setSelectedTechnician(techName);
                                                                     setFastTech(techName);
-                                                                    showToast(`تم تعيين الفني النشط: ${techName}`, 'info');
+                                                                    showToast(txt(`تم تعيين الفني النشط: ${techName}`, `Active tech set to: ${techName}`), 'info');
                                                                 }}
-                                                                className="text-[11px] bg-slate-100 hover:bg-amber-100 hover:text-amber-800 text-slate-600 px-2 py-1 rounded-lg font-bold transition"
-                                                                title="تعيين كفني افتراضي نشط"
+                                                                className="text-[11px] bg-slate-100 hover:bg-amber-100 hover:text-amber-800 text-slate-600 px-2 py-1 rounded-lg font-bold transition cursor-pointer"
+                                                                title={txt("تعيين كفني افتراضي نشط", "Set as active default technician")}
                                                             >
-                                                                تحديد
+                                                                {txt('تحديد', 'Select')}
                                                             </button>
                                                         )}
                                                         <button
@@ -3783,15 +3968,15 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                                                 setEditingTechPresetIndex(index);
                                                                 setEditingTechPresetName(techName);
                                                             }}
-                                                            className="text-slate-400 hover:text-indigo-600 p-1.5 transition"
-                                                            title="تعديل الاسم"
+                                                            className="text-slate-400 hover:text-indigo-600 p-1.5 transition cursor-pointer"
+                                                            title={txt("تعديل الاسم", "Edit name")}
                                                         >
                                                             <i className="fas fa-edit text-xs"></i>
                                                         </button>
                                                         <button
                                                             onClick={() => handleDeleteTechnician(index)}
-                                                            className="text-slate-400 hover:text-rose-600 p-1.5 transition"
-                                                            title="حذف من القائمة"
+                                                            className="text-slate-400 hover:text-rose-600 p-1.5 transition cursor-pointer"
+                                                            title={txt("حذف من القائمة", "Delete from list")}
                                                         >
                                                             <i className="fas fa-trash-alt text-xs"></i>
                                                         </button>
@@ -3808,22 +3993,22 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                         <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
                             <button
                                 onClick={() => {
-                                    if (confirm('هل تريد استعادة قائمة الأسماء الافتراضية؟')) {
+                                    if (confirm(txt('هل تريد استعادة قائمة الأسماء الافتراضية؟', 'Restore default technician list?'))) {
                                         setTechPresets(DEFAULT_TECH_PRESETS);
-                                        showToast('تم استعادة الأسماء الافتراضية', 'info');
+                                        showToast(txt('تم استعادة الأسماء الافتراضية', 'Restored default names'), 'info');
                                     }
                                 }}
-                                className="text-slate-500 hover:text-rose-600 font-bold transition flex items-center gap-1"
+                                className="text-slate-500 hover:text-rose-600 font-bold transition flex items-center gap-1 cursor-pointer"
                             >
                                 <i className="fas fa-undo"></i>
-                                <span>استعادة الأسماء الافتراضية</span>
+                                <span>{txt('استعادة الأسماء الافتراضية', 'Restore Defaults')}</span>
                             </button>
 
                             <button
                                 onClick={() => setIsTechManagerOpen(false)}
-                                className="bg-slate-900 hover:bg-slate-800 text-white font-black px-5 py-2 rounded-xl text-xs shadow transition"
+                                className="bg-slate-900 hover:bg-slate-800 text-white font-black px-5 py-2 rounded-xl text-xs shadow transition cursor-pointer"
                             >
-                                إتمام وحفظ
+                                {txt('إتمام وحفظ', 'Save & Close')}
                             </button>
                         </div>
                     </div>
@@ -3833,29 +4018,29 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
             {/* MODAL: STAFF WORKLOAD & PERFORMANCE STATISTICS (إحصائيات إنجاز الموظفين اليومية) */}
             {isTechStatsModalOpen && (
                 <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-                    <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full p-6 border border-slate-200 my-auto text-right" dir="rtl">
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full p-6 border border-slate-200 my-auto text-start" dir={isEn ? "ltr" : "rtl"}>
                         <div className="flex justify-between items-center mb-4 border-b border-slate-200 pb-3">
                             <div className="flex items-center gap-3">
                                 <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center text-lg font-black shadow-lg">
                                     <i className="fas fa-chart-pie"></i>
                                 </div>
                                 <div>
-                                    <h3 className="text-base font-black text-slate-900">تقرير إنجاز وحالات الموظفين اليومي</h3>
+                                    <h3 className="text-base font-black text-slate-900">{txt('تقرير إنجاز وحالات الموظفين اليومي', 'Daily Staff Workload & Cases Report')}</h3>
                                     <p className="text-xs text-slate-500">
-                                        تتبع دقيق لعدد الحالات المفحوصة بواسطة كل فني مع توزيع الأقسام لتاريخ: <strong className="text-indigo-600">{selectedDate || 'كافة التواريخ'}</strong>
+                                        {txt('تتبع دقيق لعدد الحالات المفحوصة بواسطة كل فني مع توزيع الأقسام لتاريخ:', 'Detailed tracking of examined cases per tech across modalities for date:')} <strong className="text-indigo-600">{selectedDate || txt('كافة التواريخ', 'All Dates')}</strong>
                                     </p>
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={exportTechStatsToExcel}
-                                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-black px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow transition active:scale-95"
-                                    title="تصدير تقرير إحصائيات الموظفين كشيت إكسل"
+                                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-black px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow transition active:scale-95 cursor-pointer"
+                                    title={txt("تصدير تقرير إحصائيات الموظفين كشيت إكسل", "Export Staff Stats Report as Excel Sheet")}
                                 >
                                     <i className="fas fa-file-excel"></i>
-                                    <span>تصدير إكسل (.xlsx)</span>
+                                    <span>{txt('تصدير إكسل (.xlsx)', 'Export Excel (.xlsx)')}</span>
                                 </button>
-                                <button onClick={() => setIsTechStatsModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-2">
+                                <button onClick={() => setIsTechStatsModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-2 cursor-pointer">
                                     <i className="fas fa-times"></i>
                                 </button>
                             </div>
@@ -3864,23 +4049,23 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                         {/* Top KPI Cards */}
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
                             <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
-                                <span className="text-[11px] font-bold text-slate-500 block mb-1">إجمالي الحالات اليوم:</span>
+                                <span className="text-[11px] font-bold text-slate-500 block mb-1">{txt('إجمالي الحالات اليوم:', 'Total Cases Today:')}</span>
                                 <span className="text-2xl font-black text-slate-900 font-mono">{modalityStats['ALL']}</span>
                             </div>
                             <div className="bg-indigo-50 p-3.5 rounded-2xl border border-indigo-200">
-                                <span className="text-[11px] font-bold text-indigo-700 block mb-1">الموظفين النشطين اليوم:</span>
+                                <span className="text-[11px] font-bold text-indigo-700 block mb-1">{txt('الموظفين النشطين اليوم:', 'Active Staff Today:')}</span>
                                 <span className="text-2xl font-black text-indigo-900 font-mono">
-                                    {technicianDailyStats.filter(t => t.total > 0).length} <span className="text-xs font-normal">من {techPresets.length}</span>
+                                    {technicianDailyStats.filter(t => t.total > 0).length} <span className="text-xs font-normal">{txt(`من ${techPresets.length}`, `of ${techPresets.length}`)}</span>
                                 </span>
                             </div>
                             <div className="bg-amber-50 p-3.5 rounded-2xl border border-amber-200">
-                                <span className="text-[11px] font-bold text-amber-800 block mb-1">أعلى إنجاز موظف:</span>
+                                <span className="text-[11px] font-bold text-amber-800 block mb-1">{txt('أعلى إنجاز موظف:', 'Top Performer:')}</span>
                                 <span className="text-base font-black text-amber-950 truncate block">
-                                    {technicianDailyStats[0]?.total > 0 ? `${technicianDailyStats[0].name} (${technicianDailyStats[0].total})` : 'لا توجد بيانات'}
+                                    {technicianDailyStats[0]?.total > 0 ? `${technicianDailyStats[0].name} (${technicianDailyStats[0].total})` : txt('لا توجد بيانات', 'No data')}
                                 </span>
                             </div>
                             <div className="bg-emerald-50 p-3.5 rounded-2xl border border-emerald-200">
-                                <span className="text-[11px] font-bold text-emerald-800 block mb-1">متوسط الحالات / موظف:</span>
+                                <span className="text-[11px] font-bold text-emerald-800 block mb-1">{txt('متوسط الحالات / موظف:', 'Avg Cases / Staff:')}</span>
                                 <span className="text-2xl font-black text-emerald-950 font-mono">
                                     {technicianDailyStats.filter(t => t.total > 0).length > 0
                                         ? (modalityStats['ALL'] / technicianDailyStats.filter(t => t.total > 0).length).toFixed(1)
@@ -3891,26 +4076,26 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
                         {/* Detailed Staff Performance Table */}
                         <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs mb-4">
-                            <table className="w-full text-right text-xs">
+                            <table className="w-full text-start text-xs">
                                 <thead>
                                     <tr className="bg-slate-900 text-white font-black">
                                         <th className="p-3 text-center w-10">#</th>
-                                        <th className="p-3">اسم الموظف / القائم بالفحص</th>
-                                        <th className="p-3 text-center w-16 bg-slate-800 text-slate-200">XR عادية</th>
-                                        <th className="p-3 text-center w-16 bg-emerald-950 text-emerald-300">CT مقطعية</th>
-                                        <th className="p-3 text-center w-16 bg-blue-950 text-blue-300">MRI رنين</th>
-                                        <th className="p-3 text-center w-16 bg-teal-950 text-teal-300">US سونار</th>
-                                        <th className="p-3 text-center w-16 bg-amber-950 text-amber-300">FL صبغة</th>
-                                        <th className="p-3 text-center w-16 bg-pink-950 text-pink-300">MG مامو</th>
-                                        <th className="p-3 text-center w-24 bg-amber-500 text-slate-950 font-black">إجمالي الحالات</th>
-                                        <th className="p-3 text-center w-28">نسبة الإنجاز</th>
-                                        <th className="p-3 text-center w-20">تصفية</th>
+                                        <th className="p-3">{txt('اسم الموظف / القائم بالفحص', 'Staff / Operator Name')}</th>
+                                        <th className="p-3 text-center w-16 bg-slate-800 text-slate-200">XR</th>
+                                        <th className="p-3 text-center w-16 bg-emerald-950 text-emerald-300">CT</th>
+                                        <th className="p-3 text-center w-16 bg-blue-950 text-blue-300">MRI</th>
+                                        <th className="p-3 text-center w-16 bg-teal-950 text-teal-300">US</th>
+                                        <th className="p-3 text-center w-16 bg-amber-950 text-amber-300">FL</th>
+                                        <th className="p-3 text-center w-16 bg-pink-950 text-pink-300">MG</th>
+                                        <th className="p-3 text-center w-24 bg-amber-500 text-slate-950 font-black">{txt('إجمالي الحالات', 'Total Cases')}</th>
+                                        <th className="p-3 text-center w-28">{txt('نسبة الإنجاز', 'Share %')}</th>
+                                        <th className="p-3 text-center w-20">{txt('تصفية', 'Filter')}</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {technicianDailyStats.length === 0 ? (
                                         <tr>
-                                            <td colSpan={11} className="text-center py-6 text-slate-400 font-bold">لا يوجد موظفين مسجلين</td>
+                                            <td colSpan={11} className="text-center py-6 text-slate-400 font-bold">{txt('لا يوجد موظفين مسجلين', 'No staff registered')}</td>
                                         </tr>
                                     ) : (
                                         technicianDailyStats.map((item, idx) => {
@@ -3946,16 +4131,16 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                                             onClick={() => {
                                                                 setSelectedTechFilter(isFiltered ? 'ALL' : item.name);
                                                                 setIsTechStatsModalOpen(false);
-                                                                showToast(`تمت تصفية السجل لعرض حالات: ${item.name}`, 'info');
+                                                                showToast(txt(`تمت تصفية السجل لعرض حالات: ${item.name}`, `Filtered logbook for: ${item.name}`), 'info');
                                                             }}
-                                                            className={`text-[11px] px-2.5 py-1 rounded-lg font-bold transition shadow-xs ${
+                                                            className={`text-[11px] px-2.5 py-1 rounded-lg font-bold transition shadow-xs cursor-pointer ${
                                                                 isFiltered
                                                                     ? 'bg-amber-500 text-slate-950'
                                                                     : 'bg-slate-100 hover:bg-indigo-100 text-indigo-700'
                                                             }`}
-                                                            title="عرض حالات هذا الموظف فقط في الجدول الرئيسي"
+                                                            title={txt("عرض حالات هذا الموظف فقط في الجدول الرئيسي", "Show only cases for this technician in main table")}
                                                         >
-                                                            {isFiltered ? 'إلغاء' : 'عرض'}
+                                                            {isFiltered ? txt('إلغاء', 'Reset') : txt('عرض', 'View')}
                                                         </button>
                                                     </td>
                                                 </tr>
@@ -3968,23 +4153,23 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
                         <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
                             <span className="text-slate-500">
-                                💡 يمكنك النقر على زر <strong>[عرض]</strong> بجانب أي موظف لمشاهدة حالاته فقط في شيت السجل اليومي.
+                                💡 {txt('يمكنك النقر على زر [عرض] بجانب أي موظف لمشاهدة حالاته فقط في شيت السجل اليومي.', 'Click [View] next to any technician to filter cases for them in the main logbook.')}
                             </span>
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={() => {
                                         setSelectedTechFilter('ALL');
-                                        showToast('تم إلغاء التصفية وعرض كافة الحالات', 'info');
+                                        showToast(txt('تم إلغاء التصفية وعرض كافة الحالات', 'Filter cleared, showing all cases'), 'info');
                                     }}
-                                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-xl text-xs"
+                                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer"
                                 >
-                                    إلغاء تصفية الموظفين
+                                    {txt('إلغاء تصفية الموظفين', 'Clear Staff Filter')}
                                 </button>
                                 <button
                                     onClick={() => setIsTechStatsModalOpen(false)}
-                                    className="bg-slate-900 hover:bg-slate-800 text-white font-black px-4 py-1.5 rounded-xl text-xs shadow"
+                                    className="bg-slate-900 hover:bg-slate-800 text-white font-black px-4 py-1.5 rounded-xl text-xs shadow cursor-pointer"
                                 >
-                                    إغلاق
+                                    {txt('إغلاق', 'Close')}
                                 </button>
                             </div>
                         </div>
@@ -3995,18 +4180,18 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
             {/* MODAL: STANDALONE & OFFLINE HUB (نظام مستقل أوفلاين 100%) */}
             {isOfflineModalOpen && (
                 <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-                    <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 my-auto text-right" dir="rtl">
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 my-auto text-start" dir={isEn ? "ltr" : "rtl"}>
                         <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
                             <div className="flex items-center gap-3">
                                 <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center text-base font-black shadow-lg">
                                     <i className="fas fa-shield-alt"></i>
                                 </div>
                                 <div>
-                                    <h3 className="text-base font-black text-slate-900">نظام مستقل وأوفلاين 100%</h3>
-                                    <p className="text-xs text-slate-500">منفصل تماماً عن الإنترنت، بدون فايربيز، وبدون تسجيل دخول</p>
+                                    <h3 className="text-base font-black text-slate-900">{txt('نظام مستقل وأوفلاين 100%', '100% Standalone & Offline System')}</h3>
+                                    <p className="text-xs text-slate-500">{txt('منفصل تماماً عن الإنترنت، بدون فايربيز، وبدون تسجيل دخول', 'Completely offline, no Firebase, no login required')}</p>
                                 </div>
                             </div>
-                            <button onClick={() => setIsOfflineModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-2">
+                            <button onClick={() => setIsOfflineModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-2 cursor-pointer">
                                 <i className="fas fa-times"></i>
                             </button>
                         </div>
@@ -4015,10 +4200,10 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                         <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3.5 mb-4 text-emerald-950 text-xs">
                             <div className="flex items-center gap-2 font-black text-sm text-emerald-800 mb-1">
                                 <i className="fas fa-check-circle text-emerald-600 text-base"></i>
-                                <span>جاهز للعمل الميداني في أي وقت وبدون نت</span>
+                                <span>{txt('جاهز للعمل الميداني في أي وقت وبدون نت', 'Ready for field work anytime offline')}</span>
                             </div>
                             <p className="leading-relaxed">
-                                هذا السجل الرقمي مستقل كلياً. يتم حفظ الحالات، العدادات، وأسماء الفنيين داخل <strong>ذاكرة المتصفح المحلية (Local Storage)</strong> لجهازك فوراً وتظل محفوظة حتى لو أغلقت المتصفح أو انقطع الاتصال بالإنترنت.
+                                {txt('هذا السجل الرقمي مستقل كلياً. يتم حفظ الحالات، العدادات، وأسماء الفنيين داخل ذاكرة المتصفح المحلية (Local Storage) لجهازك فوراً وتظل محفوظة حتى لو أغلقت المتصفح أو انقطع الاتصال بالإنترنت.', 'This digital logbook is fully standalone. Cases, counters, and technician names are saved instantly in your browser Local Storage and persist even if browser closes or internet drops.')}
                             </p>
                         </div>
 
@@ -4027,24 +4212,24 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
                                 <i className="fas fa-wifi-slash text-slate-700 mt-0.5 text-sm"></i>
                                 <div>
-                                    <strong className="text-slate-800 block">بدون إنترنت أو شبكة:</strong>
-                                    <span className="text-slate-500">يعمل بدون الحاجة لأي اتصال بالإنترنت في غرف الأشعة والاستقبال.</span>
+                                    <strong className="text-slate-800 block">{txt('بدون إنترنت أو شبكة:', 'No Internet Needed:')}</strong>
+                                    <span className="text-slate-500">{txt('يعمل بدون الحاجة لأي اتصال بالإنترنت في غرف الأشعة والاستقبال.', 'Functions offline in radiology rooms and reception.')}</span>
                                 </div>
                             </div>
 
                             <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
                                 <i className="fas fa-user-lock text-indigo-600 mt-0.5 text-sm"></i>
                                 <div>
-                                    <strong className="text-slate-800 block">بدون نظام موظفين أو تسجيل دخول:</strong>
-                                    <span className="text-slate-500">مباشر وفوري لأي فني أو مشرف بدون كتابة كلمات مرور.</span>
+                                    <strong className="text-slate-800 block">{txt('بدون نظام موظفين أو تسجيل دخول:', 'No Staff Login Required:')}</strong>
+                                    <span className="text-slate-500">{txt('مباشر وفوري لأي فني أو مشرف بدون كتابة كلمات مرور.', 'Instant access for technicians without entering passwords.')}</span>
                                 </div>
                             </div>
 
                             <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
                                 <i className="fas fa-file-excel text-emerald-600 mt-0.5 text-sm"></i>
                                 <div>
-                                    <strong className="text-slate-800 block">تصدير إكسل حقيقي (.xlsx):</strong>
-                                    <span className="text-slate-500">حفظ وتنزيل شيتات منفصلة لكل قسم أو مصنف كامل بنقرة واحدة.</span>
+                                    <strong className="text-slate-800 block">{txt('تصدير إكسل حقيقي (.xlsx):', 'True Excel Export (.xlsx):')}</strong>
+                                    <span className="text-slate-500">{txt('حفظ وتنزيل شيتات منفصلة لكل قسم أو مصنف كامل بنقرة واحدة.', 'Save and download individual sheets or complete workbook in one click.')}</span>
                                 </div>
                             </div>
                         </div>
@@ -4053,23 +4238,23 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                         <div className="bg-slate-900 text-white rounded-2xl p-4 mb-4">
                             <h4 className="text-xs font-black text-amber-300 mb-2 flex items-center gap-1.5">
                                 <i className="fas fa-download"></i>
-                                <span>النسخ الاحتياطي والنقل بين الأجهزة (JSON):</span>
+                                <span>{txt('النسخ الاحتياطي والنقل بين الأجهزة (JSON):', 'Backup & Transfer (JSON):')}</span>
                             </h4>
                             <p className="text-[11px] text-slate-300 mb-3">
-                                يمكنك تحميل نسخة من كافة بيانات السجل أو نقلها لجهاز كمبيوتر آخر في القسم بسهولة:
+                                {txt('يمكنك تحميل نسخة من كافة بيانات السجل أو نقلها لجهاز كمبيوتر آخر في القسم بسهولة:', 'You can download a full backup or transfer data to another computer easily:')}
                             </p>
                             <div className="flex flex-wrap items-center gap-2">
                                 <button
                                     onClick={handleBackupJSON}
-                                    className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow transition"
+                                    className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow transition cursor-pointer"
                                 >
                                     <i className="fas fa-file-download"></i>
-                                    <span>تحميل نسخة احتياطية</span>
+                                    <span>{txt('تحميل نسخة احتياطية', 'Download Backup')}</span>
                                 </button>
 
                                 <label className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer transition">
                                     <i className="fas fa-file-upload text-indigo-400"></i>
-                                    <span>استعادة نسخة</span>
+                                    <span>{txt('استعادة نسخة', 'Restore Backup')}</span>
                                     <input type="file" accept=".json" onChange={handleRestoreJSON} className="hidden" />
                                 </label>
                             </div>
@@ -4079,22 +4264,22 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                         <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
                             <button
                                 onClick={() => {
-                                    if (confirm('تحذير: هل أنت متأكد من رغبتك في مسح كافة الحالات المسجلة محلياً في هذا الجهاز؟ تأكد من تصدير إكسل أولاً.')) {
+                                    if (confirm(txt('تحذير: هل أنت متأكد من رغبتك في مسح كافة الحالات المسجلة محلياً في هذا الجهاز؟ تأكد من تصدير إكسل أولاً.', 'Warning: Clear all locally stored logbook cases on this machine? Make sure to export Excel first.'))) {
                                         setCases([]);
-                                        showToast('تم تفريغ سجل الحالات المحلي', 'info');
+                                        showToast(txt('تم تفريغ سجل الحالات المحلي', 'Local logbook cleared'), 'info');
                                     }
                                 }}
-                                className="text-rose-600 hover:text-rose-700 font-bold flex items-center gap-1 transition"
+                                className="text-rose-600 hover:text-rose-700 font-bold flex items-center gap-1 transition cursor-pointer"
                             >
                                 <i className="fas fa-trash-alt"></i>
-                                <span>تفريغ السجل المحلي</span>
+                                <span>{txt('تفريغ السجل المحلي', 'Clear Local Logbook')}</span>
                             </button>
 
                             <button
                                 onClick={() => setIsOfflineModalOpen(false)}
-                                className="bg-slate-900 hover:bg-slate-800 text-white font-black px-5 py-2 rounded-xl text-xs shadow transition"
+                                className="bg-slate-900 hover:bg-slate-800 text-white font-black px-5 py-2 rounded-xl text-xs shadow transition cursor-pointer"
                             >
-                                حسناً، إغلاق
+                                {txt('حسناً، إغلاق', 'OK, Close')}
                             </button>
                         </div>
                     </div>
@@ -4104,15 +4289,15 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
             {/* MODAL: OFFICIAL MEDICAL LOGBOOK PRINT PREVIEW */}
             {isPrintPreviewOpen && (
                 <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto no-print">
-                    <div className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full p-6 border border-slate-200 my-auto text-right" dir="rtl">
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full p-6 border border-slate-200 my-auto text-start" dir={isEn ? "ltr" : "rtl"}>
                         <div className="flex justify-between items-center mb-4 border-b border-slate-200 pb-3">
                             <div className="flex items-center gap-2">
                                 <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center text-sm font-black">
                                     <i className="fas fa-print"></i>
                                 </div>
                                 <div>
-                                    <h3 className="text-base font-black text-slate-900">معاينة طباعة سجل الأشعة الرسمي</h3>
-                                    <p className="text-xs text-slate-500">تصميم جدول A4 طبي منظم خالي من عناصر التحكم والأزرار</p>
+                                    <h3 className="text-base font-black text-slate-900">{txt('معاينة طباعة سجل الأشعة الرسمي', 'Official Radiology Logbook Print Preview')}</h3>
+                                    <p className="text-xs text-slate-500">{txt('تصميم جدول A4 طبي منظم خالي من عناصر التحكم والأزرار', 'Clean A4 medical table layout with controls hidden')}</p>
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
@@ -4120,12 +4305,12 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                     onClick={() => {
                                         window.print();
                                     }}
-                                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-black px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-md transition"
+                                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-black px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer"
                                 >
                                     <i className="fas fa-print"></i>
-                                    <span>طباعة فورية (Print / PDF)</span>
+                                    <span>{txt('طباعة فورية (Print / PDF)', 'Print Now (Print / PDF)')}</span>
                                 </button>
-                                <button onClick={() => setIsPrintPreviewOpen(false)} className="text-slate-400 hover:text-slate-600 p-2">
+                                <button onClick={() => setIsPrintPreviewOpen(false)} className="text-slate-400 hover:text-slate-600 p-2 cursor-pointer">
                                     <i className="fas fa-times"></i>
                                 </button>
                             </div>
@@ -4137,46 +4322,46 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <div className="border-b-2 border-slate-900 pb-3 mb-4 flex items-center justify-between">
                                 <div>
                                     <h2 className="text-lg font-black text-slate-900">
-                                        مستشفى / مركز الأشعة والتصوير الطبي
+                                        {txt('قسم الأشعه ', 'Hospital / Radiology & Imaging Center')}
                                     </h2>
                                     <h4 className="text-xs font-bold text-slate-700 mt-0.5">
-                                        سجل فحص الحالات اليومي - {activeTab === 'ALL' ? 'كافة أقسام الأشعة' : MODALITY_CONFIG[activeTab]?.nameAr}
+                                        {txt('سجل فحص الحالات اليومي - ', 'Daily Exam Logbook - ')}{activeTab === 'ALL' ? txt('كافة أقسام الأشعة', 'All Radiology Departments') : (isEn ? MODALITY_CONFIG[activeTab]?.nameEn : MODALITY_CONFIG[activeTab]?.nameAr)}
                                     </h4>
                                 </div>
-                                <div className="text-left text-[11px] space-y-0.5 font-mono text-slate-700">
-                                    <div><strong>التاريخ:</strong> {selectedDate || 'كافة الأيام'}</div>
-                                    <div><strong>إجمالي الحالات:</strong> {filteredCases.length} حالة</div>
-                                    <div><strong>الترتيب:</strong> {sortField === 'time' ? 'حسب الوقت' : sortField === 'serialNo' ? 'حسب الرقم' : 'حسب الاسم'}</div>
+                                <div className="text-start text-[11px] space-y-0.5 font-mono text-slate-700">
+                                    <div><strong>{txt('التاريخ:', 'Date:')}</strong> {selectedDate || txt('كافة الأيام', 'All Days')}</div>
+                                    <div><strong>{txt('إجمالي الحالات:', 'Total Cases:')}</strong> {filteredCases.length} {txt('حالة', 'cases')}</div>
+                                    <div><strong>{txt('الترتيب:', 'Sort:')}</strong> {sortField === 'time' ? txt('حسب الوقت', 'By Time') : sortField === 'serialNo' ? txt('حسب الرقم', 'By Serial') : txt('حسب الاسم', 'By Name')}</div>
                                 </div>
                             </div>
 
                             {/* Formatted Medical Table */}
-                            <table className="w-full text-right text-xs border-collapse border border-slate-900">
+                            <table className="w-full text-start text-xs border-collapse border border-slate-900">
                                 <thead>
                                     <tr className="bg-slate-100 text-slate-900 font-black border-b border-slate-900">
-                                        <th className="p-2 border border-slate-900 text-center w-8">م</th>
-                                        <th className="p-2 border border-slate-900 text-center w-24">رقم الأشعة</th>
-                                        <th className="p-2 border border-slate-900 text-center w-20">القسم</th>
-                                        <th className="p-2 border border-slate-900 w-24">رقم الملف</th>
-                                        <th className="p-2 border border-slate-900">اسم المريض</th>
-                                        <th className="p-2 border border-slate-900">الفحص المطلوب</th>
-                                        <th className="p-2 border border-slate-900">الطبيب المعالج</th>
-                                        <th className="p-2 border border-slate-900 text-center w-16">الوقت</th>
-                                        <th className="p-2 border border-slate-900 text-center w-28">القائم بالفحص (الفني)</th>
-                                        <th className="p-2 border border-slate-900 text-center w-20">توقيع الفني</th>
+                                        <th className="p-2 border border-slate-900 text-center w-8">#</th>
+                                        <th className="p-2 border border-slate-900 text-center w-24">{txt('رقم الأشعة', 'Serial No')}</th>
+                                        <th className="p-2 border border-slate-900 text-center w-20">{txt('القسم', 'Dept')}</th>
+                                        <th className="p-2 border border-slate-900 w-24">{txt('رقم الملف', 'MRN')}</th>
+                                        <th className="p-2 border border-slate-900">{txt('اسم المريض', 'Patient Name')}</th>
+                                        <th className="p-2 border border-slate-900">{txt('الفحص المطلوب', 'Requested Exam')}</th>
+                                        <th className="p-2 border border-slate-900">{txt('الطبيب المعالج', 'Doctor')}</th>
+                                        <th className="p-2 border border-slate-900 text-center w-16">{txt('الوقت', 'Time')}</th>
+                                        <th className="p-2 border border-slate-900 text-center w-28">{txt('القائم بالفحص (الفني)', 'Operator Tech')}</th>
+                                        <th className="p-2 border border-slate-900 text-center w-20">{txt('توقيع الفني', 'Signature')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {filteredCases.length === 0 ? (
                                         <tr>
-                                            <td colSpan={10} className="text-center py-6 text-slate-400">لا توجد حالات مسجلة في هذا القسم</td>
+                                            <td colSpan={10} className="text-center py-6 text-slate-400">{txt('لا توجد حالات مسجلة في هذا القسم', 'No cases recorded in this section')}</td>
                                         </tr>
                                     ) : (
                                         filteredCases.map((item, idx) => (
                                             <tr key={item.id} className="border-b border-slate-900">
                                                 <td className="p-1.5 border border-slate-900 text-center font-bold font-mono">{idx + 1}</td>
                                                 <td className="p-1.5 border border-slate-900 text-center font-mono font-bold">{item.modalitySerial}</td>
-                                                <td className="p-1.5 border border-slate-900 text-center font-bold">{MODALITY_CONFIG[item.modality]?.nameAr?.split(' ')[0] || item.modality}</td>
+                                                <td className="p-1.5 border border-slate-900 text-center font-bold">{isEn ? MODALITY_CONFIG[item.modality]?.prefix : (MODALITY_CONFIG[item.modality]?.nameAr?.split(' ')[0] || item.modality)}</td>
                                                 <td className="p-1.5 border border-slate-900 font-mono">{item.fileNumber || '-'}</td>
                                                 <td className="p-1.5 border border-slate-900 font-bold">{item.patientName}</td>
                                                 <td className="p-1.5 border border-slate-900">{item.examName}</td>
@@ -4193,15 +4378,15 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             {/* Official Signatures */}
                             <div className="mt-8 pt-4 flex items-center justify-between text-xs font-bold border-t border-slate-300">
                                 <div>
-                                    <p>الفني القائم بالفحص / المسئول:</p>
+                                    <p>{txt('الفني القائم بالفحص / المسئول:', 'Examining Tech / Officer:')}</p>
                                     <p className="mt-4 text-slate-400">....................................................</p>
                                 </div>
                                 <div>
-                                    <p>مشرف قسم الأشعة والتصوير الطبي:</p>
+                                    <p>{txt('مشرف قسم الأشعة والتصوير الطبي:', 'Radiology Dept Supervisor:')}</p>
                                     <p className="mt-4 text-slate-400">....................................................</p>
                                 </div>
                                 <div>
-                                    <p>مدير قسم الأشعة والخدمات الطبية:</p>
+                                    <p>{txt('مدير قسم الأشعة والخدمات الطبية:', 'Radiology Dept Manager:')}</p>
                                     <p className="mt-4 text-slate-400">....................................................</p>
                                 </div>
                             </div>
@@ -4209,13 +4394,13 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
                         <div className="mt-4 flex items-center justify-between pt-3 border-t border-slate-100">
                             <span className="text-xs text-slate-500">
-                                📄 عند الضغط على زر الطباعة، سيتم إرسال هذا الجدول المنسق مباشرة إلى الطابعة أو تصديره كـ PDF بدون تصوير الواجهة أو الأزرار.
+                                📄 {txt('عند الضغط على زر الطباعة، سيتم إرسال هذا الجدول المنسق مباشرة إلى الطابعة أو تصديره كـ PDF بدون تصوير الواجهة أو الأزرار.', 'Clicking print sends this clean table directly to printer or PDF export without UI buttons.')}
                             </span>
                             <button
                                 onClick={() => setIsPrintPreviewOpen(false)}
-                                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-1.5 rounded-xl text-xs"
+                                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-1.5 rounded-xl text-xs cursor-pointer"
                             >
-                                إغلاق
+                                {txt('إغلاق', 'Close')}
                             </button>
                         </div>
                     </div>
@@ -4383,39 +4568,199 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
             )}
 
             {/* ========================================================================= */}
+            {/* FLOATING STICKER PREVIEW & PRINT WIDGET (2.5cm x 5cm THERMAL STICKER)     */}
+            {/* ========================================================================= */}
+            {isStickerWidgetOpen && stickerCase && (
+                <div className="fixed bottom-4 left-4 z-50 bg-slate-900/95 backdrop-blur-md text-white p-4 rounded-3xl shadow-2xl border border-slate-700 max-w-sm w-full animate-in slide-in-from-bottom-5 duration-200" dir={isEn ? "ltr" : "rtl"}>
+                    {/* Header Bar */}
+                    <div className="flex items-center justify-between pb-2 mb-3 border-b border-slate-800">
+                        <div className="flex items-center gap-2">
+                            <span className="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center text-sm font-black shadow-inner">
+                                <i className="fas fa-barcode"></i>
+                            </span>
+                            <div>
+                                <h4 className="text-xs font-black text-white">{txt('طباعة ستيكر حراري (2.5×5 سم)', 'Thermal Sticker (2.5×5 cm)')}</h4>
+                                <p className="text-[10px] text-slate-400">
+                                    {stickerCase.modality === 'US' 
+                                        ? txt('قسم السونار (خيارات M / F بالدور)', 'Ultrasound (M / F Options)') 
+                                        : (isEn ? MODALITY_CONFIG[stickerCase.modality]?.nameEn : MODALITY_CONFIG[stickerCase.modality]?.nameAr)}
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setIsStickerWidgetOpen(false)}
+                            className="text-slate-400 hover:text-white w-7 h-7 rounded-full flex items-center justify-center bg-slate-800 hover:bg-slate-700 transition cursor-pointer"
+                        >
+                            <i className="fas fa-times text-xs"></i>
+                        </button>
+                    </div>
+
+                    {/* Live Sticker 2.5cm x 5cm Scaled Preview Card (50mm x 25mm ratio) */}
+                    <div className="bg-white text-slate-950 p-2 rounded-2xl shadow-inner border-2 border-slate-300 mx-auto w-[220px] h-[110px] flex flex-col justify-between select-none relative overflow-hidden font-sans">
+                        {/* Top Bar inside sticker */}
+                        <div className="text-[8.5px] font-black tracking-tight text-slate-800 text-center border-b border-slate-300 pb-0.5 uppercase truncate">
+                            {txt('قسم الأشعه ', 'Radiology & Imaging Center')}
+                        </div>
+
+                        {/* Patient Name & Serials */}
+                        <div className="text-center my-auto px-1 py-0.5">
+                            <div className="text-xs font-black text-slate-950 truncate leading-tight">
+                                {stickerCase.patientName}
+                            </div>
+                            
+                            <div className="flex items-center justify-center gap-1.5 mt-1">
+                                {/* Main Modality Serial */}
+                                <span className="text-xs font-black font-mono bg-slate-950 text-white px-1.5 py-0.5 rounded shadow-2xs">
+                                    {stickerCase.modalitySerial}
+                                </span>
+
+                                {/* Ultrasound M or F Ordered Serial */}
+                                {stickerCase.modality === 'US' && (
+                                    <span className={`text-xs font-black font-mono px-1.5 py-0.5 rounded border ${usGenderChoice === 'F' ? 'bg-rose-600 text-white border-rose-700' : 'bg-blue-600 text-white border-blue-700'}`}>
+                                        {usGenderChoice === 'F' 
+                                            ? (stickerCase.usGender === 'F' && stickerCase.usSubSerial ? stickerCase.usSubSerial : `US-F-${String(usFemaleCounter).padStart(3, '0')}`) 
+                                            : (stickerCase.usGender === 'M' && stickerCase.usSubSerial ? stickerCase.usSubSerial : `US-M-${String(usMaleCounter).padStart(3, '0')}`)
+                                        }
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Bottom Footer inside sticker */}
+                        <div className="text-[8px] font-mono font-bold text-slate-600 border-t border-slate-300 pt-0.5 flex justify-between items-center px-0.5">
+                            <span className="truncate max-w-[80px]">MRN: {stickerCase.fileNumber || '-'}</span>
+                            <span className="font-sans font-black text-indigo-700">{stickerCase.modality}</span>
+                            <span>{stickerCase.time || ''}</span>
+                        </div>
+                    </div>
+
+                    {/* Ultrasound Specific M / F Controls */}
+                    {stickerCase.modality === 'US' && (
+                        <div className="mt-3 bg-slate-800/80 p-2.5 rounded-2xl border border-slate-700">
+                            <label className="block text-[10px] font-black text-teal-300 mb-1.5 text-center">
+                                🎯 {txt('تحديد الترقيم التسلسلي للسونار (ذكر M / أنثى F):', 'Ultrasound Ordered Counter (Male M / Female F):')}
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => handleToggleUsGender('M')}
+                                    className={`py-1.5 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer border ${
+                                        usGenderChoice === 'M'
+                                            ? 'bg-blue-600 text-white border-blue-400 shadow-md scale-102'
+                                            : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'
+                                    }`}
+                                >
+                                    <i className="fas fa-mars text-blue-300"></i>
+                                    <span>M ({txt('ذكر', 'Male')}) #{usMaleCounter}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleToggleUsGender('F')}
+                                    className={`py-1.5 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer border ${
+                                        usGenderChoice === 'F'
+                                            ? 'bg-rose-600 text-white border-rose-400 shadow-md scale-102'
+                                            : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'
+                                    }`}
+                                >
+                                    <i className="fas fa-venus text-rose-300"></i>
+                                    <span>F ({txt('أنثى', 'Female')}) #{usFemaleCounter}</span>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Print Button */}
+                    <div className="mt-3 flex gap-2">
+                        <button
+                            onClick={handlePrintSticker}
+                            className="flex-1 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-black py-2.5 rounded-2xl text-xs shadow-lg transition flex items-center justify-center gap-2 cursor-pointer"
+                        >
+                            <i className="fas fa-print text-sm"></i>
+                            <span>{txt('طباعة الستيكر الآن (2.5×5 سم)', 'Print Sticker Now (2.5×5 cm)')}</span>
+                        </button>
+                        <button
+                            onClick={() => setIsStickerWidgetOpen(false)}
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-3 py-2.5 rounded-2xl text-xs transition cursor-pointer"
+                        >
+                            {txt('إغلاق', 'Close')}
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* HIDDEN PRINT-ONLY THERMAL STICKER (2.5cm x 5cm) - PORTALED TO BODY        */}
+            {/* ========================================================================= */}
+            {stickerCase && createPortal(
+                <div id="printable-radiology-sticker" className="sticker-print-portal">
+                    <div className="w-[50mm] h-[25mm] p-1 bg-white text-black font-sans flex flex-col justify-between overflow-hidden text-center leading-tight box-border" dir={isEn ? "ltr" : "rtl"}>
+                        <div className="border-b border-black pb-0.5 text-[7.5px] font-black tracking-wider uppercase truncate">
+                            {txt('قسم الأشعه ', 'Radiology & Imaging Center')}
+                        </div>
+                        
+                        <div className="my-auto py-0.5">
+                            <div className="text-[11px] font-black truncate px-0.5">
+                                {stickerCase.patientName}
+                            </div>
+                            
+                            <div className="flex items-center justify-center gap-1 mt-0.5">
+                                <span className="text-[12px] font-black font-mono border-2 border-black px-1 rounded">
+                                    {stickerCase.modalitySerial}
+                                </span>
+                                {stickerCase.modality === 'US' && (
+                                    <span className="text-[10px] font-black font-mono bg-black text-white px-1 py-0.5 rounded">
+                                        {usGenderChoice === 'F' 
+                                            ? (stickerCase.usGender === 'F' && stickerCase.usSubSerial ? stickerCase.usSubSerial : `US-F-${String(usFemaleCounter).padStart(3, '0')}`) 
+                                            : (stickerCase.usGender === 'M' && stickerCase.usSubSerial ? stickerCase.usSubSerial : `US-M-${String(usMaleCounter).padStart(3, '0')}`)}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="border-t border-black pt-0.5 flex justify-between items-center text-[7.5px] font-mono font-bold px-0.5">
+                            <span className="truncate max-w-[20mm]">MRN: {stickerCase.fileNumber || '-'}</span>
+                            <span className="font-sans font-black">{stickerCase.modality}</span>
+                            <span>{stickerCase.time || ''}</span>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {/* ========================================================================= */}
             {/* HIDDEN PRINT-ONLY MEDICAL LOGBOOK (RENDERED EXCLUSIVELY FOR PRINT / PDF)   */}
             {/* ========================================================================= */}
-            <div id="printable-radiology-logbook" className="hidden print:block bg-white text-black p-4 printable-logbook-table" dir="rtl">
+            <div id="printable-radiology-logbook" className="hidden print:block bg-white text-black p-4 printable-logbook-table" dir={isEn ? "ltr" : "rtl"}>
                 <div className="border-b-2 border-slate-900 pb-3 mb-4 flex items-center justify-between">
                     <div>
                         <h2 className="text-xl font-black tracking-tight text-slate-900">
-                            مستشفى / مركز الأشعة والتصوير الطبي
+                            {txt('قسم الأشعه ', 'Hospital / Radiology & Imaging Center')}
                         </h2>
                         <h3 className="text-sm font-bold text-slate-700 mt-0.5">
-                            سجل فحص الحالات اليومي - {activeTab === 'ALL' ? 'كافة أقسام الأشعة' : MODALITY_CONFIG[activeTab]?.nameAr}
+                            {txt('سجل فحص الحالات اليومي - ', 'Daily Exam Logbook - ')}{activeTab === 'ALL' ? txt('كافة أقسام الأشعة', 'All Radiology Departments') : (isEn ? MODALITY_CONFIG[activeTab]?.nameEn : MODALITY_CONFIG[activeTab]?.nameAr)}
                         </h3>
                     </div>
-                    <div className="text-left text-xs space-y-0.5 font-mono">
-                        <div><strong>التاريخ:</strong> {selectedDate || 'كافة الأيام'}</div>
-                        <div><strong>إجمالي الحالات:</strong> {filteredCases.length} حالة</div>
-                        <div><strong>الترتيب:</strong> {sortField === 'time' ? 'حسب الوقت' : sortField === 'serialNo' ? 'حسب الرقم' : 'حسب الاسم'}</div>
-                        <div><strong>وقت الطباعة:</strong> {new Date().toLocaleTimeString('ar-EG')}</div>
+                    <div className="text-start text-xs space-y-0.5 font-mono">
+                        <div><strong>{txt('التاريخ:', 'Date:')}</strong> {selectedDate || txt('كافة الأيام', 'All Days')}</div>
+                        <div><strong>{txt('إجمالي الحالات:', 'Total Cases:')}</strong> {filteredCases.length} {txt('حالة', 'cases')}</div>
+                        <div><strong>{txt('الترتيب:', 'Sort:')}</strong> {sortField === 'time' ? txt('حسب الوقت', 'By Time') : sortField === 'serialNo' ? txt('حسب الرقم', 'By Serial') : txt('حسب الاسم', 'By Name')}</div>
+                        <div><strong>{txt('وقت الطباعة:', 'Print Time:')}</strong> {new Date().toLocaleTimeString(isEn ? 'en-US' : 'ar-EG')}</div>
                     </div>
                 </div>
 
-                <table className="w-full text-right text-xs border-collapse border border-slate-900">
+                <table className={`w-full text-xs border-collapse border border-slate-900 ${isEn ? 'text-left' : 'text-right'}`}>
                     <thead>
                         <tr className="bg-slate-100 text-slate-900 font-black border border-slate-900">
-                            <th className="p-2 border border-slate-900 text-center w-8">م</th>
-                            <th className="p-2 border border-slate-900 text-center w-24">رقم الأشعة</th>
-                            <th className="p-2 border border-slate-900 text-center w-20">القسم</th>
-                            <th className="p-2 border border-slate-900 w-24">رقم الملف (MRN)</th>
-                            <th className="p-2 border border-slate-900">اسم المريض</th>
-                            <th className="p-2 border border-slate-900">الفحص المطلوب</th>
-                            <th className="p-2 border border-slate-900">الطبيب المحول</th>
-                            <th className="p-2 border border-slate-900 text-center w-16">الوقت</th>
-                            <th className="p-2 border border-slate-900 text-center w-28">القائم بالفحص (الفني)</th>
-                            <th className="p-2 border border-slate-900 text-center w-20">توقيع الفني</th>
+                            <th className="p-2 border border-slate-900 text-center w-8">#</th>
+                            <th className="p-2 border border-slate-900 text-center w-24">{txt('رقم الأشعة', 'Serial No')}</th>
+                            <th className="p-2 border border-slate-900 text-center w-20">{txt('القسم', 'Modality')}</th>
+                            <th className="p-2 border border-slate-900 w-24">{txt('رقم الملف (MRN)', 'File No. (MRN)')}</th>
+                            <th className="p-2 border border-slate-900">{txt('اسم المريض', 'Patient Name')}</th>
+                            <th className="p-2 border border-slate-900">{txt('الفحص المطلوب', 'Requested Exam')}</th>
+                            <th className="p-2 border border-slate-900">{txt('الطبيب المحول', 'Referring Doctor')}</th>
+                            <th className="p-2 border border-slate-900 text-center w-16">{txt('الوقت', 'Time')}</th>
+                            <th className="p-2 border border-slate-900 text-center w-28">{txt('القائم بالفحص (الفني)', 'Operator Tech')}</th>
+                            <th className="p-2 border border-slate-900 text-center w-20">{txt('توقيع الفني', 'Signature')}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -4423,7 +4768,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <tr key={item.id} className="border border-slate-900">
                                 <td className="p-1.5 border border-slate-900 text-center font-bold font-mono">{idx + 1}</td>
                                 <td className="p-1.5 border border-slate-900 text-center font-mono font-bold">{item.modalitySerial}</td>
-                                <td className="p-1.5 border border-slate-900 text-center font-bold">{MODALITY_CONFIG[item.modality]?.nameAr?.split(' ')[0] || item.modality}</td>
+                                <td className="p-1.5 border border-slate-900 text-center font-bold">{isEn ? MODALITY_CONFIG[item.modality]?.prefix : (MODALITY_CONFIG[item.modality]?.nameAr?.split(' ')[0] || item.modality)}</td>
                                 <td className="p-1.5 border border-slate-900 font-mono">{item.fileNumber || '-'}</td>
                                 <td className="p-1.5 border border-slate-900 font-bold">{item.patientName}</td>
                                 <td className="p-1.5 border border-slate-900">{item.examName}</td>
@@ -4439,15 +4784,15 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                 {/* Signatures Section */}
                 <div className="print-footer-signatures mt-8 pt-4 flex items-center justify-between text-xs font-bold border-t border-slate-400">
                     <div>
-                        <p>الفني القائم بالفحص / المسئول:</p>
+                        <p>{txt('الفني القائم بالفحص / المسئول:', 'Examining Tech / Operator:')}</p>
                         <p className="mt-6 text-slate-500">....................................................</p>
                     </div>
                     <div>
-                        <p>مشرف قسم الأشعة والتصوير الطبي:</p>
+                        <p>{txt('مشرف قسم الأشعة والتصوير الطبي:', 'Radiology Dept Supervisor:')}</p>
                         <p className="mt-6 text-slate-500">....................................................</p>
                     </div>
                     <div>
-                        <p>مدير قسم الأشعة والخدمات الطبية:</p>
+                        <p>{txt('مدير قسم الأشعة والخدمات الطبية:', 'Radiology Dept Manager:')}</p>
                         <p className="mt-6 text-slate-500">....................................................</p>
                     </div>
                 </div>

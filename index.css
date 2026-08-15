@@ -183,3 +183,63 @@
   }
 }
 
+/* Non-print view for sticker portal */
+.sticker-print-portal {
+  display: none;
+}
+
+/* =========================================================
+   THERMAL STICKER PRINTING STYLES (2.5cm x 5cm / 50mm x 25mm)
+   ========================================================= */
+@media print {
+  /* Hide sticker element when printing standard logbook */
+  body:not(.print-sticker-only) .sticker-print-portal,
+  body:not(.print-sticker-only) #printable-radiology-sticker {
+    display: none !important;
+  }
+
+  /* When printing sticker specifically, hide #root completely to avoid extra pages */
+  body.print-sticker-only #root {
+    display: none !important;
+  }
+
+  body.print-sticker-only {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 50mm !important;
+    height: 25mm !important;
+    max-width: 50mm !important;
+    max-height: 25mm !important;
+    overflow: hidden !important;
+    background: #ffffff !important;
+  }
+
+  /* Display ONLY the sticker portal directly attached to body */
+  body.print-sticker-only .sticker-print-portal,
+  body.print-sticker-only #printable-radiology-sticker {
+    display: block !important;
+    visibility: visible !important;
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 50mm !important;
+    height: 25mm !important;
+    max-width: 50mm !important;
+    max-height: 25mm !important;
+    margin: 0 !important;
+    padding: 1mm 1.5mm !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    page-break-before: avoid !important;
+    page-break-after: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  body.print-sticker-only .sticker-print-portal *,
+  body.print-sticker-only #printable-radiology-sticker * {
+    visibility: visible !important;
+  }
+}
+

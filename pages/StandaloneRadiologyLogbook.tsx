@@ -61,7 +61,7 @@ export const MODALITY_CONFIG: Record<string, { nameAr: string; nameEn: string; p
     'MAMMO': { nameAr: 'الماموجرام (Mammography)', nameEn: 'Mammography', prefix: 'MG', color: 'rose', bg: 'bg-rose-600', border: 'border-rose-600', text: 'text-rose-600', lightBg: 'bg-rose-50 text-rose-800 border-rose-300' },
 };
 
-export const DEFAULT_TECH_PRESETS: string[] = ['فني الأشعة', 'د. طارق', 'أحمد', 'محمد', 'محمود', 'سارة'];
+export const DEFAULT_TECH_PRESETS: string[] = ['TAREK','SAYED','IBRAHIM','MAQSOUD','GAMAL', 'ALI', 'TAHER','AHMED','ANGEL','RAGHAD','REFAL','RANA','MARYAM','LAYALY','LAYAN','RAGHAD.N','ALOTAIBI','FAISAL','ALHEFDHI','HASHIM','NAIF'];
 
 const getLocalToday = () => {
     const now = new Date();
@@ -467,8 +467,8 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
     const [fillSlotManualDoctor, setFillSlotManualDoctor] = useState('');
     const [fillSlotManualTech, setFillSlotManualTech] = useState(selectedTechnician);
 
-    // Sorting State (ترتيب الحالات بحسب الوقت أو الرقم أو الاسم)
-    const [sortField, setSortField] = useState<'time' | 'serialNo' | 'patientName' | 'fileNumber'>('time');
+    // Sorting State (ترتيب الحالات برقم الأشعة التسلسلي كافتراضي)
+    const [sortField, setSortField] = useState<'time' | 'serialNo' | 'patientName' | 'fileNumber'>('serialNo');
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
     const [incomingSortOrder, setIncomingSortOrder] = useState<'asc' | 'desc'>('asc');
     const [incomingModalityFilter, setIncomingModalityFilter] = useState<string>('ALL');
@@ -657,7 +657,10 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
         technicianName?: string;
         source?: 'IHMS_AUTO' | 'CLICK' | 'MANUAL';
     }) => {
-        const caseDate = cleanDate(patient.date);
+        // When registering a patient, use the execution/registration date (selectedDate || getLocalToday())
+        // unless explicitly specified via MANUAL entry.
+        const caseDate = (patient.source === 'MANUAL' && patient.date) ? cleanDate(patient.date) : (selectedDate || getLocalToday());
+        const caseTime = (patient.source === 'MANUAL' && patient.time) ? cleanTime(patient.time) : getCurrentTime();
         const detectedMod = patient.modality || detectModality(patient.examName);
         const prefix = MODALITY_CONFIG[detectedMod]?.prefix || detectedMod;
         const assignedTech = (patient.technicianName && patient.technicianName.trim()) ? patient.technicianName.trim() : selectedTechnician;
@@ -736,7 +739,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
             refNo: patient.refNo,
             doctorName: patient.doctorName || 'العيادة / الاستقبال',
             date: caseDate,
-            time: cleanTime(patient.time),
+            time: caseTime,
             age: patient.age,
             gender: patient.gender,
             nationality: patient.nationality,
@@ -1080,8 +1083,17 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                         // Check if det has an order date; if not use parent date
                         const itemDate = cleanDate(findValue(det, ['queDate', 'date', 'orderDate', 'billDate', 'invoiceDate']) || parentDate);
 
-                        // 2. FILTER: Only process cases with invoices created TODAY (unless user explicitly clicks an item)
-                        if (!isDirectClick && itemDate !== todayStr) {
+                        // 2. FILTER: Accept cases created today or within last 7 days so technicians can process recent invoices
+                        const isRecentInvoice = (dStr: string) => {
+                            if (!dStr) return true;
+                            try {
+                                const diff = (new Date(todayStr).getTime() - new Date(dStr).getTime()) / (1000 * 3600 * 24);
+                                return diff >= -1 && diff <= 7;
+                            } catch (e) {
+                                return true;
+                            }
+                        };
+                        if (!isDirectClick && !isRecentInvoice(itemDate)) {
                             return;
                         }
 
@@ -1114,8 +1126,17 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                     const exam = findValue(p, ['serviceName', 'examName', 'procedure']) || 'فحص أشعة';
                     const itemDate = cleanDate(parentDate);
 
-                    // 2. FILTER: Only process cases with invoices created TODAY (unless user explicitly clicks an item)
-                    if (!isDirectClick && itemDate !== todayStr) {
+                    // 2. FILTER: Accept cases created today or within last 7 days so technicians can process recent invoices
+                    const isRecentInvoiceSingle = (dStr: string) => {
+                        if (!dStr) return true;
+                        try {
+                            const diff = (new Date(todayStr).getTime() - new Date(dStr).getTime()) / (1000 * 3600 * 24);
+                            return diff >= -1 && diff <= 7;
+                        } catch (e) {
+                            return true;
+                        }
+                    };
+                    if (!isDirectClick && !isRecentInvoiceSingle(itemDate)) {
                         return;
                     }
 
@@ -1474,7 +1495,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
         // Format data sheet
         const sheetData: (string | number)[][] = [
-            ['سجل فحص الأشعة الرقمي - مستشفى / مركز الأشعة والتصوير الطبي'],
+            ['سجل فحص الأشعة الرقمي - قسم الأشعه'],
             [`القسم: ${modalityTitle}`, `التاريخ: ${selectedDate || 'كافة الأيام'}`, `إجمالي الحالات: ${targetCases.length}`],
             [],
             ['م', 'رقم الأشعة التسلسلي', 'القسم', 'رقم الملف (MRN)', 'اسم المريض', 'الفحص المطلوب', 'الطبيب المعالج / المحول', 'التاريخ', 'الوقت', 'القائم بالفحص (الفني)', 'ملاحظات']
@@ -4296,7 +4317,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                     <i className="fas fa-print"></i>
                                 </div>
                                 <div>
-                                    <h3 className="text-base font-black text-slate-900">{txt('معاينة طباعة سجل الأشعة الرسمي', 'Official Radiology Logbook Print Preview')}</h3>
+                                    <h3 className="text-base font-black text-slate-900">{txt(' طباعة سجل الأشعة ', ' Radiology Logbook Print Preview')}</h3>
                                     <p className="text-xs text-slate-500">{txt('تصميم جدول A4 طبي منظم خالي من عناصر التحكم والأزرار', 'Clean A4 medical table layout with controls hidden')}</p>
                                 </div>
                             </div>
@@ -4322,7 +4343,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <div className="border-b-2 border-slate-900 pb-3 mb-4 flex items-center justify-between">
                                 <div>
                                     <h2 className="text-lg font-black text-slate-900">
-                                        {txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Hospital / Radiology & Imaging Center')}
+                                        {txt('قسم الأشعه', ' Radiology Department')}
                                     </h2>
                                     <h4 className="text-xs font-bold text-slate-700 mt-0.5">
                                         {txt('سجل فحص الحالات اليومي - ', 'Daily Exam Logbook - ')}{activeTab === 'ALL' ? txt('كافة أقسام الأشعة', 'All Radiology Departments') : (isEn ? MODALITY_CONFIG[activeTab]?.nameEn : MODALITY_CONFIG[activeTab]?.nameAr)}
@@ -4375,7 +4396,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 </tbody>
                             </table>
 
-                    
+                            
                         </div>
 
                         <div className="mt-4 flex items-center justify-between pt-3 border-t border-slate-100">
@@ -4585,7 +4606,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                     <div className="bg-white text-slate-950 p-2 rounded-2xl shadow-inner border-2 border-slate-300 mx-auto w-[220px] h-[110px] flex flex-col justify-between select-none relative overflow-hidden font-sans">
                         {/* Top Bar inside sticker */}
                         <div className="text-[8.5px] font-black tracking-tight text-slate-800 text-center border-b border-slate-300 pb-0.5 uppercase truncate">
-                            {txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Radiology & Imaging Center')}
+                            {txt('قسم الأشعه', 'Radiology Department')}
                         </div>
 
                         {/* Patient Name & Serials */}
@@ -4681,7 +4702,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                 <div id="printable-radiology-sticker" className="sticker-print-portal">
                     <div className="w-[50mm] h-[25mm] p-1 bg-white text-black font-sans flex flex-col justify-between overflow-hidden text-center leading-tight box-border" dir={isEn ? "ltr" : "rtl"}>
                         <div className="border-b border-black pb-0.5 text-[7.5px] font-black tracking-wider uppercase truncate">
-                            {txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Radiology & Imaging Center')}
+                            {txt('قسم الأشعه', 'Radiology Department')}
                         </div>
                         
                         <div className="my-auto py-0.5">
@@ -4721,7 +4742,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                     <div className="border-b-2 border-slate-900 pb-3 mb-4 flex items-center justify-between">
                         <div>
                             <h2 className="text-xl font-black tracking-tight text-slate-900">
-                                {txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Hospital / Radiology & Imaging Center')}
+                                {txt('قسم الأشعه', 'Hospital / Radiology Department')}
                             </h2>
                             <h3 className="text-sm font-bold text-slate-700 mt-0.5">
                                 {txt('سجل فحص الحالات اليومي - ', 'Daily Exam Logbook - ')}{activeTab === 'ALL' ? txt('كافة أقسام الأشعة', 'All Radiology Departments') : (isEn ? MODALITY_CONFIG[activeTab]?.nameEn : MODALITY_CONFIG[activeTab]?.nameAr)}
@@ -4768,7 +4789,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                         </tbody>
                     </table>
 
-                
+                   
                 </div>,
                 document.body
             )}

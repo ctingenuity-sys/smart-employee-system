@@ -61,7 +61,7 @@ export const MODALITY_CONFIG: Record<string, { nameAr: string; nameEn: string; p
     'MAMMO': { nameAr: 'الماموجرام (Mammography)', nameEn: 'Mammography', prefix: 'MG', color: 'rose', bg: 'bg-rose-600', border: 'border-rose-600', text: 'text-rose-600', lightBg: 'bg-rose-50 text-rose-800 border-rose-300' },
 };
 
-export const DEFAULT_TECH_PRESETS: string[] = ['UNKNOWN', 'TAREK', 'AHMED', 'SAYED', 'IBRAHIM', 'MAQSOUD','ALI','TAHER','ANGEL','NAIF','GAMAL','REFAL','RAGHAD','MARYAM','LAYALI','LAYAN','RANA','ALOTAIBI','FAISAL','HEFDHI','RAGHAD.N','HASHIM'];
+export const DEFAULT_TECH_PRESETS: string[] = ['فني الأشعة', 'د. طارق', 'أحمد', 'محمد', 'محمود', 'سارة'];
 
 const getLocalToday = () => {
     const now = new Date();
@@ -1474,7 +1474,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
         // Format data sheet
         const sheetData: (string | number)[][] = [
-            ['سجل فحص الأشعة الرقمي - قسم الأشعه '],
+            ['سجل فحص الأشعة الرقمي - مستشفى / مركز الأشعة والتصوير الطبي'],
             [`القسم: ${modalityTitle}`, `التاريخ: ${selectedDate || 'كافة الأيام'}`, `إجمالي الحالات: ${targetCases.length}`],
             [],
             ['م', 'رقم الأشعة التسلسلي', 'القسم', 'رقم الملف (MRN)', 'اسم المريض', 'الفحص المطلوب', 'الطبيب المعالج / المحول', 'التاريخ', 'الوقت', 'القائم بالفحص (الفني)', 'ملاحظات']
@@ -4322,7 +4322,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <div className="border-b-2 border-slate-900 pb-3 mb-4 flex items-center justify-between">
                                 <div>
                                     <h2 className="text-lg font-black text-slate-900">
-                                        {txt('قسم الأشعه ', 'Hospital / Radiology & Imaging Center')}
+                                        {txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Hospital / Radiology & Imaging Center')}
                                     </h2>
                                     <h4 className="text-xs font-bold text-slate-700 mt-0.5">
                                         {txt('سجل فحص الحالات اليومي - ', 'Daily Exam Logbook - ')}{activeTab === 'ALL' ? txt('كافة أقسام الأشعة', 'All Radiology Departments') : (isEn ? MODALITY_CONFIG[activeTab]?.nameEn : MODALITY_CONFIG[activeTab]?.nameAr)}
@@ -4375,21 +4375,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 </tbody>
                             </table>
 
-                            {/* Official Signatures */}
-                            <div className="mt-8 pt-4 flex items-center justify-between text-xs font-bold border-t border-slate-300">
-                                <div>
-                                    <p>{txt('الفني القائم بالفحص / المسئول:', 'Examining Tech / Officer:')}</p>
-                                    <p className="mt-4 text-slate-400">....................................................</p>
-                                </div>
-                                <div>
-                                    <p>{txt('مشرف قسم الأشعة والتصوير الطبي:', 'Radiology Dept Supervisor:')}</p>
-                                    <p className="mt-4 text-slate-400">....................................................</p>
-                                </div>
-                                <div>
-                                    <p>{txt('مدير قسم الأشعة والخدمات الطبية:', 'Radiology Dept Manager:')}</p>
-                                    <p className="mt-4 text-slate-400">....................................................</p>
-                                </div>
-                            </div>
+                    
                         </div>
 
                         <div className="mt-4 flex items-center justify-between pt-3 border-t border-slate-100">
@@ -4599,7 +4585,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                     <div className="bg-white text-slate-950 p-2 rounded-2xl shadow-inner border-2 border-slate-300 mx-auto w-[220px] h-[110px] flex flex-col justify-between select-none relative overflow-hidden font-sans">
                         {/* Top Bar inside sticker */}
                         <div className="text-[8.5px] font-black tracking-tight text-slate-800 text-center border-b border-slate-300 pb-0.5 uppercase truncate">
-                            {txt('قسم الأشعه ', 'Radiology & Imaging Center')}
+                            {txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Radiology & Imaging Center')}
                         </div>
 
                         {/* Patient Name & Serials */}
@@ -4695,7 +4681,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                 <div id="printable-radiology-sticker" className="sticker-print-portal">
                     <div className="w-[50mm] h-[25mm] p-1 bg-white text-black font-sans flex flex-col justify-between overflow-hidden text-center leading-tight box-border" dir={isEn ? "ltr" : "rtl"}>
                         <div className="border-b border-black pb-0.5 text-[7.5px] font-black tracking-wider uppercase truncate">
-                            {txt('قسم الأشعه ', 'Radiology & Imaging Center')}
+                            {txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Radiology & Imaging Center')}
                         </div>
                         
                         <div className="my-auto py-0.5">
@@ -4728,75 +4714,64 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
             )}
 
             {/* ========================================================================= */}
-            {/* HIDDEN PRINT-ONLY MEDICAL LOGBOOK (RENDERED EXCLUSIVELY FOR PRINT / PDF)   */}
+            {/* HIDDEN PRINT-ONLY MEDICAL LOGBOOK (PORTALED DIRECTLY TO DOCUMENT.BODY)      */}
             {/* ========================================================================= */}
-            <div id="printable-radiology-logbook" className="hidden print:block bg-white text-black p-4 printable-logbook-table" dir={isEn ? "ltr" : "rtl"}>
-                <div className="border-b-2 border-slate-900 pb-3 mb-4 flex items-center justify-between">
-                    <div>
-                        <h2 className="text-xl font-black tracking-tight text-slate-900">
-                            {txt('قسم الأشعه ', 'Hospital / Radiology & Imaging Center')}
-                        </h2>
-                        <h3 className="text-sm font-bold text-slate-700 mt-0.5">
-                            {txt('سجل فحص الحالات اليومي - ', 'Daily Exam Logbook - ')}{activeTab === 'ALL' ? txt('كافة أقسام الأشعة', 'All Radiology Departments') : (isEn ? MODALITY_CONFIG[activeTab]?.nameEn : MODALITY_CONFIG[activeTab]?.nameAr)}
-                        </h3>
+            {createPortal(
+                <div id="printable-radiology-logbook" className="logbook-print-portal bg-white text-black p-6 printable-logbook-table" dir={isEn ? "ltr" : "rtl"}>
+                    <div className="border-b-2 border-slate-900 pb-3 mb-4 flex items-center justify-between">
+                        <div>
+                            <h2 className="text-xl font-black tracking-tight text-slate-900">
+                                {txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Hospital / Radiology & Imaging Center')}
+                            </h2>
+                            <h3 className="text-sm font-bold text-slate-700 mt-0.5">
+                                {txt('سجل فحص الحالات اليومي - ', 'Daily Exam Logbook - ')}{activeTab === 'ALL' ? txt('كافة أقسام الأشعة', 'All Radiology Departments') : (isEn ? MODALITY_CONFIG[activeTab]?.nameEn : MODALITY_CONFIG[activeTab]?.nameAr)}
+                            </h3>
+                        </div>
+                        <div className="text-start text-xs space-y-0.5 font-mono">
+                            <div><strong>{txt('التاريخ:', 'Date:')}</strong> {selectedDate || txt('كافة الأيام', 'All Days')}</div>
+                            <div><strong>{txt('إجمالي الحالات:', 'Total Cases:')}</strong> {filteredCases.length} {txt('حالة', 'cases')}</div>
+                            <div><strong>{txt('الترتيب:', 'Sort:')}</strong> {sortField === 'time' ? txt('حسب الوقت', 'By Time') : sortField === 'serialNo' ? txt('حسب الرقم', 'By Serial') : txt('حسب الاسم', 'By Name')}</div>
+                            <div><strong>{txt('وقت الطباعة:', 'Print Time:')}</strong> {new Date().toLocaleTimeString(isEn ? 'en-US' : 'ar-EG')}</div>
+                        </div>
                     </div>
-                    <div className="text-start text-xs space-y-0.5 font-mono">
-                        <div><strong>{txt('التاريخ:', 'Date:')}</strong> {selectedDate || txt('كافة الأيام', 'All Days')}</div>
-                        <div><strong>{txt('إجمالي الحالات:', 'Total Cases:')}</strong> {filteredCases.length} {txt('حالة', 'cases')}</div>
-                        <div><strong>{txt('الترتيب:', 'Sort:')}</strong> {sortField === 'time' ? txt('حسب الوقت', 'By Time') : sortField === 'serialNo' ? txt('حسب الرقم', 'By Serial') : txt('حسب الاسم', 'By Name')}</div>
-                        <div><strong>{txt('وقت الطباعة:', 'Print Time:')}</strong> {new Date().toLocaleTimeString(isEn ? 'en-US' : 'ar-EG')}</div>
-                    </div>
-                </div>
 
-                <table className={`w-full text-xs border-collapse border border-slate-900 ${isEn ? 'text-left' : 'text-right'}`}>
-                    <thead>
-                        <tr className="bg-slate-100 text-slate-900 font-black border border-slate-900">
-                            <th className="p-2 border border-slate-900 text-center w-8">#</th>
-                            <th className="p-2 border border-slate-900 text-center w-24">{txt('رقم الأشعة', 'Serial No')}</th>
-                            <th className="p-2 border border-slate-900 text-center w-20">{txt('القسم', 'Modality')}</th>
-                            <th className="p-2 border border-slate-900 w-24">{txt('رقم الملف (MRN)', 'File No. (MRN)')}</th>
-                            <th className="p-2 border border-slate-900">{txt('اسم المريض', 'Patient Name')}</th>
-                            <th className="p-2 border border-slate-900">{txt('الفحص المطلوب', 'Requested Exam')}</th>
-                            <th className="p-2 border border-slate-900">{txt('الطبيب المحول', 'Referring Doctor')}</th>
-                            <th className="p-2 border border-slate-900 text-center w-16">{txt('الوقت', 'Time')}</th>
-                            <th className="p-2 border border-slate-900 text-center w-28">{txt('القائم بالفحص (الفني)', 'Operator Tech')}</th>
-                            <th className="p-2 border border-slate-900 text-center w-20">{txt('توقيع الفني', 'Signature')}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filteredCases.map((item, idx) => (
-                            <tr key={item.id} className="border border-slate-900">
-                                <td className="p-1.5 border border-slate-900 text-center font-bold font-mono">{idx + 1}</td>
-                                <td className="p-1.5 border border-slate-900 text-center font-mono font-bold">{item.modalitySerial}</td>
-                                <td className="p-1.5 border border-slate-900 text-center font-bold">{isEn ? MODALITY_CONFIG[item.modality]?.prefix : (MODALITY_CONFIG[item.modality]?.nameAr?.split(' ')[0] || item.modality)}</td>
-                                <td className="p-1.5 border border-slate-900 font-mono">{item.fileNumber || '-'}</td>
-                                <td className="p-1.5 border border-slate-900 font-bold">{item.patientName}</td>
-                                <td className="p-1.5 border border-slate-900">{item.examName}</td>
-                                <td className="p-1.5 border border-slate-900 text-slate-700">{item.doctorName || '-'}</td>
-                                <td className="p-1.5 border border-slate-900 text-center font-mono font-bold">{item.time}</td>
-                                <td className="p-1.5 border border-slate-900 text-center font-bold">{item.technicianName || '-'}</td>
-                                <td className="p-1.5 border border-slate-900"></td>
+                    <table className={`w-full text-xs border-collapse border border-slate-900 ${isEn ? 'text-left' : 'text-right'}`}>
+                        <thead>
+                            <tr className="bg-slate-100 text-slate-900 font-black border border-slate-900">
+                                <th className="p-2 border border-slate-900 text-center w-8">#</th>
+                                <th className="p-2 border border-slate-900 text-center w-24">{txt('رقم الأشعة', 'Serial No')}</th>
+                                <th className="p-2 border border-slate-900 text-center w-20">{txt('القسم', 'Modality')}</th>
+                                <th className="p-2 border border-slate-900 w-24">{txt('رقم الملف (MRN)', 'File No. (MRN)')}</th>
+                                <th className="p-2 border border-slate-900">{txt('اسم المريض', 'Patient Name')}</th>
+                                <th className="p-2 border border-slate-900">{txt('الفحص المطلوب', 'Requested Exam')}</th>
+                                <th className="p-2 border border-slate-900">{txt('الطبيب المحول', 'Referring Doctor')}</th>
+                                <th className="p-2 border border-slate-900 text-center w-16">{txt('الوقت', 'Time')}</th>
+                                <th className="p-2 border border-slate-900 text-center w-28">{txt('القائم بالفحص (الفني)', 'Operator Tech')}</th>
+                                <th className="p-2 border border-slate-900 text-center w-20">{txt('توقيع الفني', 'Signature')}</th>
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {filteredCases.map((item, idx) => (
+                                <tr key={item.id} className="border border-slate-900">
+                                    <td className="p-1.5 border border-slate-900 text-center font-bold font-mono">{idx + 1}</td>
+                                    <td className="p-1.5 border border-slate-900 text-center font-mono font-bold">{item.modalitySerial}</td>
+                                    <td className="p-1.5 border border-slate-900 text-center font-bold">{isEn ? MODALITY_CONFIG[item.modality]?.prefix : (MODALITY_CONFIG[item.modality]?.nameAr?.split(' ')[0] || item.modality)}</td>
+                                    <td className="p-1.5 border border-slate-900 font-mono">{item.fileNumber || '-'}</td>
+                                    <td className="p-1.5 border border-slate-900 font-bold">{item.patientName}</td>
+                                    <td className="p-1.5 border border-slate-900">{item.examName}</td>
+                                    <td className="p-1.5 border border-slate-900 text-slate-700">{item.doctorName || '-'}</td>
+                                    <td className="p-1.5 border border-slate-900 text-center font-mono font-bold">{item.time}</td>
+                                    <td className="p-1.5 border border-slate-900 text-center font-bold">{item.technicianName || '-'}</td>
+                                    <td className="p-1.5 border border-slate-900"></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
 
-                {/* Signatures Section */}
-                <div className="print-footer-signatures mt-8 pt-4 flex items-center justify-between text-xs font-bold border-t border-slate-400">
-                    <div>
-                        <p>{txt('الفني القائم بالفحص / المسئول:', 'Examining Tech / Operator:')}</p>
-                        <p className="mt-6 text-slate-500">....................................................</p>
-                    </div>
-                    <div>
-                        <p>{txt('مشرف قسم الأشعة والتصوير الطبي:', 'Radiology Dept Supervisor:')}</p>
-                        <p className="mt-6 text-slate-500">....................................................</p>
-                    </div>
-                    <div>
-                        <p>{txt('مدير قسم الأشعة والخدمات الطبية:', 'Radiology Dept Manager:')}</p>
-                        <p className="mt-6 text-slate-500">....................................................</p>
-                    </div>
-                </div>
-            </div>
+                
+                </div>,
+                document.body
+            )}
         </div>
     );
 };

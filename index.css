@@ -190,18 +190,18 @@
 }
 
 /* =========================================================
-   MEDICAL LOGBOOK PRINTING STYLES (A4 Landscape)
+   MEDICAL LOGBOOK PRINTING STYLES (A4 Portrait)
    ========================================================= */
 @media print {
   @page {
-    size: A4 landscape;
-    margin: 10mm 10mm 10mm 10mm;
+    size: A4 portrait;
+    margin: 8mm 8mm 8mm 8mm;
   }
 
   body {
     background: #ffffff !important;
     color: #000000 !important;
-    font-size: 11pt !important;
+    font-size: 10pt !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }

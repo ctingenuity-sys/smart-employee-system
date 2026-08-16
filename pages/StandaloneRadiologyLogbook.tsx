@@ -4392,21 +4392,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 </tbody>
                             </table>
 
-                            {/* Official Signatures */}
-                            <div className="mt-8 pt-4 flex items-center justify-between text-xs font-bold border-t border-slate-300">
-                                <div>
-                                    <p>{txt('الفني القائم بالفحص / المسئول:', 'Examining Tech / Officer:')}</p>
-                                    <p className="mt-4 text-slate-400">....................................................</p>
-                                </div>
-                                <div>
-                                    <p>{txt('مشرف قسم الأشعة والتصوير الطبي:', 'Radiology Dept Supervisor:')}</p>
-                                    <p className="mt-4 text-slate-400">....................................................</p>
-                                </div>
-                                <div>
-                                    <p>{txt('مدير قسم الأشعة والخدمات الطبية:', 'Radiology Dept Manager:')}</p>
-                                    <p className="mt-4 text-slate-400">....................................................</p>
-                                </div>
-                            </div>
+                          
                         </div>
 
                         <div className="mt-4 flex items-center justify-between pt-3 border-t border-slate-100">
@@ -4795,21 +4781,6 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                         </tbody>
                     </table>
 
-                    {/* Signatures Section */}
-                    <div className="print-footer-signatures mt-8 pt-4 flex items-center justify-between text-xs font-bold border-t border-slate-400">
-                        <div>
-                            <p>{txt('الفني القائم بالفحص / المسئول:', 'Examining Tech / Operator:')}</p>
-                            <p className="mt-6 text-slate-500">....................................................</p>
-                        </div>
-                        <div>
-                            <p>{txt('مشرف قسم الأشعة والتصوير الطبي:', 'Radiology Dept Supervisor:')}</p>
-                            <p className="mt-6 text-slate-500">....................................................</p>
-                        </div>
-                        <div>
-                            <p>{txt('مدير قسم الأشعة والخدمات الطبية:', 'Radiology Dept Manager:')}</p>
-                            <p className="mt-6 text-slate-500">....................................................</p>
-                        </div>
-                    </div>
                 </div>,
                 document.body
             )}

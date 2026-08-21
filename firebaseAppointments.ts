@@ -1,7 +1,9 @@
 // @ts-ignore
 import { initializeApp, getApp, getApps } from "firebase/app";
 // @ts-ignore
-import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, setLogLevel } from "firebase/firestore";
+
+setLogLevel('error');
 
 const appointmentsConfig = {
   apiKey: "AIzaSyDwJ1DSNOP1juagArkLRNo2deOrHJPe9IE",
@@ -22,14 +24,14 @@ try {
     appointmentsApp = initializeApp(appointmentsConfig, "appointmentsApp");
 }
 
-// Initialize Firestore with persistent cache settings (replaces deprecated enableIndexedDbPersistence)
+// Initialize Firestore with persistent cache settings
 let dbInstance;
 try {
     dbInstance = initializeFirestore(appointmentsApp, {
         localCache: persistentLocalCache({
             tabManager: persistentMultipleTabManager()
         }),
-        experimentalForceLongPolling: true
+        experimentalAutoDetectLongPolling: true
     });
 } catch (e) {
     dbInstance = getFirestore(appointmentsApp);

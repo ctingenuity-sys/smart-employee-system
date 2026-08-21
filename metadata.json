@@ -1,8 +1,11 @@
 {
   "name": "Smart Employee System1",
-  "description": "A high-performance, interactive employee management system with real-time scheduling and requests.",
+  "description": "نظام تسجيل وفهرسة حالات الأشعة والتصوير الطبي المستقل مع التصدير الرسمي لإكسل والطباعة المنسقة",
   "requestFramePermissions": [
     "geolocation",
     "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
 }

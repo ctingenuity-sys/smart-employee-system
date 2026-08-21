@@ -63,7 +63,22 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     const [transferAmount, setTransferAmount] = useState('');
     const [transferRecipient, setTransferRecipient] = useState('');
     const [incImage, setIncImage] = useState<File | null>(null);
+    const [compressedPreview, setCompressedPreview] = useState<{
+        originalSizeKB: number;
+        compressedSizeKB: number;
+        ratio: number;
+        dataUrl: string;
+        compressedFile: File;
+    } | null>(null);
+    const [isCompressing, setIsCompressing] = useState(false);
     const [uploading, setUploading] = useState(false);
+
+    // Purge Invoice Images (Non-destructive cleanup of image files within date range)
+    const [isPurgeModalOpen, setIsPurgeModalOpen] = useState(false);
+    const [purgePeriod, setPurgePeriod] = useState<'1month' | '3months' | '6months' | '1year' | 'custom' | 'all'>('6months');
+    const [purgeFromDate, setPurgeFromDate] = useState('');
+    const [purgeToDate, setPurgeToDate] = useState(new Date().toISOString().split('T')[0]);
+    const [isPurging, setIsPurging] = useState(false);
 
     const [newMatName, setNewMatName] = useState('');
     const [newMatQty, setNewMatQty] = useState('');
@@ -487,35 +502,181 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         }
     };
 
-    const handleDeleteOldInvoices = async () => {
-        if (!window.confirm('Are you sure you want to delete invoices older than one year? This will also delete the associated images.')) return;
-        
-        const oneYearAgo = new Date();
-        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-        
-        const qOld = query(collection(inventoryDb, 'invoices'), where('date', '<', Timestamp.fromDate(oneYearAgo)));
-        const snap = await getDocs(qOld);
-        
-        const batch = writeBatch(inventoryDb);
-        
-        for (const d of snap.docs) {
-            const data = d.data() as Invoice;
-            if (data.imageUrl) {
-                try {
-                    // Extract path from URL if needed or just use the URL directly if storage supports it
-                    // Assuming imageUrl is a direct download URL, we need to get the reference
-                    const imageRef = ref(inventoryStorage, data.imageUrl);
-                    await deleteObject(imageRef);
-                } catch (e) {
-                    console.error("Error deleting image:", e);
-                }
-            }
-            batch.delete(d.ref);
+    const handleInvoiceImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) {
+            setIncImage(null);
+            setCompressedPreview(null);
+            return;
         }
-        
-        await batch.commit();
-        
-        setToast({ msg: 'Old invoices and images deleted', type: 'success' });
+
+        setIsCompressing(true);
+        try {
+            const originalSizeKB = Math.round(file.size / 1024);
+            const options = {
+                maxSizeMB: 0.12, // Target ~120KB max (optimal for high capacity)
+                maxWidthOrHeight: 1280, // High clarity for receipt text & numbers
+                useWebWorker: true,
+                fileType: 'image/jpeg',
+                initialQuality: 0.72
+            };
+
+            let compressedFile: File;
+            let dataUrl: string;
+
+            try {
+                compressedFile = await imageCompression(file, options);
+                dataUrl = await imageCompression.getDataUrlFromFile(compressedFile);
+            } catch (compErr) {
+                // Fallback to Canvas resizing
+                const res = await new Promise<{ file: File, url: string }>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (re) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            let w = img.width;
+                            let h = img.height;
+                            const maxDim = 1280;
+                            if (w > maxDim || h > maxDim) {
+                                if (w > h) {
+                                    h = Math.round((h * maxDim) / w);
+                                    w = maxDim;
+                                } else {
+                                    w = Math.round((w * maxDim) / h);
+                                    h = maxDim;
+                                }
+                            }
+                            canvas.width = w;
+                            canvas.height = h;
+                            const ctx = canvas.getContext('2d');
+                            ctx?.drawImage(img, 0, 0, w, h);
+                            const url = canvas.toDataURL('image/jpeg', 0.72);
+                            canvas.toBlob((blob) => {
+                                const f = new File([blob || file], file.name, { type: 'image/jpeg' });
+                                resolve({ file: f, url });
+                            }, 'image/jpeg', 0.72);
+                        };
+                        img.src = re.target?.result as string;
+                    };
+                    reader.readAsDataURL(file);
+                });
+                compressedFile = res.file;
+                dataUrl = res.url;
+            }
+
+            const compressedSizeKB = Math.round(compressedFile.size / 1024);
+            const ratio = Math.max(0, Math.round((1 - compressedSizeKB / Math.max(1, originalSizeKB)) * 100));
+
+            setIncImage(compressedFile);
+            setCompressedPreview({
+                originalSizeKB,
+                compressedSizeKB,
+                ratio,
+                dataUrl,
+                compressedFile
+            });
+        } catch (err: any) {
+            console.error('Compression failed:', err);
+            setIncImage(file);
+            setCompressedPreview({
+                originalSizeKB: Math.round(file.size / 1024),
+                compressedSizeKB: Math.round(file.size / 1024),
+                ratio: 0,
+                dataUrl: URL.createObjectURL(file),
+                compressedFile: file
+            });
+        } finally {
+            setIsCompressing(false);
+        }
+    };
+
+    // Calculate invoices matching the purge period that have images
+    const matchingInvoicesForPurge = useMemo(() => {
+        const now = new Date();
+        return invoices.filter(inv => {
+            if (!inv.imageUrl) return false;
+            let invDate: Date | null = null;
+            if (inv.date?.toDate) invDate = inv.date.toDate();
+            else if (inv.date) invDate = new Date(inv.date);
+            if (!invDate) return false;
+
+            if (purgePeriod === 'all') return true;
+            if (purgePeriod === '1month') {
+                const threshold = new Date(now);
+                threshold.setMonth(threshold.getMonth() - 1);
+                return invDate <= threshold;
+            }
+            if (purgePeriod === '3months') {
+                const threshold = new Date(now);
+                threshold.setMonth(threshold.getMonth() - 3);
+                return invDate <= threshold;
+            }
+            if (purgePeriod === '6months') {
+                const threshold = new Date(now);
+                threshold.setMonth(threshold.getMonth() - 6);
+                return invDate <= threshold;
+            }
+            if (purgePeriod === '1year') {
+                const threshold = new Date(now);
+                threshold.setFullYear(threshold.getFullYear() - 1);
+                return invDate <= threshold;
+            }
+            if (purgePeriod === 'custom') {
+                const from = purgeFromDate ? new Date(purgeFromDate) : new Date(0);
+                const to = purgeToDate ? new Date(purgeToDate + 'T23:59:59') : new Date();
+                return invDate >= from && invDate <= to;
+            }
+            return false;
+        });
+    }, [invoices, purgePeriod, purgeFromDate, purgeToDate]);
+
+    // Non-destructive cleanup: Delete only invoice images from storage & Firestore, keep record & quantity intact!
+    const handlePurgeInvoiceImages = async () => {
+        if (matchingInvoicesForPurge.length === 0) {
+            setToast({ msg: 'لا توجد صور فواتير مطابقة للمدة المحددة', type: 'info' });
+            return;
+        }
+
+        setIsPurging(true);
+        try {
+            let deletedCount = 0;
+            const batch = writeBatch(inventoryDb);
+
+            for (const inv of matchingInvoicesForPurge) {
+                // Delete storage object if possible
+                if (inv.imageUrl && !inv.imageUrl.startsWith('data:')) {
+                    try {
+                        const imageRef = ref(inventoryStorage, inv.imageUrl);
+                        await deleteObject(imageRef);
+                    } catch (e) {
+                        console.warn("Storage image deletion note:", e);
+                    }
+                }
+                
+                // Update Firestore document: remove imageUrl, mark imagePurged, keep ALL other data (material, quantity, date, exp)
+                const docRef = doc(inventoryDb, 'invoices', inv.id);
+                batch.update(docRef, {
+                    imageUrl: null,
+                    imagePurged: true,
+                    imagePurgedAt: Timestamp.now()
+                });
+                deletedCount++;
+            }
+
+            await batch.commit();
+
+            setToast({
+                msg: `✅ تم مسح صور ${deletedCount} فاتورة بنجاح لتوفير المساحة، مع الاحتفاظ بجميع السجلات والكميات كاملة دون أي تعديل.`,
+                type: 'success'
+            });
+            setIsPurgeModalOpen(false);
+        } catch (err: any) {
+            console.error('Error purging invoice images:', err);
+            setToast({ msg: 'حدث خطأ أثناء مسح صور الفواتير: ' + err.message, type: 'error' });
+        } finally {
+            setIsPurging(false);
+        }
     };
 
     const handleDistributionSubmit = async (e: React.FormEvent) => {
@@ -778,17 +939,19 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             if (!mat) throw new Error('Material not found');
 
             let imageUrl = null;
-            if (incImage) {
-                const options = {
-                    maxSizeMB: 0.5,
-                    maxWidthOrHeight: 1024,
-                    useWebWorker: true
-                };
-                const compressedFile = await imageCompression(incImage, options);
-                
-                const storageRef = ref(inventoryStorage, `invoices/${Date.now()}_${compressedFile.name}`);
-                await uploadBytes(storageRef, compressedFile);
-                imageUrl = await getDownloadURL(storageRef);
+            const fileToUpload = compressedPreview?.compressedFile || incImage;
+            
+            if (fileToUpload) {
+                try {
+                    const storageRef = ref(inventoryStorage, `invoices/${Date.now()}_${fileToUpload.name}`);
+                    await uploadBytes(storageRef, fileToUpload);
+                    imageUrl = await getDownloadURL(storageRef);
+                } catch (storageErr) {
+                    console.warn("Storage upload failed, falling back to dataUrl:", storageErr);
+                    if (compressedPreview?.dataUrl) {
+                        imageUrl = compressedPreview.dataUrl;
+                    }
+                }
             }
 
             const qty = parseFloat(incQuantity);
@@ -799,15 +962,17 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 date: Timestamp.now(),
                 expiryDate: incExpiry || null,
                 imageUrl: imageUrl,
+                imageSizeKB: compressedPreview?.compressedSizeKB || (fileToUpload ? Math.round(fileToUpload.size / 1024) : null),
                 createdBy: userName,
                 isCorrection: false, // Explicitly mark as NOT a correction
                 departmentId: selectedDepartmentId
             });
 
-            setToast({ msg: t('save'), type: 'success' });
+            setToast({ msg: t('save') || 'تم حفظ الوارد بنجاح', type: 'success' });
             setIncQuantity('');
             setIncExpiry('');
             setIncImage(null);
+            setCompressedPreview(null);
         } catch (err: any) {
             setToast({ msg: 'Error: ' + err.message, type: 'error' });
         } finally {
@@ -2203,14 +2368,79 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                 <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none text-slate-600 focus:ring-2 focus:ring-emerald-200 transition-all" value={incExpiry} onChange={e => setIncExpiry(e.target.value)} />
                                             </div>
                                         </div>
-                                        <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center hover:bg-emerald-50 hover:border-emerald-300 transition-all relative cursor-pointer group">
-                                            <input type="file" accept="image/*" className="absolute inset-0 opacity-0 cursor-pointer z-10" onChange={e => setIncImage(e.target.files ? e.target.files[0] : null)} />
-                                            <div className="relative z-0">
-                                                <i className={`fas fa-cloud-upload-alt text-4xl mb-3 transition-colors ${incImage ? 'text-emerald-500' : 'text-slate-300 group-hover:text-emerald-400'}`}></i>
-                                                <p className={`font-bold ${incImage ? 'text-emerald-600' : 'text-slate-500 group-hover:text-emerald-600'}`}>{incImage ? incImage.name : t('inv.inc.upload')}</p>
-                                            </div>
+                                        {/* File Upload with High-Efficiency Smart Compression */}
+                                        <div className="border-2 border-dashed border-emerald-200 bg-emerald-50/40 rounded-2xl p-6 text-center hover:bg-emerald-50 hover:border-emerald-400 transition-all relative group">
+                                            {!compressedPreview && !isCompressing && (
+                                                <>
+                                                    <input 
+                                                        type="file" 
+                                                        accept="image/*" 
+                                                        className="absolute inset-0 opacity-0 cursor-pointer z-10" 
+                                                        onChange={handleInvoiceImageSelect} 
+                                                    />
+                                                    <div className="flex flex-col items-center justify-center pointer-events-none">
+                                                        <div className="w-14 h-14 rounded-2xl bg-white shadow-sm border border-emerald-100 flex items-center justify-center text-emerald-600 text-2xl mb-3 group-hover:scale-110 transition-transform">
+                                                            <i className="fas fa-file-invoice-dollar"></i>
+                                                        </div>
+                                                        <p className="font-black text-slate-700 text-sm">{t('inv.inc.upload') || 'اضغط أو اسحب صورة الفاتورة للرفع'}</p>
+                                                        <p className="text-xs text-slate-500 mt-1 font-medium flex items-center gap-1">
+                                                            <i className="fas fa-compress-arrows-alt text-emerald-500"></i>
+                                                            {dir === 'rtl' ? 'ضغط تلقائي فائق لتحمل عدد كبير من الفواتير' : 'Auto-compressed to save 90%+ storage'}
+                                                        </p>
+                                                    </div>
+                                                </>
+                                            )}
+
+                                            {isCompressing && (
+                                                <div className="py-6 flex flex-col items-center justify-center">
+                                                    <i className="fas fa-spinner fa-spin text-3xl text-emerald-600 mb-3"></i>
+                                                    <p className="font-bold text-slate-700 text-sm">
+                                                        {dir === 'rtl' ? 'جاري ضغط وتحسين صورة الفاتورة...' : 'Compressing invoice image...'}
+                                                    </p>
+                                                </div>
+                                            )}
+
+                                            {compressedPreview && !isCompressing && (
+                                                <div className="relative flex flex-col md:flex-row items-center justify-between gap-4 bg-white p-4 rounded-xl border border-emerald-100 shadow-sm">
+                                                    <div className="flex items-center gap-4 w-full md:w-auto">
+                                                        <img 
+                                                            src={compressedPreview.dataUrl} 
+                                                            alt="Compressed Preview" 
+                                                            className="w-16 h-16 object-cover rounded-xl border border-slate-200 shadow-xs cursor-pointer"
+                                                            onClick={() => window.open(compressedPreview.dataUrl, '_blank')}
+                                                        />
+                                                        <div className="text-right">
+                                                            <p className="font-bold text-slate-800 text-sm truncate max-w-[200px]">
+                                                                {compressedPreview.compressedFile.name}
+                                                            </p>
+                                                            <div className="flex flex-wrap items-center gap-2 mt-1">
+                                                                <span className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-mono">
+                                                                    {compressedPreview.originalSizeKB} KB &rarr; <strong className="text-emerald-700">{compressedPreview.compressedSizeKB} KB</strong>
+                                                                </span>
+                                                                <span className="text-[11px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
+                                                                    <i className="fas fa-bolt text-amber-500"></i>
+                                                                    {dir === 'rtl' ? `توفير ${compressedPreview.ratio}%` : `Saved ${compressedPreview.ratio}%`}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => {
+                                                            setIncImage(null);
+                                                            setCompressedPreview(null);
+                                                        }}
+                                                        className="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
+                                                    >
+                                                        <i className="fas fa-times"></i>
+                                                        {dir === 'rtl' ? 'إلغاء / تغيير' : 'Change'}
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
-                                        <button disabled={uploading} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-700 hover:scale-[1.01] transition-all active:scale-95 disabled:opacity-70 disabled:scale-100">
+
+                                        <button disabled={uploading || isCompressing} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-700 hover:scale-[1.01] transition-all active:scale-95 disabled:opacity-70 disabled:scale-100">
                                             {uploading ? <i className="fas fa-spinner fa-spin"></i> : t('inv.inc.btn')}
                                         </button>
                                     </form>
@@ -2218,20 +2448,25 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
                                 {/* Bottom: Invoice History Grid */}
                                 <div>
-                                    <div className="flex justify-between items-center mb-6 px-2">
+                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 px-2">
                                         <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
                                             <i className="fas fa-history text-slate-400"></i> {t('inv.recent')}
-                                            <span className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded-full">{displayedInvoices.length}</span>
+                                            <span className="text-xs bg-slate-200 text-slate-600 px-2.5 py-1 rounded-full font-mono">{displayedInvoices.length}</span>
                                         </h3>
-                                        <div className="flex gap-2">
+                                        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                                             {isAdmin && (
-                                                <button onClick={handleDeleteOldInvoices} className="text-xs bg-red-50 text-red-600 px-3 py-2 rounded-lg font-bold hover:bg-red-100">
-                                                    <i className="fas fa-trash mr-1"></i> Delete Old (&gt;1yr)
+                                                <button 
+                                                    onClick={() => setIsPurgeModalOpen(true)} 
+                                                    className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-3.5 py-2 rounded-xl font-bold transition-all shadow-xs flex items-center gap-1.5"
+                                                    title={dir === 'rtl' ? 'مسح صور الفواتير لتوفير المساحة مع الاحتفاظ بالسجلات والأعداد' : 'Purge images to free storage'}
+                                                >
+                                                    <i className="fas fa-broom text-amber-600"></i>
+                                                    <span>{dir === 'rtl' ? 'تنظيف صور الفواتير (تفريغ مساحة)' : 'Clean Invoice Images'}</span>
                                                 </button>
                                             )}
                                             <input 
                                                 type="month" 
-                                                className="bg-white border border-slate-200 rounded-lg p-2 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-emerald-200"
+                                                className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-emerald-200 shadow-xs"
                                                 value={incomingViewMonth}
                                                 onChange={e => setIncomingViewMonth(e.target.value)}
                                             />
@@ -2245,7 +2480,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                     <button 
                                                         onClick={() => handleDeleteInvoice(inv.id)}
                                                         className="absolute top-2 left-2 z-20 text-red-400 hover:text-red-600 bg-white/80 p-1.5 rounded-full hover:bg-white shadow-sm opacity-0 group-hover:opacity-100 transition-all"
-                                                        title="Delete Invoice"
+                                                        title="Delete Invoice Record"
                                                     >
                                                         <i className="fas fa-trash"></i>
                                                     </button>
@@ -2260,14 +2495,30 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                             </div>
                                                         </>
                                                     ) : (
-                                                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-300 bg-slate-100">
-                                                            <i className="fas fa-file-invoice text-4xl mb-2"></i>
-                                                            <span className="text-[10px] font-bold uppercase tracking-wider">No Image</span>
+                                                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 bg-slate-100/70 p-4 text-center">
+                                                            {inv.imagePurged ? (
+                                                                <>
+                                                                    <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-lg mb-2">
+                                                                        <i className="fas fa-shield-alt"></i>
+                                                                    </div>
+                                                                    <span className="text-[11px] font-bold text-amber-800">
+                                                                        {dir === 'rtl' ? 'تم تفريغ الصورة لتوفير المساحة' : 'Image Purged (Space Saved)'}
+                                                                    </span>
+                                                                    <span className="text-[10px] text-slate-500 font-medium mt-0.5">
+                                                                        {dir === 'rtl' ? 'البيانات والكميات محفوظة بالكامل' : 'Record & stock preserved'}
+                                                                    </span>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <i className="fas fa-file-invoice text-3xl mb-2 text-slate-300"></i>
+                                                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">بدون مرفق صورة</span>
+                                                                </>
+                                                            )}
                                                         </div>
                                                     )}
                                                     {/* Date Badge */}
-                                                    <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm text-slate-800 text-[10px] font-bold px-2 py-1 rounded-lg shadow-sm border border-slate-100">
-                                                        {inv.date?.toDate ? inv.date.toDate().toLocaleDateString('en-US') : 'N/A'}
+                                                    <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm text-slate-800 text-[10px] font-bold px-2 py-1 rounded-lg shadow-sm border border-slate-100">
+                                                        {inv.date?.toDate ? inv.date.toDate().toLocaleDateString(dir === 'rtl' ? 'ar-EG' : 'en-US') : 'N/A'}
                                                     </div>
                                                 </div>
 
@@ -2307,6 +2558,143 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                         </div>
                                     )}
                                 </div>
+
+                                {/* Date-Range Invoice Image Purge Modal */}
+                                {isPurgeModalOpen && (
+                                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fade-in">
+                                        <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 relative overflow-hidden animate-scale-up">
+                                            <div className="flex justify-between items-center mb-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-11 h-11 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center text-xl">
+                                                        <i className="fas fa-broom"></i>
+                                                    </div>
+                                                    <div>
+                                                        <h3 className="text-lg font-black text-slate-800">
+                                                            {dir === 'rtl' ? 'تفريغ صور الفواتير لتوفير المساحة' : 'Purge Invoice Images'}
+                                                        </h3>
+                                                        <p className="text-xs text-slate-500">
+                                                            {dir === 'rtl' ? 'مسح الصور فقط مع الحفاظ التام على السجلات والكميات' : 'Preserves all records & quantities'}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <button 
+                                                    onClick={() => setIsPurgeModalOpen(false)}
+                                                    className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors"
+                                                >
+                                                    <i className="fas fa-times"></i>
+                                                </button>
+                                            </div>
+
+                                            {/* Safety Notice Box */}
+                                            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mb-5 text-xs text-emerald-800 leading-relaxed font-medium">
+                                                <div className="flex items-center gap-2 font-bold text-emerald-900 mb-1">
+                                                    <i className="fas fa-shield-alt text-emerald-600 text-sm"></i>
+                                                    <span>{dir === 'rtl' ? 'ضمان سلامة المخزون والسجلات' : 'Stock & Ledger Protection'}</span>
+                                                </div>
+                                                {dir === 'rtl' 
+                                                    ? 'هذا الإجراء سيقوم بحذف ملفات وصور الفواتير فقط لتفريغ مساحة التخزين (Storage). ستبقى جميع الفواتير، الأعداد، التواريخ، الأصناف، وتاريخ الإدخال مسجلة ومحفوظة بالكامل دون أي تعديل على أرصدة المخزون.' 
+                                                    : 'This will only purge heavy image files from cloud storage. All ledger entries, counts, dates, and stock balances remain 100% intact.'}
+                                            </div>
+
+                                            {/* Period Selection */}
+                                            <div className="space-y-4 mb-6">
+                                                <label className="block text-xs font-bold text-slate-600 uppercase">
+                                                    {dir === 'rtl' ? 'اختر الفترة الزمنية المستهدفة:' : 'Select Target Duration:'}
+                                                </label>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    {[
+                                                        { id: '1month', label: dir === 'rtl' ? 'أقدم من شهر' : 'Older than 1 mo' },
+                                                        { id: '3months', label: dir === 'rtl' ? 'أقدم من 3 أشهر' : 'Older than 3 mos' },
+                                                        { id: '6months', label: dir === 'rtl' ? 'أقدم من 6 أشهر' : 'Older than 6 mos' },
+                                                        { id: '1year', label: dir === 'rtl' ? 'أقدم من سنة' : 'Older than 1 yr' },
+                                                        { id: 'custom', label: dir === 'rtl' ? 'فترة مخصصة' : 'Custom range' },
+                                                        { id: 'all', label: dir === 'rtl' ? 'كافة الصور' : 'All invoice images' },
+                                                    ].map(p => (
+                                                        <button
+                                                            key={p.id}
+                                                            type="button"
+                                                            onClick={() => setPurgePeriod(p.id as any)}
+                                                            className={`p-3 rounded-xl text-xs font-bold border transition-all text-center ${
+                                                                purgePeriod === p.id 
+                                                                    ? 'bg-amber-600 text-white border-amber-600 shadow-md shadow-amber-200' 
+                                                                    : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                                                            }`}
+                                                        >
+                                                            {p.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+
+                                                {/* Custom Date Inputs if 'custom' is selected */}
+                                                {purgePeriod === 'custom' && (
+                                                    <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200 animate-fade-in">
+                                                        <div>
+                                                            <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                                                                {dir === 'rtl' ? 'من تاريخ:' : 'From Date:'}
+                                                            </label>
+                                                            <input 
+                                                                type="date"
+                                                                value={purgeFromDate}
+                                                                onChange={e => setPurgeFromDate(e.target.value)}
+                                                                className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-amber-200"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                                                                {dir === 'rtl' ? 'إلى تاريخ:' : 'To Date:'}
+                                                            </label>
+                                                            <input 
+                                                                type="date"
+                                                                value={purgeToDate}
+                                                                onChange={e => setPurgeToDate(e.target.value)}
+                                                                className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-amber-200"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Matched Count Badge */}
+                                                <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl p-3 flex items-center justify-between text-xs">
+                                                    <span className="font-bold text-amber-900">
+                                                        {dir === 'rtl' ? 'عدد الصور المطابقة للحذف:' : 'Matching images to purge:'}
+                                                    </span>
+                                                    <span className="font-black bg-amber-200/80 text-amber-900 px-2.5 py-1 rounded-lg text-sm font-mono">
+                                                        {matchingInvoicesForPurge.length} {dir === 'rtl' ? 'صورة' : 'images'}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Modal Actions */}
+                                            <div className="flex gap-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setIsPurgeModalOpen(false)}
+                                                    className="flex-1 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm transition-colors"
+                                                >
+                                                    {dir === 'rtl' ? 'إلغاء' : 'Cancel'}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={isPurging || matchingInvoicesForPurge.length === 0}
+                                                    onClick={handlePurgeInvoiceImages}
+                                                    className="flex-2 py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm shadow-lg shadow-amber-200 transition-all disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
+                                                >
+                                                    {isPurging ? (
+                                                        <>
+                                                            <i className="fas fa-spinner fa-spin"></i>
+                                                            <span>{dir === 'rtl' ? 'جاري التنظيف...' : 'Purging...'}</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <i className="fas fa-trash-alt"></i>
+                                                            <span>{dir === 'rtl' ? 'تأكيد مسح الصور فقط' : 'Confirm Purge Images Only'}</span>
+                                                        </>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div className="space-y-6">

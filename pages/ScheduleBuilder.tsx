@@ -4,6 +4,7 @@ import { db } from '../firebase';
 // @ts-ignore
 import { collection, addDoc, getDocs, Timestamp, query, where, writeBatch, doc, deleteDoc, updateDoc, orderBy, setDoc, getDoc } from 'firebase/firestore';
 import { ModalityColumn, CommonDuty, FridayScheduleRow, HolidayScheduleRow, SavedTemplate, User, Location, VisualStaff, DoctorScheduleRow, DoctorFridayRow, ScheduleColumn, DateException } from '../types';
+import { isOperationalStaff } from '../utils/staffUtils';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useDepartment } from '../contexts/DepartmentContext';
@@ -238,14 +239,19 @@ const ScheduleBuilder: React.FC = () => {
         const initData = async () => {
             setLoading(true);
             try {
-                const uSnap = await getDocs(query(collection(db, "users"), where('departmentId', '==', selectedDepartmentId)));
+                const uSnap = await getDocs(collection(db, "users"));
                 const fetchedUsers = uSnap.docs.map((d: any) => ({ ...(d.data() as any), id: d.id } as User));
                 setAllEmployees(fetchedUsers.filter(u => {
-                    const role = u.role || '';
-                    if (Array.isArray(role)) {
-                        return !role.some(r => ['admin', 'supervisor', 'manager'].includes(r));
+                    if (!isOperationalStaff(u)) return false;
+
+                    if (selectedDepartmentId) {
+                        return (
+                            u.departmentId === selectedDepartmentId ||
+                            (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentId)) ||
+                            (selectedDepartmentId === 'legacy_radiology' && !u.departmentId)
+                        );
                     }
-                    return !['admin', 'supervisor', 'manager'].includes(role);
+                    return true;
                 }));
                 const lSnap = await getDocs(query(collection(db, "locations"), where('departmentId', '==', selectedDepartmentId)));
                 setAllLocations(lSnap.docs.map((d: any) => ({ ...(d.data() as any), id: d.id } as Location)));

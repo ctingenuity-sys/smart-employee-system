@@ -62,6 +62,7 @@ export interface User {
   
   // NEW: Department Link
   departmentId?: string; 
+  departments?: string[];
   
   // NEW: Supervisor/Manager Links
   supervisorId?: string;
@@ -77,6 +78,8 @@ export interface User {
   gender?: 'male' | 'female';
   hireDate?: string; // YYYY-MM-DD
   isHidden?: boolean; // For secret hiding
+  isIndividualAccount?: boolean; // NEW: Individual / Standalone Account (e.g. Cath Lab special calculator)
+  excludeFromCount?: boolean; // Exclude from general staff headcount
   stamp?: string; // URL to user's personal stamp image
   
   // Documents
@@ -138,6 +141,10 @@ export interface SwapHistory {
 export interface LeaveRequest {
   id: string;
   from: string; // User ID
+  userId?: string;
+  departmentId?: string;
+  supervisorId?: string;
+  managerId?: string;
   typeOfLeave?: string; // e.g., 'Annual', 'Sick', 'Permission'
   startDate: string;
   endDate: string;
@@ -177,9 +184,6 @@ export interface LeaveRequest {
   dueDateForLeave?: string;
 
   createdAt?: any;
-  departmentId?: string; // NEW
-  supervisorId?: string;
-  managerId?: string;
 }
 
 export interface LeaveHistory {
@@ -553,9 +557,14 @@ export interface Invoice {
   quantityAdded: number;
   date: any; // Firestore Timestamp
   expiryDate?: string; // YYYY-MM-DD
-  imageUrl?: string;
+  imageUrl?: string | null;
   createdBy?: string;
   isCorrection?: boolean;
+  imagePurged?: boolean;
+  imagePurgedAt?: any;
+  originalFileName?: string;
+  imageSizeKB?: number;
+  departmentId?: string;
 }
 
 export interface MaterialUsage {

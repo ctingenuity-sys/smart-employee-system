@@ -6,6 +6,7 @@ import { inventoryDb } from '../../firebaseInventory';
 // @ts-ignore
 import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, orderBy, Timestamp, where } from 'firebase/firestore';
 import { Department, User, SwapRequest, LeaveRequest } from '../../types';
+import { isOperationalStaff } from '../../utils/staffUtils';
 import Toast from '../../components/Toast';
 import Modal from '../../components/Modal';
 // @ts-ignore
@@ -279,9 +280,12 @@ const DepartmentsPage: React.FC = () => {
         return u ? u.name : 'Unknown User';
     };
 
-    // Count employees in department
+    // Count operational employees in department (excluding Admin, Supervisor, Manager, individual accounts)
     const getEmployeeCount = (deptId: string) => {
-        return users.filter(u => u.departmentId === deptId).length;
+        return users.filter(u => {
+            const inDept = u.departmentId === deptId || (Array.isArray(u.departments) && u.departments.includes(deptId));
+            return inDept && isOperationalStaff(u, departments);
+        }).length;
     };
 
     return (

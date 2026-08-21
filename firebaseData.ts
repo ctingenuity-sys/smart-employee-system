@@ -1,8 +1,10 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApp, getApps } from "firebase/app";
-import { getFirestore, initializeFirestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore, setLogLevel } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getAuth } from "firebase/auth";
+
+setLogLevel('error');
 
 // Your web app's Firebase configuration
 export const firebaseConfig = {
@@ -28,7 +30,7 @@ try {
 let firestoreDb;
 try {
     firestoreDb = initializeFirestore(app, {
-        experimentalForceLongPolling: true
+        experimentalAutoDetectLongPolling: true
     });
 } catch (e) {
     firestoreDb = getFirestore(app);

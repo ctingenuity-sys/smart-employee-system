@@ -76,10 +76,19 @@ const SupervisorLeaves: React.FC = () => {
 
         const withDept = (baseQuery: any) => selectedDepartmentId ? query(baseQuery, where('departmentId', '==', selectedDepartmentId)) : baseQuery;
 
-        const qUsers = withDept(collection(db, 'users'));
-        getDocs(qUsers).then(snap => {
+        getDocs(collection(db, 'users')).then(snap => {
             const fetchedUsers = snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as User));
-            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
+            setUsers(fetchedUsers.filter(u => {
+                if (!u || u.isHidden) return false;
+                if (selectedDepartmentId) {
+                    return (
+                        u.departmentId === selectedDepartmentId ||
+                        (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentId)) ||
+                        (selectedDepartmentId === 'legacy_radiology' && !u.departmentId)
+                    );
+                }
+                return true;
+            }));
         });
         
         // Supervisor Tab: Show requests for the department

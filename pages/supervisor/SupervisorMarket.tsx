@@ -59,9 +59,19 @@ const SupervisorMarket: React.FC = () => {
         const withDept = (baseQuery: any) => selectedDepartmentId ? query(baseQuery, where('departmentId', '==', selectedDepartmentId)) : baseQuery;
 
         const unsubLocs = onSnapshot(withDept(collection(db, 'locations')), (snap: QuerySnapshot<DocumentData>) => setLocations(snap.docs.map(d => ({id:d.id, ...d.data()} as Location))));
-        const unsubUsers = onSnapshot(withDept(collection(db, 'users')), (snap: QuerySnapshot<DocumentData>) => {
+        const unsubUsers = onSnapshot(collection(db, 'users'), (snap: QuerySnapshot<DocumentData>) => {
             const fetchedUsers = snap.docs.map(d => ({id:d.id, ...d.data()} as User));
-            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
+            setUsers(fetchedUsers.filter(u => {
+                if (!u || u.isHidden) return false;
+                if (selectedDepartmentId) {
+                    return (
+                        u.departmentId === selectedDepartmentId ||
+                        (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentId)) ||
+                        (selectedDepartmentId === 'legacy_radiology' && !u.departmentId)
+                    );
+                }
+                return true;
+            }));
         });
         const unsubShifts = onSnapshot(withDept(collection(db, 'openShifts')), (snap: QuerySnapshot<DocumentData>) => setOpenShifts(snap.docs.map(d => ({id:d.id, ...d.data()} as OpenShift))));
         return () => { unsubLocs(); unsubUsers(); unsubShifts(); };

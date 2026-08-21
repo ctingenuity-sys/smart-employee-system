@@ -4,6 +4,7 @@ import { db } from '../../firebase';
 // @ts-ignore
 import { collection, query, where, getDocs, doc, deleteDoc, getDoc } from 'firebase/firestore';
 import { SwapRequest, LeaveRequest, User } from '../../types';
+import { isOperationalStaff } from '../../utils/staffUtils';
 import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDepartment } from '../../contexts/DepartmentContext';
@@ -27,7 +28,7 @@ interface HistoryItem {
 const SupervisorHistory: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
-    const { selectedDepartmentId } = useDepartment();
+    const { selectedDepartmentId, departments } = useDepartment();
     const [historyData, setHistoryData] = useState<HistoryItem[]>(() => {
         const cached = localStorage.getItem('usr_cached_sup_hist');
         return cached ? JSON.parse(cached) : [];
@@ -54,10 +55,19 @@ const SupervisorHistory: React.FC = () => {
     useEffect(() => {
         const withDept = (baseQuery: any) => selectedDepartmentId ? query(baseQuery, where('departmentId', '==', selectedDepartmentId)) : baseQuery;
 
-        const qUsers = withDept(collection(db, 'users'));
-        getDocs(qUsers).then(snap => {
+        getDocs(collection(db, 'users')).then(snap => {
             const fetchedUsers = snap.docs.map(d => ({id:d.id, ...(d.data() as any)} as User));
-            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
+            setUsers(fetchedUsers.filter(u => {
+                if (!isOperationalStaff(u, departments)) return false;
+                if (selectedDepartmentId) {
+                    return (
+                        u.departmentId === selectedDepartmentId ||
+                        (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentId)) ||
+                        (selectedDepartmentId === 'legacy_radiology' && !u.departmentId)
+                    );
+                }
+                return true;
+            }));
         });
         
         const qSwaps = withDept(query(collection(db, 'swapRequests'), where('status', 'in', ['approvedBySupervisor', 'rejectedBySupervisor', 'rejected'])));

@@ -4,6 +4,7 @@ import { db } from '../../firebase';
 // @ts-ignore
 import { doc, collection, query, where, getDocs, writeBatch, limit, orderBy, addDoc, Timestamp, deleteDoc } from 'firebase/firestore';
 import { User, Schedule, AttendanceLog, ActionLog } from '../../types';
+import { isOperationalStaff } from '../../utils/staffUtils';
 import Toast from '../../components/Toast';
 import Modal from '../../components/Modal';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -215,13 +216,19 @@ const SupervisorAttendance: React.FC = () => {
     const [manualTime, setManualTime] = useState('08:00');
 
     useEffect(() => {
-        const qUsers = selectedDepartmentId 
-            ? query(collection(db, 'users'), where('departmentId', '==', selectedDepartmentId))
-            : collection(db, 'users');
-            
-        getDocs(qUsers).then(snap => {
+        getDocs(collection(db, 'users')).then(snap => {
             const fetchedUsers = snap.docs.map(d => ({id:d.id, ...d.data()} as User));
-            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
+            setUsers(fetchedUsers.filter(u => {
+                if (!isOperationalStaff(u, departments)) return false;
+                if (selectedDepartmentId) {
+                    return (
+                        u.departmentId === selectedDepartmentId ||
+                        (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentId)) ||
+                        (selectedDepartmentId === 'legacy_radiology' && !u.departmentId)
+                    );
+                }
+                return true;
+            }));
         });
     }, [selectedDepartmentId]);
 

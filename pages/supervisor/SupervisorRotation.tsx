@@ -4,6 +4,7 @@ import { db } from '../../firebase';
 // @ts-ignore
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { User, Schedule, Location } from '../../types';
+import { isOperationalStaff } from '../../utils/staffUtils';
 import Loading from '../../components/Loading';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDepartment } from '../../contexts/DepartmentContext';
@@ -26,49 +27,70 @@ const getPreviousMonths = (count: number) => {
 // --- CONFIGURATION: Job Category Visuals & Order ---
 const CATEGORY_CONFIG: Record<string, { label: string, order: number, color: string, headerBg: string, icon: string }> = {
     'doctor': { 
-        label: 'Doctors / Consultants', 
+        label: 'Doctors / Consultants (الأطباء)', 
         order: 1, 
         color: 'bg-rose-50 text-rose-700 border-rose-200',
         headerBg: 'bg-rose-100 text-rose-800',
         icon: 'fa-user-md'
     },
     'technologist': { 
-        label: 'Specialists / Technologists', 
+        label: 'Specialists / Technologists (الأخصائيين)', 
         order: 2, 
         color: 'bg-blue-50 text-blue-700 border-blue-200',
         headerBg: 'bg-blue-100 text-blue-800',
         icon: 'fa-user-graduate'
     },
     'usg': {
-        label: 'Ultrasound Team',
+        label: 'Ultrasound Team (فريق السونار)',
         order: 2.5,
         color: 'bg-indigo-50 text-indigo-700 border-indigo-200',
         headerBg: 'bg-indigo-100 text-indigo-800',
         icon: 'fa-wave-square'
     },
     'technician': { 
-        label: 'Technicians', 
+        label: 'Technicians (الفنيين)', 
         order: 3, 
         color: 'bg-amber-50 text-amber-700 border-amber-200',
         headerBg: 'bg-amber-100 text-amber-800',
         icon: 'fa-cogs'
     },
     'nurse': { 
-        label: 'Nursing Staff', 
+        label: 'Nursing Staff (التمريض)', 
         order: 4, 
         color: 'bg-purple-50 text-purple-700 border-purple-200',
         headerBg: 'bg-purple-100 text-purple-800',
         icon: 'fa-user-nurse'
     },
+    'reception': {
+        label: 'Reception Staff (الاستقبال)',
+        order: 5,
+        color: 'bg-teal-50 text-teal-700 border-teal-200',
+        headerBg: 'bg-teal-100 text-teal-800',
+        icon: 'fa-concierge-bell'
+    },
+    'worker': {
+        label: 'Workers & Service (العمال والخدمات)',
+        order: 6,
+        color: 'bg-slate-100 text-slate-700 border-slate-300',
+        headerBg: 'bg-slate-200 text-slate-800',
+        icon: 'fa-hands-helping'
+    },
+    'maintenance': {
+        label: 'Maintenance & Service (الصيانة والخدمات)',
+        order: 7,
+        color: 'bg-zinc-100 text-zinc-700 border-zinc-300',
+        headerBg: 'bg-zinc-200 text-zinc-800',
+        icon: 'fa-tools'
+    },
     'rso': { 
-        label: 'R.S.O', 
-        order: 5, 
+        label: 'R.S.O (حماية الإشعاع)', 
+        order: 8, 
         color: 'bg-indigo-50 text-indigo-700 border-indigo-200',
         headerBg: 'bg-indigo-100 text-indigo-800',
         icon: 'fa-radiation'
     },
     'other': { 
-        label: 'Support Staff', 
+        label: 'Support Staff (طاقم مساند)', 
         order: 99, 
         color: 'bg-slate-50 text-slate-600 border-slate-200',
         headerBg: 'bg-slate-200 text-slate-700',
@@ -101,7 +123,7 @@ interface DetailedMonthData {
 const SupervisorRotation: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
-    const { selectedDepartmentId } = useDepartment();
+    const { selectedDepartmentId, departments } = useDepartment();
     const [loading, setLoading] = useState(true);
     
     // Filters
@@ -120,9 +142,21 @@ const SupervisorRotation: React.FC = () => {
         setLoading(true);
         const withDept = (baseQuery: any) => selectedDepartmentId ? query(baseQuery, where('departmentId', '==', selectedDepartmentId)) : baseQuery;
 
-        getDocs(withDept(collection(db, 'users'))).then((snap) => {
+        getDocs(collection(db, 'users')).then((snap) => {
             const fetchedUsers = snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as User));
-            setUsers(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
+            const deptUsers = fetchedUsers.filter(u => {
+                if (!isOperationalStaff(u, departments)) return false;
+
+                if (selectedDepartmentId) {
+                    return (
+                        u.departmentId === selectedDepartmentId ||
+                        (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentId)) ||
+                        (selectedDepartmentId === 'legacy_radiology' && !u.departmentId)
+                    );
+                }
+                return true;
+            });
+            setUsers(deptUsers);
         });
         getDocs(withDept(collection(db, 'locations'))).then((snap) => {
             setLocations(snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as Location)));
@@ -193,12 +227,11 @@ const SupervisorRotation: React.FC = () => {
     const filteredAndSortedUsers = useMemo(() => {
         return users
             .filter(u => {
-                // Filter out Admins and Reception from Rotation view
-                if (u.role === 'admin') return false; 
-                if (u.jobCategory === 'admin' || u.jobCategory === 'reception') return false;
-
-                return u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                       u.email.toLowerCase().includes(searchQuery.toLowerCase());
+                if (u.isHidden) return false;
+                const name = (u.name || '').toLowerCase();
+                const email = (u.email || '').toLowerCase();
+                const query = searchQuery.toLowerCase();
+                return name.includes(query) || email.includes(query);
             })
             .sort((a, b) => {
                 // Primary Sort: Job Category Order
@@ -208,7 +241,7 @@ const SupervisorRotation: React.FC = () => {
                 if (catA !== catB) return catA - catB;
                 
                 // Secondary Sort: Name
-                return a.name.localeCompare(b.name);
+                return (a.name || '').localeCompare(b.name || '');
             });
     }, [users, searchQuery]);
 

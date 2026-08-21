@@ -9,6 +9,7 @@ import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth'
 // @ts-ignore
 import { initializeApp, deleteApp } from 'firebase/app';
 import { User, LocationCheckRequest, UserDocument } from '../../types';
+import { isOperationalStaff, getOperationalStaffList } from '../../utils/staffUtils';
 import Modal from '../../components/Modal';
 import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -60,12 +61,14 @@ const ALL_PERMISSIONS = [
 
 // Mapped to match the specific CSS classes requested
 const JOB_CATEGORIES = [
-    { id: 'doctor', title: 'Doctors', cssClass: 'doctors', icon: 'fa-user-md', cardTheme: 'bg-gradient-to-br from-rose-500 to-pink-600 text-white border-rose-400' },
-    { id: 'technologist', title: 'Specialists', cssClass: 'technologists', icon: 'fa-user-graduate', cardTheme: 'bg-gradient-to-br from-cyan-500 to-blue-600 text-white border-cyan-400' },
-    { id: 'usg', title: 'Ultrasound', cssClass: 'technologists', icon: 'fa-wave-square', isHidden: true, cardTheme: 'bg-gradient-to-br from-indigo-500 to-violet-600 text-white border-indigo-400' }, 
-    { id: 'technician', title: 'Technicians', cssClass: 'technicians', icon: 'fa-cogs', cardTheme: 'bg-gradient-to-br from-amber-400 to-orange-500 text-white border-amber-400' },
-    { id: 'nurse', title: 'Nurses', cssClass: 'assistants', icon: 'fa-user-nurse', cardTheme: 'bg-gradient-to-br from-purple-500 to-fuchsia-600 text-white border-purple-400' },
-    { id: 'rso', title: 'R S O', cssClass: 'rso', icon: 'fa-radiation', cardTheme: 'bg-gradient-to-br from-yellow-400 to-amber-500 text-white border-yellow-400' },
+    { id: 'doctor', title: 'Doctors (أطباء)', cssClass: 'doctors', icon: 'fa-user-md', cardTheme: 'bg-gradient-to-br from-rose-500 to-pink-600 text-white border-rose-400' },
+    { id: 'technologist', title: 'Specialists (أخصائيين)', cssClass: 'technologists', icon: 'fa-user-graduate', cardTheme: 'bg-gradient-to-br from-cyan-500 to-blue-600 text-white border-cyan-400' },
+    { id: 'technician', title: 'Technicians (فنيين)', cssClass: 'technicians', icon: 'fa-cogs', cardTheme: 'bg-gradient-to-br from-amber-400 to-orange-500 text-white border-amber-400' },
+    { id: 'nurse', title: 'Nurses (تمريض)', cssClass: 'assistants', icon: 'fa-user-nurse', cardTheme: 'bg-gradient-to-br from-purple-500 to-fuchsia-600 text-white border-purple-400' },
+    { id: 'reception', title: 'Reception (استقبال)', cssClass: 'reception', icon: 'fa-concierge-bell', cardTheme: 'bg-gradient-to-br from-teal-500 to-emerald-600 text-white border-teal-400' },
+    { id: 'worker', title: 'Workers / Service (عمال ومساعدين)', cssClass: 'workers', icon: 'fa-hands-helping', cardTheme: 'bg-gradient-to-br from-slate-600 to-slate-800 text-white border-slate-500' },
+    { id: 'rso', title: 'R S O (حماية الإشعاع)', cssClass: 'rso', icon: 'fa-radiation', cardTheme: 'bg-gradient-to-br from-yellow-400 to-amber-500 text-white border-yellow-400' },
+    { id: 'usg', title: 'Ultrasound (سونار)', cssClass: 'technologists', icon: 'fa-wave-square', isHidden: true, cardTheme: 'bg-gradient-to-br from-indigo-500 to-violet-600 text-white border-indigo-400' }, 
 ];
 
 const styles = `
@@ -107,6 +110,8 @@ const styles = `
 .technologists { background: linear-gradient(135deg, #36d1dc, #5b86e5); }
 .technicians { background: linear-gradient(135deg, #fbc7aa, #f5af19); color: #333; text-shadow: none; }
 .assistants { background: linear-gradient(135deg, #667eea, #764ba2); }
+.reception { background: linear-gradient(135deg, #0d9488, #10b981); }
+.workers { background: linear-gradient(135deg, #475569, #1e293b); }
 .rso { background: linear-gradient(135deg, #f7971e, #ffd200); text-shadow: 1px 1px 2px rgba(0,0,0,0.2); }
 
 .section-title {
@@ -355,6 +360,7 @@ const SupervisorEmployees: React.FC = () => {
     const [newUserGender, setNewUserGender] = useState<'male'|'female'>('male');
     const [newUserHireDate, setNewUserHireDate] = useState('');
     const [newUserHidden, setNewUserHidden] = useState(false);
+    const [newUserIndividual, setNewUserIndividual] = useState(false);
     
     // Live Check Result State
     const [checkResult, setCheckResult] = useState<LocationCheckRequest | null>(null);
@@ -369,9 +375,7 @@ const SupervisorEmployees: React.FC = () => {
     // Fetch Main Users (Real-time)
     useEffect(() => {
         setLoading(true);
-        const q = selectedDepartmentId 
-            ? query(collection(mainDb, 'users'), where('departmentId', '==', selectedDepartmentId))
-            : collection(mainDb, 'users');
+        const q = collection(mainDb, 'users');
             
         const unsubscribe = onSnapshot(
             q, 
@@ -387,7 +391,7 @@ const SupervisorEmployees: React.FC = () => {
             }
         );
         return () => unsubscribe();
-    }, [selectedDepartmentId]);
+    }, []);
 
     // Fetch Cert Records (Real-time)
     useEffect(() => {
@@ -533,6 +537,8 @@ const SupervisorEmployees: React.FC = () => {
                 gender: newUserGender || 'male',
                 hireDate: newUserHireDate || '',
                 isHidden: newUserHidden || false,
+                isIndividualAccount: newUserIndividual || (newUserRole === 'cath_lab'),
+                excludeFromCount: newUserIndividual || (newUserRole === 'cath_lab'),
                 createdAt: Timestamp.now()
             });
 
@@ -544,7 +550,7 @@ const SupervisorEmployees: React.FC = () => {
             });
             
             setToast({ msg: 'User Added Successfully!', type: 'success' });
-            setNewUserName(''); setNewUserEmail(''); setNewUserPassword(''); setNewUserPhone('');
+            setNewUserName(''); setNewUserEmail(''); setNewUserPassword(''); setNewUserPhone(''); setNewUserIndividual(false);
             
             await signOut(secondaryAuth);
             await deleteApp(secondaryApp);
@@ -573,6 +579,8 @@ const SupervisorEmployees: React.FC = () => {
         }
         
         try {
+            const isInd = editForm.isIndividualAccount || (editForm.role === 'cath_lab') || false;
+
             // 1. Update Main DB (Profile)
             await updateDoc(doc(mainDb, 'users', editForm.id), {
                 name: editForm.name || '',
@@ -587,7 +595,9 @@ const SupervisorEmployees: React.FC = () => {
                 nationality: editForm.nationality || '',
                 gender: editForm.gender || 'male',
                 hireDate: editForm.hireDate || '',
-                isHidden: editForm.isHidden || false
+                isHidden: editForm.isHidden || false,
+                isIndividualAccount: isInd,
+                excludeFromCount: isInd
             });
 
             // 2. Update Cert DB (Certificates)
@@ -599,7 +609,7 @@ const SupervisorEmployees: React.FC = () => {
 
             // Update local state
             console.log('Updating user:', editForm.id, 'with:', editForm);
-            setUsers(prev => prev.map(u => u.id === editForm.id ? { ...u, ...editForm } : u));
+            setUsers(prev => prev.map(u => u.id === editForm.id ? { ...u, ...editForm, isIndividualAccount: isInd, excludeFromCount: isInd } : u));
 
             setToast({ msg: 'User Updated Successfully', type: 'success' });
             setIsEditModalOpen(false);
@@ -1006,9 +1016,10 @@ const SupervisorEmployees: React.FC = () => {
 
         // Department Filter Logic
         if (selectedDepartmentFilter !== 'all') {
-            if (u.departmentId !== selectedDepartmentFilter) return false;
-            // Exclude Admin/Supervisor/Manager from department view as requested
-            if (['admin', 'supervisor', 'manager'].includes(u.role?.toLowerCase() || '')) return false;
+            const inDept = u.departmentId === selectedDepartmentFilter || 
+                           (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentFilter)) ||
+                           (selectedDepartmentFilter === 'legacy_radiology' && !u.departmentId);
+            if (!inDept) return false;
         }
 
         return (
@@ -1030,7 +1041,16 @@ const SupervisorEmployees: React.FC = () => {
             ? user.permissions 
             : ALL_PERMISSIONS.map(p => p.key);
             
-        setEditForm({ ...user, permissions: perms, jobCategory: user.jobCategory || 'technician', gender: user.gender || 'male', hireDate: user.hireDate || '', nationality: user.nationality || '', isHidden: user.isHidden || false });
+        setEditForm({ 
+            ...user, 
+            permissions: perms, 
+            jobCategory: user.jobCategory || 'technician', 
+            gender: user.gender || 'male', 
+            hireDate: user.hireDate || '', 
+            nationality: user.nationality || '', 
+            isHidden: user.isHidden || false,
+            isIndividualAccount: user.isIndividualAccount || user.excludeFromCount || (user.role === 'cath_lab') || false
+        });
         setIsEditModalOpen(true);
     };
 
@@ -1175,8 +1195,10 @@ const SupervisorEmployees: React.FC = () => {
 
     const derivedCategoryUsers = users.filter(u => {
         if (u.isHidden && !hiddenEmployeesVisible) return false;
-        if (['admin', 'supervisor', 'manager'].includes(u.role)) return false;
         
+        // Exclude Admin, Supervisor, Manager and individual accounts from employee categories
+        if (!isOperationalStaff(u, departments, hiddenEmployeesVisible)) return false;
+
         // Supervisor/Manager Isolation
         if (authRole === UserRole.SUPERVISOR) {
             if (u.departmentId !== selectedDepartmentId && u.supervisorId !== currentUser?.uid) return false;
@@ -1186,10 +1208,18 @@ const SupervisorEmployees: React.FC = () => {
 
         // Department Filter Logic
         if (selectedDepartmentFilter !== 'all') {
-            if (u.departmentId !== selectedDepartmentFilter) return false;
+            const inDept = u.departmentId === selectedDepartmentFilter || 
+                           (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentFilter)) ||
+                           (selectedDepartmentFilter === 'legacy_radiology' && !u.departmentId);
+            if (!inDept) return false;
         }
 
-        return (u.jobCategory || 'technician') === selectedCategoryId;
+        const userCat = u.jobCategory || 'technician';
+        const isKnownCat = JOB_CATEGORIES.some(c => c.id === userCat);
+        if (isKnownCat) {
+            return userCat === selectedCategoryId;
+        }
+        return selectedCategoryId === 'technician';
     });
 
     return (
@@ -1212,7 +1242,7 @@ const SupervisorEmployees: React.FC = () => {
                     </div>
                 </div>
                 
-                <div className="flex gap-3">
+                <div className="flex gap-3 items-center">
                     <div className="bg-slate-100 p-1 rounded-xl flex">
                         <button 
                             onClick={() => setViewMode('table')} 
@@ -1344,7 +1374,18 @@ const SupervisorEmployees: React.FC = () => {
                                         </div>
                                     </div>
                                     
-                                    <label className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors shadow-sm mt-4">
+                                    <label className="flex items-center gap-3 p-3 bg-indigo-50/80 border border-indigo-200 rounded-xl cursor-pointer hover:bg-indigo-100/70 transition-colors shadow-xs mt-3">
+                                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${newUserIndividual ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-indigo-300 bg-white'}`}>
+                                            {newUserIndividual && <i className="fas fa-check text-xs"></i>}
+                                        </div>
+                                        <input type="checkbox" checked={newUserIndividual} onChange={e => setNewUserIndividual(e.target.checked)} className="hidden" />
+                                        <div>
+                                            <span className="text-xs text-indigo-950 font-bold block">{dir === 'rtl' ? 'حساب فردي / مستثنى من إجمالي العدد وجدول التدوير' : 'Individual Account (Excluded from Headcount & Rotation)'}</span>
+                                            <span className="text-[10px] text-indigo-700 block">{dir === 'rtl' ? 'يُستخدم للحسابات الخاصة مثل حاسبة القسطرة أو الأدوات المستقلة' : 'Used for specialized accounts like Cath Lab calculator or standalone tools'}</span>
+                                        </div>
+                                    </label>
+
+                                    <label className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors shadow-sm mt-3">
                                         <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${newUserHidden ? 'bg-blue-500 border-blue-500 text-white' : 'border-slate-300 bg-slate-100'}`}>
                                             {newUserHidden && <i className="fas fa-check text-xs"></i>}
                                         </div>
@@ -1475,7 +1516,7 @@ const SupervisorEmployees: React.FC = () => {
                                                         {user.name ? user.name.charAt(0) : '?'}
                                                     </div>
                                                     <div>
-                                                        <h4 className="font-bold text-slate-800">{user.name} {user.isHidden && <i className="fas fa-eye-slash text-xs text-red-300 ml-1"></i>}</h4>
+                                                        <h4 className="font-bold text-slate-800">{user.name}</h4>
                                                         <p className="text-sm text-slate-400">{user.email}</p>
                                                         {user.departmentId && (
                                                             <p className="text-xs text-indigo-500 font-medium mt-0.5">
@@ -1486,7 +1527,24 @@ const SupervisorEmployees: React.FC = () => {
                                                     </div>
                                                 </td>
                                                 <td className="p-4">
-                                                    <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 uppercase">{user.role}</span>
+                                                    <div className="flex flex-wrap gap-1 items-center">
+                                                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
+                                                            user.role === 'admin' ? 'bg-purple-100 text-purple-700' :
+                                                            user.role === 'supervisor' ? 'bg-indigo-100 text-indigo-700' :
+                                                            user.role === 'manager' ? 'bg-blue-100 text-blue-700' :
+                                                            user.role === 'custody_clerk' ? 'bg-teal-100 text-teal-800 border border-teal-200' :
+                                                            user.role === 'doctor' ? 'bg-rose-100 text-rose-700' :
+                                                            user.role === 'cath_lab' ? 'bg-amber-100 text-amber-800' :
+                                                            'bg-slate-100 text-slate-700'
+                                                        }`}>
+                                                            {user.role === 'custody_clerk' ? 'توزيع العهد' : user.role}
+                                                        </span>
+                                                        {(user.isIndividualAccount || user.excludeFromCount || user.role === 'cath_lab') && (
+                                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-800 border border-amber-300 flex items-center gap-0.5" title="حساب فردي / مستثنى من العدد والتدوير">
+                                                                <i className="fas fa-calculator text-[8px]"></i> فردي
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className="p-4">
                                                     <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-blue-50 text-blue-600 uppercase border border-blue-100">
@@ -1528,14 +1586,16 @@ const SupervisorEmployees: React.FC = () => {
                 // Use a centered container
                 <div className="min-h-[70vh] flex flex-col items-center justify-center animate-fade-in-up">
                     <div className="flex flex-wrap gap-8 justify-center pb-20 pt-10">
-                        {/* Hide categories marked as isHidden: true from visual circles */}
-                        {JOB_CATEGORIES.filter(c => !(c as any).isHidden).map(cat => {
+                        {/* Show hidden categories when hiddenEmployeesVisible is true */}
+                        {JOB_CATEGORIES.filter(c => !(c as any).isHidden || hiddenEmployeesVisible).map(cat => {
                             const catUsers = users.filter(u => {
                                  // Check for hidden state
                                  const isHidden = (u as any).isHidden;
                                  if (isHidden && !hiddenEmployeesVisible) return false;
-                                 if (['admin', 'supervisor', 'manager'].includes(u.role)) return false;
                                  
+                                 // Exclude Admin, Supervisor, Manager and individual accounts from employee circle counts
+                                 if (!isOperationalStaff(u, departments, hiddenEmployeesVisible)) return false;
+
                                  // Supervisor/Manager Isolation
                                  if (authRole === UserRole.SUPERVISOR) {
                                      if (u.departmentId !== selectedDepartmentId && u.supervisorId !== currentUser?.uid) return false;
@@ -1545,10 +1605,18 @@ const SupervisorEmployees: React.FC = () => {
 
                                  // Department Filter Logic
                                  if (selectedDepartmentFilter !== 'all') {
-                                     if (u.departmentId !== selectedDepartmentFilter) return false;
+                                     const inDept = u.departmentId === selectedDepartmentFilter || 
+                                                    (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentFilter)) ||
+                                                    (selectedDepartmentFilter === 'legacy_radiology' && !u.departmentId);
+                                     if (!inDept) return false;
                                  }
 
-                                 return (u.jobCategory || 'technician') === cat.id;
+                                 const userCat = u.jobCategory || 'technician';
+                                 const isKnownCat = JOB_CATEGORIES.some(c => c.id === userCat);
+                                 if (isKnownCat) {
+                                     return userCat === cat.id;
+                                 }
+                                 return cat.id === 'technician';
                             });
                             
                             if (catUsers.length === 0) return null;
@@ -1831,6 +1899,19 @@ const SupervisorEmployees: React.FC = () => {
                         )}
                     </div>
 
+                    <label className="flex items-center gap-3 p-3 bg-indigo-50 border border-indigo-200 rounded-xl cursor-pointer hover:bg-indigo-100/70 transition-colors shadow-xs">
+                        <input 
+                            type="checkbox" 
+                            checked={editForm.isIndividualAccount || false} 
+                            onChange={e => setEditForm({...editForm, isIndividualAccount: e.target.checked, excludeFromCount: e.target.checked})} 
+                            className="w-4 h-4 text-indigo-600 rounded" 
+                        />
+                        <div>
+                            <span className="text-xs text-indigo-950 font-bold block">{dir === 'rtl' ? 'حساب فردي / مستثنى من إجمالي عدد الموظفين وجدول التدوير' : 'Individual Account (Excluded from Headcount & Rotation)'}</span>
+                            <span className="text-[10px] text-indigo-700 block">{dir === 'rtl' ? 'يُستخدم للحسابات الخاصة مثل حاسبة القسطرة أو الأدوات المستقلة' : 'Used for specialized accounts like Cath Lab calculator or standalone tools'}</span>
+                        </div>
+                    </label>
+
                     <label className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg cursor-pointer">
                         <input type="checkbox" checked={editForm.isHidden || false} onChange={e => setEditForm({...editForm, isHidden: e.target.checked})} className="w-4 h-4 text-blue-600 rounded" />
                         <span className="text-xs text-slate-500 font-bold">Hide from lists (Secret Mode)</span>
@@ -1967,7 +2048,9 @@ const SupervisorEmployees: React.FC = () => {
                                     <div className="flex-1 w-full">
                                         <div className="flex justify-between items-start">
                                             <div>
-                                                <h3 className="font-black text-white text-2xl leading-tight drop-shadow-md">{user.name}</h3>
+                                                <h3 className="font-black text-white text-2xl leading-tight drop-shadow-md flex items-center gap-2">
+                                                    {user.name}
+                                                </h3>
                                                 <p className="text-white/80 font-bold text-sm mb-1 flex items-center gap-2">
                                                     <i className="fas fa-envelope opacity-70"></i> {user.email}
                                                 </p>
@@ -1990,8 +2073,20 @@ const SupervisorEmployees: React.FC = () => {
                                         <div className="flex flex-wrap gap-2 mb-4">
                                              {/* Specialty Pill */}
                                              <span className="flex items-center gap-1 text-[11px] font-black px-3 py-1 bg-white/20 text-white rounded-full border border-white/30 backdrop-blur-md shadow-sm">
-                                                <i className="fas fa-briefcase"></i> {JOB_CATEGORIES.find(c => c.id === user.jobCategory)?.title || 'Staff'}
+                                                <i className="fas fa-briefcase"></i> {JOB_CATEGORIES.find(c => c.id === user.jobCategory)?.title || user.jobCategory || 'Staff'}
                                             </span>
+
+                                            {/* Role Pill */}
+                                            <span className="flex items-center gap-1 text-[11px] font-black px-3 py-1 bg-white/20 text-white rounded-full border border-white/30 backdrop-blur-md shadow-sm">
+                                                <i className="fas fa-user-tag"></i> {user.role === 'custody_clerk' ? 'توزيع العهد' : user.role}
+                                            </span>
+
+                                            {/* Individual Account Pill */}
+                                            {(user.isIndividualAccount || user.excludeFromCount || user.role === 'cath_lab') && (
+                                                <span className="flex items-center gap-1 text-[11px] font-black px-3 py-1 bg-amber-400 text-slate-900 rounded-full border border-amber-300 shadow-md font-bold">
+                                                    <i className="fas fa-calculator"></i> حساب فردي / مخصص
+                                                </span>
+                                            )}
 
                                             {/* Nationality Pill */}
                                             {user.nationality && (

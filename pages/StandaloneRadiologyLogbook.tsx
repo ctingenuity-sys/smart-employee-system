@@ -1495,7 +1495,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
 
         // Format data sheet
         const sheetData: (string | number)[][] = [
-            ['سجل فحص الأشعة الرقمي - قسم الأشعه'],
+            ['سجل فحص الأشعة الرقمي - مستشفى / مركز الأشعة والتصوير الطبي'],
             [`القسم: ${modalityTitle}`, `التاريخ: ${selectedDate || 'كافة الأيام'}`, `إجمالي الحالات: ${targetCases.length}`],
             [],
             ['م', 'رقم الأشعة التسلسلي', 'القسم', 'رقم الملف (MRN)', 'اسم المريض', 'الفحص المطلوب', 'الطبيب المعالج / المحول', 'التاريخ', 'الوقت', 'القائم بالفحص (الفني)', 'ملاحظات']
@@ -4317,7 +4317,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                     <i className="fas fa-print"></i>
                                 </div>
                                 <div>
-                                    <h3 className="text-base font-black text-slate-900">{txt('قسم الأأشعه', 'Radiology Department')}</h3>
+                                    <h3 className="text-base font-black text-slate-900">{txt('معاينة طباعة سجل الأشعة الرسمي', 'Official Radiology Logbook Print Preview')}</h3>
                                     <p className="text-xs text-slate-500">{txt('تصميم جدول A4 طبي منظم خالي من عناصر التحكم والأزرار', 'Clean A4 medical table layout with controls hidden')}</p>
                                 </div>
                             </div>
@@ -4343,7 +4343,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <div className="border-b-2 border-slate-900 pb-3 mb-4 flex items-center justify-between">
                                 <div>
                                     <h2 className="text-lg font-black text-slate-900">
-                                        {txt('قسم الأشعه', 'Radiology Departmentr')}
+                                        {txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Hospital / Radiology & Imaging Center')}
                                     </h2>
                                     <h4 className="text-xs font-bold text-slate-700 mt-0.5">
                                         {txt('سجل فحص الحالات اليومي - ', 'Daily Exam Logbook - ')}{activeTab === 'ALL' ? txt('كافة أقسام الأشعة', 'All Radiology Departments') : (isEn ? MODALITY_CONFIG[activeTab]?.nameEn : MODALITY_CONFIG[activeTab]?.nameAr)}
@@ -4392,7 +4392,21 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                                 </tbody>
                             </table>
 
-                          
+                            {/* Official Signatures */}
+                            <div className="mt-8 pt-4 flex items-center justify-between text-xs font-bold border-t border-slate-300">
+                                <div>
+                                    <p>{txt('الفني القائم بالفحص / المسئول:', 'Examining Tech / Officer:')}</p>
+                                    <p className="mt-4 text-slate-400">....................................................</p>
+                                </div>
+                                <div>
+                                    <p>{txt('مشرف قسم الأشعة والتصوير الطبي:', 'Radiology Dept Supervisor:')}</p>
+                                    <p className="mt-4 text-slate-400">....................................................</p>
+                                </div>
+                                <div>
+                                    <p>{txt('مدير قسم الأشعة والخدمات الطبية:', 'Radiology Dept Manager:')}</p>
+                                    <p className="mt-4 text-slate-400">....................................................</p>
+                                </div>
+                            </div>
                         </div>
 
                         <div className="mt-4 flex items-center justify-between pt-3 border-t border-slate-100">
@@ -4602,7 +4616,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                     <div className="bg-white text-slate-950 p-2 rounded-2xl shadow-inner border-2 border-slate-300 mx-auto w-[220px] h-[110px] flex flex-col justify-between select-none relative overflow-hidden font-sans">
                         {/* Top Bar inside sticker */}
                         <div className="text-[8.5px] font-black tracking-tight text-slate-800 text-center border-b border-slate-300 pb-0.5 uppercase truncate">
-                            {txt('قسم الأشعه', 'Radiology & Imaging Center')}
+                            {txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Radiology & Imaging Center')}
                         </div>
 
                         {/* Patient Name & Serials */}
@@ -4698,7 +4712,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                 <div id="printable-radiology-sticker" className="sticker-print-portal">
                     <div className="w-[50mm] h-[25mm] p-1 bg-white text-black font-sans flex flex-col justify-between overflow-hidden text-center leading-tight box-border" dir={isEn ? "ltr" : "rtl"}>
                         <div className="border-b border-black pb-0.5 text-[7.5px] font-black tracking-wider uppercase truncate">
-                            {txt('قسم الأشعه', 'Radiology & Imaging Center')}
+                            {txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Radiology & Imaging Center')}
                         </div>
                         
                         <div className="my-auto py-0.5">
@@ -4738,7 +4752,7 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                     <div className="border-b-2 border-slate-900 pb-3 mb-4 flex items-center justify-between">
                         <div>
                             <h2 className="text-xl font-black tracking-tight text-slate-900">
-                                {txt('قسم الأشعه', 'Radiology Departmentr')}
+                                {txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Hospital / Radiology & Imaging Center')}
                             </h2>
                             <h3 className="text-sm font-bold text-slate-700 mt-0.5">
                                 {txt('سجل فحص الحالات اليومي - ', 'Daily Exam Logbook - ')}{activeTab === 'ALL' ? txt('كافة أقسام الأشعة', 'All Radiology Departments') : (isEn ? MODALITY_CONFIG[activeTab]?.nameEn : MODALITY_CONFIG[activeTab]?.nameAr)}
@@ -4781,6 +4795,21 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                         </tbody>
                     </table>
 
+                    {/* Signatures Section */}
+                    <div className="print-footer-signatures mt-8 pt-4 flex items-center justify-between text-xs font-bold border-t border-slate-400">
+                        <div>
+                            <p>{txt('الفني القائم بالفحص / المسئول:', 'Examining Tech / Operator:')}</p>
+                            <p className="mt-6 text-slate-500">....................................................</p>
+                        </div>
+                        <div>
+                            <p>{txt('مشرف قسم الأشعة والتصوير الطبي:', 'Radiology Dept Supervisor:')}</p>
+                            <p className="mt-6 text-slate-500">....................................................</p>
+                        </div>
+                        <div>
+                            <p>{txt('مدير قسم الأشعة والخدمات الطبية:', 'Radiology Dept Manager:')}</p>
+                            <p className="mt-6 text-slate-500">....................................................</p>
+                        </div>
+                    </div>
                 </div>,
                 document.body
             )}

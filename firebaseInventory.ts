@@ -2,9 +2,11 @@
 // @ts-ignore
 import { initializeApp, getApp, getApps } from "firebase/app";
 // @ts-ignore
-import { getFirestore, initializeFirestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore, setLogLevel } from "firebase/firestore";
 // @ts-ignore
 import { getStorage } from "firebase/storage";
+
+setLogLevel('error');
 
 const inventoryConfig = {
   apiKey: "AIzaSyAvPJezfCpQnGIgSXMUL_MuJskJKjTWBtE",
@@ -28,7 +30,7 @@ try {
 let firestoreDb;
 try {
     firestoreDb = initializeFirestore(inventoryApp, {
-        experimentalForceLongPolling: true
+        experimentalAutoDetectLongPolling: true
     });
 } catch (e) {
     firestoreDb = getFirestore(inventoryApp);

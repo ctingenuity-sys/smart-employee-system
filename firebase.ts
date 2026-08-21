@@ -4,9 +4,12 @@ import { initializeApp, getApp, getApps } from "firebase/app";
 // @ts-ignore
 import { getAuth } from "firebase/auth";
 // @ts-ignore
-import { getFirestore, initializeFirestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore, setLogLevel } from "firebase/firestore";
 // @ts-ignore
 import { getStorage } from "firebase/storage";
+
+// Suppress benign connection retry warning logs
+setLogLevel('error');
 
 export const firebaseConfig = {
     apiKey: "AIzaSyDSHlCxPQqbiAQS03SuFhW8xzSCuSf_aKA", // <--- استبدل هذا بمفتاح المشروع الجديد إذا أنشأت واحدًا
@@ -21,12 +24,11 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 export const auth = getAuth(app);
 
-// Switch to standard Firestore without offline persistence to prevent quota sync loops
-// Use experimentalForceLongPolling to bypass potential WebSocket issues
+// Use auto-detect long polling for optimal connection resilience across all networks & iframes
 let firestoreDb;
 try {
     firestoreDb = initializeFirestore(app, {
-        experimentalForceLongPolling: true
+        experimentalAutoDetectLongPolling: true
     });
 } catch (e) {
     firestoreDb = getFirestore(app);

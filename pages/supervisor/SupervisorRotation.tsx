@@ -135,6 +135,7 @@ const SupervisorRotation: React.FC = () => {
     const [users, setUsers] = useState<User[]>([]);
     const [locations, setLocations] = useState<Location[]>([]);
     const [schedules, setSchedules] = useState<Schedule[]>([]);
+    const [monthlyPublishes, setMonthlyPublishes] = useState<Record<string, any>>({});
 
     const months = useMemo(() => getPreviousMonths(monthsToView), [monthsToView]);
 
@@ -161,68 +162,170 @@ const SupervisorRotation: React.FC = () => {
         getDocs(withDept(collection(db, 'locations'))).then((snap) => {
             setLocations(snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as Location)));
         });
+        getDocs(collection(db, 'monthly_publishes')).then((snap) => {
+            const pubMap: Record<string, any> = {};
+            snap.docs.forEach(d => {
+                pubMap[d.id] = d.data();
+            });
+            setMonthlyPublishes(pubMap);
+        });
         const oldestMonth = months[0];
         const qSch = withDept(query(collection(db, 'schedules'), where('month', '>=', oldestMonth)));
         getDocs(qSch).then((snap) => {
-            setSchedules(snap.docs.map(d => d.data() as Schedule));
+            setSchedules(snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as Schedule)));
             setLoading(false);
         });
         return () => {};
-    }, [months, selectedDepartmentId]);
+    }, [months, selectedDepartmentId, departments]);
+
+    // Helper: extract timestamp in ms from various Firestore date representations
+    const getTimestamp = (val: any): number => {
+        if (!val) return 0;
+        if (typeof val === 'number') return val;
+        if (val.seconds !== undefined) return val.seconds * 1000 + (val.nanoseconds || 0) / 1000000;
+        if (val.toMillis && typeof val.toMillis === 'function') return val.toMillis();
+        if (val instanceof Date) return val.getTime();
+        const parsed = Date.parse(val);
+        return isNaN(parsed) ? 0 : parsed;
+    };
+
+    // Helper: Filter to keep only the latest published batch of schedules for a user in a month
+    const filterLatestSchedules = (schList: Schedule[]): Schedule[] => {
+        if (schList.length <= 1) return schList;
+
+        const timestamps = schList.map(s => getTimestamp(s.createdAt));
+        const maxTs = Math.max(...timestamps);
+
+        if (maxTs > 0) {
+            // Keep schedules created within 60 seconds of the latest timestamp (same publish batch)
+            return schList.filter(s => getTimestamp(s.createdAt) >= maxTs - 60000);
+        }
+
+        // Fallback: take the last item in array
+        return [schList[schList.length - 1]];
+    };
 
     // --- Processing Logic ---
     const rotationMatrix = useMemo(() => {
         const matrix: Record<string, Record<string, DetailedMonthData>> = {};
-        
-        schedules.forEach(sch => {
-            if (!sch.month || !months.includes(sch.month)) return;
 
-            // Exclude Fridays, Holidays, and Exceptions in general view
-            const isFriday = (sch.locationId && sch.locationId.toLowerCase().includes('friday')) || 
-                             (sch.note && sch.note.toLowerCase().includes('friday')) || 
-                             (sch.periodName && sch.periodName.toLowerCase().includes('friday'));
-            const isHoliday = (sch.locationId && sch.locationId.toLowerCase().includes('holiday')) || 
-                              (sch.note && sch.note.toLowerCase().includes('holiday')) ||
-                              (sch.periodName && sch.periodName.toLowerCase().includes('holiday'));
-            const isException = sch.isException === true;
-            
-            const isCTScanSpecial = (sch.locationId && sch.locationId.toLowerCase().includes('ct scan') && sch.shifts.some(s => s.start === '09:00' && s.end === '20:00')) ||
-                                    (sch.note && sch.note.toLowerCase().includes('ct scan') && sch.note.includes('09:00 - 20:00'));
-
-            if (viewType === 'general' && (isFriday || isHoliday || isException || isCTScanSpecial)) {
-                return;
-            }
-
-            if (!matrix[sch.userId]) matrix[sch.userId] = {};
-            if (!matrix[sch.userId][sch.month]) {
-                matrix[sch.userId][sch.month] = {
+        // Helper to initialize matrix cell
+        const initCell = (userId: string, month: string) => {
+            if (!matrix[userId]) matrix[userId] = {};
+            if (!matrix[userId][month]) {
+                matrix[userId][month] = {
                     departments: new Set<string>(),
                     fridayCount: 0
                 };
             }
+        };
 
-            const isFridayShift = sch.locationId === 'Friday Shift' || (sch.note && sch.note.toLowerCase().includes('friday'));
-            
-            if (isFridayShift) {
-                matrix[sch.userId][sch.month].fridayCount++;
-            } else {
-                let locName = sch.locationId;
-                if (locName.startsWith('Swap Duty - ')) locName = locName.replace('Swap Duty - ', '');
-                if (locName === 'common_duty' && sch.note) locName = sch.note.split('-')[0].trim();
-                
-                const resolvedLoc = locations.find(l => l.id === locName);
-                const finalName = resolvedLoc ? resolvedLoc.name : locName;
-                
-                // Include shift time if available
-                let timeStr = '';
-                if (sch.shifts && sch.shifts.length > 0) {
-                    timeStr = ` (${sch.shifts.map(s => `${s.start}-${s.end}`).join(', ')})`;
-                }
-                matrix[sch.userId][sch.month].departments.add(`${finalName}${timeStr}`);
-            }
+        // Group schedules by userId and month
+        const userMonthSchedulesMap: Record<string, Record<string, Schedule[]>> = {};
+        schedules.forEach(sch => {
+            if (!sch.month || !months.includes(sch.month)) return;
+            if (!userMonthSchedulesMap[sch.userId]) userMonthSchedulesMap[sch.userId] = {};
+            if (!userMonthSchedulesMap[sch.userId][sch.month]) userMonthSchedulesMap[sch.userId][sch.month] = [];
+            userMonthSchedulesMap[sch.userId][sch.month].push(sch);
         });
+
+        // For each user and month, extract the single published schedule
+        users.forEach(user => {
+            months.forEach(month => {
+                initCell(user.id, month);
+
+                // 1. First check if monthly_publishes snapshot exists for this month
+                const pubKey1 = `${selectedDepartmentId}_${month}`;
+                const pubKey2 = month;
+                const pubDoc = monthlyPublishes[pubKey1] || monthlyPublishes[pubKey2];
+
+                let extractedFromPublish = false;
+
+                if (pubDoc && viewType === 'general') {
+                    const foundLocations = new Set<string>();
+
+                    const checkStaffList = (staffList: any[], locTitle: string, defaultTime: string) => {
+                        if (!Array.isArray(staffList)) return;
+                        staffList.forEach(s => {
+                            const matchId = s.userId === user.id || s.id === user.id;
+                            const matchName = s.name && user.name && String(s.name).trim().toLowerCase() === String(user.name).trim().toLowerCase();
+                            if (matchId || matchName) {
+                                let timeStr = '';
+                                const timeVal = (s.time && String(s.time).trim() !== '') ? s.time : defaultTime;
+                                if (timeVal) timeStr = ` (${timeVal})`;
+                                foundLocations.add(`${locTitle}${timeStr}`);
+                            }
+                        });
+                    };
+
+                    if (Array.isArray(pubDoc.generalData)) {
+                        pubDoc.generalData.forEach((col: any) => checkStaffList(col.staff, col.title, col.defaultTime));
+                    }
+                    if (Array.isArray(pubDoc.commonDuties)) {
+                        pubDoc.commonDuties.forEach((duty: any) => checkStaffList(duty.staff, duty.section, duty.time));
+                    }
+                    if (Array.isArray(pubDoc.doctorColumns)) {
+                        pubDoc.doctorColumns.forEach((col: any) => checkStaffList(col.staff, col.title, col.defaultTime));
+                    }
+
+                    if (foundLocations.size > 0) {
+                        extractedFromPublish = true;
+                        foundLocations.forEach(loc => matrix[user.id][month].departments.add(loc));
+                    }
+                }
+
+                // 2. Fallback to schedules collection if not in monthly_publishes
+                if (!extractedFromPublish) {
+                    const allUserSchs = userMonthSchedulesMap[user.id]?.[month] || [];
+                    if (allUserSchs.length === 0) return;
+
+                    // Filter out Friday/Holiday/Exceptions/CT Scan special for general view
+                    const filteredSchs = allUserSchs.filter(sch => {
+                        const isFriday = (sch.locationId && sch.locationId.toLowerCase().includes('friday')) || 
+                                         (sch.note && sch.note.toLowerCase().includes('friday')) || 
+                                         (sch.periodName && sch.periodName.toLowerCase().includes('friday'));
+                        const isHoliday = (sch.locationId && sch.locationId.toLowerCase().includes('holiday')) || 
+                                          (sch.note && sch.note.toLowerCase().includes('holiday')) ||
+                                          (sch.periodName && sch.periodName.toLowerCase().includes('holiday'));
+                        const isException = sch.isException === true;
+                        const isCTScanSpecial = (sch.locationId && sch.locationId.toLowerCase().includes('ct scan') && sch.shifts?.some(s => s.start === '09:00' && s.end === '20:00')) ||
+                                                (sch.note && sch.note.toLowerCase().includes('ct scan') && sch.note.includes('09:00 - 20:00'));
+
+                        if (viewType === 'general') {
+                            if (isFriday || isHoliday || isException || isCTScanSpecial) return false;
+                        }
+                        return true;
+                    });
+
+                    // Keep ONLY the latest published batch of schedules for this user and month
+                    const latestSchs = filterLatestSchedules(filteredSchs);
+
+                    latestSchs.forEach(sch => {
+                        const isFridayShift = sch.locationId === 'Friday Shift' || (sch.note && sch.note.toLowerCase().includes('friday'));
+                        
+                        if (isFridayShift) {
+                            matrix[user.id][month].fridayCount++;
+                        } else {
+                            let locName = sch.locationId;
+                            if (locName.startsWith('Swap Duty - ')) locName = locName.replace('Swap Duty - ', '');
+                            if (locName === 'common_duty' && sch.note) locName = sch.note.split('-')[0].trim();
+                            
+                            const resolvedLoc = locations.find(l => l.id === locName);
+                            const finalName = resolvedLoc ? resolvedLoc.name : locName;
+                            
+                            let timeStr = '';
+                            if (sch.shifts && sch.shifts.length > 0) {
+                                timeStr = ` (${sch.shifts.map(s => `${s.start}-${s.end}`).join(', ')})`;
+                            }
+                            matrix[user.id][month].departments.add(`${finalName}${timeStr}`);
+                        }
+                    });
+                }
+            });
+        });
+
         return matrix;
-    }, [schedules, locations, months, viewType]);
+    }, [schedules, monthlyPublishes, locations, months, users, viewType, selectedDepartmentId]);
 
     const filteredAndSortedUsers = useMemo(() => {
         return users

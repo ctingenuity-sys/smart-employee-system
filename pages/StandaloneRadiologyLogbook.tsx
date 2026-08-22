@@ -4324,7 +4324,11 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={() => {
+                                        document.body.classList.add('print-logbook-only');
                                         window.print();
+                                        setTimeout(() => {
+                                            document.body.classList.remove('print-logbook-only');
+                                        }, 500);
                                     }}
                                     className="bg-indigo-600 hover:bg-indigo-500 text-white font-black px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer"
                                 >

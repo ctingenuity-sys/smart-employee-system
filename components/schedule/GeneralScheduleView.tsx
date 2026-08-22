@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { ModalityColumn, CommonDuty } from '../../types';
 import { PrintHeader, PrintFooter } from '../PrintLayout';
+import { getSoftStaffColor } from './scheduleColorUtils';
 
 // Solid, Fixed Colors for Headers to look professional and consistent
 const fixedHeaderColors = [
@@ -15,50 +16,8 @@ const fixedHeaderColors = [
  'bg-indigo-200 text-black border-indigo-300',
 ];
 
-const staffColorMap = new Map<string, string>();
-const colorClasses = [
-    'bg-blue-50 text-blue-900 border-blue-200',
-  'bg-amber-50 text-amber-900 border-amber-200',
-  'bg-emerald-50 text-emerald-900 border-emerald-200',
-  'bg-purple-50 text-purple-900 border-purple-200',
-  'bg-slate-100 text-slate-900 border-slate-200',
-
-  'bg-rose-50 text-rose-900 border-rose-200',
-  'bg-cyan-50 text-cyan-900 border-cyan-200',
-  'bg-orange-50 text-orange-900 border-orange-200',
-  'bg-teal-50 text-teal-900 border-teal-200',
-  'bg-zinc-100 text-zinc-900 border-zinc-200',
-
-  'bg-indigo-50 text-indigo-900 border-indigo-200',
-  'bg-lime-50 text-lime-900 border-lime-200',
-  'bg-fuchsia-50 text-fuchsia-900 border-fuchsia-200',
-  'bg-yellow-50 text-yellow-900 border-yellow-200',
-  'bg-stone-100 text-stone-900 border-stone-200',
-
-  'bg-sky-50 text-sky-900 border-sky-200',
-  'bg-red-100 text-red-900 border-red-200',
-  'bg-green-100 text-green-900 border-green-200',
-  'bg-violet-50 text-violet-900 border-violet-200',
-  'bg-neutral-100 text-neutral-900 border-neutral-200',
-
-  'bg-blue-100 text-blue-900 border-blue-200',
-  'bg-amber-100 text-amber-900 border-amber-200',
-  'bg-emerald-100 text-emerald-900 border-emerald-200',
-  'bg-purple-100 text-purple-900 border-purple-200',
-  'bg-gray-100 text-gray-900 border-gray-200',
-];
-
 const getStaffColor = (name: string): string => {
-    const trimmedName = name.trim();
-    if (!trimmedName || trimmedName === 'Staff Name' || trimmedName === 'New Staff') {
-        return 'bg-white text-slate-700 border-slate-200';
-    }
-    if (staffColorMap.has(trimmedName)) {
-        return staffColorMap.get(trimmedName)!;
-    }
-    const newColor = colorClasses[staffColorMap.size % colorClasses.length];
-    staffColorMap.set(trimmedName, newColor);
-    return newColor;
+    return getSoftStaffColor(name).className;
 };
 
 // Helper to format date YYYY-MM-DD to DD/MM/YYYY

@@ -105,24 +105,48 @@
   border-color: rgba(59, 130, 246, 0.3);
 }
 
+/* Non-print view for body-attached portals */
+.logbook-print-portal,
+.sticker-print-portal {
+  display: none;
+}
+
 /* =========================================================
-   MEDICAL LOGBOOK PRINTING STYLES (طباعة السجل كجدول رسمي نقي)
+   GENERAL SYSTEM PRINTING STYLES (جداول الشفتات، الحضور، التقارير، إلخ)
    ========================================================= */
 @media print {
   @page {
-    size: A4 landscape;
-    margin: 10mm 10mm 10mm 10mm;
+    size: auto;
+    margin: 5mm;
   }
 
   body {
     background: #ffffff !important;
+    background-image: none !important;
     color: #000000 !important;
-    font-size: 11pt !important;
+    font-family: 'Cairo', sans-serif !important;
+    font-size: 11px !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
-  /* Hide all UI elements, navigation, action buttons, modals, and toasts */
+  /* Keep #root visible for regular app pages, hide attached portals */
+  body:not(.print-sticker-only):not(.print-logbook-only) #root {
+    display: block !important;
+    visibility: visible !important;
+    width: 100% !important;
+  }
+
+  body:not(.print-sticker-only):not(.print-logbook-only) .logbook-print-portal,
+  body:not(.print-sticker-only):not(.print-logbook-only) .sticker-print-portal,
+  body:not(.print-sticker-only):not(.print-logbook-only) #printable-radiology-logbook,
+  body:not(.print-sticker-only):not(.print-logbook-only) #printable-radiology-sticker {
+    display: none !important;
+  }
+
+  /* Hide interactive controls and UI chrome during print */
   header,
   nav,
   aside,
@@ -130,75 +154,55 @@
   .no-print,
   .toast,
   .modal-backdrop,
-  input,
+  input:not([type="checkbox"]),
   select,
+  .print\:hidden,
+  .sidebar,
   .incoming-queue-container,
   .fast-registration-bar,
   .modality-chips-container {
     display: none !important;
   }
 
-  /* Dedicated Print Container Display */
-  .print-only-header {
+  .print\:block {
     display: block !important;
-    margin-bottom: 12px;
-    border-bottom: 2px solid #000000;
-    padding-bottom: 8px;
   }
 
-  /* Printable Table Formatting */
-  .printable-logbook-table {
+  .min-h-screen {
+    min-height: 0 !important;
+    height: auto !important;
+  }
+
+  table {
     width: 100% !important;
     border-collapse: collapse !important;
-    margin-top: 10px !important;
-    font-size: 9.5pt !important;
+    page-break-inside: auto;
   }
 
-  .printable-logbook-table th,
-  .printable-logbook-table td {
-    border: 1px solid #1e293b !important;
-    padding: 6px 8px !important;
-    color: #000000 !important;
-    background: transparent !important;
-    text-align: right !important;
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
   }
 
-  .printable-logbook-table th {
-    background-color: #f1f5f9 !important;
-    font-weight: 900 !important;
-    text-align: center !important;
+  thead {
+    display: table-header-group;
   }
 
-  .printable-logbook-table tr {
-    page-break-inside: avoid !important;
+  tfoot {
+    display: table-footer-group;
   }
 
-  .print-footer-signatures {
-    display: flex !important;
-    justify-content: space-between !important;
-    margin-top: 30px !important;
-    padding-top: 15px !important;
-    border-top: 1px dashed #64748b !important;
-    page-break-inside: avoid !important;
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
   }
-}
-
-/* Non-print view for portals */
-.logbook-print-portal,
-.sticker-print-portal {
-  display: none;
 }
 
 /* =========================================================
-   MEDICAL LOGBOOK PRINTING STYLES (A4 Portrait)
+   MEDICAL LOGBOOK PRINTING STYLES (A4 Landscape / Portrait)
    ========================================================= */
 @media print {
-  @page {
-    size: A4 portrait;
-    margin: 8mm 8mm 8mm 8mm;
-  }
-
-  body {
+  body.print-logbook-only {
     background: #ffffff !important;
     color: #000000 !important;
     font-size: 10pt !important;
@@ -206,18 +210,14 @@
     print-color-adjust: exact !important;
   }
 
-  /* When printing logbook (normal print), hide #root and sticker portal */
-  body:not(.print-sticker-only) #root {
+  body.print-logbook-only #root,
+  body.print-logbook-only .sticker-print-portal,
+  body.print-logbook-only #printable-radiology-sticker {
     display: none !important;
   }
 
-  body:not(.print-sticker-only) .sticker-print-portal,
-  body:not(.print-sticker-only) #printable-radiology-sticker {
-    display: none !important;
-  }
-
-  body:not(.print-sticker-only) .logbook-print-portal,
-  body:not(.print-sticker-only) #printable-radiology-logbook {
+  body.print-logbook-only .logbook-print-portal,
+  body.print-logbook-only #printable-radiology-logbook {
     display: block !important;
     visibility: visible !important;
     width: 100% !important;
@@ -226,12 +226,11 @@
     box-sizing: border-box !important;
   }
 
-  body:not(.print-sticker-only) .logbook-print-portal *,
-  body:not(.print-sticker-only) #printable-radiology-logbook * {
+  body.print-logbook-only .logbook-print-portal *,
+  body.print-logbook-only #printable-radiology-logbook * {
     visibility: visible !important;
   }
 
-  /* Printable Table Formatting */
   .printable-logbook-table {
     width: 100% !important;
     border-collapse: collapse !important;
@@ -272,11 +271,7 @@
    THERMAL STICKER PRINTING STYLES (2.5cm x 5cm / 50mm x 25mm)
    ========================================================= */
 @media print {
-  /* When printing sticker specifically, hide #root & logbook portal completely */
-  body.print-sticker-only #root {
-    display: none !important;
-  }
-
+  body.print-sticker-only #root,
   body.print-sticker-only .logbook-print-portal,
   body.print-sticker-only #printable-radiology-logbook {
     display: none !important;
@@ -293,7 +288,6 @@
     background: #ffffff !important;
   }
 
-  /* Display ONLY the sticker portal directly attached to body */
   body.print-sticker-only .sticker-print-portal,
   body.print-sticker-only #printable-radiology-sticker {
     display: block !important;

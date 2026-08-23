@@ -274,199 +274,206 @@ const NotificationBell: React.FC<{ userRole: string }> = ({ userRole }) => {
 
             {/* Dropdown Popover */}
             {isOpen && (
-                <div 
-                    className={`absolute mt-2.5 w-[320px] sm:w-[380px] max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden z-[999] transition-all animate-fadeIn ${
-                        dir === 'rtl' ? 'right-0 sm:right-[-8px]' : 'left-0 sm:left-[-8px]'
-                    }`}
-                    style={{ top: '100%' }}
-                >
-                    {/* Header */}
-                    <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-3.5 text-white flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center border border-blue-500/30">
-                                <i className="fas fa-bell text-xs"></i>
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-sm leading-tight text-white">{t('notifications.title')}</h3>
-                                <p className="text-[10px] text-slate-400">
-                                    {unreadCount > 0 
-                                        ? `${unreadCount} ${language === 'ar' ? 'إشعار جديد' : 'new'}` 
-                                        : (language === 'ar' ? 'محدث أولاً بأول' : 'All caught up')}
-                                </p>
-                            </div>
-                        </div>
+                <>
+                    {/* Mobile Backdrop to prevent clipping and dismiss easily */}
+                    <div 
+                        className="fixed inset-0 bg-black/40 backdrop-blur-[1px] z-[9998] sm:hidden" 
+                        onClick={() => setIsOpen(false)} 
+                    />
 
-                        {/* Quick Header Actions */}
-                        <div className="flex items-center gap-1.5">
-                            {unreadCount > 0 && (
-                                <button 
-                                    onClick={markAllAsRead} 
-                                    disabled={isMarkingAll}
-                                    className="text-[11px] bg-blue-600/80 hover:bg-blue-600 text-white px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 transition shadow-sm"
-                                    title={t('notifications.markAllRead')}
-                                >
-                                    <i className={`fas fa-check-double text-[10px] ${isMarkingAll ? 'animate-spin' : ''}`}></i>
-                                    <span>{language === 'ar' ? 'قراءة الكل' : 'Read All'}</span>
-                                </button>
-                            )}
-
-                            {visibleNotifications.length > 0 && (
-                                <button 
-                                    onClick={handleClearAll}
-                                    className="text-[11px] bg-slate-800 hover:bg-rose-900/60 text-slate-300 hover:text-rose-200 px-2 py-1 rounded-lg font-medium transition"
-                                    title={t('notifications.clearAll')}
-                                >
-                                    <i className="fas fa-trash-alt text-[10px]"></i>
-                                </button>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Filter Tabs */}
-                    <div className="flex items-center bg-slate-100/80 p-1 border-b border-slate-200">
-                        <button
-                            onClick={() => setActiveTab('all')}
-                            className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                                activeTab === 'all' 
-                                    ? 'bg-white text-slate-800 shadow-sm' 
-                                    : 'text-slate-500 hover:text-slate-700'
-                            }`}
-                        >
-                            <span>{t('notifications.all')}</span>
-                            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeTab === 'all' ? 'bg-slate-100 text-slate-800' : 'bg-slate-200 text-slate-600'}`}>
-                                {visibleNotifications.length}
-                            </span>
-                        </button>
-
-                        <button
-                            onClick={() => setActiveTab('unread')}
-                            className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                                activeTab === 'unread' 
-                                    ? 'bg-white text-blue-600 shadow-sm' 
-                                    : 'text-slate-500 hover:text-slate-700'
-                            }`}
-                        >
-                            <span>{t('notifications.unread')}</span>
-                            {unreadCount > 0 && (
-                                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500 text-white font-black">
-                                    {unreadCount}
-                                </span>
-                            )}
-                        </button>
-                    </div>
-                    
-                    {/* Notification List Container */}
-                    <div className="max-h-[380px] overflow-y-auto divide-y divide-slate-100">
-                        {displayedNotifications.length === 0 ? (
-                            <div className="p-8 text-center text-slate-400 flex flex-col items-center justify-center">
-                                <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-300 text-2xl mb-2.5">
-                                    <i className={activeTab === 'unread' ? "fas fa-envelope-open-text" : "fas fa-bell-slash"}></i>
+                    <div 
+                        className={`fixed inset-x-3 top-16 sm:absolute sm:top-full sm:inset-auto sm:mt-2.5 sm:w-[380px] max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden z-[9999] transition-all animate-fadeIn flex flex-col ${
+                            dir === 'rtl' ? 'sm:right-0' : 'sm:left-0'
+                        }`}
+                    >
+                        {/* Header */}
+                        <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-3.5 text-white flex items-center justify-between shrink-0">
+                            <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center border border-blue-500/30">
+                                    <i className="fas fa-bell text-xs"></i>
                                 </div>
-                                <p className="text-xs font-bold text-slate-600">
-                                    {activeTab === 'unread' ? t('notifications.noUnread') : t('notifications.empty')}
-                                </p>
-                                <p className="text-[11px] text-slate-400 mt-1">
-                                    {language === 'ar' ? 'ستظهر هنا التنبيهات والطلبات الجديدة فور وصولها' : 'New requests and alerts will appear here'}
-                                </p>
+                                <div>
+                                    <h3 className="font-bold text-sm leading-tight text-white">{t('notifications.title')}</h3>
+                                    <p className="text-[10px] text-slate-400">
+                                        {unreadCount > 0 
+                                            ? `${unreadCount} ${language === 'ar' ? 'إشعار جديد' : 'new'}` 
+                                            : (language === 'ar' ? 'محدث أولاً بأول' : 'All caught up')}
+                                    </p>
+                                </div>
                             </div>
-                        ) : (
-                            displayedNotifications.map(notif => {
-                                const isRead = notif.readBy?.includes(currentUid);
-                                const theme = getNotificationTheme(notif);
-                                
-                                return (
-                                    <div 
-                                        key={notif.id} 
-                                        onClick={() => handleNotificationClick(notif)}
-                                        className={`group relative p-3.5 cursor-pointer transition-all duration-150 flex items-start gap-3 hover:bg-blue-50/40 ${
-                                            isRead ? 'bg-white opacity-80 hover:opacity-100' : 'bg-blue-50/25'
-                                        }`}
+
+                            {/* Quick Header Actions */}
+                            <div className="flex items-center gap-1.5">
+                                {unreadCount > 0 && (
+                                    <button 
+                                        onClick={markAllAsRead} 
+                                        disabled={isMarkingAll}
+                                        className="text-[11px] bg-blue-600/80 hover:bg-blue-600 text-white px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 transition shadow-sm"
+                                        title={t('notifications.markAllRead')}
                                     >
-                                        {/* Unread Indicator Bar */}
-                                        {!isRead && (
-                                            <div className="absolute top-0 bottom-0 start-0 w-1 bg-blue-600 rounded-e"></div>
-                                        )}
+                                        <i className={`fas fa-check-double text-[10px] ${isMarkingAll ? 'animate-spin' : ''}`}></i>
+                                        <span>{language === 'ar' ? 'قراءة الكل' : 'Read All'}</span>
+                                    </button>
+                                )}
 
-                                        {/* Notification Category Icon */}
-                                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${theme.bg}`}>
-                                            <i className={`${theme.icon} text-sm`}></i>
-                                        </div>
+                                {visibleNotifications.length > 0 && (
+                                    <button 
+                                        onClick={handleClearAll}
+                                        className="text-[11px] bg-slate-800 hover:bg-rose-900/60 text-slate-300 hover:text-rose-200 px-2 py-1 rounded-lg font-medium transition"
+                                        title={t('notifications.clearAll')}
+                                    >
+                                        <i className="fas fa-trash-alt text-[10px]"></i>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
 
-                                        {/* Body Content */}
-                                        <div className="flex-1 min-w-0 pr-1">
-                                            <div className="flex items-center justify-between gap-1 mb-0.5">
-                                                <h4 className={`text-xs truncate ${isRead ? 'font-semibold text-slate-700' : 'font-black text-slate-900'}`}>
-                                                    {t(notif.title) || notif.title}
-                                                </h4>
-                                                <span className="text-[10px] text-slate-400 font-medium shrink-0 flex items-center gap-1">
-                                                    <i className="far fa-clock text-[9px]"></i>
-                                                    {formatRelativeTime(notif.createdAt)}
-                                                </span>
+                        {/* Filter Tabs */}
+                        <div className="flex items-center bg-slate-100/80 p-1 border-b border-slate-200 shrink-0">
+                            <button
+                                onClick={() => setActiveTab('all')}
+                                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                                    activeTab === 'all' 
+                                        ? 'bg-white text-slate-800 shadow-sm' 
+                                        : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                            >
+                                <span>{t('notifications.all')}</span>
+                                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeTab === 'all' ? 'bg-slate-100 text-slate-800' : 'bg-slate-200 text-slate-600'}`}>
+                                    {visibleNotifications.length}
+                                </span>
+                            </button>
+
+                            <button
+                                onClick={() => setActiveTab('unread')}
+                                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                                    activeTab === 'unread' 
+                                        ? 'bg-white text-blue-600 shadow-sm' 
+                                        : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                            >
+                                <span>{t('notifications.unread')}</span>
+                                {unreadCount > 0 && (
+                                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500 text-white font-black">
+                                        {unreadCount}
+                                    </span>
+                                )}
+                            </button>
+                        </div>
+                        
+                        {/* Notification List Container */}
+                        <div className="max-h-[min(65vh,400px)] sm:max-h-[380px] overflow-y-auto divide-y divide-slate-100">
+                            {displayedNotifications.length === 0 ? (
+                                <div className="p-8 text-center text-slate-400 flex flex-col items-center justify-center">
+                                    <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-300 text-2xl mb-2.5">
+                                        <i className={activeTab === 'unread' ? "fas fa-envelope-open-text" : "fas fa-bell-slash"}></i>
+                                    </div>
+                                    <p className="text-xs font-bold text-slate-600">
+                                        {activeTab === 'unread' ? t('notifications.noUnread') : t('notifications.empty')}
+                                    </p>
+                                    <p className="text-[11px] text-slate-400 mt-1">
+                                        {language === 'ar' ? 'ستظهر هنا التنبيهات والطلبات الجديدة فور وصولها' : 'New requests and alerts will appear here'}
+                                    </p>
+                                </div>
+                            ) : (
+                                displayedNotifications.map(notif => {
+                                    const isRead = notif.readBy?.includes(currentUid);
+                                    const theme = getNotificationTheme(notif);
+                                    
+                                    return (
+                                        <div 
+                                            key={notif.id} 
+                                            onClick={() => handleNotificationClick(notif)}
+                                            className={`group relative p-3.5 cursor-pointer transition-all duration-150 flex items-start gap-3 hover:bg-blue-50/40 ${
+                                                isRead ? 'bg-white opacity-80 hover:opacity-100' : 'bg-blue-50/25'
+                                            }`}
+                                        >
+                                            {/* Unread Indicator Bar */}
+                                            {!isRead && (
+                                                <div className="absolute top-0 bottom-0 start-0 w-1 bg-blue-600 rounded-e"></div>
+                                            )}
+
+                                            {/* Notification Category Icon */}
+                                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${theme.bg}`}>
+                                                <i className={`${theme.icon} text-sm`}></i>
                                             </div>
 
-                                            <p className="text-xs text-slate-600 leading-relaxed line-clamp-2">
-                                                {(t(notif.message) || notif.message)
-                                                    .replace('{name}', notif.userId || '')
-                                                    .replace('{month}', '')
-                                                    .replace('{mode}', '')
-                                                    .replace('{action}', '')}
-                                            </p>
-
-                                            {notif.link && (
-                                                <div className="mt-1 flex items-center gap-1 text-[11px] text-blue-600 font-bold group-hover:text-blue-700">
-                                                    <span>{language === 'ar' ? 'عرض التفاصيل' : 'View Details'}</span>
-                                                    <i className={`fas fa-chevron-${dir === 'rtl' ? 'left' : 'right'} text-[9px] transition-transform group-hover:translate-x-0.5`}></i>
+                                            {/* Body Content */}
+                                            <div className="flex-1 min-w-0 pr-1">
+                                                <div className="flex items-center justify-between gap-1 mb-0.5">
+                                                    <h4 className={`text-xs truncate ${isRead ? 'font-semibold text-slate-700' : 'font-black text-slate-900'}`}>
+                                                        {t(notif.title) || notif.title}
+                                                    </h4>
+                                                    <span className="text-[10px] text-slate-400 font-medium shrink-0 flex items-center gap-1">
+                                                        <i className="far fa-clock text-[9px]"></i>
+                                                        {formatRelativeTime(notif.createdAt)}
+                                                    </span>
                                                 </div>
-                                            )}
-                                        </div>
 
-                                        {/* Quick Actions (Hover) */}
-                                        <div className="flex flex-col gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            {!isRead && (
+                                                <p className="text-xs text-slate-600 leading-relaxed line-clamp-2">
+                                                    {(t(notif.message) || notif.message)
+                                                        .replace('{name}', notif.userId || '')
+                                                        .replace('{month}', '')
+                                                        .replace('{mode}', '')
+                                                        .replace('{action}', '')}
+                                                </p>
+
+                                                {notif.link && (
+                                                    <div className="mt-1 flex items-center gap-1 text-[11px] text-blue-600 font-bold group-hover:text-blue-700">
+                                                        <span>{language === 'ar' ? 'عرض التفاصيل' : 'View Details'}</span>
+                                                        <i className={`fas fa-chevron-${dir === 'rtl' ? 'left' : 'right'} text-[9px] transition-transform group-hover:translate-x-0.5`}></i>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Quick Actions (Hover & Touch) */}
+                                            <div className="flex flex-col gap-1 shrink-0 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {!isRead && (
+                                                    <button
+                                                        onClick={(e) => markSingleAsRead(e, notif)}
+                                                        className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-blue-100 text-slate-500 hover:text-blue-700 flex items-center justify-center transition"
+                                                        title={t('notifications.markRead') || 'تحديد كمقروء'}
+                                                    >
+                                                        <i className="fas fa-check text-[10px]"></i>
+                                                    </button>
+                                                )}
                                                 <button
-                                                    onClick={(e) => markSingleAsRead(e, notif)}
-                                                    className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-blue-100 text-slate-500 hover:text-blue-700 flex items-center justify-center transition"
-                                                    title={t('notifications.markRead') || 'تحديد كمقروء'}
+                                                    onClick={(e) => handleDismiss(e, notif.id)}
+                                                    className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-rose-100 text-slate-400 hover:text-rose-600 flex items-center justify-center transition"
+                                                    title={language === 'ar' ? 'إخفاء الإشعار' : 'Dismiss'}
                                                 >
-                                                    <i className="fas fa-check text-[10px]"></i>
+                                                    <i className="fas fa-times text-[10px]"></i>
                                                 </button>
-                                            )}
-                                            <button
-                                                onClick={(e) => handleDismiss(e, notif.id)}
-                                                className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-rose-100 text-slate-400 hover:text-rose-600 flex items-center justify-center transition"
-                                                title={language === 'ar' ? 'إخفاء الإشعار' : 'Dismiss'}
-                                            >
-                                                <i className="fas fa-times text-[10px]"></i>
-                                            </button>
+                                            </div>
                                         </div>
-                                    </div>
-                                );
-                            })
-                        )}
-                    </div>
-
-                    {/* Footer Quick Action Bar */}
-                    {visibleNotifications.length > 0 && (
-                        <div className="bg-slate-50 p-2.5 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 px-3">
-                            <span className="text-[11px] font-medium text-slate-500">
-                                {unreadCount > 0 
-                                    ? `${unreadCount} ${language === 'ar' ? 'إشعار غير مقروء' : 'unread'}` 
-                                    : (language === 'ar' ? 'كل شيء مقروء' : 'Caught up')}
-                            </span>
-
-                            {unreadCount > 0 && (
-                                <button
-                                    onClick={markAllAsRead}
-                                    disabled={isMarkingAll}
-                                    className="text-blue-600 font-bold hover:text-blue-800 text-[11px] flex items-center gap-1 transition"
-                                >
-                                    <i className="fas fa-check-double text-[10px]"></i>
-                                    <span>{t('notifications.markAllRead')}</span>
-                                </button>
+                                    );
+                                })
                             )}
                         </div>
-                    )}
-                </div>
+
+                        {/* Footer Quick Action Bar */}
+                        {visibleNotifications.length > 0 && (
+                            <div className="bg-slate-50 p-2.5 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 px-3 shrink-0">
+                                <span className="text-[11px] font-medium text-slate-500">
+                                    {unreadCount > 0 
+                                        ? `${unreadCount} ${language === 'ar' ? 'إشعار غير مقروء' : 'unread'}` 
+                                        : (language === 'ar' ? 'كل شيء مقروء' : 'Caught up')}
+                                </span>
+
+                                {unreadCount > 0 && (
+                                    <button
+                                        onClick={markAllAsRead}
+                                        disabled={isMarkingAll}
+                                        className="text-blue-600 font-bold hover:text-blue-800 text-[11px] flex items-center gap-1 transition"
+                                    >
+                                        <i className="fas fa-check-double text-[10px]"></i>
+                                        <span>{t('notifications.markAllRead')}</span>
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </>
             )}
         </div>
     );

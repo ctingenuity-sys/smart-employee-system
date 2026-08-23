@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../../firebase';
 // @ts-ignore
-import { collection, query, where, getDocs, doc, updateDoc, Timestamp, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, addDoc, Timestamp, getDoc } from 'firebase/firestore';
 import { LeaveRequest, User, UserRole } from '../../types';
 import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -52,6 +52,7 @@ const SupervisorLeaves: React.FC = () => {
         const cached = localStorage.getItem('usr_cached_man_leaves');
         return cached ? JSON.parse(cached) : [];
     });
+    const [allUsersMap, setAllUsersMap] = useState<Record<string, string>>({});
     const [users, setUsers] = useState<User[]>(() => {
         const cached = localStorage.getItem('usr_cached_sup_users_leaves');
         return cached ? JSON.parse(cached) : [];
@@ -78,6 +79,13 @@ const SupervisorLeaves: React.FC = () => {
 
         getDocs(collection(db, 'users')).then(snap => {
             const fetchedUsers = snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as User));
+            const uMap: Record<string, string> = {};
+            fetchedUsers.forEach(u => {
+                uMap[u.id] = u.name || u.email || u.id;
+                if ((u as any).uid) uMap[(u as any).uid] = u.name || u.email || u.id;
+            });
+            setAllUsersMap(uMap);
+
             setUsers(fetchedUsers.filter(u => {
                 if (!u || u.isHidden) return false;
                 if (selectedDepartmentId) {
@@ -135,7 +143,14 @@ const SupervisorLeaves: React.FC = () => {
         }
     }, [refreshTrigger, role, selectedDepartmentId]);
 
-    const getUserName = (id: string) => users.find(u => u.id === id)?.name || id;
+    const getUserName = (id: string, req?: LeaveRequest) => {
+        const found = users.find(u => u.id === id || (u as any).uid === id);
+        if (found?.name) return found.name;
+        if (allUsersMap[id]) return allUsersMap[id];
+        if ((req as any)?.userName) return (req as any).userName;
+        if ((req as any)?.employeeName) return (req as any).employeeName;
+        return id;
+    };
 
     const handleLeaveAction = async (req: LeaveRequest, isApproved: boolean, isManagerAction: boolean = false) => {
         try {
@@ -169,6 +184,9 @@ const SupervisorLeaves: React.FC = () => {
                 timestamp: Timestamp.now()
             };
 
+            const hasManagers = (req as any).hasManagers;
+            const willBeApproved = isApproved && (isManagerAction || !hasManagers);
+
             if (isManagerAction) {
                 if (isApproved && !req.supervisorApproval) {
                     setToast({ msg: t('user.req.error.supervisorFirst'), type: 'error' });
@@ -180,11 +198,25 @@ const SupervisorLeaves: React.FC = () => {
                 });
             } else {
                 // Supervisor approval sets status to pending_manager if managers exist, else approved
-                const hasManagers = (req as any).hasManagers;
                 await updateDoc(doc(db, 'leaveRequests', req.id!), { 
                     status: isApproved ? (hasManagers ? 'pending_manager' : 'approved') : 'rejected',
                     supervisorApproval: approvalData,
                     supervisorId: currentUserId // Explicitly set to avoid "pending" state retention
+                });
+            }
+
+            // Sync to actions collection when finally approved
+            if (willBeApproved) {
+                const actionType = (req.typeOfLeave?.toLowerCase().includes('sick') || req.typeOfLeave === 'مرضية') ? 'sick_leave' : 'annual_leave';
+                await addDoc(collection(db, 'actions'), {
+                    employeeId: req.from,
+                    type: actionType,
+                    fromDate: req.startDate,
+                    toDate: req.endDate || req.startDate,
+                    description: `إجازة معتمدة (${req.typeOfLeave || 'سنوية'}): ${req.reason || ''}`,
+                    leaveRequestId: req.id,
+                    createdAt: Timestamp.now(),
+                    departmentId: req.departmentId || null
                 });
             }
             
@@ -195,7 +227,7 @@ const SupervisorLeaves: React.FC = () => {
 
     const handleExport = () => {
         const dataToExport = (activeTab === 'supervisor' ? leaveRequests : managerRequests).map(req => ({
-            Employee: getUserName(req.from),
+            Employee: getUserName(req.from, req),
             Type: req.typeOfLeave,
             StartDate: req.startDate,
             EndDate: req.endDate,
@@ -806,7 +838,7 @@ const SupervisorLeaves: React.FC = () => {
                                     <i className="fas fa-umbrella-beach"></i>
                                 </div>
                                 <div>
-                                    <h4 className="font-bold text-slate-800 text-lg">{getUserName(req.from)}</h4>
+                                    <h4 className="font-bold text-slate-800 text-lg">{getUserName(req.from, req)}</h4>
                                     <p className="text-sm text-slate-500 font-medium">{t('user.req.leave')} • {req.typeOfLeave}</p>
                                     <p className="text-sm text-slate-500 mt-1">
                                         <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-600">{req.startDate}</span>

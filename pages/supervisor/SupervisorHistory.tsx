@@ -23,6 +23,10 @@ interface HistoryItem {
     details: string;
     status: string;
     createdAt: any;
+    userName?: string;
+    targetName?: string;
+    employeeName?: string;
+    userEmail?: string;
 }
 
 const SupervisorHistory: React.FC = () => {
@@ -33,6 +37,7 @@ const SupervisorHistory: React.FC = () => {
         const cached = localStorage.getItem('usr_cached_sup_hist');
         return cached ? JSON.parse(cached) : [];
     });
+    const [allUsersMap, setAllUsersMap] = useState<Record<string, string>>({});
     const [users, setUsers] = useState<User[]>(() => {
         const cached = localStorage.getItem('usr_cached_sup_users');
         return cached ? JSON.parse(cached) : [];
@@ -57,6 +62,15 @@ const SupervisorHistory: React.FC = () => {
 
         getDocs(collection(db, 'users')).then(snap => {
             const fetchedUsers = snap.docs.map(d => ({id:d.id, ...(d.data() as any)} as User));
+            const uMap: Record<string, string> = {};
+            fetchedUsers.forEach(u => {
+                const name = u.name || u.email || u.id;
+                uMap[u.id] = name;
+                if ((u as any).uid) uMap[(u as any).uid] = name;
+                if (u.email) uMap[u.email] = name;
+            });
+            setAllUsersMap(uMap);
+
             setUsers(fetchedUsers.filter(u => {
                 if (!isOperationalStaff(u, departments)) return false;
                 if (selectedDepartmentId) {
@@ -70,23 +84,42 @@ const SupervisorHistory: React.FC = () => {
             }));
         });
         
-        const qSwaps = withDept(query(collection(db, 'swapRequests'), where('status', 'in', ['approvedBySupervisor', 'rejectedBySupervisor', 'rejected'])));
+        const qSwaps = withDept(query(collection(db, 'swapRequests'), where('status', 'in', ['approvedBySupervisor', 'rejectedBySupervisor', 'rejected', 'approved', 'approvedByManager'])));
         getDocs(qSwaps).then(snap => {
             const swaps = snap.docs.map(d => {
                 const data = d.data() as any;
                 return {
-                    id: d.id, type: 'swap', userId: data.from, targetId: data.to, startDate: data.startDate, details: data.details, status: data.status, createdAt: data.createdAt
+                    id: d.id, 
+                    type: 'swap', 
+                    userId: data.from || data.userId || data.employeeId, 
+                    targetId: data.to || data.targetId, 
+                    startDate: data.startDate, 
+                    details: data.details, 
+                    status: data.status, 
+                    createdAt: data.createdAt,
+                    userName: data.userName || data.employeeName || data.fromName,
+                    targetName: data.targetName || data.toName || data.relieverName,
+                    userEmail: data.userEmail || data.email
                 } as HistoryItem;
             });
             setHistoryData(prev => [...prev.filter(i => i.type !== 'swap'), ...swaps]);
         });
 
-        const qLeaves = withDept(query(collection(db, 'leaveRequests'), where('status', 'in', ['approved', 'rejected', 'pending_manager', 'pending_supervisor', 'approvedBySupervisor'])));
+        const qLeaves = withDept(query(collection(db, 'leaveRequests'), where('status', 'in', ['approved', 'rejected', 'pending_manager', 'pending_supervisor', 'approvedBySupervisor', 'approvedByManager'])));
         getDocs(qLeaves).then(snap => {
             const leaves = snap.docs.map(d => {
                 const data = d.data() as any;
                 return {
-                    id: d.id, type: 'leave', userId: data.from, startDate: data.startDate, endDate: data.endDate, details: data.reason, status: data.status, createdAt: data.createdAt
+                    id: d.id, 
+                    type: 'leave', 
+                    userId: data.from || data.userId || data.employeeId, 
+                    startDate: data.startDate, 
+                    endDate: data.endDate, 
+                    details: data.reason || data.typeOfLeave || '', 
+                    status: data.status, 
+                    createdAt: data.createdAt,
+                    userName: data.userName || data.employeeName || data.fromName,
+                    userEmail: data.userEmail || data.email
                 } as HistoryItem;
             });
             setHistoryData(prev => [...prev.filter(i => i.type !== 'leave'), ...leaves]);
@@ -97,14 +130,32 @@ const SupervisorHistory: React.FC = () => {
             const absences = snap.docs.map(d => {
                 const data = d.data() as any;
                 return {
-                    id: d.id, type: 'absence', userId: data.employeeId, startDate: data.fromDate, details: data.description, status: 'confirmed', createdAt: data.createdAt
+                    id: d.id, 
+                    type: 'absence', 
+                    userId: data.employeeId || data.userId || data.from, 
+                    startDate: data.fromDate, 
+                    details: data.description, 
+                    status: 'confirmed', 
+                    createdAt: data.createdAt,
+                    userName: data.userName || data.employeeName,
+                    userEmail: data.userEmail || data.email
                 } as HistoryItem;
             });
             setHistoryData(prev => [...prev.filter(i => i.type !== 'absence'), ...absences]);
         });
     }, [refreshTrigger, selectedDepartmentId]);
 
-    const getUserName = (id: string) => users.find(u => u.id === id)?.name || id;
+    const getUserName = (id?: string, item?: HistoryItem) => {
+        if (!id) return '';
+        if (allUsersMap[id]) return allUsersMap[id];
+        const found = users.find(u => u.id === id || (u as any).uid === id || u.email === id);
+        if (found?.name) return found.name;
+        if (item) {
+            if (item.userId === id && (item.userName || item.employeeName)) return (item.userName || item.employeeName)!;
+            if (item.targetId === id && item.targetName) return item.targetName;
+        }
+        return id;
+    };
 
     
     const handleConfirmPrint = async (style: 'new' | 'old') => {
@@ -739,8 +790,8 @@ const SupervisorHistory: React.FC = () => {
                                             {item.type}
                                         </span>
                                     </td>
-                                    <td className="p-4 font-bold text-slate-700 print:p-2 print:text-black">{getUserName(item.userId)}</td>
-                                    <td className="p-4 text-slate-600 text-xs print:p-2 print:text-black">{item.details} {item.type === 'swap' && `→ ${getUserName(item.targetId!)}`}</td>
+                                    <td className="p-4 font-bold text-slate-700 print:p-2 print:text-black">{getUserName(item.userId, item)}</td>
+                                    <td className="p-4 text-slate-600 text-xs print:p-2 print:text-black">{item.details} {item.type === 'swap' && `→ ${getUserName(item.targetId, item)}`}</td>
                                     <td className="p-4 font-mono text-xs text-slate-500 print:p-2 print:text-black">{item.startDate} {item.endDate ? `- ${item.endDate}` : ''}</td>
                                     <td className="p-4 print:p-2">
                                         <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${item.status.includes('approved') ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'} print:bg-transparent print:text-black print:border print:border-black`}>

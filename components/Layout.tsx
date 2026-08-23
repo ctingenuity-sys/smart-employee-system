@@ -183,7 +183,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
 
       <div className={`fixed inset-0 z-20 transition-opacity bg-black opacity-50 lg:hidden ${isSidebarOpen ? 'block' : 'hidden'} print:hidden`} onClick={() => setIsSidebarOpen(false)}></div>
 
-      <div className={`fixed inset-y-0 ${sidebarPosition} z-30 w-64 overflow-y-auto transition duration-300 transform bg-secondary lg:translate-x-0 lg:static lg:inset-0 ${isSidebarOpen ? 'translate-x-0' : transformDirection} print:hidden flex flex-col`}>
+      <div className={`fixed inset-y-0 ${sidebarPosition} z-30 w-64 transition duration-300 transform bg-secondary lg:translate-x-0 lg:static lg:inset-0 ${isSidebarOpen ? 'translate-x-0' : transformDirection} print:hidden flex flex-col`}>
         <div className="flex items-center justify-between h-20 shadow-md bg-slate-900 flex-shrink-0 px-4">
           <h1 className="text-xl font-bold text-white flex items-center">
             <i className="fas fa-hospital-user mr-2 text-accent"></i>
@@ -191,7 +191,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
           </h1>
         </div>
 
-        <div className="p-4 border-b border-slate-700 mb-4 flex-shrink-0">
+        <div className="p-4 border-b border-slate-700 mb-4 flex-shrink-0 relative">
           <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                  <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-white font-bold">
@@ -211,7 +211,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
           </button>
         </div>
 
-        <nav className="px-4 space-y-2 flex-1">
+        <nav className="px-4 space-y-2 flex-1 overflow-y-auto">
           {userRole === UserRole.ADMIN && (
               <div className="mb-4">
                   <select 

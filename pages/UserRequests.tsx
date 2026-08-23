@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 // @ts-ignore
-import { collection, addDoc, getDocs, Timestamp, query, where } from 'firebase/firestore';
+import { collection, addDoc, getDocs, getDoc, doc, Timestamp, query, where } from 'firebase/firestore';
 import { User } from '../types';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -50,26 +50,25 @@ const UserRequests: React.FC = () => {
     }, [users]);
 
     useEffect(() => {
-        if (!selectedDepartmentId) return;
-        
-        const qUsers = query(collection(db, 'users'), where('departmentId', '==', selectedDepartmentId));
+        if (currentUserId) {
+            getDoc(doc(db, 'users', currentUserId)).then((uDoc) => {
+                if (uDoc.exists()) {
+                    const uData = { ...uDoc.data(), id: uDoc.id } as User;
+                    setCurrentUserData(uData);
+                    if (uData.managerId) setSelectedManagerId(uData.managerId);
+                    if (uData.supervisorId) setSelectedSupervisorId(uData.supervisorId);
+                }
+            }).catch(console.error);
+        }
+
+        const qUsers = selectedDepartmentId 
+            ? query(collection(db, 'users'), where('departmentId', '==', selectedDepartmentId))
+            : collection(db, 'users');
+
         getDocs(qUsers).then((snap) => {
             const allUsers = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
             setUsers(allUsers);
-            
-            if (currentUserId) {
-                const me = allUsers.find(u => u.id === currentUserId);
-                if (me) {
-                    setCurrentUserData(me);
-                    if (me.managerId) {
-                        setSelectedManagerId(me.managerId);
-                    }
-                    if (me.supervisorId) {
-                        setSelectedSupervisorId(me.supervisorId);
-                    }
-                }
-            }
-        });
+        }).catch(console.error);
     }, [refreshTrigger, currentUserId, selectedDepartmentId]);
 
     const validateSwap = () => {
@@ -197,8 +196,16 @@ const UserRequests: React.FC = () => {
               initialStatus = hasSupervisors ? 'pending_supervisor' : (hasManagers ? 'pending_manager' : 'approved');
           }
 
+          const uName = currentUserData?.name || auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || currentUserId;
+          const uEmail = currentUserData?.email || auth.currentUser?.email || '';
+
           await addDoc(collection(db, 'leaveRequests'), { 
               from: currentUserId, 
+              userId: currentUserId,
+              employeeId: currentUserId,
+              userName: uName,
+              userEmail: uEmail,
+              employeeName: uName,
               typeOfLeave: leaveType,
               startDate: leaveStart, 
               endDate: leaveEnd, 
@@ -208,7 +215,7 @@ const UserRequests: React.FC = () => {
               dueDateForLeave: dueDateForLeave,
               hasSupervisors: hasSupervisors,
               hasManagers: hasManagers,
-              departmentId: currentUserData?.departmentId || null,
+              departmentId: currentUserData?.departmentId || selectedDepartmentId || null,
               status: initialStatus, 
               createdAt: Timestamp.now() 
           });

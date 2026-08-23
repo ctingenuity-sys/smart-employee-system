@@ -2134,6 +2134,36 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <i className="fas fa-check"></i>
                             <span>{txt('تسجيل واستخراج رقم', 'Register & Generate No.')}</span>
                         </button>
+
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setStickerCase(null);
+                                setUsGenderChoice('M');
+                                setUsCustomSeqNum('');
+                                setCustomStickerForm({
+                                    patientName: fastName.trim(),
+                                    fileNumber: fastMRN.trim(),
+                                    examName: fastExam.trim(),
+                                    date: selectedDate || getLocalToday(),
+                                    time: getCurrentTime(),
+                                    modality: fastMod || 'X-RAY',
+                                    modalitySerial: '', // Completely separated from logbook counter
+                                    centerHeader: localStorage.getItem('stand_sticker_center_header') || 'مستشفى / مركز الأشعة والتصوير الطبي',
+                                    doctorName: '',
+                                    technicianName: fastTech || selectedTechnician,
+                                    usGender: 'M',
+                                    usSubSerial: '',
+                                    saveToLogbook: false
+                                });
+                                setIsStickerWidgetOpen(true);
+                            }}
+                            className="bg-teal-600 hover:bg-teal-500 text-white font-black px-3.5 py-1.5 rounded-xl text-xs flex items-center gap-1.5 shadow transition cursor-pointer"
+                            title={txt("طباعة استيكر حراري مباشرة بدون استهلاك رقم أشعة تسلسلي", "Print thermal sticker directly without consuming logbook serial")}
+                        >
+                            <i className="fas fa-barcode text-teal-200"></i>
+                            <span>{txt('طباعة استيكر (مفصول)', 'Print Sticker (Separated)')}</span>
+                        </button>
                     </form>
 
                     {/* Quick Technician Chips */}

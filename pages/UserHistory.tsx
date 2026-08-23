@@ -48,7 +48,11 @@ const UserHistory: React.FC = () => {
         getDocs(collection(db, 'users')).then(snap => {
             const usersMap: Record<string, string> = {};
             snap.docs.forEach(d => {
-                usersMap[d.id] = d.data().name || d.id;
+                const uData = d.data();
+                const name = uData.name || uData.email || d.id;
+                usersMap[d.id] = name;
+                if (uData.uid) usersMap[uData.uid] = name;
+                if (uData.email) usersMap[uData.email] = name;
             });
             setAllUsers(usersMap);
         });

@@ -164,9 +164,13 @@ const translations: Record<string, { ar: string; en: string }> = {
   'nav.onCallManagement': { ar: 'إدارة المناوبات', en: 'On-Call Management' },
   'comm.ann.none': { ar: 'لا توجد إعلانات', en: 'No announcements' },
   'tech.title': { ar: 'الدعم الفني', en: 'Technical Support' },
-  'notifications.title': { ar: 'الإشعارات', en: 'Notifications' },
+  'notifications.title': { ar: 'الإشعارات والتنبيهات', en: 'Notifications' },
   'notifications.markAllRead': { ar: 'تحديد الكل كمقروء', en: 'Mark all as read' },
-  'notifications.empty': { ar: 'لا توجد إشعارات', en: 'No notifications' },
+  'notifications.clearAll': { ar: 'مسح الكل', en: 'Clear all' },
+  'notifications.all': { ar: 'الكل', en: 'All' },
+  'notifications.unread': { ar: 'غير المقروءة', en: 'Unread' },
+  'notifications.empty': { ar: 'لا توجد إشعارات حالياً', en: 'No notifications at this moment' },
+  'notifications.noUnread': { ar: 'تم قراءة جميع الإشعارات 👍', en: 'All notifications caught up 👍' },
   
   // Notification Messages
   'notif.leave.new': { ar: 'طلب إجازة جديد', en: 'New Leave Request' },

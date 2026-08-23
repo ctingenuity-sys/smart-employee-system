@@ -210,6 +210,10 @@ export interface ActionLog {
   toDate: string;
   description: string;
   createdAt?: any;
+  leaveRequestId?: string;
+  from?: string;
+  status?: string;
+  departmentId?: string;
 }
 
 // --- NEW: Communication Features ---

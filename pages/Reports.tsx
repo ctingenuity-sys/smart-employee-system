@@ -64,11 +64,18 @@ const Reports: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'attendance' | 'productivity'>('attendance');
 
     const [filterEmp, setFilterEmp] = useState('');
+    const [dateMode, setDateMode] = useState<'month' | 'custom'>('month');
     const [filterMonth, setFilterMonth] = useState((new Date().getMonth() + 1).toString());
     const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
     const [filterFromDate, setFilterFromDate] = useState('');
     const [filterToDate, setFilterToDate] = useState('');
     
+    // NEW: Action Category Filters & View
+    const [actionFilterCategory, setActionFilterCategory] = useState<'all' | 'actions_only' | 'penalties_only' | 'absences_only' | 'leaves_only' | 'late_only' | 'positives_only'>('all');
+    const [actionSpecificType, setActionSpecificType] = useState<string>('all');
+    const [actionSearchQuery, setActionSearchQuery] = useState<string>('');
+    const [mainViewTab, setMainViewTab] = useState<'overview' | 'actions_table'>('overview');
+
     // NEW: Productivity Search
     const [prodSearch, setProdSearch] = useState('');
 
@@ -108,31 +115,74 @@ const Reports: React.FC = () => {
 
     // --- Helpers for Date Range ---
     const getDateRange = () => {
-        let start = filterFromDate;
-        let end = filterToDate;
+        let start = '';
+        let end = '';
 
-        if (!start && !end) {
-            if (filterYear && filterMonth) {
-                const y = parseInt(filterYear);
-                const m = parseInt(filterMonth);
-                const mStr = m.toString().padStart(2, '0');
-                const lastDayObj = new Date(y, m, 0);
-                const yStr = y;
-                const lastDStr = lastDayObj.getDate().toString().padStart(2,'0');
+        if (dateMode === 'custom') {
+            const todayStr = new Date().toISOString().split('T')[0];
+            start = filterFromDate || `${new Date().getFullYear()}-01-01`;
+            end = filterToDate || todayStr;
+        } else {
+            const y = parseInt(filterYear) || new Date().getFullYear();
+            const m = parseInt(filterMonth) || (new Date().getMonth() + 1);
+            const mStr = m.toString().padStart(2, '0');
+            const lastDayObj = new Date(y, m, 0);
+            const lastDStr = lastDayObj.getDate().toString().padStart(2, '0');
 
-                start = `${yStr}-${mStr}-01`;
-                end = `${yStr}-${mStr}-${lastDStr}`;
-            } else {
-                const now = new Date();
-                start = now.toISOString().split('T')[0];
-                end = now.toISOString().split('T')[0];
-            }
+            start = `${y}-${mStr}-01`;
+            end = `${y}-${mStr}-${lastDStr}`;
         }
         return { start, end };
     };
 
+    const applyDateShortcut = (preset: 'today' | 'this_week' | 'this_month' | 'last_month' | 'last_30_days' | 'this_quarter' | 'this_year') => {
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+        setDateMode('custom');
+
+        if (preset === 'today') {
+            setFilterFromDate(todayStr);
+            setFilterToDate(todayStr);
+        } else if (preset === 'this_week') {
+            const startOfWeek = new Date(now);
+            startOfWeek.setDate(now.getDate() - 6);
+            setFilterFromDate(startOfWeek.toISOString().split('T')[0]);
+            setFilterToDate(todayStr);
+        } else if (preset === 'this_month') {
+            const y = now.getFullYear();
+            const m = (now.getMonth() + 1).toString().padStart(2, '0');
+            const lastDay = new Date(y, now.getMonth() + 1, 0).getDate().toString().padStart(2, '0');
+            setFilterFromDate(`${y}-${m}-01`);
+            setFilterToDate(`${y}-${m}-${lastDay}`);
+        } else if (preset === 'last_month') {
+            const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const y = prevMonth.getFullYear();
+            const m = (prevMonth.getMonth() + 1).toString().padStart(2, '0');
+            const lastDay = new Date(y, prevMonth.getMonth() + 1, 0).getDate().toString().padStart(2, '0');
+            setFilterFromDate(`${y}-${m}-01`);
+            setFilterToDate(`${y}-${m}-${lastDay}`);
+        } else if (preset === 'last_30_days') {
+            const past30 = new Date();
+            past30.setDate(now.getDate() - 30);
+            setFilterFromDate(past30.toISOString().split('T')[0]);
+            setFilterToDate(todayStr);
+        } else if (preset === 'this_quarter') {
+            const quarter = Math.floor(now.getMonth() / 3);
+            const startMonth = quarter * 3;
+            const y = now.getFullYear();
+            const startQ = new Date(y, startMonth, 1).toISOString().split('T')[0];
+            const endQ = new Date(y, startMonth + 3, 0).toISOString().split('T')[0];
+            setFilterFromDate(startQ);
+            setFilterToDate(endQ);
+        } else if (preset === 'this_year') {
+            const y = now.getFullYear();
+            setFilterFromDate(`${y}-01-01`);
+            setFilterToDate(`${y}-12-31`);
+        }
+    };
+
     const getMonthCount = () => {
-        if (filterFromDate && filterToDate) {
+        if (dateMode === 'custom' && filterFromDate && filterToDate) {
             const start = new Date(filterFromDate);
             const end = new Date(filterToDate);
             const diffTime = Math.abs(end.getTime() - start.getTime());
@@ -148,7 +198,42 @@ const Reports: React.FC = () => {
         const init = async () => {
             try {
                 const aSnap = await getDocs(collection(db, 'actions'));
-                setActions(aSnap.docs.map(d => ({ ...d.data(), id: d.id } as ActionLog)));
+                const actionsList = aSnap.docs.map(d => ({ ...d.data(), id: d.id } as ActionLog));
+
+                // Fetch approved leaveRequests to ensure all approved leaves appear seamlessly
+                try {
+                    const lSnap = await getDocs(query(collection(db, 'leaveRequests'), where('status', '==', 'approved')));
+                    const approvedLeaves = lSnap.docs.map(d => ({ ...d.data(), id: d.id }));
+
+                    approvedLeaves.forEach((leave: any) => {
+                        const leaveEmpId = leave.from || leave.userId || leave.employeeId;
+                        const actionType = (leave.typeOfLeave?.toLowerCase().includes('sick') || leave.typeOfLeave === 'مرضية') ? 'sick_leave' : 'annual_leave';
+                        const leaveFrom = leave.startDate;
+                        const leaveTo = leave.endDate || leave.startDate;
+
+                        const alreadyExists = actionsList.some(act => 
+                            (act.leaveRequestId && act.leaveRequestId === leave.id) ||
+                            ((act.employeeId === leaveEmpId || (act as any).from === leaveEmpId) && act.type === actionType && safeDate(act.fromDate) === leaveFrom && safeDate(act.toDate) === leaveTo)
+                        );
+
+                        if (!alreadyExists && leaveEmpId && leaveFrom) {
+                            actionsList.push({
+                                id: `leave-req-${leave.id}`,
+                                employeeId: leaveEmpId,
+                                type: actionType,
+                                fromDate: leaveFrom,
+                                toDate: leaveTo,
+                                description: `إجازة معتمدة (${leave.typeOfLeave || 'سنوية'}): ${leave.reason || ''}`,
+                                leaveRequestId: leave.id,
+                                createdAt: leave.createdAt ? (leave.createdAt.toDate ? leave.createdAt.toDate() : new Date(leave.createdAt)) : new Date()
+                            } as ActionLog);
+                        }
+                    });
+                } catch (lErr) {
+                    console.error("Error fetching approved leaves:", lErr);
+                }
+
+                setActions(actionsList);
 
                 const uSnap = await getDocs(collection(db, 'users'));
                 const fetchedUsers = uSnap.docs.map(d => ({ ...d.data(), id: d.id } as User));
@@ -219,7 +304,7 @@ const Reports: React.FC = () => {
             }
         };
         fetchAttendanceData();
-    }, [filterMonth, filterYear, filterFromDate, filterToDate, refreshTrigger]);
+    }, [filterMonth, filterYear, filterFromDate, filterToDate, dateMode, refreshTrigger]);
 
     // --- REAL-TIME PRODUCTIVITY FETCH (FROM SUPABASE) ---
     useEffect(() => {
@@ -247,7 +332,7 @@ const Reports: React.FC = () => {
 
         fetchSupabaseData();
 
-    }, [filterMonth, filterYear, filterFromDate, filterToDate]);
+    }, [filterMonth, filterYear, filterFromDate, filterToDate, dateMode]);
 
 
     // --- Attendance Calculations ---
@@ -352,7 +437,7 @@ const Reports: React.FC = () => {
         });
 
         return generated;
-    }, [schedules, attendanceLogs, actions, employees, filterFromDate, filterToDate, filterMonth, filterYear]);
+    }, [schedules, attendanceLogs, actions, employees, filterFromDate, filterToDate, filterMonth, filterYear, dateMode]);
 
     const allCombinedActions = useMemo(() => {
         return [...actions, ...autoActions];
@@ -367,14 +452,109 @@ const Reports: React.FC = () => {
             if (end && actStart > end) return false;
             return true;
         });
-    }, [allCombinedActions, filterMonth, filterYear, filterFromDate, filterToDate]);
+    }, [allCombinedActions, filterMonth, filterYear, filterFromDate, filterToDate, dateMode]);
+
+    const getEmpName = (employeeId: string, act?: ActionLog) => {
+        const found = employees.find(e => 
+            e.id === employeeId || 
+            (e as any).uid === employeeId || 
+            (act && ((e as any).uid === (act as any).from || e.id === (act as any).from || e.id === (act as any).userId))
+        );
+        if (found?.name) return found.name;
+        if ((act as any)?.userName) return (act as any).userName;
+        if ((act as any)?.employeeName) return (act as any).employeeName;
+        return employeeId || 'Unknown';
+    };
 
     const filteredActions = useMemo(() => {
         return baseFilteredActions.filter(act => {
-            if (filterEmp && act.employeeId !== filterEmp) return false;
+            if (filterEmp && act.employeeId !== filterEmp && (act as any).from !== filterEmp) return false;
+
+            // Category Filter
+            if (actionFilterCategory === 'actions_only') {
+                // Procedures only: exclude absences and leaves
+                if (['unjustified_absence', 'justified_absence', 'annual_leave', 'sick_leave'].includes(act.type)) {
+                    return false;
+                }
+            } else if (actionFilterCategory === 'penalties_only') {
+                if (!['violation', 'late'].includes(act.type)) return false;
+            } else if (actionFilterCategory === 'absences_only') {
+                // Absences only (without leaves)
+                if (!['unjustified_absence', 'justified_absence'].includes(act.type)) return false;
+            } else if (actionFilterCategory === 'leaves_only') {
+                // Leaves only (annual, sick)
+                if (!['annual_leave', 'sick_leave'].includes(act.type)) return false;
+            } else if (actionFilterCategory === 'late_only') {
+                if (act.type !== 'late') return false;
+            } else if (actionFilterCategory === 'positives_only') {
+                if (act.type !== 'positive') return false;
+            }
+
+            // Specific Type
+            if (actionSpecificType !== 'all' && act.type !== actionSpecificType) {
+                return false;
+            }
+
+            // Text search
+            if (actionSearchQuery.trim()) {
+                const query = actionSearchQuery.toLowerCase().trim();
+                const empName = getEmpName(act.employeeId, act).toLowerCase();
+                const desc = (act.description || '').toLowerCase();
+                const typeText = (t(`action.${act.type}`) || act.type).toLowerCase();
+                if (!empName.includes(query) && !desc.includes(query) && !typeText.includes(query)) {
+                    return false;
+                }
+            }
+
             return true;
         }).sort((a, b) => new Date(safeDate(b.fromDate)).getTime() - new Date(safeDate(a.fromDate)).getTime());
+    }, [baseFilteredActions, filterEmp, actionFilterCategory, actionSpecificType, actionSearchQuery, employees, t]);
+
+    const actionCounts = useMemo(() => {
+        const pool = filterEmp 
+            ? baseFilteredActions.filter(act => act.employeeId === filterEmp || (act as any).from === filterEmp)
+            : baseFilteredActions;
+
+        const total = pool.length;
+        const actionsOnly = pool.filter(act => !['unjustified_absence', 'justified_absence', 'annual_leave', 'sick_leave'].includes(act.type)).length;
+        const penalties = pool.filter(act => ['violation', 'late'].includes(act.type)).length;
+        const absences = pool.filter(act => ['unjustified_absence', 'justified_absence'].includes(act.type)).length;
+        const leaves = pool.filter(act => ['annual_leave', 'sick_leave'].includes(act.type)).length;
+        const lates = pool.filter(act => act.type === 'late').length;
+        const positives = pool.filter(act => act.type === 'positive').length;
+
+        return { total, actionsOnly, penalties, absences, leaves, lates, positives };
     }, [baseFilteredActions, filterEmp]);
+
+    const exportActionsToCSV = () => {
+        if (filteredActions.length === 0) {
+            alert('لا توجد سجلات مطابقة للفلترة لتصديرها');
+            return;
+        }
+        
+        const headers = ['الموظف', 'نوع الإجراء', 'من تاريخ', 'إلى تاريخ', 'النقاط/الخصم', 'الوصف/الملاحظات'];
+        const rows = filteredActions.map(act => {
+            const empName = getEmpName(act.employeeId, act);
+            const typeLabel = t(`action.${act.type}`) || act.type;
+            const fromD = safeDate(act.fromDate);
+            const toD = safeDate(act.toDate);
+            const weight = ACTION_WEIGHTS[act.type] || 0;
+            const points = weight < 0 ? `+${Math.abs(weight)}` : `-${weight}`;
+            const desc = (act.description || '').replace(/"/g, '""');
+            return `"${empName}","${typeLabel}","${fromD}","${toD}","${points}","${desc}"`;
+        });
+
+        const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        const dTitle = dateMode === 'custom' && filterFromDate && filterToDate ? `${filterFromDate}_to_${filterToDate}` : `${filterYear}_${filterMonth}`;
+        link.setAttribute('download', `Actions_Report_${dTitle}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
     const allEvaluations = useMemo(() => {
         const months = getMonthCount();
@@ -385,10 +565,20 @@ const Reports: React.FC = () => {
         const nonDoctorEmployees = employees.filter(emp => emp.role !== 'doctor' && emp.jobCategory !== 'doctor');
 
         return nonDoctorEmployees.map(emp => {
-            const empActions = baseFilteredActions.filter(act => act.employeeId === emp.id);
+            const empActions = baseFilteredActions.filter(act => 
+                act.employeeId === emp.id || 
+                (emp as any).uid === act.employeeId || 
+                (act as any).from === emp.id || 
+                (act as any).from === (emp as any).uid
+            );
             
             // Calculate next leave date
-            const allEmpActions = actions.filter(act => act.employeeId === emp.id);
+            const allEmpActions = actions.filter(act => 
+                act.employeeId === emp.id || 
+                (emp as any).uid === act.employeeId || 
+                (act as any).from === emp.id || 
+                (act as any).from === (emp as any).uid
+            );
             const annualLeaves = allEmpActions.filter(act => act.type === 'annual_leave');
             let lastLeaveDate: Date | null = null;
             if (annualLeaves.length > 0) {
@@ -406,10 +596,14 @@ const Reports: React.FC = () => {
 
             let totalDeductions = 0;
             let lates = 0;
+            let unjustifiedAbsences = 0;
+            let justifiedAbsences = 0;
             let absences = 0;
             let sickLeaves = 0;
+            let violations = 0;
             let positives = 0;
             let annualLeaveDays = 0;
+            let missions = 0;
             
             empActions.forEach(act => {
                 let weight = ACTION_WEIGHTS[act.type] || 0;
@@ -427,10 +621,14 @@ const Reports: React.FC = () => {
                 totalDeductions += (weight * days);
                 
                 if (act.type === 'late') lates += days;
+                if (act.type === 'unjustified_absence') unjustifiedAbsences += days;
+                if (act.type === 'justified_absence') justifiedAbsences += days;
                 if (act.type === 'unjustified_absence' || act.type === 'justified_absence') absences += days;
                 if (act.type === 'sick_leave') sickLeaves += days;
+                if (act.type === 'violation') violations += days;
                 if (act.type === 'positive') positives += days;
                 if (act.type === 'annual_leave') annualLeaveDays += days;
+                if (act.type === 'mission') missions += days;
             });
 
             // Calculate swaps for this employee in the period
@@ -490,9 +688,13 @@ const Reports: React.FC = () => {
                 stats: { 
                     lates, 
                     absences, 
+                    unjustifiedAbsences,
+                    justifiedAbsences,
                     sickLeaves, 
+                    violations,
                     positives, 
                     annualLeaveDays, 
+                    missions,
                     swapCount: empSwaps.length, 
                     examCount: empExams.length 
                 },
@@ -622,7 +824,9 @@ const Reports: React.FC = () => {
     const radius = 50;
     const circumference = 2 * Math.PI * radius;
     const offset = evaluation ? circumference - (evaluation.percentage / 100) * circumference : 0;
-    const dateTitle = filterFromDate && filterToDate ? `${filterFromDate} - ${filterToDate}` : `${filterYear}-${filterMonth.padStart(2, '0')}`;
+    const dateTitle = dateMode === 'custom' && filterFromDate && filterToDate 
+        ? `${filterFromDate} إلى ${filterToDate}` 
+        : `${filterYear}-${filterMonth.padStart(2, '0')}`;
 
     return (
         <div className="min-h-screen bg-slate-50 font-sans pb-12 print:bg-white print:p-0 print:pb-0" dir={dir}>
@@ -635,119 +839,228 @@ const Reports: React.FC = () => {
 
             {/* Header (Hidden in Print) */}
             <div className="bg-slate-900 text-white pt-8 pb-16 px-6 print:hidden">
-                <div className="max-w-7xl mx-auto flex justify-between items-center">
+                <div className="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-4">
                     <div>
                         <h1 className="text-3xl font-black tracking-tight">{t('rep.title')}</h1>
-                        <p className="text-slate-400 mt-2">{t('rep.subtitle')}</p>
+                        <p className="text-slate-400 mt-1">{t('rep.subtitle')}</p>
                     </div>
-                    {activeTab === 'attendance' && (
+                    <div className="flex items-center gap-3">
+                        {activeTab === 'attendance' && (
+                            <button 
+                                onClick={() => { 
+                                    setEditingId(null); 
+                                    setFormData({
+                                        employeeId: filterEmp || '',
+                                        type: 'annual_leave',
+                                        fromDate: new Date().toISOString().split('T')[0],
+                                        toDate: new Date().toISOString().split('T')[0],
+                                        description: ''
+                                    });
+                                    setIsFormOpen(true); 
+                                }}
+                                className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center gap-2 text-sm"
+                            >
+                                <i className="fas fa-plus-circle"></i> {t('rep.add')}
+                            </button>
+                        )}
                         <button 
-                            onClick={() => { 
-                                setEditingId(null); 
-                                setFormData({
-                                    employeeId: filterEmp || '',
-                                    type: 'annual_leave',
-                                    fromDate: new Date().toISOString().split('T')[0],
-                                    toDate: new Date().toISOString().split('T')[0],
-                                    description: ''
-                                });
-                                setIsFormOpen(true); 
-                            }}
-                            className="bg-blue-600 hover:bg-blue-50 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center gap-2"
+                            onClick={handlePrint} 
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 rounded-xl font-bold transition-all flex items-center gap-2 text-sm border border-slate-700"
                         >
-                            <i className="fas fa-plus-circle"></i> {t('rep.add')}
+                            <i className="fas fa-print"></i> {t('print')}
                         </button>
-                    )}
+                    </div>
                 </div>
             </div>
 
             <div className="max-w-7xl mx-auto px-4 -mt-10 print:mt-0 print:px-0">
                 
-                {/* Filters Bar */}
-                <div className="bg-white rounded-2xl shadow-lg p-4 mb-8 flex flex-wrap gap-4 items-center border border-gray-100 print:hidden">
-                    <div className="flex bg-slate-100 p-1 rounded-xl">
-                        <button 
-                            onClick={() => setActiveTab('attendance')} 
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'attendance' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}
-                        >
-                            HR & Attendance
-                        </button>
-                        <button 
-                            onClick={() => setActiveTab('productivity')} 
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'productivity' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}
-                        >
-                            Completed Exams
-                        </button>
+                {/* Main Filters Bar */}
+                <div className="bg-white rounded-3xl shadow-lg p-5 mb-8 border border-slate-100 print:hidden space-y-4">
+                    
+                    {/* Top Row: Main Tabs & Date Mode */}
+                    <div className="flex flex-wrap gap-4 items-center justify-between">
+                        {/* Tab Switcher */}
+                        <div className="flex bg-slate-100 p-1.5 rounded-2xl">
+                            <button 
+                                onClick={() => setActiveTab('attendance')} 
+                                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${activeTab === 'attendance' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
+                            >
+                                <i className="fas fa-user-check"></i>
+                                {t('nav.reports') || 'التقارير والمراجعة'}
+                            </button>
+                            <button 
+                                onClick={() => setActiveTab('productivity')} 
+                                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${activeTab === 'productivity' ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500 hover:text-slate-800'}`}
+                            >
+                                <i className="fas fa-procedures"></i>
+                                Completed Exams
+                            </button>
+                        </div>
+
+                        {/* Date Mode Switcher */}
+                        <div className="flex bg-slate-100 p-1.5 rounded-2xl">
+                            <button 
+                                onClick={() => setDateMode('month')} 
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${dateMode === 'month' ? 'bg-white shadow-sm text-blue-600 font-black' : 'text-slate-500 hover:text-slate-800'}`}
+                            >
+                                <i className="fas fa-calendar-alt text-xs"></i>
+                                بالشهر
+                            </button>
+                            <button 
+                                onClick={() => {
+                                    setDateMode('custom');
+                                    if (!filterFromDate && !filterToDate) {
+                                        applyDateShortcut('this_month');
+                                    }
+                                }} 
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${dateMode === 'custom' ? 'bg-white shadow-sm text-indigo-600 font-black' : 'text-slate-500 hover:text-slate-800'}`}
+                            >
+                                <i className="fas fa-calendar-week text-xs"></i>
+                                فترة مخصصة (من - إلى)
+                            </button>
+                        </div>
                     </div>
 
-                    {/* Department Filter (Global) */}
-                    <div className="flex-1 min-w-[200px]">
-                        <label className="block text-xs font-bold text-gray-400 mb-1">القسم</label>
-                        <select 
-                            className="w-full bg-slate-50 border-none rounded-lg font-bold text-slate-700 focus:ring-2 focus:ring-blue-200"
-                            value={selectedDept || ''}
-                            onChange={e => setSelectedDept(e.target.value || null)}
-                        >
-                            <option value="">جميع الأقسام</option>
-                            {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                        </select>
-                    </div>
-
-                    {activeTab === 'attendance' && (
-                        <div className="flex-1 min-w-[200px]">
-                            <label className="block text-xs font-bold text-gray-400 mb-1">{t('rep.filter.emp')}</label>
-                            <select className="w-full bg-slate-50 border-none rounded-lg font-bold text-slate-700 focus:ring-2 focus:ring-blue-200" value={filterEmp} onChange={e => setFilterEmp(e.target.value)}>
-                                <option value="">-- All --</option>
-                                {employees.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
+                    {/* Middle Row: Primary Filter Selectors */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end pt-2 border-t border-slate-100">
+                        {/* Department Filter (Global) */}
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 mb-1.5">القسم</label>
+                            <select 
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-blue-200 px-3 py-2 text-sm"
+                                value={selectedDept || ''}
+                                onChange={e => setSelectedDept(e.target.value || null)}
+                            >
+                                <option value="">جميع الأقسام</option>
+                                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                             </select>
                         </div>
-                    )}
-                    
-                    {/* NEW: File Search for Productivity Tab */}
-                    {activeTab === 'productivity' && (
-                        <div className="flex-1 min-w-[200px]">
-                            <label className="block text-xs font-bold text-gray-400 mb-1">Search File / Name</label>
-                            <input 
-                                className="w-full bg-slate-50 border-none rounded-lg font-bold text-slate-700 focus:ring-2 focus:ring-emerald-200 px-3 py-2 text-sm" 
-                                placeholder="رقم الملف أو الاسم..."
-                                value={prodSearch} 
-                                onChange={e => setProdSearch(e.target.value)}
-                            />
-                        </div>
-                    )}
-                    
-                    <div className="w-[120px]">
-                        <label className="block text-xs font-bold text-gray-400 mb-1">{t('month')}</label>
-                        <select className="w-full bg-slate-50 border-none rounded-lg font-bold text-slate-700" value={filterMonth} onChange={e => {setFilterMonth(e.target.value); setFilterFromDate(''); setFilterToDate('');}}>
-                            {[...Array(12)].map((_, i) => <option key={i} value={i+1}>{i+1}</option>)}
-                        </select>
+
+                        {/* Employee Filter */}
+                        {activeTab === 'attendance' && (
+                            <div>
+                                <div className="flex justify-between items-center mb-1.5">
+                                    <label className="block text-xs font-bold text-slate-400">{t('rep.filter.emp')}</label>
+                                    {filterEmp && (
+                                        <button onClick={() => setFilterEmp('')} className="text-[11px] font-bold text-blue-600 hover:underline">
+                                            عرض الكل
+                                        </button>
+                                    )}
+                                </div>
+                                <select 
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-blue-200 px-3 py-2 text-sm" 
+                                    value={filterEmp} 
+                                    onChange={e => setFilterEmp(e.target.value)}
+                                >
+                                    <option value="">-- جميع الموظفين --</option>
+                                    {employees.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
+                                </select>
+                            </div>
+                        )}
+
+                        {/* Search for Productivity Tab */}
+                        {activeTab === 'productivity' && (
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 mb-1.5">بحث في الحالات (اسم / ملف)</label>
+                                <input 
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-emerald-200 px-3 py-2 text-sm" 
+                                    placeholder="رقم الملف أو الاسم..."
+                                    value={prodSearch} 
+                                    onChange={e => setProdSearch(e.target.value)}
+                                />
+                            </div>
+                        )}
+
+                        {/* Date Controls depending on dateMode */}
+                        {dateMode === 'month' ? (
+                            <>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('month')}</label>
+                                    <select 
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 px-3 py-2 text-sm" 
+                                        value={filterMonth} 
+                                        onChange={e => { setFilterMonth(e.target.value); setFilterFromDate(''); setFilterToDate(''); }}
+                                    >
+                                        {[...Array(12)].map((_, i) => <option key={i} value={i+1}>شهر {i+1}</option>)}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('year')}</label>
+                                    <select 
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 px-3 py-2 text-sm" 
+                                        value={filterYear} 
+                                        onChange={e => { setFilterYear(e.target.value); setFilterFromDate(''); setFilterToDate(''); }}
+                                    >
+                                        {[2023, 2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                                    </select>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 mb-1.5">من تاريخ (From)</label>
+                                    <input 
+                                        type="date" 
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 px-3 py-2 text-sm" 
+                                        value={filterFromDate} 
+                                        onChange={e => setFilterFromDate(e.target.value)} 
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 mb-1.5">إلى تاريخ (To)</label>
+                                    <input 
+                                        type="date" 
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 px-3 py-2 text-sm" 
+                                        value={filterToDate} 
+                                        onChange={e => setFilterToDate(e.target.value)} 
+                                    />
+                                </div>
+                            </>
+                        )}
                     </div>
 
-                    <div className="w-[120px]">
-                        <label className="block text-xs font-bold text-gray-400 mb-1">{t('year')}</label>
-                        <select className="w-full bg-slate-50 border-none rounded-lg font-bold text-slate-700" value={filterYear} onChange={e => {setFilterYear(e.target.value); setFilterFromDate(''); setFilterToDate('');}}>
-                            {[2023, 2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
-                        </select>
-                    </div>
-
-                    {activeTab === 'attendance' && (
-                        <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">
-                            <input 
-                                type="checkbox" 
-                                id="includeLateness" 
-                                checked={includeLateness} 
-                                onChange={e => setIncludeLateness(e.target.checked)}
-                                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                            />
-                            <label htmlFor="includeLateness" className="text-xs font-bold text-slate-600 cursor-pointer select-none">
-                                احتساب التأخير
-                            </label>
+                    {/* Date Shortcuts (When in Custom Range Mode) */}
+                    {dateMode === 'custom' && (
+                        <div className="flex flex-wrap gap-2 pt-2 items-center bg-slate-50 p-3 rounded-2xl border border-slate-100 text-xs">
+                            <span className="font-bold text-slate-400 flex items-center gap-1">
+                                <i className="fas fa-bolt text-amber-500"></i> اختصارات الفترة:
+                            </span>
+                            <button onClick={() => applyDateShortcut('today')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
+                                اليوم
+                            </button>
+                            <button onClick={() => applyDateShortcut('this_week')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
+                                آخر 7 أيام
+                            </button>
+                            <button onClick={() => applyDateShortcut('this_month')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
+                                هذا الشهر
+                            </button>
+                            <button onClick={() => applyDateShortcut('last_month')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
+                                الشهر السابق
+                            </button>
+                            <button onClick={() => applyDateShortcut('last_30_days')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
+                                آخر 30 يوم
+                            </button>
+                            <button onClick={() => applyDateShortcut('this_quarter')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
+                                هذا الربع
+                            </button>
+                            <button onClick={() => applyDateShortcut('this_year')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
+                                كامل السنة
+                            </button>
+                            <button 
+                                onClick={() => {
+                                    setFilterFromDate('');
+                                    setFilterToDate('');
+                                    setDateMode('month');
+                                }} 
+                                className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-bold border border-red-200 transition-colors ml-auto"
+                            >
+                                <i className="fas fa-undo text-[10px] mr-1"></i> إعادة ضبط
+                            </button>
                         </div>
                     )}
-
-                    <button onClick={handlePrint} className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 flex items-center justify-center ml-auto">
-                        <i className="fas fa-print"></i>
-                    </button>
                 </div>
 
                 {activeTab === 'productivity' ? (
@@ -840,330 +1153,517 @@ const Reports: React.FC = () => {
                         </div>
                     </div>
                 ) : (
-                    // ... (HR & Attendance Tab Content) ...
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 print:block">
-                        {/* Evaluation Card or Dashboard */}
-                        <div className="lg:col-span-1 print:mb-6 print:break-inside-avoid">
-                            {evaluation ? (
-                                <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100 sticky top-4 print:border-2 print:border-slate-800 print:shadow-none">
-                                    <div className={`p-6 text-center ${evaluation.bg} border-b border-gray-100 print:bg-white print:border-b-2 print:border-slate-800`}>
-                                        <h2 className="text-xl font-bold text-slate-800 mb-4 uppercase">{t('rep.card')}</h2>
-                                        
-                                        <div className="relative w-48 h-48 mx-auto mb-4">
-                                            <svg className="w-full h-full transform -rotate-90">
-                                                <circle cx="96" cy="96" r={radius} className="text-gray-200 fill-none stroke-current" strokeWidth="12" />
-                                                <circle cx="96" cy="96" r={radius} className={`${evaluation.color.split(' ')[0]} fill-none transition-all duration-1000 ease-out`} strokeWidth="12" strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" />
-                                            </svg>
-                                            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
-                                                <span className={`text-4xl font-black ${evaluation.color.split(' ')[0]}`}>{evaluation.percentage}%</span>
-                                                <span className="block text-xs font-bold text-gray-400 mt-1 uppercase">{evaluation.grade}</span>
-                                            </div>
-                                        </div>
+                    <div className="space-y-6">
 
-                                        <div className="flex justify-center gap-2 mb-2">
-                                            <span className="bg-white border px-3 py-1 rounded-full text-xs font-bold shadow-sm text-slate-600">
-                                                {evaluation.months} {t('month')}
-                                            </span>
-                                            <span className="bg-white border px-3 py-1 rounded-full text-xs font-bold shadow-sm text-slate-600">
-                                                {filteredActions.length} Actions
-                                            </span>
-                                        </div>
+                        {/* Secondary Action Toolbar: Category Pills & Specific Filter & Search */}
+                        <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 space-y-4 print:hidden">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                {/* Action Category Filters (Including "الإجراءات فقط بدون الغياب والإجازات") */}
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    <button 
+                                        onClick={() => setActionFilterCategory('all')} 
+                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'all' ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
+                                    >
+                                        <i className="fas fa-list-ul"></i>
+                                        الكل
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'all' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                                            {actionCounts.total}
+                                        </span>
+                                    </button>
+
+                                    <button 
+                                        onClick={() => setActionFilterCategory('actions_only')} 
+                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'actions_only' ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-500/20' : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'}`}
+                                    >
+                                        <i className="fas fa-bolt text-amber-300"></i>
+                                        الإجراءات فقط (بدون الغياب والإجازات)
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'actions_only' ? 'bg-blue-800 text-white' : 'bg-blue-200 text-blue-800'}`}>
+                                            {actionCounts.actionsOnly}
+                                        </span>
+                                    </button>
+
+                                    <button 
+                                        onClick={() => setActionFilterCategory('penalties_only')} 
+                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'penalties_only' ? 'bg-red-600 text-white border-red-600 shadow-md shadow-red-500/20' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'}`}
+                                    >
+                                        <i className="fas fa-gavel"></i>
+                                        المخالفات والجزاءات
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'penalties_only' ? 'bg-red-800 text-white' : 'bg-red-200 text-red-800'}`}>
+                                            {actionCounts.penalties}
+                                        </span>
+                                    </button>
+
+                                    <button 
+                                        onClick={() => setActionFilterCategory('absences_only')} 
+                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'absences_only' ? 'bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-500/20' : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'}`}
+                                    >
+                                        <i className="fas fa-user-times"></i>
+                                        الغياب فقط
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'absences_only' ? 'bg-rose-800 text-white' : 'bg-rose-200 text-rose-800'}`}>
+                                            {actionCounts.absences}
+                                        </span>
+                                    </button>
+
+                                    <button 
+                                        onClick={() => setActionFilterCategory('leaves_only')} 
+                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'leaves_only' ? 'bg-orange-600 text-white border-orange-600 shadow-md shadow-orange-500/20' : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100'}`}
+                                    >
+                                        <i className="fas fa-umbrella-beach"></i>
+                                        الإجازات فقط
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'leaves_only' ? 'bg-orange-800 text-white' : 'bg-orange-200 text-orange-800'}`}>
+                                            {actionCounts.leaves}
+                                        </span>
+                                    </button>
+
+                                    <button 
+                                        onClick={() => setActionFilterCategory('late_only')} 
+                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'late_only' ? 'bg-amber-600 text-white border-amber-600 shadow-md shadow-amber-500/20' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'}`}
+                                    >
+                                        <i className="fas fa-clock"></i>
+                                        التأخيرات
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'late_only' ? 'bg-amber-800 text-white' : 'bg-amber-200 text-amber-800'}`}>
+                                            {actionCounts.lates}
+                                        </span>
+                                    </button>
+
+                                    <button 
+                                        onClick={() => setActionFilterCategory('positives_only')} 
+                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'positives_only' ? 'bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'}`}
+                                    >
+                                        <i className="fas fa-star"></i>
+                                        المكافآت والتقديرات
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'positives_only' ? 'bg-emerald-800 text-white' : 'bg-emerald-200 text-emerald-800'}`}>
+                                            {actionCounts.positives}
+                                        </span>
+                                    </button>
+                                </div>
+
+                                {/* View Mode Switcher (Overview vs Actions Log Table) */}
+                                {!filterEmp && (
+                                    <div className="flex bg-slate-100 p-1 rounded-xl">
+                                        <button 
+                                            onClick={() => setMainViewTab('overview')} 
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${mainViewTab === 'overview' ? 'bg-white shadow text-slate-900 font-black' : 'text-slate-500'}`}
+                                        >
+                                            <i className="fas fa-chart-pie"></i> لوحة التقييم
+                                        </button>
+                                        <button 
+                                            onClick={() => setMainViewTab('actions_table')} 
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${mainViewTab === 'actions_table' ? 'bg-white shadow text-blue-600 font-black' : 'text-slate-500'}`}
+                                        >
+                                            <i className="fas fa-table"></i> سجل الإجراءات التفصيلي
+                                        </button>
                                     </div>
+                                )}
+                            </div>
 
-                                    <div className="p-6 space-y-4">
-                                        <div className="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-gray-200">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center print:bg-transparent print:text-black print:border"><i className="fas fa-star"></i></div>
-                                                <span className="text-sm font-bold text-gray-600 uppercase">{t('rep.base')}</span>
+                            {/* Search & Specific Action Type Bar */}
+                            <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-slate-100">
+                                {/* Search input */}
+                                <div className="flex-1 min-w-[240px] relative">
+                                    <i className="fas fa-search absolute right-3 top-3 text-slate-400 text-xs"></i>
+                                    <input 
+                                        type="text" 
+                                        placeholder="بحث في الوصف أو الملاحظات أو اسم الموظف..." 
+                                        value={actionSearchQuery} 
+                                        onChange={e => setActionSearchQuery(e.target.value)} 
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-9 pl-3 py-2 text-xs font-bold focus:ring-2 focus:ring-blue-200 outline-none"
+                                    />
+                                    {actionSearchQuery && (
+                                        <button onClick={() => setActionSearchQuery('')} className="absolute left-3 top-2.5 text-xs text-slate-400 hover:text-slate-600">
+                                            <i className="fas fa-times"></i>
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* Specific Type Filter */}
+                                <div className="w-full sm:w-[220px]">
+                                    <select 
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 px-3 py-2 outline-none focus:ring-2 focus:ring-blue-200"
+                                        value={actionSpecificType}
+                                        onChange={e => setActionSpecificType(e.target.value)}
+                                    >
+                                        <option value="all">كل الأنواع المحددة</option>
+                                        <option value="annual_leave">إجازة سنوية</option>
+                                        <option value="sick_leave">إجازة مرضية</option>
+                                        <option value="justified_absence">غياب بإذن</option>
+                                        <option value="unjustified_absence">غياب بدون إذن</option>
+                                        <option value="late">تأخير</option>
+                                        <option value="violation">مخالفة / جزاء</option>
+                                        <option value="mission">مأمورية</option>
+                                        <option value="positive">مكافأة / إيجابي</option>
+                                    </select>
+                                </div>
+
+                                {/* Include Lateness Toggle */}
+                                <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
+                                    <input 
+                                        type="checkbox" 
+                                        id="includeLateness" 
+                                        checked={includeLateness} 
+                                        onChange={e => setIncludeLateness(e.target.checked)}
+                                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                    />
+                                    <label htmlFor="includeLateness" className="text-xs font-bold text-slate-600 cursor-pointer select-none">
+                                        احتساب التأخير
+                                    </label>
+                                </div>
+
+                                {/* Export CSV Button */}
+                                <button 
+                                    onClick={exportActionsToCSV}
+                                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs"
+                                >
+                                    <i className="fas fa-file-excel text-emerald-600"></i>
+                                    تصدير CSV
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Content Grid */}
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            
+                            {/* Left Column: Staff Evaluation Card or Summary List */}
+                            <div className="space-y-6">
+                                {filterEmp && evaluation ? (
+                                    <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 text-center relative overflow-hidden print:border-2 print:border-slate-800">
+                                        <button 
+                                            onClick={() => setFilterEmp('')} 
+                                            className="absolute top-4 left-4 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl transition-all print:hidden"
+                                        >
+                                            <i className="fas fa-users mr-1"></i> كل الموظفين
+                                        </button>
+
+                                        <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-2xl font-black text-slate-700 mx-auto mb-3 shadow-inner">
+                                            {evaluation.employee.name.charAt(0)}
+                                        </div>
+                                        <h3 className="font-bold text-xl text-slate-800">{evaluation.employee.name}</h3>
+                                        <p className="text-xs font-bold text-slate-400 mt-0.5">{evaluation.employee.email}</p>
+
+                                        {/* Score Gauge */}
+                                        <div className="relative w-32 h-32 mx-auto my-6 flex items-center justify-center">
+                                            <svg className="w-full h-full transform -rotate-90">
+                                                <circle cx="64" cy="64" r={radius} stroke="#f1f5f9" strokeWidth="10" fill="transparent" />
+                                                <circle 
+                                                    cx="64" cy="64" r={radius} 
+                                                    stroke={evaluation.percentage >= 85 ? '#10b981' : evaluation.percentage >= 70 ? '#3b82f6' : evaluation.percentage >= 50 ? '#f97316' : '#ef4444'} 
+                                                    strokeWidth="10" 
+                                                    strokeDasharray={circumference} 
+                                                    strokeDashoffset={offset} 
+                                                    strokeLinecap="round" 
+                                                    fill="transparent" 
+                                                />
+                                            </svg>
+                                            <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                                <span className="text-2xl font-black text-slate-800">{evaluation.percentage}%</span>
+                                                <span className="text-[10px] font-bold text-slate-400 uppercase">{evaluation.grade}</span>
                                             </div>
-                                            <span className="font-bold text-lg text-slate-800">{evaluation.maxScore}</span>
                                         </div>
 
-                                        <div className="flex justify-between items-center p-3 bg-red-50 rounded-xl border border-red-100">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center print:bg-transparent print:text-black print:border"><i className="fas fa-minus-circle"></i></div>
-                                                <span className="text-sm font-bold text-gray-600 uppercase">{t('rep.deduct')}</span>
+                                        {/* Evaluation Breakdown */}
+                                        <div className="grid grid-cols-2 gap-2.5 text-right">
+                                            <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+                                                <span className="text-[11px] font-bold text-slate-400 block">غياب بدون إذن</span>
+                                                <span className="text-sm font-black text-red-600">
+                                                    {evaluation.stats.unjustifiedAbsences} <span className="text-xs font-bold text-slate-400">يوم</span>
+                                                </span>
                                             </div>
-                                            <span className="font-bold text-lg text-red-600">-{evaluation.totalDeductions}</span>
+                                            <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+                                                <span className="text-[11px] font-bold text-slate-400 block">تأخيرات</span>
+                                                <span className="text-sm font-black text-amber-600">
+                                                    {evaluation.stats.lates} <span className="text-xs font-bold text-slate-400">مرات</span>
+                                                </span>
+                                            </div>
+                                            <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+                                                <span className="text-[11px] font-bold text-slate-400 block">مخالفات / جزاءات</span>
+                                                <span className="text-sm font-black text-rose-600">
+                                                    {evaluation.stats.violations} <span className="text-xs font-bold text-slate-400">إجراء</span>
+                                                </span>
+                                            </div>
+                                            <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+                                                <span className="text-[11px] font-bold text-slate-400 block">إيجابيات / مكافآت</span>
+                                                <span className="text-sm font-black text-emerald-600">
+                                                    {evaluation.stats.positives} <span className="text-xs font-bold text-slate-400">نقاط</span>
+                                                </span>
+                                            </div>
+                                            <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+                                                <span className="text-[11px] font-bold text-slate-400 block">إجازات سنوية</span>
+                                                <span className="text-sm font-black text-purple-600">
+                                                    {evaluation.stats.annualLeaveDays} <span className="text-xs font-bold text-slate-400">يوم</span>
+                                                </span>
+                                            </div>
+                                            <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+                                                <span className="text-[11px] font-bold text-slate-400 block">إجازات مرضية</span>
+                                                <span className="text-sm font-black text-blue-600">
+                                                    {evaluation.stats.sickLeaves} <span className="text-xs font-bold text-slate-400">يوم</span>
+                                                </span>
+                                            </div>
                                         </div>
 
-                                        <div className="border-t-2 border-dashed border-gray-300 pt-4 mt-2">
-                                            <div className="flex justify-between items-center">
-                                                <span className="text-lg font-black text-slate-800 uppercase">{t('rep.net')}</span>
-                                                <span className={`text-2xl font-black ${evaluation.color.split(' ')[0]}`}>{evaluation.finalScore}</span>
-                                            </div>
-                                        </div>
-
-                                        <div className="border-t border-gray-200 pt-4 mt-4 grid grid-cols-2 gap-2 text-center">
-                                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                                <div className="text-[10px] font-bold text-slate-400 uppercase">تأخير</div>
-                                                <div className="text-lg font-black text-orange-500">{evaluation.stats.lates}</div>
-                                            </div>
-                                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                                <div className="text-[10px] font-bold text-slate-400 uppercase">غياب</div>
-                                                <div className="text-lg font-black text-red-500">{evaluation.stats.absences}</div>
-                                            </div>
-                                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                                <div className="text-[10px] font-bold text-slate-400 uppercase">إجازات مرضية</div>
-                                                <div className="text-lg font-black text-blue-500">{evaluation.stats.sickLeaves}</div>
-                                            </div>
-                                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                                <div className="text-[10px] font-bold text-slate-400 uppercase">إجازات سنوية</div>
-                                                <div className="text-lg font-black text-purple-500">{evaluation.stats.annualLeaveDays}</div>
-                                            </div>
-                                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                                <div className="text-[10px] font-bold text-slate-400 uppercase">تبديلات</div>
-                                                <div className="text-lg font-black text-indigo-500">{evaluation.stats.swapCount}</div>
-                                            </div>
-                                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                                <div className="text-[10px] font-bold text-slate-400 uppercase">حالات منجزة</div>
-                                                <div className="text-lg font-black text-emerald-500">{evaluation.stats.examCount}</div>
-                                            </div>
+                                        {/* Total Deductions Bar */}
+                                        <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center px-1">
+                                            <span className="text-xs font-bold text-slate-500">إجمالي نقاط الخصم:</span>
+                                            <span className="text-sm font-black text-red-600 bg-red-50 px-2.5 py-0.5 rounded-lg border border-red-100">
+                                                -{evaluation.totalDeductions}
+                                            </span>
                                         </div>
 
                                         {evaluation.nextLeaveDate && (
-                                            <div className="mt-4 bg-blue-50 border border-blue-100 rounded-xl p-3 flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
-                                                    <i className="fas fa-plane-departure"></i>
+                                            <div className="mt-3 bg-blue-50 border border-blue-100 rounded-xl p-2.5 flex items-center gap-2.5 text-right">
+                                                <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                                                    <i className="fas fa-plane-departure text-xs"></i>
                                                 </div>
-                                                <div className="text-right flex-1">
-                                                    <div className="text-[10px] font-bold text-blue-400 uppercase">استحقاق الإجازة القادمة</div>
-                                                    <div className="text-sm font-black text-blue-700">
+                                                <div className="flex-1">
+                                                    <div className="text-[10px] font-bold text-blue-400">استحقاق الإجازة القادمة</div>
+                                                    <div className="text-xs font-black text-blue-700">
                                                         {evaluation.nextLeaveDate.toLocaleDateString('en-GB')}
                                                     </div>
                                                 </div>
                                             </div>
                                         )}
                                     </div>
-                                </div>
-                            ) : (
-                                <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100 print:border-2 print:border-slate-800 print:shadow-none">
-                                    <div className="p-6 border-b border-gray-100 bg-slate-50">
-                                        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                                            <i className="fas fa-users text-blue-500"></i> لوحة تقييم الموظفين
-                                        </h2>
-                                        <p className="text-xs text-slate-500 mt-1">ملخص أداء جميع الموظفين للفترة المحددة</p>
-                                    </div>
-                                    <div className="p-0 overflow-x-auto">
-                                        {departments.filter(d => !selectedDept || d.id === selectedDept).map(dept => {
-                                            const deptEvals = allEvaluations.filter(ev => ev.employee.departmentId === dept.id);
-                                            if (deptEvals.length === 0) return null;
-                                            return (
-                                                <div key={dept.id} className="mb-6">
-                                                    <h3 className="font-bold text-slate-700 p-4 bg-slate-100">{dept.name}</h3>
-                                                    <table className="w-full text-sm text-right">
-                                                        <thead className="bg-white text-slate-500 font-bold text-xs uppercase border-b border-slate-100">
-                                                            <tr>
-                                                                <th className="p-4">الموظف</th>
-                                                                <th className="p-4 text-center">التقييم</th>
-                                                                <th className="p-4 text-center">الخصم</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody className="divide-y divide-slate-50">
-                                                            {deptEvals.map((ev, i) => (
-                                                                <tr key={ev.employee.id} className="hover:bg-slate-50 cursor-pointer transition-colors" onClick={() => setFilterEmp(ev.employee.id)}>
-                                                                    <td className="p-4">
-                                                                        <div className="font-bold text-slate-800">{ev.employee.name || ev.employee.email}</div>
-                                                                        <div className="text-[10px] text-slate-400 flex gap-2 mt-1">
-                                                                            <span title="تأخير" className={ev.stats.lates > 0 ? 'text-orange-500' : ''}><i className="fas fa-clock"></i> {ev.stats.lates}</span>
-                                                                            <span title="غياب" className={ev.stats.absences > 0 ? 'text-red-500' : ''}><i className="fas fa-user-times"></i> {ev.stats.absences}</span>
-                                                                            <span title="إجازات مرضية" className={ev.stats.sickLeaves > 0 ? 'text-blue-500' : ''}><i className="fas fa-procedures"></i> {ev.stats.sickLeaves}</span>
-                                                                            <span title="إجازات سنوية" className={ev.stats.annualLeaveDays > 0 ? 'text-purple-500' : ''}><i className="fas fa-plane"></i> {ev.stats.annualLeaveDays}</span>
-                                                                            <span title="تبديلات" className={ev.stats.swapCount > 0 ? 'text-indigo-500' : ''}><i className="fas fa-exchange-alt"></i> {ev.stats.swapCount}</span>
-                                                                            <span title="حالات منجزة" className={ev.stats.examCount > 0 ? 'text-emerald-500' : ''}><i className="fas fa-check-circle"></i> {ev.stats.examCount}</span>
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="p-4 text-center">
-                                                                        <div className={`text-lg font-black ${ev.color.split(' ')[0]}`}>{ev.percentage}%</div>
-                                                                        <div className="text-[10px] font-bold text-slate-400 uppercase">{ev.grade}</div>
-                                                                    </td>
-                                                                    <td className="p-4 text-center">
-                                                                        <span className="bg-red-50 text-red-600 px-2 py-1 rounded text-xs font-bold border border-red-100">
-                                                                            -{ev.totalDeductions}
-                                                                        </span>
-                                                                    </td>
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
+                                ) : (
+                                    /* Staff Ranking Overview Table */
+                                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                                        <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+                                            <h4 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                                                <i className="fas fa-award text-amber-500"></i> ترتيب وتقييم الموظفين
+                                            </h4>
+                                            <span className="text-xs font-bold bg-white px-2 py-0.5 rounded-full border text-slate-500">
+                                                {allEvaluations.length}
+                                            </span>
+                                        </div>
+                                        <div className="max-h-[480px] overflow-y-auto divide-y divide-slate-50 custom-scrollbar">
+                                            {allEvaluations.map((ev, i) => (
+                                                <div 
+                                                    key={ev.employee.id} 
+                                                    onClick={() => setFilterEmp(ev.employee.id)}
+                                                    className={`p-3.5 hover:bg-blue-50/50 cursor-pointer transition-colors flex items-center justify-between ${filterEmp === ev.employee.id ? 'bg-blue-50 border-r-4 border-blue-600' : ''}`}
+                                                >
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="w-6 text-center text-xs font-bold text-slate-400">#{i + 1}</span>
+                                                        <div>
+                                                            <div className="font-bold text-xs text-slate-800">{ev.employee.name}</div>
+                                                            <div className="text-[10px] text-slate-400 flex gap-2 mt-0.5">
+                                                                <span>خصم: -{ev.totalDeductions}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <span className={`px-2 py-0.5 rounded-full text-xs font-black ${ev.percentage >= 85 ? 'bg-emerald-50 text-emerald-600' : ev.percentage >= 70 ? 'bg-blue-50 text-blue-600' : ev.percentage >= 50 ? 'bg-orange-50 text-orange-600' : 'bg-red-50 text-red-600'}`}>
+                                                            {ev.percentage}%
+                                                        </span>
+                                                    </div>
                                                 </div>
-                                            );
-                                        })}
+                                            ))}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
-                        </div>
+                                )}
+                            </div>
 
-                        {/* Action Log List / Performance Charts */}
-                        <div className="lg:col-span-2 space-y-6 print:w-full">
-                            {!filterEmp ? (
-                                <div className="space-y-6">
-                                    {/* Top Cards */}
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                        {/* Best Performer */}
-                                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-emerald-100 relative overflow-hidden">
-                                            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-bl-full -mr-4 -mt-4 opacity-50"></div>
-                                            <div className="relative z-10">
-                                                <div className="text-xs font-bold text-emerald-600 uppercase mb-2">الأفضل أداءً</div>
-                                                <div className="text-2xl font-black text-slate-800">
-                                                    {chartEvaluations[0]?.employee.name || '-'}
+                            {/* Right 2 Columns: Performance Overview OR Actions Log Table */}
+                            <div className="lg:col-span-2 space-y-6 print:w-full">
+                                {(!filterEmp && mainViewTab === 'overview') ? (
+                                    <div className="space-y-6">
+                                        {/* Top Summary Cards */}
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            {/* Best Performer */}
+                                            <div className="bg-white p-5 rounded-3xl shadow-sm border border-emerald-100 relative overflow-hidden">
+                                                <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-bl-full -mr-4 -mt-4 opacity-50"></div>
+                                                <div className="relative z-10">
+                                                    <div className="text-xs font-bold text-emerald-600 uppercase mb-1">الأفضل أداءً</div>
+                                                    <div className="text-xl font-black text-slate-800 truncate">
+                                                        {chartEvaluations[0]?.employee.name || '-'}
+                                                    </div>
+                                                    <div className="text-xs font-bold text-emerald-500 mt-1">
+                                                        {chartEvaluations[0]?.percentage}% - {chartEvaluations[0]?.grade}
+                                                    </div>
                                                 </div>
-                                                <div className="text-sm font-bold text-emerald-500 mt-1">
-                                                    {chartEvaluations[0]?.percentage}% - {chartEvaluations[0]?.grade}
+                                            </div>
+
+                                            {/* Needs Improvement */}
+                                            <div className="bg-white p-5 rounded-3xl shadow-sm border border-red-100 relative overflow-hidden">
+                                                <div className="absolute top-0 right-0 w-24 h-24 bg-red-50 rounded-bl-full -mr-4 -mt-4 opacity-50"></div>
+                                                <div className="relative z-10">
+                                                    <div className="text-xs font-bold text-red-600 uppercase mb-1">يحتاج تحسين ({needsImprovementList.length})</div>
+                                                    {needsImprovementList.length === 0 ? (
+                                                        <div className="text-slate-400 text-xs italic mt-1">لا يوجد موظفين بحاجة لتحسين</div>
+                                                    ) : (
+                                                        <div className="text-sm font-black text-slate-800 truncate">
+                                                            {needsImprovementList[0]?.employee.name} ({needsImprovementList[0]?.percentage}%)
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Average */}
+                                            <div className="bg-white p-5 rounded-3xl shadow-sm border border-blue-100 relative overflow-hidden">
+                                                <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-bl-full -mr-4 -mt-4 opacity-50"></div>
+                                                <div className="relative z-10">
+                                                    <div className="text-xs font-bold text-blue-600 uppercase mb-1">متوسط الأداء</div>
+                                                    <div className="text-2xl font-black text-slate-800">
+                                                        {Math.round(chartEvaluations.reduce((acc, curr) => acc + curr.percentage, 0) / (chartEvaluations.length || 1))}%
+                                                    </div>
+                                                    <div className="text-xs font-bold text-blue-400 mt-0.5">
+                                                        للموظفين النشطين ({chartEvaluations.length})
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
 
-                                        {/* Needs Improvement - List */}
-                                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-red-100 relative overflow-hidden row-span-2 md:row-span-1">
-                                            <div className="absolute top-0 right-0 w-24 h-24 bg-red-50 rounded-bl-full -mr-4 -mt-4 opacity-50"></div>
-                                            <div className="relative z-10 h-full flex flex-col">
-                                                <div className="text-xs font-bold text-red-600 uppercase mb-2">يحتاج تحسين ({needsImprovementList.length})</div>
-                                                
-                                                {needsImprovementList.length === 0 ? (
-                                                    <div className="text-slate-400 text-sm italic mt-2">لا يوجد موظفين بحاجة لتحسين</div>
-                                                ) : (
-                                                    <div className="flex-1 overflow-y-auto max-h-[120px] pr-2 space-y-3 custom-scrollbar">
-                                                        {needsImprovementList.map(emp => (
-                                                            <div key={emp.employee.id} className="border-b border-red-50 pb-2 last:border-0 last:pb-0">
-                                                                <div className="flex justify-between items-center">
-                                                                    <div className="font-bold text-slate-800 text-sm">{emp.employee.name}</div>
-                                                                    <div className="text-xs font-bold text-red-500">{emp.percentage}%</div>
-                                                                </div>
-                                                                <div className="text-[10px] text-slate-500 mt-1">
-                                                                    {getImprovementAreas(emp.stats)}
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
+                                        {/* Chart */}
+                                        <div className="bg-white rounded-3xl shadow-sm border border-gray-200 p-6">
+                                            <div className="flex justify-between items-center mb-6">
+                                                <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                                                    <i className="fas fa-chart-bar text-blue-500"></i>
+                                                    تحليل الأداء العام للموظفين
+                                                </h3>
+                                                <button 
+                                                    onClick={() => setMainViewTab('actions_table')} 
+                                                    className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl transition-all"
+                                                >
+                                                    <i className="fas fa-table mr-1"></i> استعراض سجل الإجراءات التفصيلي ({filteredActions.length})
+                                                </button>
+                                            </div>
+                                            <div className="h-[360px] w-full" dir="ltr">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <BarChart data={chartEvaluations} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+                                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                                        <XAxis 
+                                                            dataKey="employee.name" 
+                                                            angle={-45} 
+                                                            textAnchor="end" 
+                                                            interval={0} 
+                                                            height={80} 
+                                                            tick={{ fontSize: 10, fill: '#64748b' }}
+                                                        />
+                                                        <YAxis tick={{ fontSize: 12, fill: '#64748b' }} domain={[0, 100]} />
+                                                        <Tooltip 
+                                                            cursor={{ fill: '#f8fafc' }}
+                                                            contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
+                                                        />
+                                                        <Bar dataKey="percentage" radius={[4, 4, 0, 0]} barSize={40}>
+                                                            {chartEvaluations.map((entry, index) => (
+                                                                <Cell key={`cell-${index}`} fill={entry.percentage >= 85 ? '#10b981' : entry.percentage >= 70 ? '#3b82f6' : entry.percentage >= 50 ? '#f97316' : '#ef4444'} />
+                                                            ))}
+                                                        </Bar>
+                                                    </BarChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : null}
+
+                                {/* Actions & Procedures Log Table (Shown when tab is actions_table OR an employee is selected OR during print) */}
+                                {(mainViewTab === 'actions_table' || filterEmp || true) && (
+                                    <div className={`bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none print:rounded-lg ${(!filterEmp && mainViewTab === 'overview') ? 'print:block' : ''}`}>
+                                        <div className="p-5 border-b border-slate-100 flex flex-wrap justify-between items-center bg-slate-50/70 print:bg-white print:border-b-2 print:border-slate-800 gap-3">
+                                            <div className="flex items-center gap-3">
+                                                <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
+                                                    <i className="fas fa-history text-blue-500 print:hidden"></i> 
+                                                    {filterEmp ? `سجل الإجراءات - ${employees.find(e => e.id === filterEmp)?.name}` : 'سجل الإجراءات والمراجعة (جميع الموظفين)'}
+                                                </h3>
+                                                {actionFilterCategory !== 'all' && (
+                                                    <span className="text-[11px] font-bold bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full">
+                                                        {actionFilterCategory === 'actions_only' && '⚡ الإجراءات فقط (بدون غياب وإجازات)'}
+                                                        {actionFilterCategory === 'penalties_only' && '⚖️ الجزاءات والمخالفات'}
+                                                        {actionFilterCategory === 'absences_only' && '🚫 الغياب فقط'}
+                                                        {actionFilterCategory === 'leaves_only' && '🏖️ الإجازات فقط'}
+                                                        {actionFilterCategory === 'late_only' && '⏰ التأخيرات'}
+                                                        {actionFilterCategory === 'positives_only' && '🌟 المكافآت'}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-bold bg-white px-3 py-1 rounded-full border text-slate-600 shadow-2xs">
+                                                    {filteredActions.length} سجل
+                                                </span>
+                                                {filterEmp && (
+                                                    <button 
+                                                        onClick={() => setFilterEmp('')}
+                                                        className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-white hover:bg-blue-50 px-3 py-1 rounded-full border border-blue-200 transition-colors print:hidden"
+                                                    >
+                                                        عرض كل الموظفين
+                                                    </button>
                                                 )}
                                             </div>
                                         </div>
 
-                                        {/* Average */}
-                                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-blue-100 relative overflow-hidden">
-                                            <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-bl-full -mr-4 -mt-4 opacity-50"></div>
-                                            <div className="relative z-10">
-                                                <div className="text-xs font-bold text-blue-600 uppercase mb-2">متوسط الأداء</div>
-                                                <div className="text-2xl font-black text-slate-800">
-                                                    {Math.round(chartEvaluations.reduce((acc, curr) => acc + curr.percentage, 0) / (chartEvaluations.length || 1))}%
-                                                </div>
-                                                <div className="text-sm font-bold text-blue-400 mt-1">
-                                                    للموظفين النشطين ({chartEvaluations.length})
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Chart */}
-                                    <div className="bg-white rounded-3xl shadow-sm border border-gray-200 p-6">
-                                        <h3 className="font-bold text-slate-800 text-lg mb-6 flex items-center gap-2">
-                                            <i className="fas fa-chart-bar text-blue-500"></i>
-                                            تحليل الأداء العام
-                                        </h3>
-                                        <div className="h-[400px] w-full" dir="ltr">
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <BarChart data={chartEvaluations} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
-                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                                    <XAxis 
-                                                        dataKey="employee.name" 
-                                                        angle={-45} 
-                                                        textAnchor="end" 
-                                                        interval={0} 
-                                                        height={80} 
-                                                        tick={{ fontSize: 10, fill: '#64748b' }}
-                                                    />
-                                                    <YAxis tick={{ fontSize: 12, fill: '#64748b' }} domain={[0, 100]} />
-                                                    <Tooltip 
-                                                        cursor={{ fill: '#f8fafc' }}
-                                                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
-                                                    />
-                                                    <Bar dataKey="percentage" radius={[4, 4, 0, 0]} barSize={40}>
-                                                        {chartEvaluations.map((entry, index) => (
-                                                            <Cell key={`cell-${index}`} fill={entry.percentage >= 85 ? '#10b981' : entry.percentage >= 70 ? '#3b82f6' : entry.percentage >= 50 ? '#f97316' : '#ef4444'} />
-                                                        ))}
-                                                    </Bar>
-                                                </BarChart>
-                                            </ResponsiveContainer>
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none print:rounded-lg">
-                                    <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 print:bg-white print:border-b-2 print:border-slate-800">
-                                        <div className="flex items-center gap-4">
-                                            <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2 uppercase">
-                                                <i className="fas fa-history text-blue-500 print:hidden"></i> 
-                                                {filterEmp ? `${t('rep.log')} - ${employees.find(e => e.id === filterEmp)?.name}` : 'سجل الإجراءات لجميع الموظفين'}
-                                            </h3>
-                                            {filterEmp && (
-                                                <button 
-                                                    onClick={() => setFilterEmp('')}
-                                                    className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1 rounded-full transition-colors print:hidden"
-                                                >
-                                                    العودة للوحة التقييم
-                                                </button>
-                                            )}
-                                        </div>
-                                        <span className="text-xs font-bold bg-white px-2 py-1 rounded border text-gray-500">{filteredActions.length}</span>
-                                    </div>
-
-                                    <div className="overflow-x-auto">
-                                        <table className={`w-full text-sm ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
-                                            <thead className="bg-gray-50 text-gray-500 font-medium print:bg-white print:text-black print:border-b-2 print:border-slate-800">
-                                                <tr>
-                                                    <th className="p-4">{t('rep.filter.emp')}</th>
-                                                    <th className="p-4">{t('req.type')}</th>
-                                                    <th className="p-4">{t('date')}</th>
-                                                    <th className="p-4">Points</th>
-                                                    <th className="p-4 print:hidden">{t('actions')}</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-gray-50 print:divide-slate-300">
-                                                {filteredActions.length === 0 ? (
-                                                    <tr><td colSpan={5} className="p-8 text-center text-slate-400">---</td></tr>
-                                                ) : filteredActions.map(act => {
-                                                    const weight = ACTION_WEIGHTS[act.type];
-                                                    const isPositive = weight < 0;
-                                                    return (
-                                                        <tr key={act.id} className="hover:bg-slate-50 transition-colors group print:hover:bg-transparent">
-                                                            <td className="p-4 border-r print:border-slate-300">
-                                                                <div className="font-bold text-slate-700">{employees.find(e => e.id === act.employeeId)?.name || 'Unknown'}</div>
-                                                                <div className="text-xs text-slate-400 print:text-slate-600">{act.description}</div>
-                                                            </td>
-                                                            <td className="p-4 border-r print:border-slate-300">
-                                                                <span className={`px-2 py-1 rounded text-xs font-bold border ${isPositive ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'} print:border-none print:bg-transparent print:text-black print:p-0`}>
-                                                                    {t(`action.${act.type}`)}
-                                                                </span>
-                                                            </td>
-                                                            {/* Fixed Date Rendering */}
-                                                            <td className="p-4 text-xs font-mono text-slate-600 border-r print:border-slate-300">
-                                                                {safeDate(act.fromDate)} 
-                                                                {safeDate(act.fromDate) !== safeDate(act.toDate) && <><br/><i className="fas fa-arrow-down text-[10px] my-1 opacity-50 print:hidden"></i><span className="hidden print:inline"> - </span><br/>{safeDate(act.toDate)}</>}
-                                                            </td>
-                                                            <td className="p-4 font-bold border-r print:border-slate-300">
-                                                                {isPositive ? (
-                                                                    <span className="text-emerald-500">+{Math.abs(weight)}</span>
-                                                                ) : (
-                                                                    <span className="text-red-500">-{weight}</span>
-                                                                )}
-                                                            </td>
-                                                            <td className="p-4 print:hidden">
-                                                                {!act.id.startsWith('auto-') && (
-                                                                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                        <button onClick={() => handleEdit(act)} className="w-8 h-8 rounded bg-blue-50 text-blue-600 hover:bg-blue-100"><i className="fas fa-pen text-xs"></i></button>
-                                                                        <button onClick={() => handleDelete(act.id)} className="w-8 h-8 rounded bg-red-50 text-red-600 hover:bg-red-100"><i className="fas fa-trash text-xs"></i></button>
-                                                                    </div>
-                                                                )}
+                                        <div className="overflow-x-auto">
+                                            <table className={`w-full text-sm ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
+                                                <thead className="bg-slate-50 text-slate-500 font-bold text-xs uppercase print:bg-white print:text-black print:border-b-2 print:border-slate-800">
+                                                    <tr>
+                                                        <th className="p-4">{t('rep.filter.emp')}</th>
+                                                        <th className="p-4">{t('req.type')}</th>
+                                                        <th className="p-4">{t('date')}</th>
+                                                        <th className="p-4">النقاط / الخصم</th>
+                                                        <th className="p-4 print:hidden">{t('actions')}</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100 print:divide-slate-300">
+                                                    {filteredActions.length === 0 ? (
+                                                        <tr>
+                                                            <td colSpan={5} className="p-12 text-center text-slate-400">
+                                                                <i className="fas fa-inbox text-3xl mb-2 block opacity-30"></i>
+                                                                لا توجد إجراءات مطابقة للفلترة في الفترة المحددة ({dateTitle})
                                                             </td>
                                                         </tr>
-                                                    );
-                                                })}
-                                            </tbody>
-                                        </table>
+                                                    ) : filteredActions.map(act => {
+                                                        const weight = ACTION_WEIGHTS[act.type];
+                                                        const isPositive = weight < 0;
+                                                        return (
+                                                            <tr key={act.id} className="hover:bg-slate-50/70 transition-colors group print:hover:bg-transparent">
+                                                                <td className="p-4 border-r print:border-slate-300">
+                                                                    <div className="font-bold text-slate-800">{getEmpName(act.employeeId, act)}</div>
+                                                                    <div className="text-xs text-slate-400 print:text-slate-600 mt-0.5">{act.description}</div>
+                                                                </td>
+                                                                <td className="p-4 border-r print:border-slate-300">
+                                                                    <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border inline-block ${
+                                                                        act.type === 'violation' ? 'bg-red-50 text-red-700 border-red-200' :
+                                                                        act.type === 'late' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                                                        act.type === 'positive' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                                        act.type === 'mission' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                                                                        act.type === 'unjustified_absence' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                                                                        'bg-slate-100 text-slate-700 border-slate-200'
+                                                                    } print:border-none print:bg-transparent print:text-black print:p-0`}>
+                                                                        {t(`action.${act.type}`) || act.type}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="p-4 text-xs font-mono text-slate-600 border-r print:border-slate-300">
+                                                                    <div className="font-bold">{safeDate(act.fromDate)}</div>
+                                                                    {safeDate(act.fromDate) !== safeDate(act.toDate) && (
+                                                                        <div className="text-[11px] text-slate-400 mt-0.5">
+                                                                            <i className="fas fa-arrow-down text-[10px] mx-1 text-slate-300 print:hidden"></i>
+                                                                            إلى {safeDate(act.toDate)}
+                                                                        </div>
+                                                                    )}
+                                                                </td>
+                                                                <td className="p-4 font-bold border-r print:border-slate-300">
+                                                                    {isPositive ? (
+                                                                        <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 text-xs font-black">+{Math.abs(weight)}</span>
+                                                                    ) : weight > 0 ? (
+                                                                        <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-100 text-xs font-black">-{weight}</span>
+                                                                    ) : (
+                                                                        <span className="text-slate-400 text-xs">0</span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="p-4 print:hidden">
+                                                                    {!act.id.startsWith('auto-') && (
+                                                                        <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                            <button onClick={() => handleEdit(act)} className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 flex items-center justify-center"><i className="fas fa-pen text-xs"></i></button>
+                                                                            <button onClick={() => handleDelete(act.id)} className="w-7 h-7 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center"><i className="fas fa-trash text-xs"></i></button>
+                                                                        </div>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}

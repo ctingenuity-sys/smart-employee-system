@@ -367,11 +367,26 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
         return saved ? Math.max(1, parseInt(saved, 10) || 1) : 1;
     });
 
-    // Sticker Widget State (طباعة ستيكر 2.5 × 5 سم)
+    // Sticker Widget & Custom Thermal Label Maker State (طباعة وتصميم ستيكر 2.5 × 5 سم)
     const [stickerCase, setStickerCase] = useState<StandaloneCase | null>(null);
     const [isStickerWidgetOpen, setIsStickerWidgetOpen] = useState<boolean>(false);
     const [usGenderChoice, setUsGenderChoice] = useState<'M' | 'F'>('M');
     const [usCustomSeqNum, setUsCustomSeqNum] = useState<string>('');
+    const [customStickerForm, setCustomStickerForm] = useState({
+        patientName: '',
+        fileNumber: '',
+        examName: '',
+        date: getLocalToday(),
+        time: getCurrentTime(),
+        modality: 'X-RAY' as 'X-RAY' | 'CT' | 'MRI' | 'US' | 'FLUO' | 'MAMMO' | 'OTHER',
+        modalitySerial: '',
+        centerHeader: localStorage.getItem('stand_sticker_center_header') || 'مستشفى / مركز الأشعة والتصوير الطبي',
+        doctorName: '',
+        technicianName: '',
+        usGender: 'M' as 'M' | 'F',
+        usSubSerial: '',
+        saveToLogbook: false
+    });
 
     // Load Incoming Staging Queue from LocalStorage
     const [incomingQueue, setIncomingQueue] = useState<IncomingPatient[]>(() => {
@@ -568,48 +583,139 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
     // --- Sticker Printing Helpers (2.5 x 5 cm Thermal Sticker) ---
     const openStickerForCase = (item: StandaloneCase) => {
         setStickerCase(item);
-        if (item.modality === 'US') {
-            const isFem = item.gender?.toLowerCase().startsWith('f') || item.gender === 'female' || item.gender === 'أنثى' || item.usGender === 'F';
-            const defaultGender = item.usGender || (isFem ? 'F' : 'M');
-            setUsGenderChoice(defaultGender);
-            if (item.usSubSerial) {
-                setUsCustomSeqNum(item.usSubSerial);
-            } else {
-                const num = defaultGender === 'F' ? usFemaleCounter : usMaleCounter;
-                setUsCustomSeqNum(`US-${defaultGender}-${String(num).padStart(3, '0')}`);
-            }
+        const isFem = item.gender?.toLowerCase().startsWith('f') || item.gender === 'female' || item.gender === 'أنثى' || item.usGender === 'F';
+        const defaultGender: 'M' | 'F' = item.usGender || (isFem ? 'F' : 'M');
+        setUsGenderChoice(defaultGender);
+
+        let defaultSub = item.usSubSerial || '';
+        if (item.modality === 'US' && !defaultSub) {
+            const num = defaultGender === 'F' ? usFemaleCounter : usMaleCounter;
+            defaultSub = `US-${defaultGender}-${String(num).padStart(3, '0')}`;
         }
+        setUsCustomSeqNum(defaultSub);
+
+        const examStr = item.examName || (item.examList && item.examList.length > 0 ? item.examList.join(', ') : '');
+
+        setCustomStickerForm({
+            patientName: item.patientName || '',
+            fileNumber: item.fileNumber || '',
+            examName: examStr,
+            date: item.date || selectedDate || getLocalToday(),
+            time: item.time || getCurrentTime(),
+            modality: item.modality || 'X-RAY',
+            modalitySerial: item.modalitySerial || '',
+            centerHeader: localStorage.getItem('stand_sticker_center_header') || 'مستشفى / مركز الأشعة والتصوير الطبي',
+            doctorName: item.doctorName || '',
+            technicianName: item.technicianName || selectedTechnician,
+            usGender: defaultGender,
+            usSubSerial: defaultSub,
+            saveToLogbook: false
+        });
+        setIsStickerWidgetOpen(true);
+    };
+
+    const openNewCustomSticker = () => {
+        const currentMod = (activeTab !== 'ALL' ? activeTab : 'X-RAY') as 'X-RAY' | 'CT' | 'MRI' | 'US' | 'FLUO' | 'MAMMO' | 'OTHER';
+        
+        setStickerCase(null);
+        setUsGenderChoice('M');
+        setUsCustomSeqNum('');
+
+        setCustomStickerForm({
+            patientName: '',
+            fileNumber: '',
+            examName: '',
+            date: selectedDate || getLocalToday(),
+            time: getCurrentTime(),
+            modality: currentMod,
+            modalitySerial: '', // Separated from logbook counter - empty by default
+            centerHeader: localStorage.getItem('stand_sticker_center_header') || 'مستشفى / مركز الأشعة والتصوير الطبي',
+            doctorName: '',
+            technicianName: selectedTechnician,
+            usGender: 'M',
+            usSubSerial: '',
+            saveToLogbook: false
+        });
         setIsStickerWidgetOpen(true);
     };
 
     const handleToggleUsGender = (newGender: 'M' | 'F') => {
         setUsGenderChoice(newGender);
-        if (!stickerCase) return;
-
         let newSubSerial = '';
-        if (newGender === 'F') {
-            newSubSerial = stickerCase.usGender === 'F' && stickerCase.usSubSerial ? stickerCase.usSubSerial : `US-F-${String(usFemaleCounter).padStart(3, '0')}`;
-        } else {
-            newSubSerial = stickerCase.usGender === 'M' && stickerCase.usSubSerial ? stickerCase.usSubSerial : `US-M-${String(usMaleCounter).padStart(3, '0')}`;
+        if (stickerCase) {
+            if (newGender === 'F') {
+                newSubSerial = stickerCase.usGender === 'F' && stickerCase.usSubSerial ? stickerCase.usSubSerial : `US-F-${String(usFemaleCounter).padStart(3, '0')}`;
+            } else {
+                newSubSerial = stickerCase.usGender === 'M' && stickerCase.usSubSerial ? stickerCase.usSubSerial : `US-M-${String(usMaleCounter).padStart(3, '0')}`;
+            }
         }
         setUsCustomSeqNum(newSubSerial);
 
-        // Update case in list so choice persists
-        setCases(prev => prev.map(c => {
-            if (c.id === stickerCase.id) {
-                return {
-                    ...c,
-                    usGender: newGender,
-                    usSubSerial: newSubSerial
-                };
-            }
-            return c;
+        setCustomStickerForm(prev => ({
+            ...prev,
+            usGender: newGender,
+            usSubSerial: newSubSerial
         }));
-        setStickerCase(prev => prev ? { ...prev, usGender: newGender, usSubSerial: newSubSerial } : null);
+
+        if (stickerCase) {
+            // Update case in list so choice persists
+            setCases(prev => prev.map(c => {
+                if (c.id === stickerCase.id) {
+                    return {
+                        ...c,
+                        usGender: newGender,
+                        usSubSerial: newSubSerial
+                    };
+                }
+                return c;
+            }));
+            setStickerCase(prev => prev ? { ...prev, usGender: newGender, usSubSerial: newSubSerial } : null);
+        }
     };
 
     const handlePrintSticker = () => {
-        if (!stickerCase) return;
+        // If saveToLogbook is enabled and there's a patient name or MRN
+        if (customStickerForm.saveToLogbook && (customStickerForm.patientName.trim() || customStickerForm.fileNumber.trim())) {
+            registerPatient({
+                patientName: customStickerForm.patientName.trim() || 'مريض بدون اسم',
+                fileNumber: customStickerForm.fileNumber.trim(),
+                examName: customStickerForm.examName.trim() || 'فحص أشعة',
+                modality: customStickerForm.modality,
+                doctorName: customStickerForm.doctorName || '',
+                date: customStickerForm.date || selectedDate || getLocalToday(),
+                time: customStickerForm.time || getCurrentTime(),
+                technicianName: customStickerForm.technicianName || selectedTechnician,
+                source: 'MANUAL',
+                customSerial: customStickerForm.modalitySerial.trim() || undefined,
+                usGender: customStickerForm.modality === 'US' ? customStickerForm.usGender : undefined,
+                usSubSerial: customStickerForm.modality === 'US' ? customStickerForm.usSubSerial : undefined
+            });
+            showToast('تمت طباعة الاستيكر وحفظ الحالة أيضاً في السجل!', 'success');
+        } else if (stickerCase) {
+            // Update existing case in list if edited
+            setCases(prev => prev.map(c => {
+                if (c.id === stickerCase.id) {
+                    return {
+                        ...c,
+                        patientName: customStickerForm.patientName.trim() || c.patientName,
+                        fileNumber: customStickerForm.fileNumber.trim() || c.fileNumber,
+                        examName: customStickerForm.examName.trim() || c.examName,
+                        date: customStickerForm.date || c.date,
+                        time: customStickerForm.time || c.time,
+                        modality: customStickerForm.modality || c.modality,
+                        modalitySerial: customStickerForm.modalitySerial.trim() || c.modalitySerial,
+                        usGender: customStickerForm.usGender || c.usGender,
+                        usSubSerial: customStickerForm.usSubSerial || c.usSubSerial
+                    };
+                }
+                return c;
+            }));
+        }
+
+        // Save custom center header to localStorage
+        if (customStickerForm.centerHeader) {
+            localStorage.setItem('stand_sticker_center_header', customStickerForm.centerHeader);
+        }
 
         // Inject dynamic page dimensions style specifically for thermal label printing (50mm x 25mm)
         let styleEl = document.getElementById('sticker-print-page-style');
@@ -656,6 +762,9 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
         notes?: string;
         technicianName?: string;
         source?: 'IHMS_AUTO' | 'CLICK' | 'MANUAL';
+        customSerial?: string;
+        usGender?: 'M' | 'F';
+        usSubSerial?: string;
     }) => {
         // When registering a patient, use the execution/registration date (selectedDate || getLocalToday())
         // unless explicitly specified via MANUAL entry.
@@ -700,22 +809,24 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
             return existing;
         }
 
-        // Sequential numbering starting strictly from configured counter
+        // Sequential numbering starting strictly from configured counter or custom
         const nextSerial = counters[detectedMod] !== undefined ? counters[detectedMod] : 1;
-        const formattedSerial = `${prefix}-${String(nextSerial).padStart(3, '0')}`;
+        const formattedSerial = patient.customSerial || `${prefix}-${String(nextSerial).padStart(3, '0')}`;
 
-        // Increment Counter for next patient
-        setCounters(prev => ({
-            ...prev,
-            [detectedMod]: nextSerial + 1
-        }));
+        // Increment Counter for next patient if auto serial
+        if (!patient.customSerial) {
+            setCounters(prev => ({
+                ...prev,
+                [detectedMod]: nextSerial + 1
+            }));
+        }
 
         // Ultrasound Male / Female Counter Assignment
-        let usGenderVal: 'M' | 'F' | undefined = undefined;
-        let usSubSerialVal: string | undefined = undefined;
+        let usGenderVal: 'M' | 'F' | undefined = patient.usGender;
+        let usSubSerialVal: string | undefined = patient.usSubSerial;
 
-        if (detectedMod === 'US') {
-            const isFem = patient.gender?.toLowerCase().startsWith('f') || patient.gender === 'female' || patient.gender === 'أنثى';
+        if (detectedMod === 'US' && !usSubSerialVal) {
+            const isFem = patient.gender?.toLowerCase().startsWith('f') || patient.gender === 'female' || patient.gender === 'أنثى' || patient.usGender === 'F';
             if (isFem) {
                 usGenderVal = 'F';
                 usSubSerialVal = `US-F-${String(usFemaleCounter).padStart(3, '0')}`;
@@ -1878,6 +1989,16 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <span>{txt('شيتات الأقسام', 'Modality Sheets')}</span>
                         </button>
 
+                        {/* Custom Sticker Generator Button */}
+                        <button
+                            onClick={openNewCustomSticker}
+                            className="bg-teal-600 hover:bg-teal-500 text-white font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow transition-all cursor-pointer"
+                            title={txt("كتابة بيانات مخصصة وطباعة استيكر حراري مباشرة", "Write custom details and print thermal sticker")}
+                        >
+                            <i className="fas fa-barcode text-teal-200"></i>
+                            <span>{txt('طباعة استيكر يدوي', 'Custom Sticker')}</span>
+                        </button>
+
                         {/* Settings & Counters */}
                         <button
                             onClick={() => setIsSettingsOpen(true)}
@@ -2509,6 +2630,16 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             >
                                 <i className="fas fa-file-excel text-emerald-100"></i>
                                 <span>{txt('تصدير إكسل (.xlsx)', 'Export Excel (.xlsx)')}</span>
+                            </button>
+
+                            {/* Custom Sticker Generator */}
+                            <button
+                                onClick={openNewCustomSticker}
+                                className="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                                title={txt("كتابة بيانات وطباعة استيكر حراري مخصص", "Custom thermal sticker generator")}
+                            >
+                                <i className="fas fa-barcode"></i>
+                                <span>{txt('طباعة استيكر يدوي', 'Custom Sticker')}</span>
                             </button>
 
                             {/* Print Preview & Print Table */}
@@ -4589,122 +4720,348 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
             )}
 
             {/* ========================================================================= */}
-            {/* FLOATING STICKER PREVIEW & PRINT WIDGET (2.5cm x 5cm THERMAL STICKER)     */}
+            {/* STICKER MAKER & LIVE PREVIEW MODAL (2.5cm x 5cm THERMAL STICKER)          */}
             {/* ========================================================================= */}
-            {isStickerWidgetOpen && stickerCase && (
-                <div className="fixed bottom-4 left-4 z-50 bg-slate-900/95 backdrop-blur-md text-white p-4 rounded-3xl shadow-2xl border border-slate-700 max-w-sm w-full animate-in slide-in-from-bottom-5 duration-200" dir={isEn ? "ltr" : "rtl"}>
-                    {/* Header Bar */}
-                    <div className="flex items-center justify-between pb-2 mb-3 border-b border-slate-800">
-                        <div className="flex items-center gap-2">
-                            <span className="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center text-sm font-black shadow-inner">
-                                <i className="fas fa-barcode"></i>
-                            </span>
-                            <div>
-                                <h4 className="text-xs font-black text-white">{txt('طباعة ستيكر حراري (2.5×5 سم)', 'Thermal Sticker (2.5×5 cm)')}</h4>
-                                <p className="text-[10px] text-slate-400">
-                                    {stickerCase.modality === 'US' 
-                                        ? txt('قسم السونار (خيارات M / F بالدور)', 'Ultrasound (M / F Options)') 
-                                        : (isEn ? MODALITY_CONFIG[stickerCase.modality]?.nameEn : MODALITY_CONFIG[stickerCase.modality]?.nameAr)}
-                                </p>
-                            </div>
-                        </div>
-                        <button
-                            onClick={() => setIsStickerWidgetOpen(false)}
-                            className="text-slate-400 hover:text-white w-7 h-7 rounded-full flex items-center justify-center bg-slate-800 hover:bg-slate-700 transition cursor-pointer"
-                        >
-                            <i className="fas fa-times text-xs"></i>
-                        </button>
-                    </div>
-
-                    {/* Live Sticker 2.5cm x 5cm Scaled Preview Card (50mm x 25mm ratio) */}
-                    <div className="bg-white text-slate-950 p-2 rounded-2xl shadow-inner border-2 border-slate-300 mx-auto w-[220px] h-[110px] flex flex-col justify-between select-none relative overflow-hidden font-sans">
-                        {/* Top Bar inside sticker */}
-                        <div className="text-[8.5px] font-black tracking-tight text-slate-800 text-center border-b border-slate-300 pb-0.5 uppercase truncate">
-                            {txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Radiology & Imaging Center')}
-                        </div>
-
-                        {/* Patient Name & Serials */}
-                        <div className="text-center my-auto px-1 py-0.5">
-                            <div className="text-xs font-black text-slate-950 truncate leading-tight">
-                                {stickerCase.patientName}
-                            </div>
-                            
-                            <div className="flex items-center justify-center gap-1.5 mt-1">
-                                {/* Main Modality Serial */}
-                                <span className="text-xs font-black font-mono bg-slate-950 text-white px-1.5 py-0.5 rounded shadow-2xs">
-                                    {stickerCase.modalitySerial}
+            {isStickerWidgetOpen && (
+                <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-150" dir={isEn ? "ltr" : "rtl"}>
+                    <div className="bg-slate-900 text-white rounded-3xl shadow-2xl border border-slate-700 max-w-2xl w-full p-5 md:p-6 overflow-hidden my-auto max-h-[95vh] flex flex-col">
+                        
+                        {/* Modal Header */}
+                        <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-800 shrink-0">
+                            <div className="flex items-center gap-3">
+                                <span className="w-10 h-10 rounded-2xl bg-teal-500/20 text-teal-300 flex items-center justify-center text-lg font-black shadow-inner">
+                                    <i className="fas fa-barcode"></i>
                                 </span>
+                                <div>
+                                    <h3 className="text-base font-black text-white flex items-center gap-2">
+                                        <span>{txt('طباعة وتعديل الاستيكر الحراري (2.5 × 5 سم)', 'Thermal Sticker Maker (2.5 × 5 cm)')}</span>
+                                        <span className="text-[10px] bg-teal-500/20 text-teal-300 border border-teal-500/30 px-2 py-0.5 rounded-full font-mono font-bold">50mm × 25mm</span>
+                                    </h3>
+                                    <p className="text-xs text-slate-400">
+                                        {txt('يمكنك كتابة أو تعديل اسم المريض، رقم الملف، الفحص، والتاريخ مباشرة قبل الطباعة', 'Manually customize patient name, MRN, exam name & date before printing')}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setIsStickerWidgetOpen(false)}
+                                className="text-slate-400 hover:text-white w-8 h-8 rounded-full flex items-center justify-center bg-slate-800 hover:bg-slate-700 transition cursor-pointer"
+                            >
+                                <i className="fas fa-times text-sm"></i>
+                            </button>
+                        </div>
 
-                                {/* Ultrasound M or F Ordered Serial */}
-                                {stickerCase.modality === 'US' && (
-                                    <span className={`text-xs font-black font-mono px-1.5 py-0.5 rounded border ${usGenderChoice === 'F' ? 'bg-rose-600 text-white border-rose-700' : 'bg-blue-600 text-white border-blue-700'}`}>
-                                        {usGenderChoice === 'F' 
-                                            ? (stickerCase.usGender === 'F' && stickerCase.usSubSerial ? stickerCase.usSubSerial : `US-F-${String(usFemaleCounter).padStart(3, '0')}`) 
-                                            : (stickerCase.usGender === 'M' && stickerCase.usSubSerial ? stickerCase.usSubSerial : `US-M-${String(usMaleCounter).padStart(3, '0')}`)
-                                        }
-                                    </span>
+                        {/* Modal Body: Form & Live Preview Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-5 overflow-y-auto pr-1">
+                            
+                            {/* Left/Main Column: Input Form (7 cols) */}
+                            <div className="md:col-span-7 space-y-3">
+                                
+                                {/* Patient Name Input */}
+                                <div>
+                                    <label className="block text-xs font-black text-slate-300 mb-1">
+                                        👤 {txt('اسم المريض:', 'Patient Name:')}
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            placeholder={txt("اكتب اسم المريض هنا...", "Type patient name...")}
+                                            value={customStickerForm.patientName}
+                                            onChange={e => setCustomStickerForm(p => ({ ...p, patientName: e.target.value }))}
+                                            className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                                        />
+                                        {customStickerForm.patientName && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setCustomStickerForm(p => ({ ...p, patientName: '' }))}
+                                                className="absolute left-2 top-2 text-slate-400 hover:text-white text-xs"
+                                            >
+                                                <i className="fas fa-times"></i>
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* File Number (MRN) & Custom Code / Serial (Optional) */}
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="block text-xs font-black text-slate-300 mb-1">
+                                            📋 {txt('رقم الملف (MRN):', 'File No. (MRN):')}
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder={txt("مثال: 123456", "e.g. 123456")}
+                                            value={customStickerForm.fileNumber}
+                                            onChange={e => setCustomStickerForm(p => ({ ...p, fileNumber: e.target.value }))}
+                                            className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono font-bold text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black text-slate-300 mb-1 flex items-center justify-between">
+                                            <span>🏷️ {txt('كود / رقم إضافي:', 'Custom Code / No.:')}</span>
+                                            <span className="text-[10px] text-slate-400 font-normal">{txt('(اختياري - مفصول)', '(Optional)')}</span>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder={txt("اختياري (بدون رقم تسلسلي)", "Optional custom code")}
+                                            value={customStickerForm.modalitySerial}
+                                            onChange={e => setCustomStickerForm(p => ({ ...p, modalitySerial: e.target.value }))}
+                                            className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono font-black text-amber-300 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Exam Name Input + Fast Chips */}
+                                <div>
+                                    <label className="block text-xs font-black text-slate-300 mb-1">
+                                        🔬 {txt('اسم الفحص المطلوب:', 'Exam Name:')}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder={txt("مثال: CXR PA / CT Brain / Pelvis US", "e.g. CXR PA / CT Brain")}
+                                        value={customStickerForm.examName}
+                                        onChange={e => setCustomStickerForm(p => ({ ...p, examName: e.target.value }))}
+                                        className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500 mb-1.5"
+                                    />
+                                    
+                                    {/* Quick Exam Shortcut Pills */}
+                                    <div className="flex flex-wrap gap-1">
+                                        {['CXR PA', 'CT Brain', 'Abd/Pelvis US', 'MRI Lumbar', 'KUB', 'Spine AP/LAT', 'Pelvis', 'Chest CT', 'Thyroid US'].map(chip => (
+                                            <button
+                                                key={chip}
+                                                type="button"
+                                                onClick={() => setCustomStickerForm(p => ({ ...p, examName: chip }))}
+                                                className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition cursor-pointer ${
+                                                    customStickerForm.examName === chip
+                                                        ? 'bg-teal-600 text-white border-teal-400'
+                                                        : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                                                }`}
+                                            >
+                                                {chip}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Date & Time */}
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="block text-xs font-black text-slate-300 mb-1">
+                                            📅 {txt('تاريخ الفحص:', 'Date:')}
+                                        </label>
+                                        <input
+                                            type="date"
+                                            value={customStickerForm.date}
+                                            onChange={e => setCustomStickerForm(p => ({ ...p, date: e.target.value }))}
+                                            className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-mono font-bold text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black text-slate-300 mb-1">
+                                            ⏰ {txt('وقت الفحص:', 'Time:')}
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder="12:30"
+                                            value={customStickerForm.time}
+                                            onChange={e => setCustomStickerForm(p => ({ ...p, time: e.target.value }))}
+                                            className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-mono font-bold text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Modality Selection (Does not change or consume sequential counters) */}
+                                <div>
+                                    <label className="block text-xs font-black text-slate-300 mb-1">
+                                        🏥 {txt('قسم الأشعة (Modality):', 'Modality:')}
+                                    </label>
+                                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                                        {(['X-RAY', 'CT', 'MRI', 'US', 'FLUO', 'MAMMO', 'OTHER'] as const).map(mod => (
+                                            <button
+                                                key={mod}
+                                                type="button"
+                                                onClick={() => {
+                                                    setCustomStickerForm(p => ({
+                                                        ...p,
+                                                        modality: mod
+                                                    }));
+                                                }}
+                                                className={`py-1.5 px-2 rounded-xl text-xs font-bold transition border cursor-pointer ${
+                                                    customStickerForm.modality === mod
+                                                        ? 'bg-indigo-600 text-white border-indigo-400 shadow-xs'
+                                                        : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                                                }`}
+                                            >
+                                                {mod}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Ultrasound Gender Choices if US is selected */}
+                                {customStickerForm.modality === 'US' && (
+                                    <div className="bg-slate-800/80 p-2.5 rounded-2xl border border-slate-700">
+                                        <label className="block text-[11px] font-black text-teal-300 mb-1.5">
+                                            🎯 {txt('نوع مريض السونار:', 'Ultrasound Patient Gender:')}
+                                        </label>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleToggleUsGender('M')}
+                                                className={`py-1.5 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer border ${
+                                                    customStickerForm.usGender === 'M'
+                                                        ? 'bg-blue-600 text-white border-blue-400 shadow-md'
+                                                        : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'
+                                                }`}
+                                            >
+                                                <i className="fas fa-mars text-blue-300"></i>
+                                                <span>M ({txt('ذكر', 'Male')})</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleToggleUsGender('F')}
+                                                className={`py-1.5 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer border ${
+                                                    customStickerForm.usGender === 'F'
+                                                        ? 'bg-rose-600 text-white border-rose-400 shadow-md'
+                                                        : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'
+                                                }`}
+                                            >
+                                                <i className="fas fa-venus text-rose-300"></i>
+                                                <span>F ({txt('أنثى', 'Female')})</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Center Header customization */}
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                                        🏢 {txt('ترويسة المركز / المستشفى في أعلى الاستيكر:', 'Hospital / Center Header:')}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder={txt("مستشفى / مركز الأشعة والتصوير الطبي", "Radiology & Imaging Center")}
+                                        value={customStickerForm.centerHeader}
+                                        onChange={e => setCustomStickerForm(p => ({ ...p, centerHeader: e.target.value }))}
+                                        className="w-full bg-slate-800/60 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-slate-300 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                                    />
+                                </div>
+
+                                {/* Save to logbook checkbox */}
+                                {!stickerCase && (
+                                    <label className="flex items-center gap-2 p-2 rounded-xl bg-slate-800/50 border border-slate-700/60 cursor-pointer hover:bg-slate-800 transition">
+                                        <input
+                                            type="checkbox"
+                                            checked={customStickerForm.saveToLogbook}
+                                            onChange={e => setCustomStickerForm(p => ({ ...p, saveToLogbook: e.target.checked }))}
+                                            className="w-4 h-4 text-teal-600 bg-slate-900 border-slate-600 rounded focus:ring-teal-500"
+                                        />
+                                        <span className="text-xs font-bold text-slate-200">
+                                            💾 {txt('حفظ هذه البيانات كحالة جديدة في جدول السجل اليومي أيضاً', 'Also save this entry as a new case in logbook')}
+                                        </span>
+                                    </label>
                                 )}
                             </div>
-                        </div>
 
-                        {/* Bottom Footer inside sticker */}
-                        <div className="text-[8px] font-mono font-bold text-slate-600 border-t border-slate-300 pt-0.5 flex justify-between items-center px-0.5">
-                            <span className="truncate max-w-[80px]">MRN: {stickerCase.fileNumber || '-'}</span>
-                            <span className="font-sans font-black text-indigo-700">{stickerCase.modality}</span>
-                            <span>{stickerCase.time || ''}</span>
-                        </div>
-                    </div>
+                            {/* Right Column: Live Thermal Sticker Preview & Print Action (5 cols) */}
+                            <div className="md:col-span-5 flex flex-col justify-between space-y-4 bg-slate-950/60 p-4 rounded-2xl border border-slate-800">
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-black text-teal-400 flex items-center gap-1.5">
+                                            <i className="fas fa-eye"></i>
+                                            <span>{txt('معاينة حية للاستيكر', 'Live Sticker Preview')}</span>
+                                        </span>
+                                        <span className="text-[10px] text-slate-400 font-mono">2.5×5 cm</span>
+                                    </div>
 
-                    {/* Ultrasound Specific M / F Controls */}
-                    {stickerCase.modality === 'US' && (
-                        <div className="mt-3 bg-slate-800/80 p-2.5 rounded-2xl border border-slate-700">
-                            <label className="block text-[10px] font-black text-teal-300 mb-1.5 text-center">
-                                🎯 {txt('تحديد الترقيم التسلسلي للسونار (ذكر M / أنثى F):', 'Ultrasound Ordered Counter (Male M / Female F):')}
-                            </label>
-                            <div className="grid grid-cols-2 gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => handleToggleUsGender('M')}
-                                    className={`py-1.5 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer border ${
-                                        usGenderChoice === 'M'
-                                            ? 'bg-blue-600 text-white border-blue-400 shadow-md scale-102'
-                                            : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'
-                                    }`}
-                                >
-                                    <i className="fas fa-mars text-blue-300"></i>
-                                    <span>M ({txt('ذكر', 'Male')}) #{usMaleCounter}</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleToggleUsGender('F')}
-                                    className={`py-1.5 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer border ${
-                                        usGenderChoice === 'F'
-                                            ? 'bg-rose-600 text-white border-rose-400 shadow-md scale-102'
-                                            : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'
-                                    }`}
-                                >
-                                    <i className="fas fa-venus text-rose-300"></i>
-                                    <span>F ({txt('أنثى', 'Female')}) #{usFemaleCounter}</span>
-                                </button>
+                                    {/* Realistic Thermal Sticker Card (50mm x 25mm scaled 2:1 for crisp preview) */}
+                                    <div className="bg-white text-slate-950 p-2.5 rounded-xl shadow-2xl border-2 border-slate-300 w-full aspect-[2/1] flex flex-col justify-between select-none relative overflow-hidden font-sans">
+                                        
+                                        {/* Top Header inside sticker */}
+                                        <div className="text-[8.5px] font-black tracking-tight text-slate-800 text-center border-b border-slate-400 pb-0.5 uppercase truncate leading-tight">
+                                            {customStickerForm.centerHeader || txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Radiology & Imaging Center')}
+                                        </div>
+
+                                        {/* Patient Name, Exam & Serials */}
+                                        <div className="text-center my-auto py-1 flex flex-col items-center justify-center">
+                                            {/* Patient Name */}
+                                            <div className="text-sm font-black text-slate-950 truncate max-w-full leading-tight">
+                                                {customStickerForm.patientName || txt('اسم المريض', 'Patient Name')}
+                                            </div>
+
+                                            {/* Exam Name */}
+                                            {customStickerForm.examName && (
+                                                <div className="text-[9.5px] font-black text-slate-800 truncate max-w-full mt-0.5 leading-none bg-slate-100 px-1 py-0.5 rounded border border-slate-300">
+                                                    <span>{txt('فحص:', 'Exam:')}</span> <span className="text-indigo-900">{customStickerForm.examName}</span>
+                                                </div>
+                                            )}
+                                            
+                                            {/* Modality Serial & MRN Badges */}
+                                            <div className="flex items-center justify-center gap-1.5 mt-1 flex-wrap">
+                                                {customStickerForm.modalitySerial && (
+                                                    <span className="text-xs font-black font-mono bg-slate-950 text-white px-1.5 py-0.5 rounded shadow-2xs">
+                                                        {customStickerForm.modalitySerial}
+                                                    </span>
+                                                )}
+
+                                                {customStickerForm.fileNumber && (
+                                                    <span className="text-[9px] font-mono font-bold bg-slate-200 text-slate-800 px-1 py-0.5 rounded border border-slate-300">
+                                                        MRN: {customStickerForm.fileNumber}
+                                                    </span>
+                                                )}
+
+                                                {/* Ultrasound M or F Ordered Serial (only if present) */}
+                                                {customStickerForm.modality === 'US' && customStickerForm.usSubSerial && (
+                                                    <span className={`text-[10px] font-black font-mono px-1.5 py-0.5 rounded border ${customStickerForm.usGender === 'F' ? 'bg-rose-600 text-white border-rose-700' : 'bg-blue-600 text-white border-blue-700'}`}>
+                                                        {customStickerForm.usSubSerial}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Bottom Footer inside sticker */}
+                                        <div className="text-[8px] font-mono font-bold text-slate-600 border-t border-slate-400 pt-0.5 flex justify-between items-center px-0.5">
+                                            <span>{customStickerForm.date || getLocalToday()}</span>
+                                            <span className="font-sans font-black text-indigo-700">{customStickerForm.modality}</span>
+                                            <span>{customStickerForm.time || getCurrentTime()}</span>
+                                        </div>
+                                    </div>
+
+                                    <p className="text-[10px] text-slate-400 mt-2 text-center">
+                                        🖨️ {txt('المقاس مصمم بدقة لطابعات الباركود والاستيكرات الحرارية مقاس 50×25 مم', 'Strictly formatted for 50×25 mm thermal barcode sticker printers')}
+                                    </p>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="space-y-2 pt-2 border-t border-slate-800">
+                                    <button
+                                        type="button"
+                                        onClick={handlePrintSticker}
+                                        className="w-full bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-black py-3 rounded-2xl text-xs shadow-lg transition flex items-center justify-center gap-2 cursor-pointer scale-100 hover:scale-101 active:scale-98"
+                                    >
+                                        <i className="fas fa-print text-sm"></i>
+                                        <span>{txt('طباعة الاستيكر الآن (2.5 × 5 سم)', 'Print Sticker Now (2.5 × 5 cm)')}</span>
+                                    </button>
+
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={openNewCustomSticker}
+                                            className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2 rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                                        >
+                                            <i className="fas fa-plus text-[10px]"></i>
+                                            <span>{txt('استيكر فارغ جديد', 'New Blank')}</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsStickerWidgetOpen(false)}
+                                            className="bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white font-bold px-4 py-2 rounded-xl text-xs transition cursor-pointer"
+                                        >
+                                            {txt('إغلاق', 'Close')}
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                    )}
-
-                    {/* Print Button */}
-                    <div className="mt-3 flex gap-2">
-                        <button
-                            onClick={handlePrintSticker}
-                            className="flex-1 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-black py-2.5 rounded-2xl text-xs shadow-lg transition flex items-center justify-center gap-2 cursor-pointer"
-                        >
-                            <i className="fas fa-print text-sm"></i>
-                            <span>{txt('طباعة الستيكر الآن (2.5×5 سم)', 'Print Sticker Now (2.5×5 cm)')}</span>
-                        </button>
-                        <button
-                            onClick={() => setIsStickerWidgetOpen(false)}
-                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-3 py-2.5 rounded-2xl text-xs transition cursor-pointer"
-                        >
-                            {txt('إغلاق', 'Close')}
-                        </button>
                     </div>
                 </div>
             )}
@@ -4712,36 +5069,53 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
             {/* ========================================================================= */}
             {/* HIDDEN PRINT-ONLY THERMAL STICKER (2.5cm x 5cm) - PORTALED TO BODY        */}
             {/* ========================================================================= */}
-            {stickerCase && createPortal(
-                <div id="printable-radiology-sticker" className="sticker-print-portal">
-                    <div className="w-[50mm] h-[25mm] p-1 bg-white text-black font-sans flex flex-col justify-between overflow-hidden text-center leading-tight box-border" dir={isEn ? "ltr" : "rtl"}>
+            {isStickerWidgetOpen && createPortal(
+                <div id="printable-radiology-sticker" className="sticker-print-portal" dir={isEn ? "ltr" : "rtl"}>
+                    <div className="w-[50mm] h-[25mm] p-1 bg-white text-black font-sans flex flex-col justify-between overflow-hidden text-center leading-tight box-border">
+                        {/* Header: Center / Hospital Name */}
                         <div className="border-b border-black pb-0.5 text-[7.5px] font-black tracking-wider uppercase truncate">
-                            {txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Radiology & Imaging Center')}
+                            {customStickerForm.centerHeader || txt('مستشفى / مركز الأشعة والتصوير الطبي', 'Radiology & Imaging Center')}
                         </div>
                         
-                        <div className="my-auto py-0.5">
-                            <div className="text-[11px] font-black truncate px-0.5">
-                                {stickerCase.patientName}
+                        {/* Middle Section: Patient Name, Exam Name, Serial & MRN */}
+                        <div className="my-auto py-0.5 flex flex-col justify-center gap-0.5">
+                            {/* Patient Name */}
+                            <div className="text-[11px] font-black truncate px-0.5 leading-tight">
+                                {customStickerForm.patientName || txt('اسم المريض', 'Patient Name')}
                             </div>
+
+                            {/* Exam Name */}
+                            {customStickerForm.examName && (
+                                <div className="text-[8.5px] font-bold text-black truncate px-0.5 leading-none">
+                                    <span className="font-black">{txt('فحص:', 'Exam:')}</span> {customStickerForm.examName}
+                                </div>
+                            )}
                             
+                            {/* Badges: Serial + MRN + US SubSerial */}
                             <div className="flex items-center justify-center gap-1 mt-0.5">
-                                <span className="text-[12px] font-black font-mono border-2 border-black px-1 rounded">
-                                    {stickerCase.modalitySerial}
-                                </span>
-                                {stickerCase.modality === 'US' && (
-                                    <span className="text-[10px] font-black font-mono bg-black text-white px-1 py-0.5 rounded">
-                                        {usGenderChoice === 'F' 
-                                            ? (stickerCase.usGender === 'F' && stickerCase.usSubSerial ? stickerCase.usSubSerial : `US-F-${String(usFemaleCounter).padStart(3, '0')}`) 
-                                            : (stickerCase.usGender === 'M' && stickerCase.usSubSerial ? stickerCase.usSubSerial : `US-M-${String(usMaleCounter).padStart(3, '0')}`)}
+                                {customStickerForm.modalitySerial && (
+                                    <span className="text-[11px] font-black font-mono border border-black px-1 rounded">
+                                        {customStickerForm.modalitySerial}
+                                    </span>
+                                )}
+                                {customStickerForm.fileNumber && (
+                                    <span className="text-[9px] font-mono font-bold">
+                                        MRN: {customStickerForm.fileNumber}
+                                    </span>
+                                )}
+                                {customStickerForm.modality === 'US' && customStickerForm.usSubSerial && (
+                                    <span className="text-[9px] font-black font-mono bg-black text-white px-1 py-0.5 rounded">
+                                        {customStickerForm.usSubSerial}
                                     </span>
                                 )}
                             </div>
                         </div>
 
+                        {/* Footer: Date, Time & Modality */}
                         <div className="border-t border-black pt-0.5 flex justify-between items-center text-[7.5px] font-mono font-bold px-0.5">
-                            <span className="truncate max-w-[20mm]">MRN: {stickerCase.fileNumber || '-'}</span>
-                            <span className="font-sans font-black">{stickerCase.modality}</span>
-                            <span>{stickerCase.time || ''}</span>
+                            <span>{customStickerForm.date || selectedDate || getLocalToday()}</span>
+                            <span className="font-sans font-black">{customStickerForm.modality}</span>
+                            <span>{customStickerForm.time || getCurrentTime()}</span>
                         </div>
                     </div>
                 </div>,

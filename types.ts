@@ -234,6 +234,7 @@ export interface ShiftLog {
   id: string;
   userId: string;
   userName: string;
+  userAvatar?: string;
   location?: string; // مكان عمل المُسلم
   type: 'handover' | 'issue' | 'note'; // تسليم، مشكلة، ملاحظة
   content: string;
@@ -241,9 +242,34 @@ export interface ShiftLog {
   createdAt: any;
   isImportant: boolean;
   receivedBy?: string; // Name of person who received/acknowledged
+  receivedById?: string;
   receivedAt?: any;    // Timestamp
   receiverLocation?: string; // مكان عمل المستلم
+  receiverNotes?: string; // ملاحظات المستلم عند التأكيد
   departmentId?: string; // NEW
+  shiftType?: 'morning' | 'evening' | 'night' | 'oncall' | 'custom'; // وردية العمل
+  handoverToUserId?: string; // تسليم لموظف محدد (اختياري)
+  handoverToUserName?: string;
+  sbar?: {
+    situation?: string;
+    background?: string;
+    assessment?: string;
+    recommendation?: string;
+  };
+  checklist?: {
+    devices?: boolean;
+    inventory?: boolean;
+    keys?: boolean;
+    clean?: boolean;
+    pacsWorkstation?: boolean;
+    consumables?: boolean;
+  };
+  pendingTasks?: string[];
+  equipmentStatus?: {
+    name: string;
+    status: 'operational' | 'warning' | 'down';
+    notes?: string;
+  }[];
 }
 
 // --- NEW: Peer Recognition ---

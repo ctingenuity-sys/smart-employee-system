@@ -56,7 +56,10 @@ const Reports: React.FC = () => {
         if (!selectedDept) return baseEmployees;
         return baseEmployees.filter(emp => emp.departmentId === selectedDept);
     }, [baseEmployees, selectedDept]);
-    const [actions, setActions] = useState<ActionLog[]>([]);
+    
+    // Real-time collections state
+    const [rawActions, setRawActions] = useState<ActionLog[]>([]);
+    const [approvedLeaves, setApprovedLeaves] = useState<any[]>([]);
     const [swaps, setSwaps] = useState<any[]>([]);
     const [schedules, setSchedules] = useState<Schedule[]>([]);
     const [attendanceLogs, setAttendanceLogs] = useState<AttendanceLog[]>([]);
@@ -91,9 +94,12 @@ const Reports: React.FC = () => {
 
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
+    const [isSingleDay, setIsSingleDay] = useState(true);
+    const [isSubmittingAction, setIsSubmittingAction] = useState(false);
+    const [successToast, setSuccessToast] = useState<string | null>(null);
     const [formData, setFormData] = useState({
         employeeId: '',
-        type: 'annual_leave',
+        type: 'violation',
         fromDate: new Date().toISOString().split('T')[0],
         toDate: new Date().toISOString().split('T')[0],
         description: ''
@@ -112,6 +118,7 @@ const Reports: React.FC = () => {
 
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [includeLateness, setIncludeLateness] = useState(true);
+    const [includeAutoAbsence, setIncludeAutoAbsence] = useState(true);
 
     // --- Helpers for Date Range ---
     const getDateRange = () => {
@@ -193,62 +200,106 @@ const Reports: React.FC = () => {
         return 1;
     };
 
-    // --- Initial Load (Users & Actions) ---
+    // --- Real-time Listeners (Actions, Approved Leaves, Users & Swaps) ---
     useEffect(() => {
-        const init = async () => {
-            try {
-                const aSnap = await getDocs(collection(db, 'actions'));
-                const actionsList = aSnap.docs.map(d => ({ ...d.data(), id: d.id } as ActionLog));
+        // 1. Real-time listener for manual and logged actions
+        const qActions = collection(db, 'actions');
+        const unsubActions = onSnapshot(qActions, (snap) => {
+            const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as ActionLog));
+            setRawActions(list);
+            setLoading(false);
+        }, (err) => {
+            console.error("Actions listener error:", err);
+            setLoading(false);
+        });
 
-                // Fetch approved leaveRequests to ensure all approved leaves appear seamlessly
-                try {
-                    const lSnap = await getDocs(query(collection(db, 'leaveRequests'), where('status', '==', 'approved')));
-                    const approvedLeaves = lSnap.docs.map(d => ({ ...d.data(), id: d.id }));
+        // 2. Real-time listener for approved leave requests
+        const qLeaves = collection(db, 'leaveRequests');
+        const unsubLeaves = onSnapshot(qLeaves, (snap) => {
+            const list = snap.docs
+                .map(d => ({ ...d.data(), id: d.id }))
+                .filter((leave: any) => {
+                    const s = (leave.status || '').toLowerCase();
+                    return (
+                        s === 'approved' || 
+                        s === 'approvedbymanager' || 
+                        s === 'approvedbysupervisor' || 
+                        s === 'accepted' || 
+                        leave.managerApproval?.approved === true || 
+                        (leave.supervisorApproval?.approved === true && !leave.hasManagers)
+                    );
+                });
+            setApprovedLeaves(list);
+        }, (err) => {
+            console.error("Leaves listener error:", err);
+        });
 
-                    approvedLeaves.forEach((leave: any) => {
-                        const leaveEmpId = leave.from || leave.userId || leave.employeeId;
-                        const actionType = (leave.typeOfLeave?.toLowerCase().includes('sick') || leave.typeOfLeave === 'مرضية') ? 'sick_leave' : 'annual_leave';
-                        const leaveFrom = leave.startDate;
-                        const leaveTo = leave.endDate || leave.startDate;
+        // 3. Real-time listener for users
+        const qUsers = collection(db, 'users');
+        const unsubUsers = onSnapshot(qUsers, (snap) => {
+            const fetchedUsers = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
+            setAllEmployees(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
+        }, (err) => {
+            console.error("Users listener error:", err);
+        });
 
-                        const alreadyExists = actionsList.some(act => 
-                            (act.leaveRequestId && act.leaveRequestId === leave.id) ||
-                            ((act.employeeId === leaveEmpId || (act as any).from === leaveEmpId) && act.type === actionType && safeDate(act.fromDate) === leaveFrom && safeDate(act.toDate) === leaveTo)
-                        );
+        // 4. Real-time listener for swaps
+        const qSwaps = collection(db, 'swapRequests');
+        const unsubSwaps = onSnapshot(qSwaps, (snap) => {
+            setSwaps(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+        }, (err) => {
+            console.error("Swaps listener error:", err);
+        });
 
-                        if (!alreadyExists && leaveEmpId && leaveFrom) {
-                            actionsList.push({
-                                id: `leave-req-${leave.id}`,
-                                employeeId: leaveEmpId,
-                                type: actionType,
-                                fromDate: leaveFrom,
-                                toDate: leaveTo,
-                                description: `إجازة معتمدة (${leave.typeOfLeave || 'سنوية'}): ${leave.reason || ''}`,
-                                leaveRequestId: leave.id,
-                                createdAt: leave.createdAt ? (leave.createdAt.toDate ? leave.createdAt.toDate() : new Date(leave.createdAt)) : new Date()
-                            } as ActionLog);
-                        }
-                    });
-                } catch (lErr) {
-                    console.error("Error fetching approved leaves:", lErr);
-                }
-
-                setActions(actionsList);
-
-                const uSnap = await getDocs(collection(db, 'users'));
-                const fetchedUsers = uSnap.docs.map(d => ({ ...d.data(), id: d.id } as User));
-                setAllEmployees(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
-
-                const sSnap = await getDocs(collection(db, 'swapRequests'));
-                setSwaps(sSnap.docs.map(d => ({ ...d.data(), id: d.id })));
-            } catch (err) {
-                console.error(err);
-            } finally {
-                setLoading(false);
-            }
+        return () => {
+            unsubActions();
+            unsubLeaves();
+            unsubUsers();
+            unsubSwaps();
         };
-        init();
-    }, [refreshTrigger]);
+    }, []);
+
+    // Dynamically combine rawActions with approved leave requests in real time
+    const actions = useMemo(() => {
+        const list = [...rawActions];
+
+        approvedLeaves.forEach((leave: any) => {
+            const leaveEmpId = leave.from || leave.userId || leave.employeeId;
+            const leaveTypeStr = (leave.typeOfLeave || leave.type || '').toString().toLowerCase();
+            const isSick = leaveTypeStr.includes('sick') || leaveTypeStr.includes('مرض');
+            const actionType = isSick ? 'sick_leave' : 'annual_leave';
+            const leaveFrom = safeDate(leave.startDate || leave.fromDate);
+            const leaveTo = safeDate(leave.endDate || leave.toDate || leave.startDate || leave.fromDate);
+
+            if (!leaveEmpId || !leaveFrom) return;
+
+            const alreadyExists = list.some(act => 
+                (act.leaveRequestId && act.leaveRequestId === leave.id) ||
+                (
+                    (act.employeeId === leaveEmpId || (act as any).from === leaveEmpId || (act as any).userId === leaveEmpId) && 
+                    act.type === actionType && 
+                    safeDate(act.fromDate) === leaveFrom && 
+                    safeDate(act.toDate) === leaveTo
+                )
+            );
+
+            if (!alreadyExists) {
+                list.push({
+                    id: `leave-req-${leave.id}`,
+                    employeeId: leaveEmpId,
+                    from: leaveEmpId,
+                    type: actionType,
+                    fromDate: leaveFrom,
+                    toDate: leaveTo,
+                    description: `${t('action.' + actionType) || (actionType === 'sick_leave' ? 'إجازة مرضية' : 'إجازة سنوية')} (${leave.typeOfLeave || leave.type || 'معتمدة'})${leave.reason ? ': ' + leave.reason : ''}`,
+                    leaveRequestId: leave.id,
+                    createdAt: leave.createdAt ? (leave.createdAt.toDate ? leave.createdAt.toDate() : new Date(leave.createdAt)) : new Date()
+                } as ActionLog);
+            }
+        });
+
+        return list;
+    }, [rawActions, approvedLeaves, t]);
 
     // --- Fetch Schedules & Attendance Logs ---
     useEffect(() => {
@@ -290,15 +341,38 @@ const Reports: React.FC = () => {
                 const uniqueSchedules = Array.from(new Map(allSchedules.map(item => [item.id, item])).values());
                 setSchedules(uniqueSchedules);
 
-                // Fetch Attendance Logs
-                const startDate = new Date(start + 'T00:00:00');
-                const endDate = new Date(end + 'T23:59:59');
-                const qLogs = query(collection(db, 'attendance_logs'), 
-                    where('timestamp', '>=', Timestamp.fromDate(startDate)),
-                    where('timestamp', '<=', Timestamp.fromDate(endDate))
-                );
-                const logsSnap = await getDocs(qLogs);
-                setAttendanceLogs(logsSnap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceLog)));
+                // 4. Fetch Attendance Logs (both by date string and timestamp range for 100% coverage)
+                const logsMap = new Map<string, AttendanceLog>();
+
+                try {
+                    const qLogsDate = query(collection(db, 'attendance_logs'), 
+                        where('date', '>=', start), 
+                        where('date', '<=', end)
+                    );
+                    const snapDate = await getDocs(qLogsDate);
+                    snapDate.docs.forEach(d => {
+                        logsMap.set(d.id, { ...d.data(), id: d.id } as AttendanceLog);
+                    });
+                } catch (e) {
+                    console.warn("Query attendance_logs by date error:", e);
+                }
+
+                try {
+                    const startDate = new Date(start + 'T00:00:00');
+                    const endDate = new Date(end + 'T23:59:59');
+                    const qLogsTs = query(collection(db, 'attendance_logs'), 
+                        where('timestamp', '>=', Timestamp.fromDate(startDate)),
+                        where('timestamp', '<=', Timestamp.fromDate(endDate))
+                    );
+                    const snapTs = await getDocs(qLogsTs);
+                    snapTs.docs.forEach(d => {
+                        logsMap.set(d.id, { ...d.data(), id: d.id } as AttendanceLog);
+                    });
+                } catch (e) {
+                    console.warn("Query attendance_logs by timestamp error:", e);
+                }
+
+                setAttendanceLogs(Array.from(logsMap.values()));
             } catch (err) {
                 console.error("Error fetching attendance data for reports:", err);
             }
@@ -359,21 +433,34 @@ const Reports: React.FC = () => {
         }
 
         employees.forEach(emp => {
+            const empUserId = emp.id;
+            const empUid = (emp as any).uid;
+            const empBiometricId = (emp as any).biometricId;
+
             dates.forEach(dateStr => {
                 // 1. Find Schedule for this User on this Date
-                // Priority: Specific Date > Monthly
-                let sch = schedules.find(s => s.userId === emp.id && s.date === dateStr);
+                // Priority: Specific Date schedule
+                let sch = schedules.find(s => 
+                    (s.userId === empUserId || (empUid && s.userId === empUid)) && s.date === dateStr
+                );
+
                 if (!sch) {
                     const monthStr = dateStr.substring(0, 7); // YYYY-MM
-                    sch = schedules.find(s => s.userId === emp.id && s.month === monthStr);
+                    const mSch = schedules.find(s => 
+                        (s.userId === empUserId || (empUid && s.userId === empUid)) && s.month === monthStr
+                    );
+                    if (mSch && mSch.shifts && mSch.shifts.length > 0) {
+                        sch = mSch;
+                    }
                 }
 
                 if (!sch || !sch.shifts || sch.shifts.length === 0) return; // No schedule for this day
 
                 // 2. Check for Manual Actions (Leave, Absence, Mission, etc.)
-                // If there is ANY manual action covering this day, skip auto-generation
+                // If there is ANY manual action or approved leave covering this day, skip auto-generation
                 const hasManual = actions.some(act => {
-                    if (act.employeeId !== emp.id) return false;
+                    const isEmp = act.employeeId === empUserId || (empUid && act.employeeId === empUid) || (act as any).from === empUserId || (empUid && (act as any).from === empUid);
+                    if (!isEmp) return false;
                     const actStart = safeDate(act.fromDate);
                     const actEnd = safeDate(act.toDate);
                     return dateStr >= actStart && dateStr <= actEnd;
@@ -383,53 +470,65 @@ const Reports: React.FC = () => {
 
                 // 3. Check Attendance Logs
                 const userLogs = attendanceLogs.filter(log => {
-                    if (log.userId !== emp.id) return false;
-                    const logDate = log.timestamp?.toDate ? log.timestamp.toDate() : new Date(log.timestamp);
-                    return logDate.toLocaleDateString('en-CA') === dateStr;
+                    const logUser = log.userId || (log as any).employeeId || (log as any).from;
+                    const isUser = logUser === empUserId || (empUid && logUser === empUid) || (empBiometricId && (log as any).biometricId === empBiometricId);
+                    if (!isUser) return false;
+
+                    let logDate = log.date;
+                    if (!logDate) {
+                        const ts = log.timestamp?.toDate ? log.timestamp.toDate() : (log.clientTimestamp?.toDate ? log.clientTimestamp.toDate() : new Date(log.timestamp || log.clientTimestamp));
+                        if (ts && !isNaN(ts.getTime())) {
+                            logDate = `${ts.getFullYear()}-${String(ts.getMonth() + 1).padStart(2, '0')}-${String(ts.getDate()).padStart(2, '0')}`;
+                        }
+                    }
+                    return logDate === dateStr;
                 });
 
                 const inLogs = userLogs.filter(l => l.type === 'IN').sort((a, b) => {
-                    const da = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
-                    const db = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
+                    const da = a.timestamp?.toDate ? a.timestamp.toDate() : (a.clientTimestamp?.toDate ? a.clientTimestamp.toDate() : new Date(a.timestamp || a.clientTimestamp || 0));
+                    const db = b.timestamp?.toDate ? b.timestamp.toDate() : (b.clientTimestamp?.toDate ? b.clientTimestamp.toDate() : new Date(b.timestamp || b.clientTimestamp || 0));
                     return da.getTime() - db.getTime();
                 });
 
-                if (inLogs.length === 0) {
-                    // No IN log -> Unjustified Absence
+                if (includeAutoAbsence && inLogs.length === 0) {
                     generated.push({
-                        id: `auto-abs-${emp.id}-${dateStr}`,
-                        employeeId: emp.id,
+                        id: `auto-abs-${empUserId}-${dateStr}`,
+                        employeeId: empUserId,
+                        from: empUserId,
                         type: 'unjustified_absence',
                         fromDate: dateStr,
                         toDate: dateStr,
-                        description: 'غياب بدون إذن (تلقائي)',
+                        description: t('rep.ranking.unjustifiedAbsenceAuto') || 'غياب بدون إذن (تلقائي)',
                         createdAt: new Date()
                     } as ActionLog);
-                } else {
+                } else if (inLogs.length > 0 && includeLateness) {
                     // Check for Late
                     const firstShift = sch!.shifts[0];
                     if (firstShift && firstShift.start) {
                         const firstInLog = inLogs[0];
-                        const logTime = firstInLog.timestamp?.toDate ? firstInLog.timestamp.toDate() : new Date(firstInLog.timestamp);
+                        const logTime = firstInLog.timestamp?.toDate ? firstInLog.timestamp.toDate() : (firstInLog.clientTimestamp?.toDate ? firstInLog.clientTimestamp.toDate() : new Date(firstInLog.timestamp || firstInLog.clientTimestamp));
                         
-                        const [h, m] = firstShift.start.split(':').map(Number);
-                        const shiftStart = new Date(dateStr + 'T00:00:00');
-                        shiftStart.setHours(h, m, 0, 0);
+                        if (logTime && !isNaN(logTime.getTime())) {
+                            const [h, m] = firstShift.start.split(':').map(Number);
+                            const shiftStart = new Date(dateStr + 'T00:00:00');
+                            shiftStart.setHours(h, m, 0, 0);
 
-                        const gracePeriodMins = 15;
-                        const lateThreshold = new Date(shiftStart.getTime() + gracePeriodMins * 60000);
+                            const gracePeriodMins = 15;
+                            const lateThreshold = new Date(shiftStart.getTime() + gracePeriodMins * 60000);
 
-                        if (logTime > lateThreshold) {
-                            const lateMins = Math.floor((logTime.getTime() - shiftStart.getTime()) / 60000);
-                            generated.push({
-                                id: `auto-late-${emp.id}-${dateStr}`,
-                                employeeId: emp.id,
-                                type: 'late',
-                                fromDate: dateStr,
-                                toDate: dateStr,
-                                description: `تأخير ${lateMins} دقيقة (تلقائي)`,
-                                createdAt: new Date()
-                            } as ActionLog);
+                            if (logTime > lateThreshold) {
+                                const lateMins = Math.floor((logTime.getTime() - shiftStart.getTime()) / 60000);
+                                generated.push({
+                                    id: `auto-late-${empUserId}-${dateStr}`,
+                                    employeeId: empUserId,
+                                    from: empUserId,
+                                    type: 'late',
+                                    fromDate: dateStr,
+                                    toDate: dateStr,
+                                    description: `${t('action.late') || 'تأخير'} ${lateMins} ${t('rep.eval.timesUnit') || 'دقيقة'} (تلقائي)`,
+                                    createdAt: new Date()
+                                } as ActionLog);
+                            }
                         }
                     }
                 }
@@ -437,7 +536,7 @@ const Reports: React.FC = () => {
         });
 
         return generated;
-    }, [schedules, attendanceLogs, actions, employees, filterFromDate, filterToDate, filterMonth, filterYear, dateMode]);
+    }, [schedules, attendanceLogs, actions, employees, filterFromDate, filterToDate, filterMonth, filterYear, dateMode, includeAutoAbsence, includeLateness, t]);
 
     const allCombinedActions = useMemo(() => {
         return [...actions, ...autoActions];
@@ -749,34 +848,102 @@ const Reports: React.FC = () => {
 
     // --- Handlers ---
     const handleSubmit = async () => {
-        if (!formData.employeeId || !formData.type) return alert('Missing Data');
-        const payload = { ...formData, createdAt: new Date() };
+        if (!formData.employeeId) return alert(t('rep.action.errSelectEmp') || 'يرجى اختيار الموظف أولاً');
+        if (!formData.type) return alert(t('rep.action.errSelectType') || 'يرجى تحديد نوع الإجراء');
+        if (!formData.fromDate) return alert(t('rep.action.errSelectDate') || 'يرجى تحديد التاريخ');
+
+        const actualToDate = isSingleDay ? formData.fromDate : (formData.toDate || formData.fromDate);
+        const payload = {
+            employeeId: formData.employeeId,
+            type: formData.type,
+            fromDate: formData.fromDate,
+            toDate: actualToDate,
+            description: formData.description || '',
+            createdAt: new Date()
+        };
+
+        setIsSubmittingAction(true);
         try {
             if (editingId) {
                 await updateDoc(doc(db, 'actions', editingId), payload);
+                setSuccessToast(t('rep.action.toastUpdated') || 'تم تحديث الإجراء بنجاح ✅');
             } else {
                 await addDoc(collection(db, 'actions'), payload);
+                
+                // Real-time In-App Notification to target employee
+                try {
+                    const emp = employees.find(e => e.id === formData.employeeId);
+                    if (emp) {
+                        const actionLabels: Record<string, string> = {
+                            violation: t('action.violation') || 'مخالفة / جزاء إداري',
+                            late: t('action.late') || 'تأخير مسجل',
+                            unjustified_absence: t('action.unjustified_absence') || 'غياب بدون إذن',
+                            justified_absence: t('action.justified_absence') || 'غياب بإذن',
+                            sick_leave: t('action.sick_leave') || 'إجازة مرضية',
+                            annual_leave: t('action.annual_leave') || 'إجازة سنوية',
+                            mission: t('action.mission') || 'مأمورية عمل رسمية',
+                            positive: t('action.positive') || 'مكافأة / نقطة تميز'
+                        };
+                        const actionTitle = actionLabels[formData.type] || t('rep.action.modalTitleAdd') || 'إجراء إداري جديد';
+                        await addDoc(collection(db, 'notifications'), {
+                            userId: emp.id,
+                            departmentId: emp.departmentId || '',
+                            title: `تم تسجيل ${actionTitle}`,
+                            message: `تم تسجيل ${actionTitle} بتاريخ ${formData.fromDate}${formData.description ? `: ${formData.description}` : ''}`,
+                            readBy: [],
+                            createdAt: new Date(),
+                            type: formData.type === 'positive' ? 'reward' : formData.type === 'violation' ? 'penalty' : 'action'
+                        });
+                    }
+                } catch (notifErr) {
+                    console.warn("Notification dispatch failed (non-blocking):", notifErr);
+                }
+
+                setSuccessToast(t('rep.action.toastAdded') || 'تم تسجيل الإجراء وتحديث تقارير الموظف فورياً بنجاح ✅');
             }
+
             setIsFormOpen(false);
             setEditingId(null);
-            setFormData({ ...formData, description: '', type: 'late' });
-        } catch (e) { console.error(e); }
+            setFormData({
+                employeeId: filterEmp || '',
+                type: 'violation',
+                fromDate: new Date().toISOString().split('T')[0],
+                toDate: new Date().toISOString().split('T')[0],
+                description: ''
+            });
+            setTimeout(() => setSuccessToast(null), 4500);
+        } catch (e) { 
+            console.error("Error saving action:", e);
+            alert(t('rep.action.saveErr') || 'حدث خطأ أثناء حفظ الإجراء، يرجى المحاولة مرة أخرى');
+        } finally {
+            setIsSubmittingAction(false);
+        }
     };
 
     const handleDelete = async (id: string) => {
-        if (confirm(t('confirm') + '?')) {
-            await deleteDoc(doc(db, 'actions', id));
+        if (confirm(t('rep.action.confirmDeleteMsg') || 'هل أنت متأكد من رغبتك في حذف هذا الإجراء نهائياً؟')) {
+            try {
+                await deleteDoc(doc(db, 'actions', id));
+                setSuccessToast(t('rep.action.toastDeleted') || 'تم حذف الإجراء وتحديث التقرير فورياً ✅');
+                setTimeout(() => setSuccessToast(null), 3500);
+            } catch (e) {
+                console.error("Error deleting action:", e);
+                alert(t('cath.msgErr') || 'حدث خطأ أثناء الحذف');
+            }
         }
     };
 
     const handleEdit = (act: ActionLog) => {
+        const from = safeDate(act.fromDate);
+        const to = safeDate(act.toDate);
         setFormData({
             employeeId: act.employeeId,
             type: act.type,
-            fromDate: safeDate(act.fromDate),
-            toDate: safeDate(act.toDate),
-            description: act.description
+            fromDate: from,
+            toDate: to,
+            description: act.description || ''
         });
+        setIsSingleDay(from === to);
         setEditingId(act.id);
         setIsFormOpen(true);
     };
@@ -875,6 +1042,24 @@ const Reports: React.FC = () => {
 
             <div className="max-w-7xl mx-auto px-4 -mt-10 print:mt-0 print:px-0">
                 
+                {/* Real-time Toast Feedback Banner */}
+                {successToast && (
+                    <div className="mb-6 bg-emerald-600 text-white px-5 py-3.5 rounded-2xl shadow-xl shadow-emerald-600/20 flex items-center justify-between animate-fadeIn transition-all print:hidden">
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                                <i className="fas fa-check text-white"></i>
+                            </div>
+                            <span className="font-bold text-sm">{successToast}</span>
+                        </div>
+                        <button 
+                            onClick={() => setSuccessToast(null)}
+                            className="text-white/80 hover:text-white text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded-lg transition"
+                        >
+                            {t('rep.action.close') || 'إغلاق'}
+                        </button>
+                    </div>
+                )}
+
                 {/* Main Filters Bar */}
                 <div className="bg-white rounded-3xl shadow-lg p-5 mb-8 border border-slate-100 print:hidden space-y-4">
                     
@@ -905,7 +1090,7 @@ const Reports: React.FC = () => {
                                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${dateMode === 'month' ? 'bg-white shadow-sm text-blue-600 font-black' : 'text-slate-500 hover:text-slate-800'}`}
                             >
                                 <i className="fas fa-calendar-alt text-xs"></i>
-                                بالشهر
+                                {t('rep.filter.byMonth') || 'بالشهر'}
                             </button>
                             <button 
                                 onClick={() => {
@@ -917,7 +1102,7 @@ const Reports: React.FC = () => {
                                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${dateMode === 'custom' ? 'bg-white shadow-sm text-indigo-600 font-black' : 'text-slate-500 hover:text-slate-800'}`}
                             >
                                 <i className="fas fa-calendar-week text-xs"></i>
-                                فترة مخصصة (من - إلى)
+                                {t('rep.filter.customPeriod') || 'فترة مخصصة (من - إلى)'}
                             </button>
                         </div>
                     </div>
@@ -926,13 +1111,13 @@ const Reports: React.FC = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end pt-2 border-t border-slate-100">
                         {/* Department Filter (Global) */}
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 mb-1.5">القسم</label>
+                            <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('rep.filter.dept') || 'القسم'}</label>
                             <select 
                                 className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-blue-200 px-3 py-2 text-sm"
                                 value={selectedDept || ''}
                                 onChange={e => setSelectedDept(e.target.value || null)}
                             >
-                                <option value="">جميع الأقسام</option>
+                                <option value="">{t('rep.filter.allDept') || 'جميع الأقسام'}</option>
                                 {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                             </select>
                         </div>
@@ -944,7 +1129,7 @@ const Reports: React.FC = () => {
                                     <label className="block text-xs font-bold text-slate-400">{t('rep.filter.emp')}</label>
                                     {filterEmp && (
                                         <button onClick={() => setFilterEmp('')} className="text-[11px] font-bold text-blue-600 hover:underline">
-                                            عرض الكل
+                                            {t('rep.action.showAllEmployees') || 'عرض الكل'}
                                         </button>
                                     )}
                                 </div>
@@ -953,7 +1138,7 @@ const Reports: React.FC = () => {
                                     value={filterEmp} 
                                     onChange={e => setFilterEmp(e.target.value)}
                                 >
-                                    <option value="">-- جميع الموظفين --</option>
+                                    <option value="">{t('rep.filter.allStaff') || '-- جميع الموظفين --'}</option>
                                     {employees.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
                                 </select>
                             </div>
@@ -962,10 +1147,10 @@ const Reports: React.FC = () => {
                         {/* Search for Productivity Tab */}
                         {activeTab === 'productivity' && (
                             <div>
-                                <label className="block text-xs font-bold text-slate-400 mb-1.5">بحث في الحالات (اسم / ملف)</label>
+                                <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('rep.filter.searchProd') || 'بحث في الحالات (اسم / ملف)'}</label>
                                 <input 
                                     className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-emerald-200 px-3 py-2 text-sm" 
-                                    placeholder="رقم الملف أو الاسم..."
+                                    placeholder={t('rep.filter.prodPlaceholder') || 'رقم الملف أو الاسم...'}
                                     value={prodSearch} 
                                     onChange={e => setProdSearch(e.target.value)}
                                 />
@@ -982,7 +1167,7 @@ const Reports: React.FC = () => {
                                         value={filterMonth} 
                                         onChange={e => { setFilterMonth(e.target.value); setFilterFromDate(''); setFilterToDate(''); }}
                                     >
-                                        {[...Array(12)].map((_, i) => <option key={i} value={i+1}>شهر {i+1}</option>)}
+                                        {[...Array(12)].map((_, i) => <option key={i} value={i+1}>{t('month')} {i+1}</option>)}
                                     </select>
                                 </div>
 
@@ -1000,7 +1185,7 @@ const Reports: React.FC = () => {
                         ) : (
                             <>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-400 mb-1.5">من تاريخ (From)</label>
+                                    <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('rep.filter.fromDate') || 'من تاريخ (From)'}</label>
                                     <input 
                                         type="date" 
                                         className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 px-3 py-2 text-sm" 
@@ -1010,7 +1195,7 @@ const Reports: React.FC = () => {
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-400 mb-1.5">إلى تاريخ (To)</label>
+                                    <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('rep.filter.toDate') || 'إلى تاريخ (To)'}</label>
                                     <input 
                                         type="date" 
                                         className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 px-3 py-2 text-sm" 
@@ -1026,28 +1211,28 @@ const Reports: React.FC = () => {
                     {dateMode === 'custom' && (
                         <div className="flex flex-wrap gap-2 pt-2 items-center bg-slate-50 p-3 rounded-2xl border border-slate-100 text-xs">
                             <span className="font-bold text-slate-400 flex items-center gap-1">
-                                <i className="fas fa-bolt text-amber-500"></i> اختصارات الفترة:
+                                <i className="fas fa-bolt text-amber-500"></i> {t('rep.filter.shortcutsTitle') || 'اختصارات الفترة:'}
                             </span>
                             <button onClick={() => applyDateShortcut('today')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
-                                اليوم
+                                {t('rep.filter.today') || 'اليوم'}
                             </button>
                             <button onClick={() => applyDateShortcut('this_week')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
-                                آخر 7 أيام
+                                {t('rep.filter.last7Days') || 'آخر 7 أيام'}
                             </button>
                             <button onClick={() => applyDateShortcut('this_month')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
-                                هذا الشهر
+                                {t('rep.filter.thisMonth') || 'هذا الشهر'}
                             </button>
                             <button onClick={() => applyDateShortcut('last_month')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
-                                الشهر السابق
+                                {t('rep.filter.lastMonth') || 'الشهر السابق'}
                             </button>
                             <button onClick={() => applyDateShortcut('last_30_days')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
-                                آخر 30 يوم
+                                {t('rep.filter.last30Days') || 'آخر 30 يوم'}
                             </button>
                             <button onClick={() => applyDateShortcut('this_quarter')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
-                                هذا الربع
+                                {t('rep.filter.thisQuarter') || 'هذا الربع'}
                             </button>
                             <button onClick={() => applyDateShortcut('this_year')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
-                                كامل السنة
+                                {t('rep.filter.thisYear') || 'كامل السنة'}
                             </button>
                             <button 
                                 onClick={() => {
@@ -1057,7 +1242,7 @@ const Reports: React.FC = () => {
                                 }} 
                                 className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-bold border border-red-200 transition-colors ml-auto"
                             >
-                                <i className="fas fa-undo text-[10px] mr-1"></i> إعادة ضبط
+                                <i className="fas fa-undo text-[10px] mr-1"></i> {t('rep.filter.reset') || 'إعادة ضبط'}
                             </button>
                         </div>
                     )}
@@ -1165,7 +1350,7 @@ const Reports: React.FC = () => {
                                         className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'all' ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
                                     >
                                         <i className="fas fa-list-ul"></i>
-                                        الكل
+                                        {t('rep.cat.all') || 'الكل'}
                                         <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'all' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'}`}>
                                             {actionCounts.total}
                                         </span>
@@ -1176,7 +1361,7 @@ const Reports: React.FC = () => {
                                         className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'actions_only' ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-500/20' : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'}`}
                                     >
                                         <i className="fas fa-bolt text-amber-300"></i>
-                                        الإجراءات فقط (بدون الغياب والإجازات)
+                                        {t('rep.cat.actionsOnly') || 'الإجراءات فقط (بدون الغياب والإجازات)'}
                                         <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'actions_only' ? 'bg-blue-800 text-white' : 'bg-blue-200 text-blue-800'}`}>
                                             {actionCounts.actionsOnly}
                                         </span>
@@ -1187,7 +1372,7 @@ const Reports: React.FC = () => {
                                         className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'penalties_only' ? 'bg-red-600 text-white border-red-600 shadow-md shadow-red-500/20' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'}`}
                                     >
                                         <i className="fas fa-gavel"></i>
-                                        المخالفات والجزاءات
+                                        {t('rep.cat.penaltiesOnly') || 'المخالفات والجزاءات'}
                                         <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'penalties_only' ? 'bg-red-800 text-white' : 'bg-red-200 text-red-800'}`}>
                                             {actionCounts.penalties}
                                         </span>
@@ -1198,7 +1383,7 @@ const Reports: React.FC = () => {
                                         className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'absences_only' ? 'bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-500/20' : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'}`}
                                     >
                                         <i className="fas fa-user-times"></i>
-                                        الغياب فقط
+                                        {t('rep.cat.absencesOnly') || 'الغياب فقط'}
                                         <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'absences_only' ? 'bg-rose-800 text-white' : 'bg-rose-200 text-rose-800'}`}>
                                             {actionCounts.absences}
                                         </span>
@@ -1209,7 +1394,7 @@ const Reports: React.FC = () => {
                                         className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'leaves_only' ? 'bg-orange-600 text-white border-orange-600 shadow-md shadow-orange-500/20' : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100'}`}
                                     >
                                         <i className="fas fa-umbrella-beach"></i>
-                                        الإجازات فقط
+                                        {t('rep.cat.leavesOnly') || 'الإجازات فقط'}
                                         <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'leaves_only' ? 'bg-orange-800 text-white' : 'bg-orange-200 text-orange-800'}`}>
                                             {actionCounts.leaves}
                                         </span>
@@ -1220,7 +1405,7 @@ const Reports: React.FC = () => {
                                         className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'late_only' ? 'bg-amber-600 text-white border-amber-600 shadow-md shadow-amber-500/20' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'}`}
                                     >
                                         <i className="fas fa-clock"></i>
-                                        التأخيرات
+                                        {t('rep.cat.lateOnly') || 'التأخيرات'}
                                         <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'late_only' ? 'bg-amber-800 text-white' : 'bg-amber-200 text-amber-800'}`}>
                                             {actionCounts.lates}
                                         </span>
@@ -1231,7 +1416,7 @@ const Reports: React.FC = () => {
                                         className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'positives_only' ? 'bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'}`}
                                     >
                                         <i className="fas fa-star"></i>
-                                        المكافآت والتقديرات
+                                        {t('rep.cat.positivesOnly') || 'المكافآت والتقديرات'}
                                         <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'positives_only' ? 'bg-emerald-800 text-white' : 'bg-emerald-200 text-emerald-800'}`}>
                                             {actionCounts.positives}
                                         </span>
@@ -1245,13 +1430,13 @@ const Reports: React.FC = () => {
                                             onClick={() => setMainViewTab('overview')} 
                                             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${mainViewTab === 'overview' ? 'bg-white shadow text-slate-900 font-black' : 'text-slate-500'}`}
                                         >
-                                            <i className="fas fa-chart-pie"></i> لوحة التقييم
+                                            <i className="fas fa-chart-pie"></i> {t('rep.view.overview') || 'لوحة التقييم'}
                                         </button>
                                         <button 
                                             onClick={() => setMainViewTab('actions_table')} 
                                             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${mainViewTab === 'actions_table' ? 'bg-white shadow text-blue-600 font-black' : 'text-slate-500'}`}
                                         >
-                                            <i className="fas fa-table"></i> سجل الإجراءات التفصيلي
+                                            <i className="fas fa-table"></i> {t('rep.view.actionsTable') || 'سجل الإجراءات التفصيلي'}
                                         </button>
                                     </div>
                                 )}
@@ -1264,7 +1449,7 @@ const Reports: React.FC = () => {
                                     <i className="fas fa-search absolute right-3 top-3 text-slate-400 text-xs"></i>
                                     <input 
                                         type="text" 
-                                        placeholder="بحث في الوصف أو الملاحظات أو اسم الموظف..." 
+                                        placeholder={t('rep.searchPlaceholder') || 'بحث في الوصف أو الملاحظات أو اسم الموظف...'} 
                                         value={actionSearchQuery} 
                                         onChange={e => setActionSearchQuery(e.target.value)} 
                                         className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-9 pl-3 py-2 text-xs font-bold focus:ring-2 focus:ring-blue-200 outline-none"
@@ -1283,15 +1468,15 @@ const Reports: React.FC = () => {
                                         value={actionSpecificType}
                                         onChange={e => setActionSpecificType(e.target.value)}
                                     >
-                                        <option value="all">كل الأنواع المحددة</option>
-                                        <option value="annual_leave">إجازة سنوية</option>
-                                        <option value="sick_leave">إجازة مرضية</option>
-                                        <option value="justified_absence">غياب بإذن</option>
-                                        <option value="unjustified_absence">غياب بدون إذن</option>
-                                        <option value="late">تأخير</option>
-                                        <option value="violation">مخالفة / جزاء</option>
-                                        <option value="mission">مأمورية</option>
-                                        <option value="positive">مكافأة / إيجابي</option>
+                                        <option value="all">{t('rep.type.allTypes') || 'كل الأنواع المحددة'}</option>
+                                        <option value="annual_leave">{t('action.annual_leave') || 'إجازة سنوية'}</option>
+                                        <option value="sick_leave">{t('action.sick_leave') || 'إجازة مرضية'}</option>
+                                        <option value="justified_absence">{t('action.justified_absence') || 'غياب بإذن'}</option>
+                                        <option value="unjustified_absence">{t('action.unjustified_absence') || 'غياب بدون إذن'}</option>
+                                        <option value="late">{t('action.late') || 'تأخير'}</option>
+                                        <option value="violation">{t('action.violation') || 'مخالفة / جزاء'}</option>
+                                        <option value="mission">{t('action.mission') || 'مأمورية'}</option>
+                                        <option value="positive">{t('action.positive') || 'مكافأة / إيجابي'}</option>
                                     </select>
                                 </div>
 
@@ -1305,7 +1490,21 @@ const Reports: React.FC = () => {
                                         className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                                     />
                                     <label htmlFor="includeLateness" className="text-xs font-bold text-slate-600 cursor-pointer select-none">
-                                        احتساب التأخير
+                                        {t('rep.toggle.includeLateness') || 'احتساب التأخير'}
+                                    </label>
+                                </div>
+
+                                {/* Include Auto Absence Toggle */}
+                                <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
+                                    <input 
+                                        type="checkbox" 
+                                        id="includeAutoAbsence" 
+                                        checked={includeAutoAbsence} 
+                                        onChange={e => setIncludeAutoAbsence(e.target.checked)}
+                                        className="w-4 h-4 text-rose-600 rounded focus:ring-rose-500"
+                                    />
+                                    <label htmlFor="includeAutoAbsence" className="text-xs font-bold text-slate-600 cursor-pointer select-none">
+                                        {t('rep.toggle.includeAutoAbsence') || 'تضمين الغياب التلقائي (البصمة)'}
                                     </label>
                                 </div>
 
@@ -1315,7 +1514,7 @@ const Reports: React.FC = () => {
                                     className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs"
                                 >
                                     <i className="fas fa-file-excel text-emerald-600"></i>
-                                    تصدير CSV
+                                    {t('rep.exportCSV') || 'تصدير CSV'}
                                 </button>
                             </div>
                         </div>
@@ -1331,7 +1530,7 @@ const Reports: React.FC = () => {
                                             onClick={() => setFilterEmp('')} 
                                             className="absolute top-4 left-4 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl transition-all print:hidden"
                                         >
-                                            <i className="fas fa-users mr-1"></i> كل الموظفين
+                                            <i className="fas fa-users mr-1"></i> {t('rep.action.showAllEmployees') || 'كل الموظفين'}
                                         </button>
 
                                         <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-2xl font-black text-slate-700 mx-auto mb-3 shadow-inner">
@@ -1363,46 +1562,46 @@ const Reports: React.FC = () => {
                                         {/* Evaluation Breakdown */}
                                         <div className="grid grid-cols-2 gap-2.5 text-right">
                                             <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-                                                <span className="text-[11px] font-bold text-slate-400 block">غياب بدون إذن</span>
+                                                <span className="text-[11px] font-bold text-slate-400 block">{t('rep.eval.unjustifiedAbsence') || 'غياب بدون إذن'}</span>
                                                 <span className="text-sm font-black text-red-600">
-                                                    {evaluation.stats.unjustifiedAbsences} <span className="text-xs font-bold text-slate-400">يوم</span>
+                                                    {evaluation.stats.unjustifiedAbsences} <span className="text-xs font-bold text-slate-400">{t('rep.eval.daysUnit') || 'يوم'}</span>
                                                 </span>
                                             </div>
                                             <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-                                                <span className="text-[11px] font-bold text-slate-400 block">تأخيرات</span>
+                                                <span className="text-[11px] font-bold text-slate-400 block">{t('rep.eval.lates') || 'تأخيرات'}</span>
                                                 <span className="text-sm font-black text-amber-600">
-                                                    {evaluation.stats.lates} <span className="text-xs font-bold text-slate-400">مرات</span>
+                                                    {evaluation.stats.lates} <span className="text-xs font-bold text-slate-400">{t('rep.eval.timesUnit') || 'مرات'}</span>
                                                 </span>
                                             </div>
                                             <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-                                                <span className="text-[11px] font-bold text-slate-400 block">مخالفات / جزاءات</span>
+                                                <span className="text-[11px] font-bold text-slate-400 block">{t('rep.eval.violations') || 'مخالفات / جزاءات'}</span>
                                                 <span className="text-sm font-black text-rose-600">
-                                                    {evaluation.stats.violations} <span className="text-xs font-bold text-slate-400">إجراء</span>
+                                                    {evaluation.stats.violations} <span className="text-xs font-bold text-slate-400">{t('rep.eval.actionUnit') || 'إجراء'}</span>
                                                 </span>
                                             </div>
                                             <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-                                                <span className="text-[11px] font-bold text-slate-400 block">إيجابيات / مكافآت</span>
+                                                <span className="text-[11px] font-bold text-slate-400 block">{t('rep.eval.positives') || 'إيجابيات / مكافآت'}</span>
                                                 <span className="text-sm font-black text-emerald-600">
-                                                    {evaluation.stats.positives} <span className="text-xs font-bold text-slate-400">نقاط</span>
+                                                    {evaluation.stats.positives} <span className="text-xs font-bold text-slate-400">{t('rep.eval.pointsUnit') || 'نقاط'}</span>
                                                 </span>
                                             </div>
                                             <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-                                                <span className="text-[11px] font-bold text-slate-400 block">إجازات سنوية</span>
+                                                <span className="text-[11px] font-bold text-slate-400 block">{t('rep.eval.annualLeaves') || 'إجازات سنوية'}</span>
                                                 <span className="text-sm font-black text-purple-600">
-                                                    {evaluation.stats.annualLeaveDays} <span className="text-xs font-bold text-slate-400">يوم</span>
+                                                    {evaluation.stats.annualLeaveDays} <span className="text-xs font-bold text-slate-400">{t('rep.eval.daysUnit') || 'يوم'}</span>
                                                 </span>
                                             </div>
                                             <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-                                                <span className="text-[11px] font-bold text-slate-400 block">إجازات مرضية</span>
+                                                <span className="text-[11px] font-bold text-slate-400 block">{t('rep.eval.sickLeaves') || 'إجازات مرضية'}</span>
                                                 <span className="text-sm font-black text-blue-600">
-                                                    {evaluation.stats.sickLeaves} <span className="text-xs font-bold text-slate-400">يوم</span>
+                                                    {evaluation.stats.sickLeaves} <span className="text-xs font-bold text-slate-400">{t('rep.eval.daysUnit') || 'يوم'}</span>
                                                 </span>
                                             </div>
                                         </div>
 
                                         {/* Total Deductions Bar */}
                                         <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center px-1">
-                                            <span className="text-xs font-bold text-slate-500">إجمالي نقاط الخصم:</span>
+                                            <span className="text-xs font-bold text-slate-500">{t('rep.ranking.totalDeductionPoints') || 'إجمالي نقاط الخصم:'}</span>
                                             <span className="text-sm font-black text-red-600 bg-red-50 px-2.5 py-0.5 rounded-lg border border-red-100">
                                                 -{evaluation.totalDeductions}
                                             </span>
@@ -1414,20 +1613,39 @@ const Reports: React.FC = () => {
                                                     <i className="fas fa-plane-departure text-xs"></i>
                                                 </div>
                                                 <div className="flex-1">
-                                                    <div className="text-[10px] font-bold text-blue-400">استحقاق الإجازة القادمة</div>
+                                                    <div className="text-[10px] font-bold text-blue-400">{t('rep.ranking.nextLeaveEntitlement') || 'استحقاق الإجازة القادمة'}</div>
                                                     <div className="text-xs font-black text-blue-700">
                                                         {evaluation.nextLeaveDate.toLocaleDateString('en-GB')}
                                                     </div>
                                                 </div>
                                             </div>
                                         )}
+
+                                        <button
+                                            onClick={() => {
+                                                setEditingId(null);
+                                                setFormData({
+                                                    employeeId: evaluation.employee.id,
+                                                    type: 'violation',
+                                                    fromDate: new Date().toISOString().split('T')[0],
+                                                    toDate: new Date().toISOString().split('T')[0],
+                                                    description: ''
+                                                });
+                                                setIsSingleDay(true);
+                                                setIsFormOpen(true);
+                                            }}
+                                            className="w-full mt-4 bg-slate-900 hover:bg-slate-800 text-white py-2.5 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition active:scale-95 print:hidden"
+                                        >
+                                            <i className="fas fa-plus-circle text-blue-400"></i>
+                                            {t('rep.action.addForThisEmp') || 'تسجيل مخالفة أو إجراء لهذا الموظف'}
+                                        </button>
                                     </div>
                                 ) : (
                                     /* Staff Ranking Overview Table */
                                     <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
                                         <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
                                             <h4 className="font-bold text-sm text-slate-800 flex items-center gap-2">
-                                                <i className="fas fa-award text-amber-500"></i> ترتيب وتقييم الموظفين
+                                                <i className="fas fa-award text-amber-500"></i> {t('rep.ranking.title') || 'ترتيب وتقييم الموظفين'}
                                             </h4>
                                             <span className="text-xs font-bold bg-white px-2 py-0.5 rounded-full border text-slate-500">
                                                 {allEvaluations.length}
@@ -1445,7 +1663,7 @@ const Reports: React.FC = () => {
                                                         <div>
                                                             <div className="font-bold text-xs text-slate-800">{ev.employee.name}</div>
                                                             <div className="text-[10px] text-slate-400 flex gap-2 mt-0.5">
-                                                                <span>خصم: -{ev.totalDeductions}</span>
+                                                                <span>{t('rep.ranking.deductionLabel') || 'خصم:'} -{ev.totalDeductions}</span>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -1471,7 +1689,7 @@ const Reports: React.FC = () => {
                                             <div className="bg-white p-5 rounded-3xl shadow-sm border border-emerald-100 relative overflow-hidden">
                                                 <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-bl-full -mr-4 -mt-4 opacity-50"></div>
                                                 <div className="relative z-10">
-                                                    <div className="text-xs font-bold text-emerald-600 uppercase mb-1">الأفضل أداءً</div>
+                                                    <div className="text-xs font-bold text-emerald-600 uppercase mb-1">{t('rep.ranking.best') || 'الأفضل أداءً'}</div>
                                                     <div className="text-xl font-black text-slate-800 truncate">
                                                         {chartEvaluations[0]?.employee.name || '-'}
                                                     </div>
@@ -1485,9 +1703,9 @@ const Reports: React.FC = () => {
                                             <div className="bg-white p-5 rounded-3xl shadow-sm border border-red-100 relative overflow-hidden">
                                                 <div className="absolute top-0 right-0 w-24 h-24 bg-red-50 rounded-bl-full -mr-4 -mt-4 opacity-50"></div>
                                                 <div className="relative z-10">
-                                                    <div className="text-xs font-bold text-red-600 uppercase mb-1">يحتاج تحسين ({needsImprovementList.length})</div>
+                                                    <div className="text-xs font-bold text-red-600 uppercase mb-1">{t('rep.ranking.needsImp') || 'يحتاج تحسين'} ({needsImprovementList.length})</div>
                                                     {needsImprovementList.length === 0 ? (
-                                                        <div className="text-slate-400 text-xs italic mt-1">لا يوجد موظفين بحاجة لتحسين</div>
+                                                        <div className="text-slate-400 text-xs italic mt-1">{t('rep.ranking.noNeedsImp') || 'لا يوجد موظفين بحاجة لتحسين'}</div>
                                                     ) : (
                                                         <div className="text-sm font-black text-slate-800 truncate">
                                                             {needsImprovementList[0]?.employee.name} ({needsImprovementList[0]?.percentage}%)
@@ -1500,12 +1718,12 @@ const Reports: React.FC = () => {
                                             <div className="bg-white p-5 rounded-3xl shadow-sm border border-blue-100 relative overflow-hidden">
                                                 <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-bl-full -mr-4 -mt-4 opacity-50"></div>
                                                 <div className="relative z-10">
-                                                    <div className="text-xs font-bold text-blue-600 uppercase mb-1">متوسط الأداء</div>
+                                                    <div className="text-xs font-bold text-blue-600 uppercase mb-1">{t('rep.ranking.avgPerf') || 'متوسط الأداء'}</div>
                                                     <div className="text-2xl font-black text-slate-800">
                                                         {Math.round(chartEvaluations.reduce((acc, curr) => acc + curr.percentage, 0) / (chartEvaluations.length || 1))}%
                                                     </div>
                                                     <div className="text-xs font-bold text-blue-400 mt-0.5">
-                                                        للموظفين النشطين ({chartEvaluations.length})
+                                                        {t('rep.ranking.activeStaff') || 'للموظفين النشطين'} ({chartEvaluations.length})
                                                     </div>
                                                 </div>
                                             </div>
@@ -1516,13 +1734,13 @@ const Reports: React.FC = () => {
                                             <div className="flex justify-between items-center mb-6">
                                                 <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
                                                     <i className="fas fa-chart-bar text-blue-500"></i>
-                                                    تحليل الأداء العام للموظفين
+                                                    {t('rep.ranking.perfAnalysis') || 'تحليل الأداء العام للموظفين'}
                                                 </h3>
                                                 <button 
                                                     onClick={() => setMainViewTab('actions_table')} 
                                                     className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl transition-all"
                                                 >
-                                                    <i className="fas fa-table mr-1"></i> استعراض سجل الإجراءات التفصيلي ({filteredActions.length})
+                                                    <i className="fas fa-table mr-1"></i> {t('rep.ranking.exploreTable') || 'استعراض سجل الإجراءات التفصيلي'} ({filteredActions.length})
                                                 </button>
                                             </div>
                                             <div className="h-[360px] w-full" dir="ltr">
@@ -1561,29 +1779,47 @@ const Reports: React.FC = () => {
                                             <div className="flex items-center gap-3">
                                                 <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
                                                     <i className="fas fa-history text-blue-500 print:hidden"></i> 
-                                                    {filterEmp ? `سجل الإجراءات - ${employees.find(e => e.id === filterEmp)?.name}` : 'سجل الإجراءات والمراجعة (جميع الموظفين)'}
+                                                    {filterEmp ? `${t('rep.log') || 'سجل الإجراءات'} - ${employees.find(e => e.id === filterEmp)?.name}` : (t('rep.ranking.actionsReviewAll') || 'سجل الإجراءات والمراجعة (جميع الموظفين)')}
                                                 </h3>
                                                 {actionFilterCategory !== 'all' && (
                                                     <span className="text-[11px] font-bold bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full">
-                                                        {actionFilterCategory === 'actions_only' && '⚡ الإجراءات فقط (بدون غياب وإجازات)'}
-                                                        {actionFilterCategory === 'penalties_only' && '⚖️ الجزاءات والمخالفات'}
-                                                        {actionFilterCategory === 'absences_only' && '🚫 الغياب فقط'}
-                                                        {actionFilterCategory === 'leaves_only' && '🏖️ الإجازات فقط'}
-                                                        {actionFilterCategory === 'late_only' && '⏰ التأخيرات'}
-                                                        {actionFilterCategory === 'positives_only' && '🌟 المكافآت'}
+                                                        {actionFilterCategory === 'actions_only' && `⚡ ${t('rep.cat.actionsOnly') || 'الإجراءات فقط'}`}
+                                                        {actionFilterCategory === 'penalties_only' && `⚖️ ${t('rep.cat.penaltiesOnly') || 'المخالفات والجزاءات'}`}
+                                                        {actionFilterCategory === 'absences_only' && `🚫 ${t('rep.cat.absencesOnly') || 'الغياب فقط'}`}
+                                                        {actionFilterCategory === 'leaves_only' && `🏖️ ${t('rep.cat.leavesOnly') || 'الإجازات فقط'}`}
+                                                        {actionFilterCategory === 'late_only' && `⏰ ${t('rep.cat.lateOnly') || 'التأخيرات'}`}
+                                                        {actionFilterCategory === 'positives_only' && `🌟 ${t('rep.cat.positivesOnly') || 'المكافآت'}`}
                                                     </span>
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                <span className="text-xs font-bold bg-white px-3 py-1 rounded-full border text-slate-600 shadow-2xs">
-                                                    {filteredActions.length} سجل
+                                                <button 
+                                                    onClick={() => { 
+                                                        setEditingId(null); 
+                                                        setFormData({
+                                                            employeeId: filterEmp || '',
+                                                            type: 'violation',
+                                                            fromDate: new Date().toISOString().split('T')[0],
+                                                            toDate: new Date().toISOString().split('T')[0],
+                                                            description: ''
+                                                        });
+                                                        setIsSingleDay(true);
+                                                        setIsFormOpen(true); 
+                                                    }}
+                                                    className="bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-1.5 rounded-xl font-bold text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-1.5 active:scale-95 print:hidden"
+                                                >
+                                                    <i className="fas fa-plus-circle"></i>
+                                                    {t('rep.action.btnLog') || 'تسجيل إجراء / مخالفة'}
+                                                </button>
+                                                <span className="text-xs font-bold bg-white px-3 py-1.5 rounded-xl border text-slate-600 shadow-2xs">
+                                                    {filteredActions.length} {t('rep.action.recordsCount') || 'سجل'}
                                                 </span>
                                                 {filterEmp && (
                                                     <button 
                                                         onClick={() => setFilterEmp('')}
-                                                        className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-white hover:bg-blue-50 px-3 py-1 rounded-full border border-blue-200 transition-colors print:hidden"
+                                                        className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-white hover:bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-200 transition-colors print:hidden"
                                                     >
-                                                        عرض كل الموظفين
+                                                        {t('rep.action.showAllEmployees') || 'عرض كل الموظفين'}
                                                     </button>
                                                 )}
                                             </div>
@@ -1596,7 +1832,7 @@ const Reports: React.FC = () => {
                                                         <th className="p-4">{t('rep.filter.emp')}</th>
                                                         <th className="p-4">{t('req.type')}</th>
                                                         <th className="p-4">{t('date')}</th>
-                                                        <th className="p-4">النقاط / الخصم</th>
+                                                        <th className="p-4">{t('rep.pointsDeduction') || 'النقاط / الخصم'}</th>
                                                         <th className="p-4 print:hidden">{t('actions')}</th>
                                                     </tr>
                                                 </thead>
@@ -1605,7 +1841,7 @@ const Reports: React.FC = () => {
                                                         <tr>
                                                             <td colSpan={5} className="p-12 text-center text-slate-400">
                                                                 <i className="fas fa-inbox text-3xl mb-2 block opacity-30"></i>
-                                                                لا توجد إجراءات مطابقة للفلترة في الفترة المحددة ({dateTitle})
+                                                                {t('rep.emptyActions') || 'لا توجد إجراءات مطابقة للفلترة في الفترة المحددة'} ({dateTitle})
                                                             </td>
                                                         </tr>
                                                     ) : filteredActions.map(act => {
@@ -1634,7 +1870,7 @@ const Reports: React.FC = () => {
                                                                     {safeDate(act.fromDate) !== safeDate(act.toDate) && (
                                                                         <div className="text-[11px] text-slate-400 mt-0.5">
                                                                             <i className="fas fa-arrow-down text-[10px] mx-1 text-slate-300 print:hidden"></i>
-                                                                            إلى {safeDate(act.toDate)}
+                                                                            {t('rep.filter.toDate') || 'إلى'} {safeDate(act.toDate)}
                                                                         </div>
                                                                     )}
                                                                 </td>
@@ -1672,59 +1908,204 @@ const Reports: React.FC = () => {
             <PrintFooter />
 
             {/* Modal for Adding/Editing Action */}
-            <Modal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} title={editingId ? t('edit') : t('add')}>
-                <div className="space-y-4">
+            <Modal 
+                isOpen={isFormOpen} 
+                onClose={() => setIsFormOpen(false)} 
+                title={editingId ? (t('rep.action.modalTitleEdit') || 'تعديل الإجراء الإداري') : (t('rep.action.modalTitleAdd') || 'تسجيل إجراء أو مخالفة يدوية')}
+            >
+                <div className="space-y-4 text-right" dir={dir}>
+                    {/* Selected Employee Display or Select Dropdown */}
                     <div>
-                        <label className="text-xs font-bold text-gray-500 mb-1 block">{t('rep.filter.emp')}</label>
+                        <label className="text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                            <span>{t('rep.action.targetEmp') || 'الموظف المعني'} <span className="text-red-500">*</span></span>
+                            {formData.employeeId && (
+                                <span className="text-[11px] font-normal text-blue-600">
+                                    {employees.find(u => u.id === formData.employeeId)?.role || 'موظف'}
+                                </span>
+                            )}
+                        </label>
                         <select 
-                            className="w-full bg-slate-50 border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
                             value={formData.employeeId}
                             onChange={e => setFormData({...formData, employeeId: e.target.value})}
                             disabled={!!filterEmp && !editingId} 
                         >
-                            <option value="">Select...</option>
-                            {employees.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
+                            <option value="">{t('rep.action.selectEmp') || '-- اختر الموظف --'}</option>
+                            {employees.map(u => (
+                                <option key={u.id} value={u.id}>
+                                    {u.name || u.email} {u.phone ? `(${u.phone})` : ''}
+                                </option>
+                            ))}
                         </select>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-xs font-bold text-gray-500 mb-1 block">{t('from')}</label>
-                            <input type="date" className="w-full bg-slate-50 border border-gray-200 rounded-xl p-3 text-sm" value={formData.fromDate} onChange={e => setFormData({...formData, fromDate: e.target.value})} />
-                        </div>
-                        <div>
-                            <label className="text-xs font-bold text-gray-500 mb-1 block">{t('to')}</label>
-                            <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm" value={formData.toDate} onChange={e => setFormData({...formData, toDate: e.target.value})} />
+                    {/* Action Type Visual Grid */}
+                    <div>
+                        <label className="text-xs font-bold text-slate-700 mb-2 block">
+                            {t('rep.action.actionTypeLabel') || 'نوع الإجراء / المخالفة'} <span className="text-red-500">*</span>
+                        </label>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            {[
+                                { id: 'violation', label: t('action.violation') || 'مخالفة إدارية', points: -10, icon: 'fa-ban', color: 'border-red-500 bg-red-50 text-red-700' },
+                                { id: 'late', label: t('action.late') || 'تأخير', points: -3, icon: 'fa-clock', color: 'border-amber-500 bg-amber-50 text-amber-700' },
+                                { id: 'unjustified_absence', label: t('action.unjustified_absence') || 'غياب غير مبرر', points: -10, icon: 'fa-user-slash', color: 'border-rose-500 bg-rose-50 text-rose-700' },
+                                { id: 'justified_absence', label: t('action.justified_absence') || 'غياب بعذر', points: -2, icon: 'fa-file-signature', color: 'border-orange-500 bg-orange-50 text-orange-700' },
+                                { id: 'sick_leave', label: t('action.sick_leave') || 'إجازة مرضية', points: -1, icon: 'fa-notes-medical', color: 'border-cyan-500 bg-cyan-50 text-cyan-700' },
+                                { id: 'annual_leave', label: t('action.annual_leave') || 'إجازة سنوية', points: 0, icon: 'fa-umbrella-beach', color: 'border-purple-500 bg-purple-50 text-purple-700' },
+                                { id: 'mission', label: t('action.mission') || 'انتداب / مهمة', points: 0, icon: 'fa-briefcase', color: 'border-indigo-500 bg-indigo-50 text-indigo-700' },
+                                { id: 'positive', label: t('action.positive') || 'مبادرة إيجابية (بونص)', points: 5, icon: 'fa-star', color: 'border-emerald-500 bg-emerald-50 text-emerald-700' },
+                            ].map(item => {
+                                const isSelected = formData.type === item.id;
+                                return (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        onClick={() => setFormData({ ...formData, type: item.id })}
+                                        className={`p-2.5 rounded-xl border text-center transition-all flex flex-col items-center justify-center gap-1 relative ${
+                                            isSelected 
+                                                ? `${item.color} font-black ring-2 ring-blue-500 shadow-sm scale-[1.02]` 
+                                                : 'border-slate-200 bg-slate-50/70 hover:bg-slate-100 text-slate-700'
+                                        }`}
+                                    >
+                                        <i className={`fas ${item.icon} text-sm ${isSelected ? '' : 'text-slate-400'}`}></i>
+                                        <span className="text-xs">{item.label}</span>
+                                        <span className={`text-[10px] font-black px-1.5 py-0.2 rounded ${
+                                            item.points > 0 ? 'bg-emerald-100 text-emerald-800' :
+                                            item.points < 0 ? 'bg-red-100 text-red-800' :
+                                            'bg-slate-200 text-slate-600'
+                                        }`}>
+                                            {item.points > 0 ? `+${item.points}` : item.points} {t('rep.action.pointsUnit') || 'نقطة'}
+                                        </span>
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
 
-                    <div>
-                        <label className="text-xs font-bold text-gray-500 mb-1 block">{t('req.type')}</label>
-                        <select 
-                            className="w-full bg-slate-50 border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100"
-                            value={formData.type}
-                            onChange={e => setFormData({...formData, type: e.target.value})}
+                    {/* Single Day vs Date Range Toggle */}
+                    <div className="bg-slate-100 p-1.5 rounded-xl flex items-center gap-1 text-xs font-bold">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setIsSingleDay(true);
+                                setFormData(prev => ({ ...prev, toDate: prev.fromDate }));
+                            }}
+                            className={`flex-1 py-1.5 rounded-lg transition-all text-center flex items-center justify-center gap-1.5 ${
+                                isSingleDay ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                            }`}
                         >
-                            <option value="annual_leave">{t('action.annual_leave')} (0)</option>
-                            <option value="sick_leave">{t('action.sick_leave')} (-1)</option>
-                            <option value="justified_absence">{t('action.justified_absence')} (-2)</option>
-                            <option value="mission">{t('action.mission')} (0)</option>
-                            <option value="violation">{t('action.violation')} (-10)</option>
-                            <option value="positive">{t('action.positive')} (+5)</option>
-                        </select>
+                            <i className="fas fa-calendar-day"></i>
+                            {t('rep.action.singleDay') || 'يوم واحد فقط'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setIsSingleDay(false)}
+                            className={`flex-1 py-1.5 rounded-lg transition-all text-center flex items-center justify-center gap-1.5 ${
+                                !isSingleDay ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            <i className="fas fa-calendar-week"></i>
+                            {t('rep.action.dateRange') || 'فترة ممتدة (من - إلى)'}
+                        </button>
                     </div>
 
+                    {/* Date Pickers */}
+                    {isSingleDay ? (
+                        <div>
+                            <label className="text-xs font-bold text-slate-700 mb-1 block">
+                                {t('rep.action.dateLabel') || 'تاريخ الإجراء / المخالفة'} <span className="text-red-500">*</span>
+                            </label>
+                            <input 
+                                type="date" 
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                                value={formData.fromDate} 
+                                onChange={e => setFormData({ ...formData, fromDate: e.target.value, toDate: e.target.value })} 
+                            />
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-xs font-bold text-slate-700 mb-1 block">{t('from')} <span className="text-red-500">*</span></label>
+                                <input 
+                                    type="date" 
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                                    value={formData.fromDate} 
+                                    onChange={e => setFormData({ ...formData, fromDate: e.target.value })} 
+                                />
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-700 mb-1 block">{t('to')} <span className="text-red-500">*</span></label>
+                                <input 
+                                    type="date" 
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                                    value={formData.toDate} 
+                                    onChange={e => setFormData({ ...formData, toDate: e.target.value })} 
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Quick Preset Reason Chips */}
                     <div>
-                        <label className="text-xs font-bold text-gray-500 mb-1 block">{t('notes')}</label>
+                        <label className="text-xs font-bold text-slate-700 mb-1.5 block">
+                            {t('rep.action.presetsTitle') || 'أسباب وملاحظات شائعة (انقر للاختيار السريع):'}
+                        </label>
+                        <div className="flex flex-wrap gap-1.5">
+                            {[
+                                t('rep.action.preset.late') || 'تأخير عن موعد بدء الشيفت',
+                                t('rep.action.preset.uniform') || 'عدم الالتزام بالزي الرسمي المعتمد',
+                                t('rep.action.preset.leaveEarly') || 'مغادرة مقر العمل بدون إذن مسبق',
+                                t('rep.action.preset.phone') || 'استخدام الهاتف أثناء العمل',
+                                t('rep.action.preset.neglect') || 'إهمال في أداء المهام المكلف بها',
+                                t('rep.action.preset.mission') || 'مأمورية عمل خارجية رسمية',
+                                t('rep.action.preset.excellence') || 'أداء متميز وتفاني وإتقان في العمل'
+                            ].map((presetText) => (
+                                <button
+                                    key={presetText}
+                                    type="button"
+                                    onClick={() => setFormData(prev => ({
+                                        ...prev,
+                                        description: prev.description ? `${prev.description} - ${presetText}` : presetText
+                                    }))}
+                                    className="text-[11px] bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 px-2.5 py-1 rounded-lg border border-slate-200 transition"
+                                >
+                                    + {presetText}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Notes Textarea */}
+                    <div>
+                        <label className="text-xs font-bold text-slate-700 mb-1 block">
+                            {t('notes')} {t('rep.action.notesDetail') || 'والبيان التفصيلي'}
+                        </label>
                         <textarea 
-                            className="w-full bg-slate-50 border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 min-h-[80px]"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-sm min-h-[75px] transition"
+                            placeholder={t('rep.action.notesPlaceholder') || 'اكتب تفاصيل الإجراء أو الملاحظات هنا...'}
                             value={formData.description}
-                            onChange={e => setFormData({...formData, description: e.target.value})}
+                            onChange={e => setFormData({ ...formData, description: e.target.value })}
                         ></textarea>
                     </div>
 
-                    <button onClick={handleSubmit} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 shadow-lg">
-                        {t('save')}
+                    {/* Submit Button */}
+                    <button 
+                        type="button"
+                        onClick={handleSubmit} 
+                        disabled={isSubmittingAction || !formData.employeeId}
+                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white py-3.5 rounded-xl font-bold shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2 active:scale-98 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                        {isSubmittingAction ? (
+                            <>
+                                <i className="fas fa-spinner fa-spin"></i>
+                                {t('rep.action.submitting') || 'جاري الحفظ وتحديث التقرير...'}
+                            </>
+                        ) : (
+                            <>
+                                <i className="fas fa-check-circle"></i>
+                                {editingId ? (t('rep.action.saveChanges') || 'حفظ التعديلات') : (t('rep.action.saveInstant') || 'تسجيل الإجراء فورياً')}
+                            </>
+                        )}
                     </button>
                 </div>
             </Modal>

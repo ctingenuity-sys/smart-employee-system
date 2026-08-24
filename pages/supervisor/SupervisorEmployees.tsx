@@ -1233,8 +1233,8 @@ const SupervisorEmployees: React.FC = () => {
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
             {loading && <div className="fixed inset-0 bg-white/50 z-50 flex items-center justify-center"><div className="w-10 h-10 border-4 border-blue-500 rounded-full animate-spin border-t-transparent"></div></div>}
             
-            {/* Secret Button for Hidden Employees (Invisible Trigger in Bottom Right) */}
-            <div id="secretTrigger" onClick={toggleHiddenEmployees} className="fixed bottom-0 right-0 w-20 h-20 cursor-pointer z-50 opacity-0"></div>
+            {/* Secret / Invisible Trigger in Bottom Center */}
+            <div id="secretTrigger" onClick={toggleHiddenEmployees} className="fixed bottom-0 left-1/2 -translate-x-1/2 w-40 h-16 cursor-pointer z-[9900] opacity-0" title="Secret Trigger"></div>
 
             <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
                 <div className="flex items-center gap-4">

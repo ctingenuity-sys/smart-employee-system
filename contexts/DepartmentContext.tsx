@@ -1,14 +1,20 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import { db } from '../firebase';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore';
-import { Department, UserRole } from '../types';
+import { collection, getDocs, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { Department, UserRole, User } from '../types';
+import { VisualStaffMember, getVisualStaffForDepartment, filterUsersByVisualStaff } from '../utils/staffUtils';
 
 interface DepartmentContextType {
     departments: Department[];
     selectedDepartmentId: string | null;
     setSelectedDepartmentId: (id: string | null) => void;
     loadingDepartments: boolean;
+    monthlyPublishes: Record<string, any>;
+    scheduleTemplates: any[];
+    isVisualLoaded: boolean;
+    getDepartmentVisualStaff: (deptId?: string | null) => VisualStaffMember[];
+    filterVisualUsers: (users: User[], deptId?: string | null) => User[];
 }
 
 const DepartmentContext = createContext<DepartmentContextType>({
@@ -16,6 +22,11 @@ const DepartmentContext = createContext<DepartmentContextType>({
     selectedDepartmentId: null,
     setSelectedDepartmentId: () => {},
     loadingDepartments: true,
+    monthlyPublishes: {},
+    scheduleTemplates: [],
+    isVisualLoaded: false,
+    getDepartmentVisualStaff: () => [],
+    filterVisualUsers: (users) => users,
 });
 
 export const useDepartment = () => useContext(DepartmentContext);
@@ -25,6 +36,10 @@ export const DepartmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const [departments, setDepartments] = useState<Department[]>([]);
     const [selectedDepartmentId, setSelectedDepartmentId] = useState<string | null>(null);
     const [loadingDepartments, setLoadingDepartments] = useState(true);
+
+    const [monthlyPublishes, setMonthlyPublishes] = useState<Record<string, any>>({});
+    const [scheduleTemplates, setScheduleTemplates] = useState<any[]>([]);
+    const [isVisualLoaded, setIsVisualLoaded] = useState(false);
 
     useEffect(() => {
         const fetchDepartments = async () => {
@@ -73,6 +88,51 @@ export const DepartmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         fetchDepartments();
     }, [role, departmentId, user]);
 
+    // Real-time synchronization of Visual View Published Schedules and Templates
+    useEffect(() => {
+        let isSubscribed = true;
+
+        const unsubPublishes = onSnapshot(collection(db, 'monthly_publishes'), (snap) => {
+            if (!isSubscribed) return;
+            const publishesMap: Record<string, any> = {};
+            snap.forEach(doc => {
+                publishesMap[doc.id] = doc.data();
+            });
+            setMonthlyPublishes(publishesMap);
+            setIsVisualLoaded(true);
+        }, (err) => {
+            console.warn("Could not stream monthly_publishes:", err);
+            setIsVisualLoaded(true);
+        });
+
+        const unsubTemplates = onSnapshot(collection(db, 'schedule_templates'), (snap) => {
+            if (!isSubscribed) return;
+            const templates = snap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+            setScheduleTemplates(templates);
+        }, (err) => {
+            console.warn("Could not stream schedule_templates:", err);
+        });
+
+        return () => {
+            isSubscribed = false;
+            unsubPublishes();
+            unsubTemplates();
+        };
+    }, []);
+
+    // Helper: Extract visual staff for a department
+    const getDepartmentVisualStaff = useCallback((deptId?: string | null): VisualStaffMember[] => {
+        const target = deptId !== undefined ? deptId : selectedDepartmentId;
+        return getVisualStaffForDepartment(monthlyPublishes, scheduleTemplates, target);
+    }, [monthlyPublishes, scheduleTemplates, selectedDepartmentId]);
+
+    // Helper: Filter a user list strictly to Visual View staff for the given department
+    const filterVisualUsers = useCallback((users: User[], deptId?: string | null): User[] => {
+        const target = deptId !== undefined ? deptId : selectedDepartmentId;
+        const visualStaff = getDepartmentVisualStaff(target);
+        return filterUsersByVisualStaff(users, visualStaff, target, departments);
+    }, [getDepartmentVisualStaff, selectedDepartmentId, departments]);
+
     // Save admin selection
     useEffect(() => {
         if (role === UserRole.ADMIN && selectedDepartmentId) {
@@ -81,7 +141,17 @@ export const DepartmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }, [selectedDepartmentId, role]);
 
     return (
-        <DepartmentContext.Provider value={{ departments, selectedDepartmentId, setSelectedDepartmentId, loadingDepartments }}>
+        <DepartmentContext.Provider value={{ 
+            departments, 
+            selectedDepartmentId, 
+            setSelectedDepartmentId, 
+            loadingDepartments,
+            monthlyPublishes,
+            scheduleTemplates,
+            isVisualLoaded,
+            getDepartmentVisualStaff,
+            filterVisualUsers
+        }}>
             {children}
         </DepartmentContext.Provider>
     );

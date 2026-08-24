@@ -9,6 +9,7 @@ import Modal from '../../components/Modal';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDepartment } from '../../contexts/DepartmentContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { useFilteredUsers } from '../../hooks/useFilteredUsers';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 import { PrintStyleModal } from '../../components/PrintStyleModal';
@@ -22,7 +23,8 @@ const SupervisorSwaps: React.FC = () => {
     // Data States
     const [pendingRequests, setPendingRequests] = useState<SwapRequest[]>([]);
     const [historyRequests, setHistoryRequests] = useState<SwapRequest[]>([]);
-    const [users, setUsers] = useState<User[]>([]);
+    const [rawUsers, setRawUsers] = useState<User[]>([]);
+    const users = useFilteredUsers(rawUsers);
     
     // UI States
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'} | null>(null);
@@ -45,20 +47,7 @@ const SupervisorSwaps: React.FC = () => {
             
         const unsubUsers = onSnapshot(qUsers, (snap: QuerySnapshot<DocumentData>) => {
             const fetchedUsers = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
-            console.log('Debug: authRole', authRole);
-            const filteredUsers = fetchedUsers.filter(u => {
-                // Doctor filtering logic
-                if (authRole === UserRole.ADMIN) return true;
-                
-                const isAuthDoctor = (authRole && authRole.toLowerCase() === UserRole.DOCTOR.toLowerCase()) || (currentUser?.jobCategory && currentUser.jobCategory.toLowerCase() === 'doctor');
-                const isUserDoctor = (u.role && u.role.toLowerCase() === UserRole.DOCTOR.toLowerCase()) || (u.jobCategory && u.jobCategory.toLowerCase() === 'doctor');
-                
-                if (isAuthDoctor) return isUserDoctor;
-                
-                console.log(`Debug: User ${u.name} role: ${u.role}, jobCategory: ${u.jobCategory}, isDoctor: ${isUserDoctor}, keep: ${!isUserDoctor}`);
-                return !isUserDoctor;
-            });
-            setUsers(filteredUsers);
+            setRawUsers(fetchedUsers);
         });
 
         // Pending Requests

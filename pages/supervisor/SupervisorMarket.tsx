@@ -45,7 +45,7 @@ const parseMultiShifts = (text: string) => {
 const SupervisorMarket: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
-    const { selectedDepartmentId } = useDepartment();
+    const { selectedDepartmentId, filterVisualUsers } = useDepartment();
     const [openShifts, setOpenShifts] = useState<OpenShift[]>([]);
     const [locations, setLocations] = useState<Location[]>([]);
     const [users, setUsers] = useState<User[]>([]);
@@ -61,17 +61,7 @@ const SupervisorMarket: React.FC = () => {
         const unsubLocs = onSnapshot(withDept(collection(db, 'locations')), (snap: QuerySnapshot<DocumentData>) => setLocations(snap.docs.map(d => ({id:d.id, ...d.data()} as Location))));
         const unsubUsers = onSnapshot(collection(db, 'users'), (snap: QuerySnapshot<DocumentData>) => {
             const fetchedUsers = snap.docs.map(d => ({id:d.id, ...d.data()} as User));
-            setUsers(fetchedUsers.filter(u => {
-                if (!u || u.isHidden) return false;
-                if (selectedDepartmentId) {
-                    return (
-                        u.departmentId === selectedDepartmentId ||
-                        (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentId)) ||
-                        (selectedDepartmentId === 'legacy_radiology' && !u.departmentId)
-                    );
-                }
-                return true;
-            }));
+            setUsers(filterVisualUsers(fetchedUsers, selectedDepartmentId));
         });
         const unsubShifts = onSnapshot(withDept(collection(db, 'openShifts')), (snap: QuerySnapshot<DocumentData>) => setOpenShifts(snap.docs.map(d => ({id:d.id, ...d.data()} as OpenShift))));
         return () => { unsubLocs(); unsubUsers(); unsubShifts(); };

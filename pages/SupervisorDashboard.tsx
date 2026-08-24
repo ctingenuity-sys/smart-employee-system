@@ -134,7 +134,7 @@ const SupervisorDashboard: React.FC = () => {
           const fetchedUsers = snap.docs.map(d => ({id: d.id, ...d.data()} as User));
           
           let filtered = fetchedUsers.filter(u => {
-              if (!u || u.isHidden) return false;
+              if (!u) return false;
               
               // If a department is selected (by Admin or assigned to Supervisor/Manager)
               if (selectedDepartmentId) {
@@ -486,10 +486,22 @@ const SupervisorDashboard: React.FC = () => {
 
   const activeNowCount = onShiftNow.length;
 
-  // Active employees list: accurate operational staff roster (strictly excluding Admin, Supervisor, Manager & individual tools)
+  const [showHiddenEmployees, setShowHiddenEmployees] = useState<boolean>(() => {
+      return localStorage.getItem('show_hidden_employees') === 'true';
+  });
+
+  useEffect(() => {
+      const handleStorage = () => {
+          setShowHiddenEmployees(localStorage.getItem('show_hidden_employees') === 'true');
+      };
+      window.addEventListener('storage', handleStorage);
+      return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  // Active employees list: accurate operational staff roster
   const activeStaffList = useMemo(() => {
-      return getOperationalStaffList(users, departments);
-  }, [users, departments]);
+      return getOperationalStaffList(users, departments, showHiddenEmployees);
+  }, [users, departments, showHiddenEmployees]);
 
   const activeEmployeesCount = activeStaffList.length;
 
@@ -994,7 +1006,7 @@ const SupervisorDashboard: React.FC = () => {
                     <div className="absolute -right-8 -top-8 w-36 h-36 bg-white/10 rounded-full blur-2xl pointer-events-none group-hover:scale-125 transition-transform duration-500"></div>
                     <div className="flex justify-between items-start relative z-10">
                         <div>
-                            <div className="flex items-center gap-2 mb-1.5">
+                            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                                 <p className="text-indigo-100 font-bold text-xs uppercase tracking-wider">
                                     {activeDepartment ? (dir === 'rtl' ? `موظفو ${activeDepartment.name}` : `${activeDepartment.name} Staff`) : (t('sup.totalEmp') || 'الموظفون الفعليون')}
                                 </p>

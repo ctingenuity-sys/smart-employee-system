@@ -330,7 +330,6 @@ const SupervisorRotation: React.FC = () => {
     const filteredAndSortedUsers = useMemo(() => {
         return users
             .filter(u => {
-                if (u.isHidden) return false;
                 const name = (u.name || '').toLowerCase();
                 const email = (u.email || '').toLowerCase();
                 const query = searchQuery.toLowerCase();

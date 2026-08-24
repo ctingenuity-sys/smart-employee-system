@@ -13,6 +13,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useDepartment } from '../contexts/DepartmentContext';
 import { UserRole } from '../types';
 import { useFilteredUsers } from '../hooks/useFilteredUsers';
+import { isValidStaffName } from '../utils/staffUtils';
 import { appointmentsDb } from '../firebaseAppointments';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
@@ -51,11 +52,7 @@ const Reports: React.FC = () => {
     const { departments, selectedDepartmentId: contextDeptId, setSelectedDepartmentId } = useDepartment();
     const [selectedDept, setSelectedDept] = useState<string | null>(contextDeptId);
     const [allEmployees, setAllEmployees] = useState<User[]>([]);
-    const baseEmployees = useFilteredUsers(allEmployees);
-    const employees = useMemo(() => {
-        if (!selectedDept) return baseEmployees;
-        return baseEmployees.filter(emp => emp.departmentId === selectedDept);
-    }, [baseEmployees, selectedDept]);
+    const employees = useFilteredUsers(allEmployees, selectedDept);
     
     // Real-time collections state
     const [rawActions, setRawActions] = useState<ActionLog[]>([]);
@@ -660,8 +657,12 @@ const Reports: React.FC = () => {
         const maxScore = months * POINTS_PER_MONTH;
         const { start, end } = getDateRange();
         
-        // Filter out doctors
-        const nonDoctorEmployees = employees.filter(emp => emp.role !== 'doctor' && emp.jobCategory !== 'doctor');
+        // Filter out doctors and any non-human names
+        const nonDoctorEmployees = employees.filter(emp => 
+            emp.role !== 'doctor' && 
+            emp.jobCategory !== 'doctor' && 
+            isValidStaffName(emp.name)
+        );
 
         return nonDoctorEmployees.map(emp => {
             const empActions = baseFilteredActions.filter(act => 

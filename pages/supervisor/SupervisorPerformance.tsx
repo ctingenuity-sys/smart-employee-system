@@ -9,6 +9,7 @@ import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDepartment } from '../../contexts/DepartmentContext';
 import { PrintHeader, PrintFooter } from '../../components/PrintLayout';
+import { User } from '../../types';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 
@@ -30,7 +31,7 @@ interface ArchivedReport {
 const SupervisorPerformance: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
-    const { selectedDepartmentId } = useDepartment();
+    const { selectedDepartmentId, filterVisualUsers } = useDepartment();
     const [loading, setLoading] = useState(true);
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
     
@@ -73,10 +74,12 @@ const SupervisorPerformance: React.FC = () => {
                 queryStart = startOfWeek;
             }
 
-            // Fetch users for the selected department
-            const qUsers = selectedDepartmentId ? query(collection(db, 'users'), where('departmentId', '==', selectedDepartmentId)) : collection(db, 'users');
-            const usersSnap = await getDocs(qUsers);
-            const validUserIds = new Set(usersSnap.docs.map(d => d.id));
+            // Fetch and filter users strictly to Visual View staff for the selected department
+            const usersSnap = await getDocs(collection(db, 'users'));
+            const allFetchedUsers = usersSnap.docs.map(d => ({ ...d.data(), id: d.id } as User));
+            const visualDeptUsers = filterVisualUsers(allFetchedUsers, selectedDepartmentId);
+            const validUserIds = new Set(visualDeptUsers.map(d => d.id));
+            const validNames = new Set(visualDeptUsers.map(d => (d.name || '').toLowerCase().trim()));
 
             // Fetch all done appointments
             const qData = query(collection(appointmentsDb, 'appointments'), 
@@ -92,7 +95,9 @@ const SupervisorPerformance: React.FC = () => {
             
             data.forEach((appt: any) => {
                 const uid = appt.performedBy || 'unknown';
-                if (selectedDepartmentId && !validUserIds.has(uid)) return; // Filter by department users
+                const apptName = (appt.performedByName || '').toLowerCase().trim();
+                const isMatched = validUserIds.has(uid) || (apptName && validNames.has(apptName));
+                if (selectedDepartmentId && !isMatched) return; // Filter by department visual users
                 
                 const name = appt.performedByName || 'Unknown';
                 const date = appt.date;

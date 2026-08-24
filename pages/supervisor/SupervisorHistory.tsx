@@ -32,7 +32,7 @@ interface HistoryItem {
 const SupervisorHistory: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
-    const { selectedDepartmentId, departments } = useDepartment();
+    const { selectedDepartmentId, departments, filterVisualUsers } = useDepartment();
     const [historyData, setHistoryData] = useState<HistoryItem[]>(() => {
         const cached = localStorage.getItem('usr_cached_sup_hist');
         return cached ? JSON.parse(cached) : [];
@@ -71,17 +71,7 @@ const SupervisorHistory: React.FC = () => {
             });
             setAllUsersMap(uMap);
 
-            setUsers(fetchedUsers.filter(u => {
-                if (!isOperationalStaff(u, departments)) return false;
-                if (selectedDepartmentId) {
-                    return (
-                        u.departmentId === selectedDepartmentId ||
-                        (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentId)) ||
-                        (selectedDepartmentId === 'legacy_radiology' && !u.departmentId)
-                    );
-                }
-                return true;
-            }));
+            setUsers(filterVisualUsers(fetchedUsers, selectedDepartmentId));
         });
         
         const qSwaps = withDept(query(collection(db, 'swapRequests'), where('status', 'in', ['approvedBySupervisor', 'rejectedBySupervisor', 'rejected', 'approved', 'approvedByManager'])));

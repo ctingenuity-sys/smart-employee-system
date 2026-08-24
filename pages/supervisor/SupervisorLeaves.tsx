@@ -15,7 +15,7 @@ const SupervisorLeaves: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
     const { role } = useAuth();
-    const { selectedDepartmentId } = useDepartment();
+    const { selectedDepartmentId, filterVisualUsers } = useDepartment();
     const [activeTab, setActiveTab] = useState<'supervisor' | 'manager'>('supervisor');
 
     const fetchWorkLocation = async (userId: string) => {
@@ -85,18 +85,7 @@ const SupervisorLeaves: React.FC = () => {
                 if ((u as any).uid) uMap[(u as any).uid] = u.name || u.email || u.id;
             });
             setAllUsersMap(uMap);
-
-            setUsers(fetchedUsers.filter(u => {
-                if (!u || u.isHidden) return false;
-                if (selectedDepartmentId) {
-                    return (
-                        u.departmentId === selectedDepartmentId ||
-                        (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentId)) ||
-                        (selectedDepartmentId === 'legacy_radiology' && !u.departmentId)
-                    );
-                }
-                return true;
-            }));
+            setUsers(filterVisualUsers(fetchedUsers, selectedDepartmentId));
         });
         
         // Supervisor Tab: Show requests for the department

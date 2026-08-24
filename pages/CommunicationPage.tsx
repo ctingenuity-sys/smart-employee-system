@@ -10,6 +10,7 @@ import VoiceInput from '../components/VoiceInput';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useDepartment } from '../contexts/DepartmentContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useFilteredUsers } from '../hooks/useFilteredUsers';
 import { GoogleGenAI } from "@google/genai";
 
 const CommunicationPage: React.FC = () => {
@@ -121,14 +122,8 @@ const CommunicationPage: React.FC = () => {
         return users.find(u => u.uid === userId || u.id === userId);
     }, [users, userId]);
 
-    // Colleague list filtered strictly by the current selected department
-    const departmentUsers = useMemo(() => {
-        if (!selectedDepartmentId) return users;
-        return users.filter(u => 
-            u.departmentId === selectedDepartmentId || 
-            (u.departments && u.departments.includes(selectedDepartmentId))
-        );
-    }, [users, selectedDepartmentId]);
+    // Colleague list filtered strictly by the current selected department (Visual View)
+    const departmentUsers = useFilteredUsers(users, selectedDepartmentId);
 
     // Check if the current user belongs to the specified department
     const isUserInDepartment = (deptId?: string) => {

@@ -187,7 +187,7 @@ interface EmployeeAttendanceSummary {
 const SupervisorAttendance: React.FC = () => {
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
-    const { selectedDepartmentId, departments } = useDepartment();
+    const { selectedDepartmentId, departments, filterVisualUsers } = useDepartment();
     const [users, setUsers] = useState<User[]>([]);
     const [attendanceSummaries, setAttendanceSummaries] = useState<EmployeeAttendanceSummary[]>([]);
     const [attFilterUser, setAttFilterUser] = useState('');
@@ -218,19 +218,9 @@ const SupervisorAttendance: React.FC = () => {
     useEffect(() => {
         getDocs(collection(db, 'users')).then(snap => {
             const fetchedUsers = snap.docs.map(d => ({id:d.id, ...d.data()} as User));
-            setUsers(fetchedUsers.filter(u => {
-                if (!isOperationalStaff(u, departments)) return false;
-                if (selectedDepartmentId) {
-                    return (
-                        u.departmentId === selectedDepartmentId ||
-                        (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentId)) ||
-                        (selectedDepartmentId === 'legacy_radiology' && !u.departmentId)
-                    );
-                }
-                return true;
-            }));
+            setUsers(filterVisualUsers(fetchedUsers, selectedDepartmentId));
         });
-    }, [selectedDepartmentId]);
+    }, [selectedDepartmentId, filterVisualUsers]);
 
     const handleImportArchive = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];

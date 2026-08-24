@@ -68,7 +68,7 @@ const JOB_CATEGORIES = [
     { id: 'reception', title: 'Reception (استقبال)', cssClass: 'reception', icon: 'fa-concierge-bell', cardTheme: 'bg-gradient-to-br from-teal-500 to-emerald-600 text-white border-teal-400' },
     { id: 'worker', title: 'Workers / Service (عمال ومساعدين)', cssClass: 'workers', icon: 'fa-hands-helping', cardTheme: 'bg-gradient-to-br from-slate-600 to-slate-800 text-white border-slate-500' },
     { id: 'rso', title: 'R S O (حماية الإشعاع)', cssClass: 'rso', icon: 'fa-radiation', cardTheme: 'bg-gradient-to-br from-yellow-400 to-amber-500 text-white border-yellow-400' },
-    { id: 'usg', title: 'Ultrasound (سونار)', cssClass: 'technologists', icon: 'fa-wave-square', isHidden: true, cardTheme: 'bg-gradient-to-br from-indigo-500 to-violet-600 text-white border-indigo-400' }, 
+    { id: 'usg', title: 'Ultrasound (سونار)', cssClass: 'technologists', icon: 'fa-wave-square', cardTheme: 'bg-gradient-to-br from-indigo-500 to-violet-600 text-white border-indigo-400' }, 
 ];
 
 const styles = `
@@ -281,7 +281,9 @@ const SupervisorEmployees: React.FC = () => {
     const [selectedCategoryTitle, setSelectedCategoryTitle] = useState('');
     const [selectedCategoryTheme, setSelectedCategoryTheme] = useState(''); // New for modal theme
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
-    const [hiddenEmployeesVisible, setHiddenEmployeesVisible] = useState(false);
+    const [hiddenEmployeesVisible, setHiddenEmployeesVisible] = useState<boolean>(() => {
+        return localStorage.getItem('show_hidden_employees') === 'true';
+    });
 
     const [offlineResult, setOfflineResult] = useState<any>(null);
     const [verificationCode, setVerificationCode] = useState('');
@@ -1161,8 +1163,11 @@ const SupervisorEmployees: React.FC = () => {
     
     // Toggle hidden employees visibility
     const toggleHiddenEmployees = () => {
-        if (!hiddenEmployeesVisible && !confirm('Show hidden profiles?')) return;
-        setHiddenEmployeesVisible(!hiddenEmployeesVisible);
+        const nextVal = !hiddenEmployeesVisible;
+        if (nextVal && !confirm(dir === 'rtl' ? 'هل تريد إظهار الحسابات والموظفين المخفيين؟' : 'Show hidden profiles?')) return;
+        setHiddenEmployeesVisible(nextVal);
+        localStorage.setItem('show_hidden_employees', String(nextVal));
+        window.dispatchEvent(new Event('storage'));
     };
 
     const getAvatar = (user: User) => {

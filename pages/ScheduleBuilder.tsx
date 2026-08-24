@@ -922,6 +922,19 @@ const ScheduleBuilder: React.FC = () => {
                     </div>
 
                     <div className="flex flex-wrap gap-2 items-center">
+                         <button 
+                            onClick={() => setIsTemplatesOpen(!isTemplatesOpen)} 
+                            className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${isTemplatesOpen ? 'bg-indigo-700 text-white shadow-md' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'}`}
+                            title={t('sb.btn.saved') || 'الجداول المحفوظة'}
+                        >
+                            <i className="fas fa-folder-open"></i> 
+                            <span>{t('sb.btn.saved') || 'الجداول المحفوظة'}</span>
+                            {savedTemplates.length > 0 && (
+                                <span className="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">
+                                    {savedTemplates.length}
+                                </span>
+                            )}
+                        </button>
                          <button onClick={() => setIsEditingVisual(!isEditingVisual)} className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${isEditingVisual ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
                             {isEditingVisual ? 'Edit Mode' : 'Preview Mode'}
                         </button>
@@ -1140,38 +1153,77 @@ const ScheduleBuilder: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Templates FAB */}
-                <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2 print:hidden">
-                    {isTemplatesOpen && (
-                        <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-80 mb-2 animate-fade-in-up max-h-[70vh] overflow-y-auto">
-                            <div className="flex flex-col gap-2 mb-3 border-b border-slate-100 pb-2">
-                                <div className="flex justify-between items-center">
-                                    <h3 className="font-bold text-slate-800">{t('sb.btn.saved')}</h3>
-                                    <button onClick={() => setIsTemplatesOpen(false)} className="text-slate-400 hover:text-slate-600"><i className="fas fa-times"></i></button>
-                                </div>
-                                <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold outline-none" placeholder="Search Templates..." value={templateSearch} onChange={e => setTemplateSearch(e.target.value)} />
+                {/* Saved Templates Modal */}
+                <Modal 
+                    isOpen={isTemplatesOpen} 
+                    onClose={() => setIsTemplatesOpen(false)} 
+                    title={t('sb.btn.saved') || 'الجداول المحفوظة'}
+                    maxWidth="max-w-md"
+                >
+                    <div className="space-y-4">
+                        <div className="relative">
+                            <i className="fas fa-search absolute right-3 top-3 text-slate-400 text-xs"></i>
+                            <input 
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-100 pr-8" 
+                                placeholder={t('sb.search') || "البحث في الجداول المحفوظة..."} 
+                                value={templateSearch} 
+                                onChange={e => setTemplateSearch(e.target.value)} 
+                            />
+                        </div>
+
+                        {savedTemplates.length === 0 ? (
+                            <div className="text-center py-8 text-slate-400">
+                                <i className="fas fa-folder-open text-3xl mb-2 text-slate-300 block"></i>
+                                <p className="text-xs">{t('sb.empty') || 'لا توجد جداول محفوظة'}</p>
                             </div>
-                            {savedTemplates.length === 0 ? <p className="text-xs text-slate-400 text-center py-4">{t('sb.empty')}</p> : (
-                                <div className="space-y-2">
-                                    {savedTemplates.filter(tpl => (tpl.name && String(tpl.name).toLowerCase().includes(templateSearch.toLowerCase())) || (tpl.targetMonth && tpl.targetMonth.includes(templateSearch))).map(tpl => (
-                                        <div key={tpl.id} className={`p-3 rounded-xl border transition-all group ${activeTemplateId === tpl.id ? 'bg-blue-50 border-blue-300' : 'bg-slate-50 border-slate-100 hover:bg-blue-50 hover:border-blue-200'}`}>
-                                            <div className="flex justify-between items-start">
-                                                <div onClick={() => handleLoadTemplate(tpl)} className="cursor-pointer flex-1">
-                                                    <h4 className={`font-bold text-sm ${activeTemplateId === tpl.id ? 'text-blue-700' : 'text-slate-700'}`}>{tpl.name}</h4>
-                                                    <p className="text-[10px] text-slate-400 mt-1"><i className="far fa-calendar-alt mr-1"></i> {tpl.targetMonth || 'No Date'}</p>
+                        ) : (
+                            <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                                {savedTemplates
+                                    .filter(tpl => (tpl.name && String(tpl.name).toLowerCase().includes(templateSearch.toLowerCase())) || (tpl.targetMonth && tpl.targetMonth.includes(templateSearch)))
+                                    .map(tpl => (
+                                        <div 
+                                            key={tpl.id} 
+                                            className={`p-3.5 rounded-xl border transition-all flex items-center justify-between group ${
+                                                activeTemplateId === tpl.id 
+                                                    ? 'bg-indigo-50 border-indigo-300 text-indigo-900 shadow-sm' 
+                                                    : 'bg-slate-50 border-slate-200 hover:bg-indigo-50/50 hover:border-indigo-200'
+                                            }`}
+                                        >
+                                            <div 
+                                                onClick={() => {
+                                                    handleLoadTemplate(tpl);
+                                                    setIsTemplatesOpen(false);
+                                                }} 
+                                                className="cursor-pointer flex-1 min-w-0"
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <i className="fas fa-calendar-alt text-indigo-500 text-xs"></i>
+                                                    <h4 className="font-bold text-sm text-slate-800 truncate">{tpl.name}</h4>
+                                                    {activeTemplateId === tpl.id && (
+                                                        <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full font-bold">
+                                                            {dir === 'rtl' ? 'نشط الآن' : 'Active'}
+                                                        </span>
+                                                    )}
                                                 </div>
-                                                <button onClick={(e) => handleDeleteTemplate(e, tpl.id)} className="text-slate-300 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity"><i className="fas fa-trash"></i></button>
+                                                {tpl.targetMonth && (
+                                                    <p className="text-[11px] text-slate-500 mt-1 font-medium">
+                                                        {tpl.targetMonth}
+                                                    </p>
+                                                )}
                                             </div>
+                                            <button 
+                                                onClick={(e) => handleDeleteTemplate(e, tpl.id)} 
+                                                className="text-slate-400 hover:text-red-500 p-2 transition-colors rounded-lg hover:bg-red-50"
+                                                title="حذف الجدول"
+                                            >
+                                                <i className="fas fa-trash-alt text-xs"></i>
+                                            </button>
                                         </div>
                                     ))}
-                                </div>
-                            )}
-                        </div>
-                    )}
-                    <button onClick={() => setIsTemplatesOpen(!isTemplatesOpen)} className={`w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-white text-xl transition-all hover:scale-110 ${isTemplatesOpen ? 'bg-slate-600 rotate-45' : 'bg-indigo-600'}`}>
-                        {isTemplatesOpen ? <i className="fas fa-plus"></i> : <i className="fas fa-folder-open"></i>}
-                    </button>
-                </div>
+                            </div>
+                        )}
+                    </div>
+                </Modal>
             </div>
 
             {/* Save Template Modal */}

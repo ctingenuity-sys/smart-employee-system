@@ -28,7 +28,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, maxWidt
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm transition-opacity">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm transition-opacity">
       <div 
         ref={modalRef}
         className={`bg-white rounded-xl shadow-2xl w-full ${maxWidth} mx-4 transform transition-all scale-100 overflow-hidden`}

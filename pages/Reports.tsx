@@ -50,9 +50,16 @@ const Reports: React.FC = () => {
     const { t, dir } = useLanguage();
     const { role: authRole, user: currentUser } = useAuth();
     const { departments, selectedDepartmentId: contextDeptId, setSelectedDepartmentId } = useDepartment();
-    const [selectedDept, setSelectedDept] = useState<string | null>(contextDeptId);
+    const isAdmin = authRole === UserRole.ADMIN || String(authRole).toLowerCase() === 'admin' || localStorage.getItem('role') === 'admin';
+    const [selectedDept, setSelectedDept] = useState<string | null>(isAdmin ? contextDeptId : (contextDeptId || currentUser?.departmentId || null));
     const [allEmployees, setAllEmployees] = useState<User[]>([]);
     const employees = useFilteredUsers(allEmployees, selectedDept);
+
+    useEffect(() => {
+        if (!isAdmin) {
+            setSelectedDept(contextDeptId || currentUser?.departmentId || null);
+        }
+    }, [isAdmin, contextDeptId, currentUser]);
     
     // Real-time collections state
     const [rawActions, setRawActions] = useState<ActionLog[]>([]);
@@ -1113,14 +1120,25 @@ const Reports: React.FC = () => {
                         {/* Department Filter (Global) */}
                         <div>
                             <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('rep.filter.dept') || 'القسم'}</label>
-                            <select 
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-blue-200 px-3 py-2 text-sm"
-                                value={selectedDept || ''}
-                                onChange={e => setSelectedDept(e.target.value || null)}
-                            >
-                                <option value="">{t('rep.filter.allDept') || 'جميع الأقسام'}</option>
-                                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                            </select>
+                            {isAdmin ? (
+                                <select 
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-blue-200 px-3 py-2 text-sm cursor-pointer"
+                                    value={selectedDept || ''}
+                                    onChange={e => setSelectedDept(e.target.value || null)}
+                                >
+                                    <option value="">{t('rep.filter.allDept') || 'جميع الأقسام'}</option>
+                                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                </select>
+                            ) : (
+                                <div className="w-full bg-slate-100/90 border border-slate-200/90 rounded-xl font-bold text-slate-700 px-3 py-2 text-sm flex items-center justify-between">
+                                    <span className="truncate">
+                                        {departments.find(d => d.id === (selectedDept || contextDeptId))?.name || (currentUser as any)?.departmentName || (dir === 'rtl' ? 'قسمك المخصص' : 'Your Department')}
+                                    </span>
+                                    <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-md font-bold shrink-0">
+                                        {dir === 'rtl' ? 'قسمك المباشر' : 'Assigned Dept'}
+                                    </span>
+                                </div>
+                            )}
                         </div>
 
                         {/* Employee Filter */}

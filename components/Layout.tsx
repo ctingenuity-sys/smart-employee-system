@@ -181,9 +181,9 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
       {currentUserId && <GlobalNotificationListener userId={currentUserId} userRole={userRole} departmentId={selectedDepartmentId} />}
 
-      <div className={`fixed inset-0 z-20 transition-opacity bg-black opacity-50 lg:hidden ${isSidebarOpen ? 'block' : 'hidden'} print:hidden`} onClick={() => setIsSidebarOpen(false)}></div>
+      <div className={`fixed inset-0 z-[9990] transition-opacity bg-black opacity-50 lg:hidden ${isSidebarOpen ? 'block' : 'hidden'} print:hidden`} onClick={() => setIsSidebarOpen(false)}></div>
 
-      <div className={`fixed inset-y-0 ${sidebarPosition} z-30 w-64 transition duration-300 transform bg-secondary lg:translate-x-0 lg:static lg:inset-0 ${isSidebarOpen ? 'translate-x-0' : transformDirection} print:hidden flex flex-col`}>
+      <div className={`fixed inset-y-0 ${sidebarPosition} z-[9999] w-64 transition duration-300 transform bg-secondary lg:translate-x-0 lg:static lg:inset-0 ${isSidebarOpen ? 'translate-x-0' : transformDirection} print:hidden flex flex-col`}>
         <div className="flex items-center justify-between h-20 shadow-md bg-slate-900 flex-shrink-0 px-4">
           <h1 className="text-xl font-bold text-white flex items-center">
             <i className="fas fa-hospital-user mr-2 text-accent"></i>

@@ -119,6 +119,30 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
       onUpdateColumn(colIndex, newCols[colIndex]);
   };
 
+  const moveStaffInCol = (colIndex: number, staffIndex: number, action: 'up' | 'down' | 'top' | 'bottom' | 'middle') => {
+      const newCols = [...data];
+      const newStaff = [...newCols[colIndex].staff];
+      const item = newStaff[staffIndex];
+      newStaff.splice(staffIndex, 1);
+
+      if (action === 'top') {
+          newStaff.unshift(item);
+      } else if (action === 'bottom') {
+          newStaff.push(item);
+      } else if (action === 'middle') {
+          const mid = Math.floor(newStaff.length / 2);
+          newStaff.splice(mid, 0, item);
+      } else if (action === 'up') {
+          const target = Math.max(0, staffIndex - 1);
+          newStaff.splice(target, 0, item);
+      } else if (action === 'down') {
+          const target = Math.min(newStaff.length, staffIndex + 1);
+          newStaff.splice(target, 0, item);
+      }
+      newCols[colIndex].staff = newStaff;
+      onUpdateColumn(colIndex, newCols[colIndex]);
+  };
+
   // --- DRAG AND DROP HANDLERS ---
   const onColumnDragStart = (e: React.DragEvent, index: number) => {
       setDraggedColIndex(index);
@@ -230,6 +254,20 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
   const removeDutyStaff = (dutyIndex: number, staffIndex: number) => {
       const newDuties = [...commonDuties];
       newDuties[dutyIndex].staff = newDuties[dutyIndex].staff.filter((_, i) => i !== staffIndex);
+      onUpdateDuty(dutyIndex, newDuties[dutyIndex]);
+  };
+
+  const moveDutyStaff = (dutyIndex: number, staffIndex: number, action: 'up' | 'down' | 'top' | 'bottom' | 'middle') => {
+      const newDuties = [...commonDuties];
+      const newStaff = [...newDuties[dutyIndex].staff];
+      const item = newStaff[staffIndex];
+      newStaff.splice(staffIndex, 1);
+      if (action === 'top') newStaff.unshift(item);
+      else if (action === 'bottom') newStaff.push(item);
+      else if (action === 'middle') newStaff.splice(Math.floor(newStaff.length / 2), 0, item);
+      else if (action === 'up') newStaff.splice(Math.max(0, staffIndex - 1), 0, item);
+      else if (action === 'down') newStaff.splice(Math.min(newStaff.length, staffIndex + 1), 0, item);
+      newDuties[dutyIndex].staff = newStaff;
       onUpdateDuty(dutyIndex, newDuties[dutyIndex]);
   };
 
@@ -461,6 +499,57 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                                 onMouseDown={(e) => e.stopPropagation()}
                                 className="w-1/2 text-[10px] bg-white border border-slate-200 rounded px-1 focus:outline-none"
                             />
+                        </div>
+
+                        {/* Quick Staff Reorder Controls */}
+                        <div className="flex items-center justify-between gap-1 pt-1 mt-1 border-t border-slate-200/80 w-full" onMouseDown={(e) => e.stopPropagation()}>
+                            <span className="text-[9px] font-bold text-slate-400">
+                                #{staffIndex + 1}
+                            </span>
+                            <div className="flex items-center gap-0.5">
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); moveStaffInCol(colIndex, staffIndex, 'top'); }}
+                                    className="p-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[10px] font-bold cursor-pointer transition-colors"
+                                    title="Move to Top (نقل للأول)"
+                                >
+                                    <i className="fas fa-angle-double-up"></i>
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={staffIndex === 0}
+                                    onClick={(e) => { e.stopPropagation(); moveStaffInCol(colIndex, staffIndex, 'up'); }}
+                                    className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 text-[10px] cursor-pointer transition-colors"
+                                    title="Move Up (تحريك للأعلى)"
+                                >
+                                    <i className="fas fa-arrow-up"></i>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); moveStaffInCol(colIndex, staffIndex, 'middle'); }}
+                                    className="p-1 rounded bg-purple-50 hover:bg-purple-100 text-purple-700 text-[10px] font-bold cursor-pointer transition-colors"
+                                    title="Move to Middle (نقل للمنتصف)"
+                                >
+                                    <i className="fas fa-arrows-alt-v"></i>
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={staffIndex === column.staff.length - 1}
+                                    onClick={(e) => { e.stopPropagation(); moveStaffInCol(colIndex, staffIndex, 'down'); }}
+                                    className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 text-[10px] cursor-pointer transition-colors"
+                                    title="Move Down (تحريك للأسفل)"
+                                >
+                                    <i className="fas fa-arrow-down"></i>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); moveStaffInCol(colIndex, staffIndex, 'bottom'); }}
+                                    className="p-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[10px] font-bold cursor-pointer transition-colors"
+                                    title="Move to Bottom (نقل للآخر)"
+                                >
+                                    <i className="fas fa-angle-double-down"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -743,6 +832,55 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                                             onChange={(e) => handleDutyStaffChange(dutyIndex, sIndex, 'endDate', e.target.value)}
                                             className="w-1/2 px-1 text-[9px] border rounded"
                                         />
+                                    </div>
+
+                                    {/* Quick Reorder Controls for Duty Staff */}
+                                    <div className="flex items-center justify-between gap-1 pt-1 mt-1 border-t border-slate-100 w-full" onMouseDown={(e) => e.stopPropagation()}>
+                                        <span className="text-[9px] font-bold text-slate-400">#{sIndex + 1}</span>
+                                        <div className="flex items-center gap-0.5">
+                                            <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); moveDutyStaff(dutyIndex, sIndex, 'top'); }}
+                                                className="p-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[9px] font-bold cursor-pointer"
+                                                title="Move to Top"
+                                            >
+                                                <i className="fas fa-angle-double-up"></i>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={sIndex === 0}
+                                                onClick={(e) => { e.stopPropagation(); moveDutyStaff(dutyIndex, sIndex, 'up'); }}
+                                                className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 text-[9px] cursor-pointer"
+                                                title="Move Up"
+                                            >
+                                                <i className="fas fa-arrow-up"></i>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); moveDutyStaff(dutyIndex, sIndex, 'middle'); }}
+                                                className="p-1 rounded bg-purple-50 hover:bg-purple-100 text-purple-700 text-[9px] font-bold cursor-pointer"
+                                                title="Move to Middle"
+                                            >
+                                                <i className="fas fa-arrows-alt-v"></i>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={sIndex === duty.staff.length - 1}
+                                                onClick={(e) => { e.stopPropagation(); moveDutyStaff(dutyIndex, sIndex, 'down'); }}
+                                                className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 text-[9px] cursor-pointer"
+                                                title="Move Down"
+                                            >
+                                                <i className="fas fa-arrow-down"></i>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); moveDutyStaff(dutyIndex, sIndex, 'bottom'); }}
+                                                className="p-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[9px] font-bold cursor-pointer"
+                                                title="Move to Bottom"
+                                            >
+                                                <i className="fas fa-angle-double-down"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             ) : (

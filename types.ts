@@ -68,7 +68,7 @@ export interface User {
   supervisorId?: string;
   managerId?: string;
   // New Fields for Compliance Visuals
-  jobCategory?: 'doctor' | 'technologist' | 'technician' | 'nurse' | 'rso' | 'admin' | 'reception' | 'usg' | 'maintenance' | 'other';
+  jobCategory?: 'doctor' | 'technologist' | 'technician' | 'specialist' | 'worker' | 'nurse' | 'rso' | 'admin' | 'reception' | 'usg' | 'maintenance' | 'other';
   licenseExpiry?: string; // YYYY-MM-DD
   registrationExpiry?: string; // YYYY-MM-DD
   nrrcExpiry?: string; // YYYY-MM-DD

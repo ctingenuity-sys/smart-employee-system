@@ -138,6 +138,30 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
          onUpdateRow(rowIndex, { ...row, [columnId]: currentList });
     }, [data, onUpdateRow]);
 
+    const moveFridayStaff = useCallback((rowIndex: number, columnId: string, index: number, action: 'up' | 'down' | 'top' | 'bottom' | 'middle') => {
+        const row = { ...data[rowIndex] };
+        const currentList = [...((row[columnId] as VisualStaff[]) || [])];
+        if (!currentList[index]) return;
+        const item = currentList[index];
+        currentList.splice(index, 1);
+
+        if (action === 'top') {
+            currentList.unshift(item);
+        } else if (action === 'bottom') {
+            currentList.push(item);
+        } else if (action === 'middle') {
+            const mid = Math.floor(currentList.length / 2);
+            currentList.splice(mid, 0, item);
+        } else if (action === 'up') {
+            const target = Math.max(0, index - 1);
+            currentList.splice(target, 0, item);
+        } else if (action === 'down') {
+            const target = Math.min(currentList.length, index + 1);
+            currentList.splice(target, 0, item);
+        }
+        onUpdateRow(rowIndex, { ...row, [columnId]: currentList });
+    }, [data, onUpdateRow]);
+
     // --- Drag & Drop ---
     const onEditDragStart = (e: React.DragEvent, rowIndex: number, columnId: string, index: number) => {
         e.stopPropagation();
@@ -358,6 +382,55 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                                         className="w-full text-[10px] p-1 bg-yellow-50 border border-yellow-200 rounded outline-none focus:border-yellow-400 text-yellow-800"
                                         placeholder="Note"
                                     />
+
+                                    {/* Quick Reorder Buttons */}
+                                    <div className="flex items-center justify-between gap-1 pt-1 mt-0.5 border-t border-slate-200/80 w-full" onMouseDown={(e) => e.stopPropagation()}>
+                                        <span className="text-[9px] font-bold text-slate-400">#{i + 1}</span>
+                                        <div className="flex items-center gap-0.5">
+                                            <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); moveFridayStaff(rowIndex, columnId, i, 'top'); }}
+                                                className="p-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[9px] font-bold cursor-pointer"
+                                                title="Move to Top"
+                                            >
+                                                <i className="fas fa-angle-double-up"></i>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={i === 0}
+                                                onClick={(e) => { e.stopPropagation(); moveFridayStaff(rowIndex, columnId, i, 'up'); }}
+                                                className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 text-[9px] cursor-pointer"
+                                                title="Move Up"
+                                            >
+                                                <i className="fas fa-arrow-up"></i>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); moveFridayStaff(rowIndex, columnId, i, 'middle'); }}
+                                                className="p-1 rounded bg-purple-50 hover:bg-purple-100 text-purple-700 text-[9px] font-bold cursor-pointer"
+                                                title="Move to Middle"
+                                            >
+                                                <i className="fas fa-arrows-alt-v"></i>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={i === list.length - 1}
+                                                onClick={(e) => { e.stopPropagation(); moveFridayStaff(rowIndex, columnId, i, 'down'); }}
+                                                className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 text-[9px] cursor-pointer"
+                                                title="Move Down"
+                                            >
+                                                <i className="fas fa-arrow-down"></i>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); moveFridayStaff(rowIndex, columnId, i, 'bottom'); }}
+                                                className="p-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[9px] font-bold cursor-pointer"
+                                                title="Move to Bottom"
+                                            >
+                                                <i className="fas fa-angle-double-down"></i>
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         );

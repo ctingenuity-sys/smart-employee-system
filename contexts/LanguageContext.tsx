@@ -74,7 +74,7 @@ const translations: Record<string, { ar: string; en: string }> = {
   
   // Rotation Categories
   'rot.cat.all': { ar: 'جميع الكوادر والأقسام', en: 'All Staff & Departments' },
-  'rot.cat.techPool': { ar: 'الفنيين والأخصائيين ', en: 'Technicians & Specialists (Technical Staff)' },
+  'rot.cat.techPool': { ar: 'الفنيين والأخصائيين (كادر العمليات الفنية المشترك)', en: 'Technicians & Specialists (Technical Staff)' },
   'rot.cat.doctors': { ar: 'الأطباء والاستشاريين', en: 'Doctors & Consultants' },
   'rot.cat.usg': { ar: 'فريق السونار', en: 'Ultrasound Team' },
   'rot.cat.nursing': { ar: 'طاقم التمريض', en: 'Nursing Staff' },

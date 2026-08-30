@@ -1,176 +1,233 @@
-/* 🚀 AJ-SMART-BRIDGE AUTO-INJECTOR V2.7 Hidden UI + Silent Console */
+/* 🚀 AJ-SMART-BRIDGE AUTO-INJECTOR V3.5 Universal Sync Engine */
 (function () {
     if (window.AJ_BRIDGE_ACTIVE) return;
     window.AJ_BRIDGE_ACTIVE = true;
 
-    // =====================================================
-    // ✅ Console Control
-    // =====================================================
-    let consoleEnabled = false; // false = رسائل مخفية، true = رسائل تظهر
-    function log(...args) {
-        if (consoleEnabled) console.log(...args);
-    }
-
-    log("🟢 Smart Bridge Extension Active (V2.7 Hidden UI)");
-
-    const APP_URL = "https://staff7.vercel.app/#/appointments";
-
-    // Default times
-    let AUTO_CLICK_DELAY = 60 * 1000; // 1 دقيقة
-    let HEARTBEAT_DELAY = 4 * 60 * 1000; // 4 دقائق
-
-    let syncWin = null;
+    let consoleEnabled = false;
+    let capturedCount = 0;
+    let autoClickEnabled = true;
+    let AUTO_CLICK_DELAY = 60 * 1000; // 1 minute
+    let HEARTBEAT_DELAY = 4 * 60 * 1000; // 4 minutes
     let autoClickTimer = null;
     let heartbeatTimer = null;
-    let autoClickEnabled = true;
 
-    // =====================================================
-    // 🔘 Safe Refresh Button Click
-    // =====================================================
-    function clickRefreshButton() {
-        if (!autoClickEnabled) return;
-        if (document.visibilityState !== "visible") return;
+    function log(...args) {
+        if (consoleEnabled) console.log("%c 🟢 Smart Bridge:", "color: #10b981; font-weight: bold;", ...args);
+    }
 
-        const btn =
-            document.querySelector('img[mattooltip="RefreshData"]') ||
-            document.querySelector('[mattooltip="RefreshData"]');
+    log("Active on", window.location.href);
 
-        if (btn && !btn.disabled) {
-            btn.click();
-            log("🔁 Smart Bridge: Auto Refresh Clicked");
+    // BroadcastChannel for instant cross-tab communication without window popup blocks
+    let broadcastChannel = null;
+    try {
+        broadcastChannel = new BroadcastChannel('smart_bridge_channel');
+    } catch (e) {}
+
+    // Check if JSON contains patient or case related information
+    function isPatientDataPayload(data) {
+        if (!data) return false;
+        try {
+            const str = (typeof data === 'string' ? data : JSON.stringify(data)).toLowerCase();
+            return (
+                str.includes('patient') ||
+                str.includes('fileno') ||
+                str.includes('filenumber') ||
+                str.includes('mrn') ||
+                str.includes('xray') ||
+                str.includes('que') ||
+                str.includes('servicename') ||
+                str.includes('examname') ||
+                str.includes('order') ||
+                str.includes('patname') ||
+                str.includes('engname') ||
+                str.includes('doctor')
+            );
+        } catch (e) {
+            return false;
         }
     }
 
-    // =====================================================
-    // 💓 Heartbeat & IHMS Keep-Alive
-    // =====================================================
-    function sendHeartbeat() {
-        if (document.visibilityState !== "visible") return;
-        fetch(APP_URL, { method: "GET", credentials: "include" })
-            .then(() => log("💓 Heartbeat sent"))
-            .catch(() => {});
-            
-        // IHMS Keep-Alive: Simulate user activity to prevent session timeout
-        if (window.location.href.toLowerCase().includes('ihms') || document.title.toLowerCase().includes('ihms')) {
+    function ensureIframe() {
+        if (document.getElementById('aj-bridge-frame')) return;
+        if (!document.body) {
+            setTimeout(ensureIframe, 200);
+            return;
+        }
+        try {
+            const iframe = document.createElement('iframe');
+            iframe.src = window.location.origin + '/#/appointments';
+            iframe.style.display = 'none';
+            iframe.id = 'aj-bridge-frame';
+            document.body.appendChild(iframe);
+        } catch (e) {}
+    }
+
+    // Broadcast captured data to all targets
+    function transmitPayload(payload) {
+        if (!payload) return;
+        capturedCount++;
+        log("Data captured & transmitting payload...", payload);
+
+        ensureIframe();
+
+        // 1. Send via BroadcastChannel (Works across tabs in same browser session)
+        if (broadcastChannel) {
             try {
-                document.dispatchEvent(new MouseEvent('mousemove', { view: window, bubbles: true, cancelable: true }));
-                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', keyCode: 16, which: 16, bubbles: true }));
-                log("🛡️ IHMS Keep-Alive activity simulated");
+                broadcastChannel.postMessage({ type: 'SMART_SYNC_DATA', payload });
+                broadcastChannel.postMessage({ type: 'AJ_BRIDGE_DATA', payload });
             } catch (e) {}
         }
+
+        // 2. Send via window.postMessage (to current window and parent/iframe)
+        try {
+            window.postMessage({ type: 'SMART_SYNC_DATA', payload }, '*');
+            window.postMessage({ type: 'AJ_BRIDGE_DATA', payload }, '*');
+        } catch (e) {}
+
+        // 3. Send to hidden bridge iframe if attached
+        const frame = document.getElementById('aj-bridge-frame');
+        if (frame && frame.contentWindow) {
+            try {
+                frame.contentWindow.postMessage({ type: 'SMART_SYNC_DATA', payload }, '*');
+                frame.contentWindow.postMessage({ type: 'AJ_BRIDGE_DATA', payload }, '*');
+            } catch (e) {}
+        }
+
+        // Update UI widget if present
+        updateWidgetVisuals();
     }
 
-    // =====================================================
-    // 🧠 Floating Status UI (مخفي افتراضيًا)
-    // =====================================================
+    // --- XHR Interception ---
+    if (!XMLHttpRequest.prototype.__AJ_SMART_BRIDGE__) {
+        XMLHttpRequest.prototype.__AJ_SMART_BRIDGE__ = true;
+        const originalSend = XMLHttpRequest.prototype.send;
+
+        XMLHttpRequest.prototype.send = function () {
+            this.addEventListener("load", () => {
+                try {
+                    const contentType = this.getResponseHeader("content-type") || "";
+                    if (this.responseText && (contentType.includes("json") || this.responseText.startsWith("{") || this.responseText.startsWith("["))) {
+                        const json = JSON.parse(this.responseText);
+                        if (isPatientDataPayload(json)) {
+                            transmitPayload(json);
+                        }
+                    }
+                } catch (e) {}
+            });
+            return originalSend.apply(this, arguments);
+        };
+    }
+
+    // --- Fetch Interception ---
+    if (!window.__AJ_FETCH_INTERCEPTED__) {
+        window.__AJ_FETCH_INTERCEPTED__ = true;
+        const originalFetch = window.fetch;
+        window.fetch = async function (...args) {
+            const response = await originalFetch(...args);
+            try {
+                const clone = response.clone();
+                clone.text().then(text => {
+                    if (text && (text.startsWith("{") || text.startsWith("["))) {
+                        const json = JSON.parse(text);
+                        if (isPatientDataPayload(json)) {
+                            transmitPayload(json);
+                        }
+                    }
+                }).catch(() => {});
+            } catch (e) {}
+            return response;
+        };
+    }
+
+    // --- Auto Refresh Clicker ---
+    function clickRefreshButton() {
+        if (!autoClickEnabled || document.visibilityState !== "visible") return;
+        const btn =
+            document.querySelector('img[mattooltip="RefreshData"]') ||
+            document.querySelector('[mattooltip="RefreshData"]') ||
+            document.querySelector('.btn-refresh') ||
+            document.querySelector('[title="Refresh"]');
+        if (btn && typeof btn.click === 'function') {
+            btn.click();
+            log("Auto refresh clicked");
+        }
+    }
+
+    // --- IHMS Keep-Alive ---
+    function sendHeartbeat() {
+        if (document.visibilityState !== "visible") return;
+        try {
+            document.dispatchEvent(new MouseEvent('mousemove', { view: window, bubbles: true, cancelable: true }));
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', keyCode: 16, bubbles: true }));
+        } catch (e) {}
+    }
+
+    // --- Floating UI Status ---
+    function updateWidgetVisuals() {
+        const dot = document.getElementById("aj-bridge-dot");
+        const countBadge = document.getElementById("aj-bridge-count");
+        if (dot) {
+            dot.style.backgroundColor = "#f59e0b"; // Orange pulse
+            setTimeout(() => { dot.style.backgroundColor = "#10b981"; }, 600);
+        }
+        if (countBadge) {
+            countBadge.textContent = String(capturedCount);
+        }
+    }
+
     function createUI() {
+        ensureIframe();
         if (document.getElementById("aj-smart-bridge-ui")) return;
+        if (!document.body) {
+            setTimeout(createUI, 200);
+            return;
+        }
 
         const container = document.createElement("div");
         container.id = "aj-smart-bridge-ui";
-        container.style.display = "none"; // مخفي افتراضيًا
         container.style.position = "fixed";
         container.style.bottom = "20px";
         container.style.left = "20px";
         container.style.zIndex = "999999";
         container.style.backgroundColor = "#0f172a";
         container.style.color = "#e5e7eb";
-        container.style.padding = "10px 14px";
+        container.style.padding = "8px 12px";
         container.style.borderRadius = "12px";
-        container.style.boxShadow = "0 10px 25px rgba(0,0,0,.35)";
+        container.style.boxShadow = "0 8px 24px rgba(0,0,0,0.4)";
         container.style.display = "flex";
-        container.style.flexDirection = "column";
-        container.style.gap = "6px";
+        container.style.alignItems = "center";
+        container.style.gap = "8px";
         container.style.border = "1px solid #334155";
-        container.style.fontFamily = "sans-serif";
+        container.style.fontFamily = "system-ui, sans-serif";
         container.style.fontSize = "12px";
         container.style.userSelect = "none";
 
-        // ✅ Status row
-        const statusRow = document.createElement("div");
-        statusRow.style.display = "flex";
-        statusRow.style.alignItems = "center";
-        statusRow.style.gap = "8px";
-        statusRow.innerHTML = `
-            <div style="width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e"></div>
-            <span><b>Smart Sync</b> Active</span>
-        `;
-        container.appendChild(statusRow);
+        const dot = document.createElement("span");
+        dot.id = "aj-bridge-dot";
+        dot.style.width = "10px";
+        dot.style.height = "10px";
+        dot.style.borderRadius = "50%";
+        dot.style.backgroundColor = "#10b981";
+        dot.style.boxShadow = "0 0 8px #10b981";
+        container.appendChild(dot);
 
-        // ✅ Auto Click Toggle
-        const toggleBtn = document.createElement("button");
-        toggleBtn.textContent = autoClickEnabled ? "Auto-Click: ON" : "Auto-Click: OFF";
-        Object.assign(toggleBtn.style, {
-            padding: "2px 6px",
-            fontSize: "12px",
-            cursor: "pointer",
-            backgroundColor: autoClickEnabled ? "#22c55e" : "#555",
-            color: "#fff",
-            border: "none",
-            borderRadius: "6px"
-        });
-        toggleBtn.onclick = () => {
-            autoClickEnabled = !autoClickEnabled;
-            toggleBtn.textContent = autoClickEnabled ? "Auto-Click: ON" : "Auto-Click: OFF";
-            toggleBtn.style.backgroundColor = autoClickEnabled ? "#22c55e" : "#555";
-        };
-        container.appendChild(toggleBtn);
+        const title = document.createElement("span");
+        title.innerHTML = "<b>Smart Bridge</b>";
+        container.appendChild(title);
 
-        // ✅ Inputs لتعديل الوقت
-        const inputsRow = document.createElement("div");
-        inputsRow.style.display = "flex";
-        inputsRow.style.gap = "6px";
-
-        const autoClickInput = document.createElement("input");
-        autoClickInput.type = "number";
-        autoClickInput.value = AUTO_CLICK_DELAY / 1000;
-        autoClickInput.style.width = "50px";
-        autoClickInput.title = "Auto-Click Delay (sec)";
-        autoClickInput.onchange = () => {
-            AUTO_CLICK_DELAY = parseInt(autoClickInput.value) * 1000;
-            if (autoClickTimer) clearInterval(autoClickTimer);
-            autoClickTimer = setInterval(clickRefreshButton, AUTO_CLICK_DELAY);
-        };
-        inputsRow.appendChild(document.createTextNode("Auto-Click(sec):"));
-        inputsRow.appendChild(autoClickInput);
-
-        const heartbeatInput = document.createElement("input");
-        heartbeatInput.type = "number";
-        heartbeatInput.value = HEARTBEAT_DELAY / 1000;
-        heartbeatInput.style.width = "50px";
-        heartbeatInput.title = "Heartbeat Delay (sec)";
-        heartbeatInput.onchange = () => {
-            HEARTBEAT_DELAY = parseInt(heartbeatInput.value) * 1000;
-            if (heartbeatTimer) clearInterval(heartbeatTimer);
-            heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_DELAY);
-        };
-        inputsRow.appendChild(document.createTextNode("Heartbeat(sec):"));
-        inputsRow.appendChild(heartbeatInput);
-
-        container.appendChild(inputsRow);
-
-        // ✅ Console Toggle
-        const consoleBtn = document.createElement("button");
-        consoleBtn.textContent = consoleEnabled ? "Console: ON" : "Console: OFF";
-        Object.assign(consoleBtn.style, {
-            padding: "2px 6px",
-            fontSize: "12px",
-            cursor: "pointer",
-            backgroundColor: consoleEnabled ? "#22c55e" : "#555",
-            color: "#fff",
-            border: "none",
-            borderRadius: "6px"
-        });
-        consoleBtn.onclick = () => {
-            consoleEnabled = !consoleEnabled;
-            consoleBtn.textContent = consoleEnabled ? "Console: ON" : "Console: OFF";
-            consoleBtn.style.backgroundColor = consoleEnabled ? "#22c55e" : "#555";
-        };
-        container.appendChild(consoleBtn);
+        const countBadge = document.createElement("span");
+        countBadge.id = "aj-bridge-count";
+        countBadge.textContent = "0";
+        countBadge.style.backgroundColor = "#0284c7";
+        countBadge.style.color = "#fff";
+        countBadge.style.padding = "2px 6px";
+        countBadge.style.borderRadius = "10px";
+        countBadge.style.fontSize = "10px";
+        countBadge.style.fontWeight = "bold";
+        container.appendChild(countBadge);
 
         document.body.appendChild(container);
 
-        // Start timers
         autoClickTimer = setInterval(clickRefreshButton, AUTO_CLICK_DELAY);
         heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_DELAY);
     }
@@ -180,76 +237,4 @@
     } else {
         window.addEventListener("load", createUI);
     }
-
-    // =====================================================
-    // 🔑 Shortcut لإظهار/إخفاء UI (Ctrl+Shift+B)
-    // =====================================================
-    document.addEventListener("keydown", (e) => {
-        if (e.ctrlKey && e.shiftKey && e.code === "KeyB") {
-            const ui = document.getElementById("aj-smart-bridge-ui");
-            if (ui) ui.style.display = ui.style.display === "none" ? "flex" : "none";
-        }
-    });
-
-    // =====================================================
-    // 🪟 Open / Reuse Sync Window
-    // =====================================================
-    function openSyncWindow() {
-        if (!syncWin || syncWin.closed) {
-            syncWin = window.open(APP_URL, "SmartAppSyncWindow");
-        }
-        return syncWin;
-    }
-
-    // =====================================================
-    // 🌐 XHR Interception (SAFE – SINGLE HOOK)
-    // =====================================================
-    if (!XMLHttpRequest.prototype.__AJ_SMART_BRIDGE__) {
-        XMLHttpRequest.prototype.__AJ_SMART_BRIDGE__ = true;
-
-        const originalSend = XMLHttpRequest.prototype.send;
-
-        XMLHttpRequest.prototype.send = function () {
-            this.addEventListener("load", () => {
-                try {
-                    const type = this.getResponseHeader("content-type");
-                    if (!type || !type.includes("application/json")) return;
-
-                    const json = JSON.parse(this.responseText);
-                    let payload = json?.d || json?.result || json;
-                    if (!Array.isArray(payload)) payload = [payload];
-
-                    if (payload[0]?.patientName || payload[0]?.fileNumber) {
-                        syncWin = openSyncWindow();
-                        let attempts = 0;
-
-                        const interval = setInterval(() => {
-                            if (syncWin && !syncWin.closed) {
-                                syncWin.postMessage(
-                                    { type: "SMART_SYNC_DATA", payload },
-                                    "*"
-                                );
-                                clearInterval(interval);
-                            }
-                            if (++attempts > 8) clearInterval(interval);
-                        }, 500);
-                    }
-                } catch (_) {}
-            });
-
-            return originalSend.apply(this, arguments);
-        };
-    }
-
-    // =====================================================
-    // 👁 Tab Visibility Awareness
-    // =====================================================
-    document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "hidden") {
-            log("⏸ Smart Bridge paused (tab hidden)");
-        } else {
-            log("▶ Smart Bridge resumed (tab active)");
-        }
-    });
-
 })();

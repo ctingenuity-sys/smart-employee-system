@@ -82,7 +82,7 @@ export const getStaffGroup = (cat?: string): string => {
 const GROUP_CONFIG: Record<string, { labelKey: string, fallbackLabel: string, order: number, color: string, headerBg: string, icon: string }> = {
     'tech_pool': { 
         labelKey: 'rot.cat.techPool',
-        fallbackLabel: 'Technicians & Specialists (الفنيين والأخصائيين)', 
+        fallbackLabel: 'Technicians & Specialists (الفنيين والأخصائيين - كادر العمليات الفنية المشترك)', 
         order: 1, 
         color: 'bg-blue-50 text-blue-700 border-blue-200',
         headerBg: 'bg-gradient-to-r from-blue-100 via-indigo-50 to-blue-100 text-blue-900 border-b border-blue-200',
@@ -941,7 +941,7 @@ const SupervisorRotation: React.FC = () => {
                                     title={dir === 'rtl' ? 'معرفة من عليه الدور في أي مهمة أو قسم' : 'Inspect duty turn history'}
                                 >
                                     <i className="fas fa-dice text-amber-100"></i>
-                                    <span>{dir === 'rtl' ? '🎯 التدوير' : '🎯 Turn Assistant'}</span>
+                                    <span>{dir === 'rtl' ? '🎯 مين عليه الدور؟' : '🎯 Turn Assistant'}</span>
                                 </button>
                             </div>
                             <p className="text-xs text-slate-500 font-bold opacity-80">{t('rot.subtitle')}</p>

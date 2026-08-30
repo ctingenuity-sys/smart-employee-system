@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import { useLanguage } from '../contexts/LanguageContext';
-import { PacsReconciliationModal, PacsRecord } from '../components/PacsReconciliationModal';
 
 export interface IncomingPatient {
     id: string;
@@ -455,7 +454,6 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [isBridgeInfoOpen, setIsBridgeInfoOpen] = useState(false);
-    const [isPacsModalOpen, setIsPacsModalOpen] = useState(false);
     const [isCounterModalOpen, setIsCounterModalOpen] = useState(false);
     const [isPrintPreviewOpen, setIsPrintPreviewOpen] = useState(false);
     const [activeModalityForCounter, setActiveModalityForCounter] = useState<'X-RAY' | 'CT' | 'MRI' | 'US' | 'FLUO' | 'MAMMO'>('X-RAY');
@@ -1062,40 +1060,6 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                 showToast(isEn ? 'Case and serial slot permanently deleted' : 'تم حذف الحالة ورقم الأشعة نهائياً', 'info');
             }
         }
-    };
-
-    // --- Add PACS Study Record Directly to IHMS Logbook ---
-    const handleAddPacsCaseToLogbook = (pacs: PacsRecord) => {
-        registerPatient({
-            patientName: pacs.patientName || `مريض ${pacs.fileNumber}`,
-            fileNumber: pacs.fileNumber,
-            examName: pacs.examName || `${pacs.modality} Scan`,
-            modality: pacs.modality,
-            date: selectedDate || getLocalToday(),
-            time: pacs.time || getCurrentTime(),
-            age: pacs.age,
-            gender: pacs.gender as any,
-            technicianName: selectedTechnician,
-            source: 'MANUAL'
-        });
-        showToast(txt(`تمت إضافة حالة الباكس (${pacs.patientName || pacs.fileNumber}) إلى السجل وتوليد رقم مسلسل`, `Added PACS case (${pacs.patientName || pacs.fileNumber}) to logbook`), 'success');
-    };
-
-    const handleAddMultiplePacsCases = (pacsList: PacsRecord[]) => {
-        pacsList.forEach(pacs => {
-            registerPatient({
-                patientName: pacs.patientName || `مريض ${pacs.fileNumber}`,
-                fileNumber: pacs.fileNumber,
-                examName: pacs.examName || `${pacs.modality} Scan`,
-                modality: pacs.modality,
-                date: selectedDate || getLocalToday(),
-                time: pacs.time || getCurrentTime(),
-                age: pacs.age,
-                gender: pacs.gender as any,
-                technicianName: selectedTechnician,
-                source: 'MANUAL'
-            });
-        });
     };
 
     // --- Fill Vacant Serial Slot with Patient Data ---
@@ -1983,19 +1947,6 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                             <span>{txt('أوفلاين 100% (مستقل)', '100% Offline (Standalone)')}</span>
                             <i className="fas fa-laptop-medical text-[10px] text-emerald-400"></i>
-                        </button>
-
-                        {/* PACS Reconciliation & Audit Button */}
-                        <button
-                            onClick={() => setIsPacsModalOpen(true)}
-                            className="bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-lg border border-indigo-400/40 transition-all cursor-pointer ring-2 ring-indigo-400/20"
-                            title={txt("مطابقة ومقارنة أرقام ملفات الباكس مع سجل الـ IHMS", "PACS vs IHMS MRN Reconciliation & Audit")}
-                        >
-                            <i className="fas fa-sync-alt text-amber-300"></i>
-                            <span>{txt('مطابقة الباكس مع IHMS', 'PACS Match & Audit')}</span>
-                            <span className="bg-indigo-900/90 text-[10px] text-amber-300 font-mono font-black px-1.5 py-0.5 rounded-md border border-amber-400/30">
-                                {txt('جديد', 'NEW')}
-                            </span>
                         </button>
 
                         {/* Bridge Help & Script */}
@@ -5200,21 +5151,6 @@ export const StandaloneRadiologyLogbook: React.FC = () => {
                 </div>,
                 document.body
             )}
-
-            {/* ========================================================================= */}
-            {/* PACS VS IHMS RECONCILIATION & AUDIT MODAL                                  */}
-            {/* ========================================================================= */}
-            <PacsReconciliationModal
-                isOpen={isPacsModalOpen}
-                onClose={() => setIsPacsModalOpen(false)}
-                cases={cases}
-                incomingQueue={incomingQueue}
-                selectedDate={selectedDate || getLocalToday()}
-                isEn={isEn}
-                onAddPacsCaseToLogbook={handleAddPacsCaseToLogbook}
-                onAddMultiplePacsCases={handleAddMultiplePacsCases}
-                showToast={showToast}
-            />
 
             {/* ========================================================================= */}
             {/* HIDDEN PRINT-ONLY MEDICAL LOGBOOK (PORTALED DIRECTLY TO DOCUMENT.BODY)      */}

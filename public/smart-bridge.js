@@ -1,115 +1,82 @@
-/* 🚀 AJ-SMART-BRIDGE AUTO-INJECTOR V3.5 Universal Sync Engine */
+/* 🚀 AJ-SMART-BRIDGE AUTO-INJECTOR V4.3.0 - Ultra-Lightweight IHMS Auto-Sync Engine */
 (function () {
-    if (window.AJ_BRIDGE_ACTIVE) return;
+    if (window.__AJ_SMART_BRIDGE_INITIALIZED_V430__) return;
+    window.__AJ_SMART_BRIDGE_INITIALIZED_V430__ = true;
     window.AJ_BRIDGE_ACTIVE = true;
 
-    let consoleEnabled = false;
     let capturedCount = 0;
     let autoClickEnabled = true;
-    let AUTO_CLICK_DELAY = 60 * 1000; // 1 minute
-    let HEARTBEAT_DELAY = 4 * 60 * 1000; // 4 minutes
-    let autoClickTimer = null;
-    let heartbeatTimer = null;
+    const AUTO_CLICK_DELAY = 60 * 1000; // 1 minute
+    const HEARTBEAT_DELAY = 4 * 60 * 1000; // 4 minutes
 
     function log(...args) {
-        if (consoleEnabled) console.log("%c 🟢 Smart Bridge:", "color: #10b981; font-weight: bold;", ...args);
+        console.log("%c 🟢 Smart Bridge (IHMS):", "color: #10b981; font-weight: bold;", ...args);
     }
 
-    log("Active on", window.location.href);
+    log("Active & Ready on", window.location.href);
 
-    // BroadcastChannel for instant cross-tab communication without window popup blocks
+    // BroadcastChannel for instant same-browser communication
     let broadcastChannel = null;
     try {
         broadcastChannel = new BroadcastChannel('smart_bridge_channel');
     } catch (e) {}
 
-    // Check if JSON contains patient or case related information
-    function isPatientDataPayload(data) {
-        if (!data) return false;
-        try {
-            const str = (typeof data === 'string' ? data : JSON.stringify(data)).toLowerCase();
-            return (
-                str.includes('patient') ||
-                str.includes('fileno') ||
-                str.includes('filenumber') ||
-                str.includes('mrn') ||
-                str.includes('xray') ||
-                str.includes('que') ||
-                str.includes('servicename') ||
-                str.includes('examname') ||
-                str.includes('order') ||
-                str.includes('patname') ||
-                str.includes('engname') ||
-                str.includes('doctor')
-            );
-        } catch (e) {
-            return false;
-        }
-    }
-
-    function ensureIframe() {
-        if (document.getElementById('aj-bridge-frame')) return;
-        if (!document.body) {
-            setTimeout(ensureIframe, 200);
-            return;
-        }
-        try {
-            const iframe = document.createElement('iframe');
-            iframe.src = window.location.origin + '/#/appointments';
-            iframe.style.display = 'none';
-            iframe.id = 'aj-bridge-frame';
-            document.body.appendChild(iframe);
-        } catch (e) {}
-    }
-
-    // Broadcast captured data to all targets
-    function transmitPayload(payload) {
+    // Transmit IHMS Patient / Radiology Queue payload
+    function transmitPayload(payload, isClick = false) {
         if (!payload) return;
         capturedCount++;
-        log("Data captured & transmitting payload...", payload);
 
-        ensureIframe();
+        const messageData = {
+            type: 'SMART_SYNC_DATA',
+            payload: payload,
+            isClick: isClick,
+            action: isClick ? 'PATIENT_CLICKED' : 'AUTO_DATA_SYNC',
+            timestamp: Date.now(),
+            _source: 'smart_bridge_main'
+        };
 
-        // 1. Send via BroadcastChannel (Works across tabs in same browser session)
-        if (broadcastChannel) {
-            try {
-                broadcastChannel.postMessage({ type: 'SMART_SYNC_DATA', payload });
-                broadcastChannel.postMessage({ type: 'AJ_BRIDGE_DATA', payload });
-            } catch (e) {}
-        }
-
-        // 2. Send via window.postMessage (to current window and parent/iframe)
+        // 1. Post to current window
         try {
-            window.postMessage({ type: 'SMART_SYNC_DATA', payload }, '*');
-            window.postMessage({ type: 'AJ_BRIDGE_DATA', payload }, '*');
+            window.postMessage(messageData, '*');
         } catch (e) {}
 
-        // 3. Send to hidden bridge iframe if attached
-        const frame = document.getElementById('aj-bridge-frame');
-        if (frame && frame.contentWindow) {
+        // 2. BroadcastChannel
+        if (broadcastChannel) {
             try {
-                frame.contentWindow.postMessage({ type: 'SMART_SYNC_DATA', payload }, '*');
-                frame.contentWindow.postMessage({ type: 'AJ_BRIDGE_DATA', payload }, '*');
+                broadcastChannel.postMessage(messageData);
             } catch (e) {}
         }
 
-        // Update UI widget if present
+        // 3. LocalStorage event
+        try {
+            localStorage.setItem('aj_smart_bridge_live_event', JSON.stringify(messageData));
+        } catch (e) {}
+
         updateWidgetVisuals();
     }
 
-    // --- XHR Interception ---
-    if (!XMLHttpRequest.prototype.__AJ_SMART_BRIDGE__) {
-        XMLHttpRequest.prototype.__AJ_SMART_BRIDGE__ = true;
+    // Helper to check if JSON response is worth passing to the application
+    function isValidJsonResponse(json) {
+        if (!json) return false;
+        if (typeof json === 'object') {
+            return true;
+        }
+        return false;
+    }
+
+    // --- XHR Interception (Full Data capture for IHMS) ---
+    if (!XMLHttpRequest.prototype.__AJ_SMART_BRIDGE_V430__) {
+        XMLHttpRequest.prototype.__AJ_SMART_BRIDGE_V430__ = true;
         const originalSend = XMLHttpRequest.prototype.send;
 
         XMLHttpRequest.prototype.send = function () {
             this.addEventListener("load", () => {
                 try {
-                    const contentType = this.getResponseHeader("content-type") || "";
-                    if (this.responseText && (contentType.includes("json") || this.responseText.startsWith("{") || this.responseText.startsWith("["))) {
-                        const json = JSON.parse(this.responseText);
-                        if (isPatientDataPayload(json)) {
-                            transmitPayload(json);
+                    const text = this.responseText;
+                    if (text && (text.startsWith("{") || text.startsWith("["))) {
+                        const json = JSON.parse(text);
+                        if (isValidJsonResponse(json)) {
+                            transmitPayload(json, false);
                         }
                     }
                 } catch (e) {}
@@ -118,9 +85,9 @@
         };
     }
 
-    // --- Fetch Interception ---
-    if (!window.__AJ_FETCH_INTERCEPTED__) {
-        window.__AJ_FETCH_INTERCEPTED__ = true;
+    // --- Fetch Interception (Full Data capture for IHMS) ---
+    if (!window.__AJ_FETCH_INTERCEPTED_V430__) {
+        window.__AJ_FETCH_INTERCEPTED_V430__ = true;
         const originalFetch = window.fetch;
         window.fetch = async function (...args) {
             const response = await originalFetch(...args);
@@ -129,8 +96,8 @@
                 clone.text().then(text => {
                     if (text && (text.startsWith("{") || text.startsWith("["))) {
                         const json = JSON.parse(text);
-                        if (isPatientDataPayload(json)) {
-                            transmitPayload(json);
+                        if (isValidJsonResponse(json)) {
+                            transmitPayload(json, false);
                         }
                     }
                 }).catch(() => {});
@@ -139,18 +106,44 @@
         };
     }
 
-    // --- Auto Refresh Clicker ---
+    // --- IHMS Row Click Listener ---
+    document.addEventListener('click', (e) => {
+        try {
+            const target = e.target;
+            const row = target.closest('tr, [role="row"], .mat-row, .ui-table-tbody > tr');
+            if (row) {
+                const rowText = (row.innerText || row.textContent || '').trim();
+                if (rowText && rowText.length > 10) {
+                    const fNumMatch = rowText.match(/(?:ID|MRN|File\s*No|ملف|رقم\s*الملف)?[:\s]*(\d{4,10})/i);
+                    if (fNumMatch) {
+                        const fileNumber = fNumMatch[1];
+                        const clickPayload = {
+                            fileNumber: fileNumber,
+                            patientName: rowText.split(/\t|\n/)[0]?.trim() || '',
+                            rawText: rowText,
+                            source: 'ROW_CLICK'
+                        };
+                        transmitPayload(clickPayload, true);
+                    }
+                }
+            }
+        } catch (err) {}
+    }, true);
+
+    // --- Auto Refresh Clicker for IHMS ---
     function clickRefreshButton() {
         if (!autoClickEnabled || document.visibilityState !== "visible") return;
-        const btn =
-            document.querySelector('img[mattooltip="RefreshData"]') ||
-            document.querySelector('[mattooltip="RefreshData"]') ||
-            document.querySelector('.btn-refresh') ||
-            document.querySelector('[title="Refresh"]');
-        if (btn && typeof btn.click === 'function') {
-            btn.click();
-            log("Auto refresh clicked");
-        }
+        try {
+            const btn =
+                document.querySelector('img[mattooltip="RefreshData"]') ||
+                document.querySelector('[mattooltip="RefreshData"]') ||
+                document.querySelector('.btn-refresh') ||
+                document.querySelector('[title="Refresh"]');
+            if (btn && typeof btn.click === 'function') {
+                btn.click();
+                log("Auto refresh clicked in IHMS");
+            }
+        } catch (e) {}
     }
 
     // --- IHMS Keep-Alive ---
@@ -158,78 +151,87 @@
         if (document.visibilityState !== "visible") return;
         try {
             document.dispatchEvent(new MouseEvent('mousemove', { view: window, bubbles: true, cancelable: true }));
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', keyCode: 16, bubbles: true }));
         } catch (e) {}
     }
 
-    // --- Floating UI Status ---
+    // --- Floating UI Widget (Lightweight) ---
     function updateWidgetVisuals() {
-        const dot = document.getElementById("aj-bridge-dot");
-        const countBadge = document.getElementById("aj-bridge-count");
-        if (dot) {
-            dot.style.backgroundColor = "#f59e0b"; // Orange pulse
-            setTimeout(() => { dot.style.backgroundColor = "#10b981"; }, 600);
-        }
-        if (countBadge) {
-            countBadge.textContent = String(capturedCount);
-        }
+        try {
+            const dot = document.getElementById("aj-bridge-dot");
+            const countBadge = document.getElementById("aj-bridge-count");
+            if (dot) {
+                dot.style.backgroundColor = "#f59e0b";
+                setTimeout(() => { 
+                    try { dot.style.backgroundColor = "#10b981"; } catch(e){} 
+                }, 600);
+            }
+            if (countBadge) {
+                countBadge.textContent = String(capturedCount);
+            }
+        } catch (e) {}
     }
 
     function createUI() {
-        ensureIframe();
-        if (document.getElementById("aj-smart-bridge-ui")) return;
-        if (!document.body) {
-            setTimeout(createUI, 200);
-            return;
-        }
+        try {
+            if (document.getElementById("aj-smart-bridge-ui")) return;
+            if (!document.body) {
+                setTimeout(createUI, 300);
+                return;
+            }
 
-        const container = document.createElement("div");
-        container.id = "aj-smart-bridge-ui";
-        container.style.position = "fixed";
-        container.style.bottom = "20px";
-        container.style.left = "20px";
-        container.style.zIndex = "999999";
-        container.style.backgroundColor = "#0f172a";
-        container.style.color = "#e5e7eb";
-        container.style.padding = "8px 12px";
-        container.style.borderRadius = "12px";
-        container.style.boxShadow = "0 8px 24px rgba(0,0,0,0.4)";
-        container.style.display = "flex";
-        container.style.alignItems = "center";
-        container.style.gap = "8px";
-        container.style.border = "1px solid #334155";
-        container.style.fontFamily = "system-ui, sans-serif";
-        container.style.fontSize = "12px";
-        container.style.userSelect = "none";
+            const container = document.createElement("div");
+            container.id = "aj-smart-bridge-ui";
+            container.style.position = "fixed";
+            container.style.bottom = "20px";
+            container.style.left = "20px";
+            container.style.zIndex = "999999";
+            container.style.backgroundColor = "#0f172a";
+            container.style.color = "#e5e7eb";
+            container.style.padding = "6px 14px";
+            container.style.borderRadius = "14px";
+            container.style.boxShadow = "0 10px 30px rgba(0,0,0,0.5)";
+            container.style.display = "flex";
+            container.style.alignItems = "center";
+            container.style.gap = "8px";
+            container.style.border = "1px solid #334155";
+            container.style.fontFamily = "system-ui, -apple-system, sans-serif";
+            container.style.fontSize = "12px";
+            container.style.userSelect = "none";
+            container.style.direction = "rtl";
 
-        const dot = document.createElement("span");
-        dot.id = "aj-bridge-dot";
-        dot.style.width = "10px";
-        dot.style.height = "10px";
-        dot.style.borderRadius = "50%";
-        dot.style.backgroundColor = "#10b981";
-        dot.style.boxShadow = "0 0 8px #10b981";
-        container.appendChild(dot);
+            // Status Dot
+            const dot = document.createElement("span");
+            dot.id = "aj-bridge-dot";
+            dot.style.width = "10px";
+            dot.style.height = "10px";
+            dot.style.borderRadius = "50%";
+            dot.style.backgroundColor = "#10b981";
+            dot.style.boxShadow = "0 0 8px #10b981";
+            container.appendChild(dot);
 
-        const title = document.createElement("span");
-        title.innerHTML = "<b>Smart Bridge</b>";
-        container.appendChild(title);
+            // Title
+            const title = document.createElement("span");
+            title.textContent = "IHMS Bridge متصل";
+            title.style.fontWeight = "bold";
+            container.appendChild(title);
 
-        const countBadge = document.createElement("span");
-        countBadge.id = "aj-bridge-count";
-        countBadge.textContent = "0";
-        countBadge.style.backgroundColor = "#0284c7";
-        countBadge.style.color = "#fff";
-        countBadge.style.padding = "2px 6px";
-        countBadge.style.borderRadius = "10px";
-        countBadge.style.fontSize = "10px";
-        countBadge.style.fontWeight = "bold";
-        container.appendChild(countBadge);
+            // Count Badge
+            const countBadge = document.createElement("span");
+            countBadge.id = "aj-bridge-count";
+            countBadge.textContent = "0";
+            countBadge.style.backgroundColor = "#0284c7";
+            countBadge.style.color = "#fff";
+            countBadge.style.padding = "2px 6px";
+            countBadge.style.borderRadius = "10px";
+            countBadge.style.fontSize = "10px";
+            countBadge.style.fontWeight = "bold";
+            container.appendChild(countBadge);
 
-        document.body.appendChild(container);
+            document.body.appendChild(container);
 
-        autoClickTimer = setInterval(clickRefreshButton, AUTO_CLICK_DELAY);
-        heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_DELAY);
+            setInterval(clickRefreshButton, AUTO_CLICK_DELAY);
+            setInterval(sendHeartbeat, HEARTBEAT_DELAY);
+        } catch (e) {}
     }
 
     if (document.readyState === "complete") {

@@ -1,5 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx';
+import JSZip from 'jszip';
 import { StandaloneCase, IncomingPatient, MODALITY_CONFIG, detectModality } from '../pages/StandaloneRadiologyLogbook';
 
 export interface PacsRecord {
@@ -53,6 +54,15 @@ export interface ComparisonItem {
     discrepancyNote?: string;
 }
 
+// Normalizer for Medical Record Numbers (MRN / File Number)
+export const normalizeMRN = (val?: string | null): string => {
+    if (!val) return '';
+    // Trim, keep digits and letters, strip leading zeros (e.g. "001373724" -> "1373724")
+    const cleaned = String(val).trim().replace(/[^A-Za-z0-9]/g, '');
+    const withoutLeadingZeros = cleaned.replace(/^0+/, '');
+    return withoutLeadingZeros || cleaned;
+};
+
 // Convert PACS modality code to standard modality
 export const normalizePacsModality = (rawCode?: string, examDesc?: string): 'X-RAY' | 'CT' | 'MRI' | 'US' | 'FLUO' | 'MAMMO' | 'OTHER' => {
     if (!rawCode && !examDesc) return 'X-RAY';
@@ -95,9 +105,25 @@ export const parsePacsRawText = (rawText: string): PacsRecord[] => {
 
         // 1. Check if this line is a Patient Header line
         // Look for "ID: 1373724" or "MRN: 1373724" or "Patient ID: 1373724" or "ID:1373724"
-        const idMatch = line.match(/(?:ID|MRN|File\s*No|Patient\s*ID)[:\s]*([A-Za-z0-9_-]+)/i);
+        const idMatch = line.match(/(?:ID|MRN|File\s*No|Patient\s*ID|ملف|رقم\s*الملف)[:\s]*([A-Za-z0-9_-]+)/i);
 
         if (idMatch) {
+            // If previous patient had no study lines, save it as a record before switching
+            if (currentPatient && records.filter(r => normalizeMRN(r.fileNumber) === normalizeMRN(currentPatient?.fileNumber)).length === 0) {
+                records.push({
+                    id: `pacs_hdr_${currentPatient.fileNumber}_${records.length}`,
+                    patientName: currentPatient.name,
+                    fileNumber: currentPatient.fileNumber,
+                    modality: 'X-RAY',
+                    rawModality: 'CR',
+                    examName: 'فحص باكس',
+                    age: currentPatient.age,
+                    gender: currentPatient.gender,
+                    dob: currentPatient.dob,
+                    rawText: currentPatient.name
+                });
+            }
+
             let fileNumber = idMatch[1].trim();
             // Remove DoB/DOB/dob or any trailing letters glued to the MRN (e.g., "1373724DoB" -> "1373724")
             fileNumber = fileNumber.replace(/(?:DoB|DOB|dob|Date|Age|Gender).*$/i, '').trim();
@@ -228,7 +254,7 @@ export const parsePacsRawText = (rawText: string): PacsRecord[] => {
         // 3. Strategy 2: Tab-delimited row (from copied HTML table or Excel grid from PACS)
         if (line.includes('\t')) {
             const parts = line.split('\t').map(p => p.trim());
-            // Check if one of parts is a file number / MRN (numbers with length 4-10)
+            // Check if one of parts is a file number / MRN (numbers with length 3-10)
             let fNum = '';
             let pName = '';
             let pMod = '';
@@ -270,13 +296,10 @@ export const parsePacsRawText = (rawText: string): PacsRecord[] => {
                 continue;
             }
         }
-
-        // 4. Strategy 3: Isolated patient block with no study line yet
-        // If currentPatient exists and we hit another patient line without a study, create a fallback record
     }
 
     // If currentPatient was parsed but had no separate study lines (e.g. just patient list)
-    if (currentPatient && records.filter(r => r.fileNumber === currentPatient?.fileNumber).length === 0) {
+    if (currentPatient && records.filter(r => normalizeMRN(r.fileNumber) === normalizeMRN(currentPatient?.fileNumber)).length === 0) {
         records.push({
             id: `pacs_fallback_${currentPatient.fileNumber}_0`,
             patientName: currentPatient.name,
@@ -324,6 +347,13 @@ export const PacsReconciliationModal: React.FC<PacsReconciliationModalProps> = (
         return localStorage.getItem('stand_pacs_raw_text') || '';
     });
 
+    // Zero Scraper Live state
+    const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => {
+        return localStorage.getItem('aj_pacs_last_sync_time') || null;
+    });
+    const [activeInputTab, setActiveInputTab] = useState<'AUTO_SCRAPER' | 'PASTE_TEXT'>('AUTO_SCRAPER');
+    const [isLiveConnected, setIsLiveConnected] = useState<boolean>(true);
+
     // Filters and scope
     const [filterStatus, setFilterStatus] = useState<'ALL' | ReconciliationStatus>('ALL');
     const [filterModality, setFilterModality] = useState<string>('ALL');
@@ -335,6 +365,167 @@ export const PacsReconciliationModal: React.FC<PacsReconciliationModalProps> = (
     useEffect(() => {
         localStorage.setItem('stand_pacs_raw_text', pacsRawText);
     }, [pacsRawText]);
+
+    // Download ready-to-load Chrome Extension ZIP
+    const handleDownloadExtensionZip = async () => {
+        try {
+            const zip = new JSZip();
+            
+            // 1. manifest.json with valid Chrome semantic version (4.3.0)
+            const manifestJson = {
+                "manifest_version": 3,
+                "name": "Smart Employee & IHMS Bridge",
+                "version": "4.3.0",
+                "description": "Auto-sync patient & radiology worklist from Hospital System (IHMS) to Smart Radiology Logbook.",
+                "permissions": [
+                    "storage",
+                    "tabs"
+                ],
+                "host_permissions": [
+                    "http://*/*",
+                    "https://*/*"
+                ],
+                "background": {
+                    "service_worker": "background.js"
+                },
+                "content_scripts": [
+                    {
+                        "matches": ["http://*/*", "https://*/*"],
+                        "js": ["content-relay.js"],
+                        "run_at": "document_start",
+                        "all_frames": false
+                    },
+                    {
+                        "matches": ["http://*/*", "https://*/*"],
+                        "js": ["smart-bridge.js"],
+                        "run_at": "document_start",
+                        "world": "MAIN",
+                        "all_frames": false
+                    }
+                ],
+                "web_accessible_resources": [
+                    {
+                        "resources": ["smart-bridge.js", "content-relay.js", "background.js"],
+                        "matches": ["<all_urls>"]
+                    }
+                ]
+            };
+            zip.file('manifest.json', JSON.stringify(manifestJson, null, 2));
+
+            // 2. Fetch scripts
+            const fetchScript = async (url: string, fallback: string) => {
+                try {
+                    const res = await fetch(url + '?v=' + Date.now());
+                    if (res.ok) return await res.text();
+                } catch (e) {}
+                return fallback;
+            };
+
+            const [smartBridgeCode, backgroundCode, contentRelayCode] = await Promise.all([
+                fetchScript('/smart-bridge.js', '/* smart bridge */'),
+                fetchScript('/background.js', 'chrome.runtime.onMessage.addListener(() => {});'),
+                fetchScript('/content-relay.js', '/* content relay */')
+            ]);
+
+            zip.file('smart-bridge.js', smartBridgeCode);
+            zip.file('background.js', backgroundCode);
+            zip.file('content-relay.js', contentRelayCode);
+
+            const blob = await zip.generateAsync({ type: 'blob' });
+            const downloadUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = 'smart-bridge-extension-v4.2.3.zip';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(downloadUrl);
+
+            showToast(txt('تم تحميل ملف الإضافة الكامل (ZIP V4.2.3). قم بفك الضغط واختيار المجلد في chrome://extensions', 'Downloaded extension ZIP V4.2.3! Extract and Load unpacked in chrome://extensions'), 'success');
+        } catch (err: any) {
+            console.error('Failed to generate extension ZIP:', err);
+            showToast(txt('تعذر تجميع ملف ZIP، جاري التحميل المباشر', 'Error zipping extension, fallback to direct script'), 'info');
+        }
+    };
+
+    // Function to read and paste directly from system clipboard
+    const handlePasteFromClipboard = useCallback(async (isSilent = false) => {
+        try {
+            if (!navigator.clipboard || !navigator.clipboard.readText) {
+                if (!isSilent) showToast(txt('يرجى استخدام الاختصار Ctrl+V للصق البيانات مباشرة', 'Clipboard API unavailable. Please use Ctrl+V'), 'info');
+                return;
+            }
+            const text = await navigator.clipboard.readText();
+            if (text && text.trim().length > 10) {
+                // Check if it has PACS signatures
+                if (text.includes('ID:') || text.includes('MRN:') || text.includes('Acn:') || text.includes('DoB:') || text.includes('CR') || text.includes('CT') || text.includes('US')) {
+                    setPacsRawText(text.trim());
+                    const timeStr = new Date().toLocaleTimeString('ar-SA');
+                    setLastSyncTime(timeStr);
+                    const parsed = parsePacsRawText(text);
+                    showToast(txt(`✅ تم لصق وتحليل (${parsed.length}) فحص باكس بنجاح من الحافظة!`, `Pasted and parsed (${parsed.length}) PACS studies from clipboard!`), 'success');
+                } else if (!isSilent) {
+                    setPacsRawText(text.trim());
+                    showToast(txt('تم لصق النص من الحافظة', 'Pasted from clipboard'), 'info');
+                }
+            } else if (!isSilent) {
+                showToast(txt('الحافظة فارغة أو لا تحتوي على نصوص كافية', 'Clipboard is empty or has insufficient text'), 'info');
+            }
+        } catch (err) {
+            console.error('Clipboard read error:', err);
+            if (!isSilent) {
+                showToast(txt('تعذر الوصول للحافظة تلقائياً. يرجى الضغط داخل المربع واستخدام Ctrl+V', 'Could not read clipboard. Please click in box and press Ctrl+V'), 'info');
+            }
+        }
+    }, [txt, showToast]);
+
+    // Live listener for BroadcastChannel, window postMessage, clipboard and localStorage changes
+    useEffect(() => {
+        let bc: BroadcastChannel | null = null;
+        try {
+            bc = new BroadcastChannel('smart_bridge_channel');
+            bc.onmessage = (event) => {
+                if (event.data && (event.data.type === 'PACS_SCRAPED_DATA' || event.data.type === 'ZERO_VIEWER_DATA')) {
+                    const raw = event.data.payload?.rawText || event.data.rawText;
+                    if (raw && typeof raw === 'string') {
+                        setPacsRawText(raw);
+                        const timeStr = new Date().toLocaleTimeString('ar-SA');
+                        setLastSyncTime(timeStr);
+                        setIsLiveConnected(true);
+                        showToast(txt(`📡 تم استقبال تحديث فوري من سكرابر الزيرو تلقائياً`, `Received live sync from Zero PACS Scraper`), 'success');
+                    }
+                }
+            };
+        } catch (e) {}
+
+        const handleWindowMsg = (event: MessageEvent) => {
+            if (event.data && (event.data.type === 'PACS_SCRAPED_DATA' || event.data.type === 'ZERO_VIEWER_DATA')) {
+                const raw = event.data.payload?.rawText || event.data.rawText;
+                if (raw && typeof raw === 'string' && raw.length > 20) {
+                    setPacsRawText(raw);
+                    const timeStr = new Date().toLocaleTimeString('ar-SA');
+                    setLastSyncTime(timeStr);
+                    setIsLiveConnected(true);
+                    showToast(txt(`📡 تم استقبال وتحديث بيانات الباكس بنجاح (${event.data.payload?.count || ''} فحص)`, `Received live sync from Zero PACS Scraper`), 'success');
+                }
+            }
+        };
+        window.addEventListener('message', handleWindowMsg);
+
+        const handleStorage = (e: StorageEvent) => {
+            if (e.key === 'stand_pacs_raw_text' && e.newValue) {
+                setPacsRawText(e.newValue);
+                setLastSyncTime(localStorage.getItem('aj_pacs_last_sync_time') || new Date().toLocaleTimeString('ar-SA'));
+            }
+        };
+        window.addEventListener('storage', handleStorage);
+
+        return () => {
+            if (bc) bc.close();
+            window.removeEventListener('message', handleWindowMsg);
+            window.removeEventListener('storage', handleStorage);
+        };
+    }, [txt]);
 
     // Parse PACS records
     const pacsRecords = useMemo(() => {
@@ -356,15 +547,18 @@ export const PacsReconciliationModal: React.FC<PacsReconciliationModalProps> = (
 
         // 1. Process all IHMS Cases
         for (const ihms of candidateIhmsCases) {
-            if (!ihms.fileNumber && !ihms.patientName) continue;
-            const key = (ihms.fileNumber || '').trim() || `ihms_name_${ihms.patientName.trim()}`;
+            const rawFN = (ihms.fileNumber || '').trim();
+            const normMRN = normalizeMRN(rawFN);
+            if (!normMRN && !ihms.patientName) continue;
+
+            const key = normMRN ? `mrn_${normMRN}` : `ihms_nonum_${ihms.id || Math.random()}`;
 
             if (!itemMap.has(key)) {
                 itemMap.set(key, {
                     key,
-                    fileNumber: (ihms.fileNumber || '').trim(),
+                    fileNumber: rawFN,
                     patientName: ihms.patientName || '',
-                    status: 'MISSING_IN_PACS', // Default until matched
+                    status: 'MISSING_IN_PACS', // Default: Missing in PACS until found by MRN
                     inIHMS: true,
                     ihmsCase: ihms,
                     ihmsModality: ihms.modality,
@@ -396,13 +590,16 @@ export const PacsReconciliationModal: React.FC<PacsReconciliationModalProps> = (
         // 2. Process Incoming Queue if enabled
         if (includeIncomingQueue) {
             for (const inc of incomingQueue) {
-                if (!inc.fileNumber && !inc.patientName) continue;
-                const key = (inc.fileNumber || '').trim() || `ihms_queue_${inc.patientName.trim()}`;
+                const rawFN = (inc.fileNumber || '').trim();
+                const normMRN = normalizeMRN(rawFN);
+                if (!normMRN && !inc.patientName) continue;
+
+                const key = normMRN ? `mrn_${normMRN}` : `ihms_queue_nonum_${inc.id || Math.random()}`;
 
                 if (!itemMap.has(key)) {
                     itemMap.set(key, {
                         key,
-                        fileNumber: (inc.fileNumber || '').trim(),
+                        fileNumber: rawFN,
                         patientName: inc.patientName || '',
                         status: 'MISSING_IN_PACS',
                         inIHMS: true,
@@ -419,28 +616,27 @@ export const PacsReconciliationModal: React.FC<PacsReconciliationModalProps> = (
             }
         }
 
-        // 3. Match PACS Records against IHMS Data
+        // 3. Match PACS Records against IHMS Data (STRICT MATCH: FILE NUMBER ONLY)
         for (const pacs of pacsRecords) {
-            const key = (pacs.fileNumber || '').trim() || `pacs_name_${pacs.patientName.trim()}`;
-            
-            // Check exact MRN match or clean number match
-            let matchedItem = itemMap.get(key);
+            const rawPacsFN = (pacs.fileNumber || '').trim();
+            const pacsNormMRN = normalizeMRN(rawPacsFN);
+            const key = pacsNormMRN ? `mrn_${pacsNormMRN}` : `pacs_nonum_${pacs.id || Math.random()}`;
 
-            // Fuzzy match by patient name if not found by MRN
-            if (!matchedItem && pacs.patientName && pacs.patientName.length > 4) {
-                const pacsNameClean = pacs.patientName.toLowerCase().replace(/[^a-z\u0600-\u06FF]/g, '');
-                for (const item of itemMap.values()) {
-                    const itemNameClean = item.patientName.toLowerCase().replace(/[^a-z\u0600-\u06FF]/g, '');
-                    if (pacsNameClean.includes(itemNameClean) || itemNameClean.includes(pacsNameClean)) {
-                        matchedItem = item;
-                        break;
-                    }
-                }
-            }
+            // Check exact file number match only
+            let matchedItem = pacsNormMRN ? itemMap.get(`mrn_${pacsNormMRN}`) : undefined;
 
-            if (matchedItem) {
-                // Matched in both IHMS and PACS!
+            if (matchedItem && matchedItem.inIHMS) {
+                // MATCHED: Exact same File Number in both IHMS and PACS!
                 matchedItem.inPACS = true;
+                matchedItem.status = 'MATCHED';
+
+                if (!matchedItem.fileNumber && rawPacsFN) {
+                    matchedItem.fileNumber = rawPacsFN;
+                }
+                if (!matchedItem.patientName && pacs.patientName) {
+                    matchedItem.patientName = pacs.patientName;
+                }
+
                 if (!matchedItem.pacsRecord) {
                     matchedItem.pacsRecord = pacs;
                     matchedItem.pacsModality = pacs.modality;
@@ -455,35 +651,39 @@ export const PacsReconciliationModal: React.FC<PacsReconciliationModalProps> = (
                     matchedItem.pacsAllRecords?.push(pacs);
                 }
 
-                // Check modality match
+                // Check modality match note
                 if (matchedItem.ihmsModality && matchedItem.pacsModality && matchedItem.ihmsModality !== matchedItem.pacsModality) {
-                    matchedItem.status = 'MODALITY_MISMATCH';
                     matchedItem.discrepancyNote = txt(
                         `القسم في الباكس (${matchedItem.pacsModality}) يختلف عن الـ IHMS (${matchedItem.ihmsModality})`,
                         `Modality in PACS (${matchedItem.pacsModality}) differs from IHMS (${matchedItem.ihmsModality})`
                     );
-                } else {
-                    matchedItem.status = 'MATCHED';
                 }
             } else {
                 // In PACS Only (Missing in IHMS)
-                itemMap.set(key, {
-                    key,
-                    fileNumber: pacs.fileNumber,
-                    patientName: pacs.patientName,
-                    status: 'MISSING_IN_IHMS',
-                    inIHMS: false,
-                    inPACS: true,
-                    pacsRecord: pacs,
-                    pacsAllRecords: [pacs],
-                    pacsModality: pacs.modality,
-                    pacsExam: pacs.examName,
-                    pacsAccession: pacs.accessionNo,
-                    pacsTime: pacs.time,
-                    pacsDate: pacs.date,
-                    pacsGender: pacs.gender,
-                    pacsAge: pacs.age
-                });
+                if (!itemMap.has(key)) {
+                    itemMap.set(key, {
+                        key,
+                        fileNumber: rawPacsFN,
+                        patientName: pacs.patientName,
+                        status: 'MISSING_IN_IHMS',
+                        inIHMS: false,
+                        inPACS: true,
+                        pacsRecord: pacs,
+                        pacsAllRecords: [pacs],
+                        pacsModality: pacs.modality,
+                        pacsExam: pacs.examName,
+                        pacsAccession: pacs.accessionNo,
+                        pacsTime: pacs.time,
+                        pacsDate: pacs.date,
+                        pacsGender: pacs.gender,
+                        pacsAge: pacs.age
+                    });
+                } else {
+                    const existing = itemMap.get(key)!;
+                    if (!existing.inIHMS) {
+                        existing.pacsAllRecords?.push(pacs);
+                    }
+                }
             }
         }
 
@@ -494,7 +694,13 @@ export const PacsReconciliationModal: React.FC<PacsReconciliationModalProps> = (
     const filteredItems = useMemo(() => {
         return reconciliationData.filter(item => {
             // Status Filter
-            if (filterStatus !== 'ALL' && item.status !== filterStatus) return false;
+            if (filterStatus !== 'ALL') {
+                if (filterStatus === 'MODALITY_MISMATCH') {
+                    if (!item.discrepancyNote) return false;
+                } else if (item.status !== filterStatus) {
+                    return false;
+                }
+            }
 
             // Modality Filter
             if (filterModality !== 'ALL') {
@@ -524,7 +730,7 @@ export const PacsReconciliationModal: React.FC<PacsReconciliationModalProps> = (
         const matched = reconciliationData.filter(i => i.status === 'MATCHED').length;
         const missingInPacs = reconciliationData.filter(i => i.status === 'MISSING_IN_PACS').length;
         const missingInIhms = reconciliationData.filter(i => i.status === 'MISSING_IN_IHMS').length;
-        const modalityMismatch = reconciliationData.filter(i => i.status === 'MODALITY_MISMATCH').length;
+        const modalityMismatch = reconciliationData.filter(i => !!i.discrepancyNote).length;
         const totalUnique = reconciliationData.length;
 
         const reconciliationRate = totalIhms > 0 ? Math.round((matched / totalIhms) * 100) : 0;
@@ -788,55 +994,254 @@ US - US_UNKNOWNAcn: US22798Aug 30, 2026 2:31 AM
                 {/* MAIN BODY: SPLIT VIEW (PASTE INPUT ACCORDION / TOGGLE + AUDIT TABLE) */}
                 <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
                     
-                    {/* PACS TEXT INPUT AREA */}
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                            <label className="text-xs font-black text-slate-800 flex items-center gap-2">
-                                <i className="fas fa-clipboard-check text-indigo-600"></i>
-                                <span>{txt('الصق بيانات المرضى المنسوخة من الباكس هنا (Paste PACS Data):', 'Paste copied PACS data here:')}</span>
-                            </label>
-                            <div className="flex items-center gap-1.5">
-                                <button
-                                    type="button"
-                                    onClick={loadSampleData}
-                                    className="px-2.5 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg cursor-pointer transition"
-                                >
-                                    <i className="fas fa-magic mr-1"></i>
-                                    <span>{txt('تجربة بيانات نموذجية', 'Load Sample PACS')}</span>
-                                </button>
-                                {pacsRawText && (
+                    {/* PACS INPUT / ZERO SCRAPER CONTROLS */}
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                        {/* Tab Switcher & Live Status Header */}
+                        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 px-4 py-3 text-white flex flex-wrap items-center justify-between gap-3 border-b border-indigo-900/40">
+                            <div className="flex items-center gap-2">
+                                <div className="flex bg-slate-800/80 p-1 rounded-xl border border-slate-700/60">
                                     <button
                                         type="button"
-                                        onClick={() => setPacsRawText('')}
-                                        className="px-2 py-1 text-[11px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg cursor-pointer transition"
+                                        onClick={() => setActiveInputTab('AUTO_SCRAPER')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition flex items-center gap-1.5 cursor-pointer ${
+                                            activeInputTab === 'AUTO_SCRAPER'
+                                                ? 'bg-indigo-600 text-white shadow-md'
+                                                : 'text-slate-300 hover:text-white'
+                                        }`}
                                     >
-                                        <i className="fas fa-trash-alt mr-1"></i>
-                                        <span>{txt('مسح النص', 'Clear')}</span>
+                                        <i className="fas fa-bolt text-amber-400"></i>
+                                        <span>{txt('📡 سكرابر الزيرو التلقائي (Zero PACS Scraper)', '📡 Zero PACS Auto-Scraper')}</span>
                                     </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveInputTab('PASTE_TEXT')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition flex items-center gap-1.5 cursor-pointer ${
+                                            activeInputTab === 'PASTE_TEXT'
+                                                ? 'bg-indigo-600 text-white shadow-md'
+                                                : 'text-slate-300 hover:text-white'
+                                        }`}
+                                    >
+                                        <i className="fas fa-paste text-slate-300"></i>
+                                        <span>{txt('📋 لصق يدوي (Manual Paste)', '📋 Manual Paste')}</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Live Connection & Last Sync Indicator */}
+                            <div className="flex items-center gap-2 text-xs">
+                                <div className="flex items-center gap-1.5 bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 px-3 py-1 rounded-xl font-mono text-[11px] font-bold shadow-xs">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                                    <span>{txt('الربط المباشر نشط (Live Channel Ready)', 'Live Channel Ready')}</span>
+                                </div>
+                                {lastSyncTime && (
+                                    <span className="text-[11px] text-slate-300 font-mono bg-slate-800/80 px-2.5 py-1 rounded-xl border border-slate-700">
+                                        {txt(`آخر سحب: ${lastSyncTime}`, `Last Sync: ${lastSyncTime}`)}
+                                    </span>
                                 )}
                             </div>
                         </div>
 
-                        <textarea
-                            rows={3}
-                            value={pacsRawText}
-                            onChange={e => setPacsRawText(e.target.value)}
-                            placeholder={txt(
-                                'الصق النص المنسوخ من الباكس هنا مباشرة (مثل:\nABDULRUHMAN MOHD 27Y, Unknown (O)ID: 1373724DoB: Jan 1, 1800\nUS - US_UNKNOWNAcn: US22802Aug 30, 2026 6:14 AM\nCR - CR_UNKNOWNAcn:Aug 30, 2026 6:12 AM)',
-                                'Paste text copied directly from PACS here...'
-                            )}
-                            className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs font-mono text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none placeholder:text-slate-400 leading-relaxed"
-                        />
+                        {/* TAB 1: AUTO SCRAPER TOOLS */}
+                        {activeInputTab === 'AUTO_SCRAPER' && (
+                            <div className="p-4 bg-indigo-50/40 space-y-3.5 border-b border-slate-200">
+                                
+                                {/* HERO ACTION: 1-Click Paste from Clipboard */}
+                                <div className="bg-gradient-to-r from-indigo-700 via-indigo-600 to-indigo-800 rounded-2xl p-3.5 sm:p-4 text-white shadow-lg flex flex-wrap items-center justify-between gap-3">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-11 h-11 rounded-xl bg-white/15 backdrop-blur-sm border border-white/25 flex items-center justify-center text-xl text-amber-300 shadow-inner">
+                                            <i className="fas fa-clipboard-check"></i>
+                                        </div>
+                                        <div>
+                                            <h4 className="text-sm font-black flex items-center gap-2">
+                                                <span>{txt('لصق البيانات المسحوبة من الحافظة', 'Paste Scraped PACS from Clipboard')}</span>
+                                                <span className="bg-amber-400 text-slate-900 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">سريع</span>
+                                            </h4>
+                                            <p className="text-[11px] text-indigo-100 font-medium">
+                                                {txt('بعد الضغط على زر السكرابر في موقع الزيرو، اضغط هنا للصق ومطابقة الـ 712 فحص فوراً:', 'After clicking Scraper on Zero PACS, click here to load and audit instantly:')}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePasteFromClipboard(false)}
+                                        className="bg-white hover:bg-amber-50 text-indigo-900 px-5 py-2.5 rounded-xl font-black text-xs shadow-md hover:shadow-lg transition cursor-pointer flex items-center gap-2 border border-white active:scale-95"
+                                    >
+                                        <i className="fas fa-paste text-indigo-600 text-sm"></i>
+                                        <span>{txt('📥 لصق البيانات المسحوبة الآن (Ctrl+V)', '📥 Paste Scraped Data Now (Ctrl+V)')}</span>
+                                    </button>
+                                </div>
 
-                        {pacsRecords.length > 0 && (
-                            <div className="mt-2 flex flex-wrap items-center justify-between text-[11px] text-slate-500 font-medium">
-                                <span className="text-emerald-700 font-bold flex items-center gap-1">
-                                    <i className="fas fa-check-circle text-emerald-600"></i>
-                                    {txt(`تم تحليل ${pacsRecords.length} فحص باكس بنجاح`, `Successfully parsed ${pacsRecords.length} PACS studies`)}
-                                </span>
-                                <span className="text-slate-400">
-                                    {txt('يتم تحديث المطابقة لحظياً مع سجل الـ IHMS', 'Audit updates automatically in real-time')}
-                                </span>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                    {/* Option A: Bookmarklet (1-Click Browser Button) */}
+                                    <div className="bg-white p-3.5 rounded-xl border border-indigo-200 shadow-xs flex flex-col justify-between hover:border-indigo-400 transition">
+                                        <div>
+                                            <div className="flex items-center gap-2 text-indigo-900 font-black text-xs mb-1">
+                                                <span className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-mono">1</span>
+                                                <span>{txt('زر الإشارة المرجعية (Bookmarklet)', '1-Click Bookmarklet')}</span>
+                                            </div>
+                                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                                                {txt('اسحب الزر لشريط علامات المتصفح (Bookmarks Bar)، واضغط عليه وأنت فاتح موقع الزيرو ليسحب وينسخ فوراً:', 'Drag this button to your Bookmarks Bar, click it on Zero PACS to scrape & copy:')}
+                                            </p>
+                                        </div>
+                                        <div className="mt-2.5 pt-2 border-t border-slate-100 flex flex-col gap-2">
+                                            <a
+                                                ref={(el) => {
+                                                    if (el) {
+                                                        const script = `javascript:(function(){try{var t=document.body?document.body.innerText:'';var rows=document.querySelectorAll('.study-row,.patient-row,.study-item,.patient-item,.slick-row,tr[role="row"],tbody tr');if(rows.length>0){var r=[];rows.forEach(function(el){var x=(el.innerText||'').trim();if(x&&x.length>5)r.push(x);});if(r.length>0)t=r.join('\\n\\n');}var idM=t.match(/(?:ID|MRN|File\\s*No|Patient\\s*ID)[:\\s]*[A-Za-z0-9_-]+/gi)||[];var count=idM.length;if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t);}var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(e){}ta.remove();try{var bc=new BroadcastChannel('smart_bridge_channel');bc.postMessage({type:'PACS_SCRAPED_DATA',payload:{rawText:t}});}catch(e){}var toast=document.createElement('div');toast.style.cssText='position:fixed;top:20px;right:20px;z-index:9999999;background:#10b981;color:#fff;padding:14px 20px;border-radius:14px;font-family:sans-serif;font-weight:bold;font-size:13px;box-shadow:0 12px 30px rgba(0,0,0,0.35);direction:rtl;line-height:1.6;';toast.innerHTML='✅ تم سحب ('+count+') فحص ونسخها للحافظة بنجاح!<br><span style="font-size:11px;font-weight:normal;opacity:0.95;">افتح سجل الأشعة واضغط زر "📥 لصق من الحافظة"</span>';document.body.appendChild(toast);setTimeout(function(){toast.remove();},6000);}catch(e){alert('❌ خطأ: '+e.message);}})();`;
+                                                        el.setAttribute('href', script);
+                                                    }
+                                                }}
+                                                onClick={() => {
+                                                    showToast(txt('💡 اسحب هذا الزر بالماوس إلى شريط إشارات المتصفح (Bookmarks Bar)', 'Drag to your bookmarks bar'), 'info');
+                                                }}
+                                                className="w-full text-center bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white px-3 py-2 rounded-xl text-xs font-black shadow-md cursor-grab active:cursor-grabbing flex items-center justify-center gap-1.5"
+                                            >
+                                                <i className="fas fa-bookmark text-amber-300"></i>
+                                                <span>{txt('⚡ اسحبني: سكرابر الزيرو', '⚡ Drag Me: Zero Scraper')}</span>
+                                            </a>
+                                        </div>
+                                    </div>
+
+                                    {/* Option B: Console One-Liner */}
+                                    <div className="bg-white p-3.5 rounded-xl border border-indigo-200 shadow-xs flex flex-col justify-between hover:border-indigo-400 transition">
+                                        <div>
+                                            <div className="flex items-center gap-2 text-indigo-900 font-black text-xs mb-1">
+                                                <span className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-mono">2</span>
+                                                <span>{txt('كود الكونسول السريع (Console Script)', 'Console One-Liner')}</span>
+                                            </div>
+                                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                                                {txt('انسخ الكود بنقرة واحدة والصقه في كونسول المتصفح (F12) في شاشة الزيرو ليسحب كل الحالات:', 'Copy 1-line script and paste into browser Console (F12) on Zero tab:')}
+                                            </p>
+                                        </div>
+                                        <div className="mt-2.5 pt-2 border-t border-slate-100">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const code = `(function(){var t=document.body?document.body.innerText:'';var rows=document.querySelectorAll('.study-row,.patient-row,.study-item,.patient-item,.slick-row,tr[role="row"],tbody tr');if(rows.length>0){var r=[];rows.forEach(function(el){var x=(el.innerText||'').trim();if(x&&x.length>5)r.push(x);});if(r.length>0)t=r.join('\\n\\n');}var idM=t.match(/(?:ID|MRN|File\\s*No|Patient\\s*ID)[:\\s]*[A-Za-z0-9_-]+/gi)||[];var count=idM.length;if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t);}var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(e){}ta.remove();try{var bc=new BroadcastChannel('smart_bridge_channel');bc.postMessage({type:'PACS_SCRAPED_DATA',payload:{rawText:t}});}catch(e){}console.log("%c ✅ تم سحب ونسخ "+count+" فحص!", "color:#10b981;font-weight:bold;font-size:14px;");alert('✅ تم سحب ('+count+') فحص من الزيرو ونسخها للحافظة بنجاح!\\nانتقل لصفحة السجل واضغط "📥 لصق من الحافظة"');})();`;
+                                                    navigator.clipboard.writeText(code);
+                                                    showToast(txt('تم نسخ كود سكرابر الزيرو! الصقه في كونسول صفحة الزيرو (F12)', 'Copied console script! Paste in Zero PACS console'), 'success');
+                                                }}
+                                                className="w-full bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded-xl text-xs font-black shadow-md cursor-pointer flex items-center justify-center gap-1.5 transition"
+                                            >
+                                                <i className="fas fa-copy text-teal-400"></i>
+                                                <span>{txt('نسخ كود السكرابر الفوري', 'Copy Scraper Script')}</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Option C: Smart Bridge Extension */}
+                                    <div className="bg-white p-3.5 rounded-xl border border-indigo-200 shadow-xs flex flex-col justify-between hover:border-indigo-400 transition">
+                                        <div>
+                                            <div className="flex items-center gap-2 text-indigo-900 font-black text-xs mb-1">
+                                                <span className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-mono">3</span>
+                                                <span>{txt('حزمة إضافة المتصفح (Smart Bridge V4.2)', 'Smart Bridge Extension Pack')}</span>
+                                            </div>
+                                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                                                {txt('حزمة ZIP كاملة جاهزة للفك والتثبيت في Chrome بدون أخطاء (Manifest V3):', 'Full ZIP ready to extract & load unpacked into Chrome without errors:')}
+                                            </p>
+                                        </div>
+                                        <div className="mt-2.5 pt-2 border-t border-slate-100 flex flex-col gap-1.5">
+                                            <button
+                                                type="button"
+                                                onClick={handleDownloadExtensionZip}
+                                                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs font-black shadow-md cursor-pointer flex items-center justify-center gap-1.5 transition"
+                                            >
+                                                <i className="fas fa-file-zipper text-white"></i>
+                                                <span>{txt('تحميل حزمة الإضافة الكاملة (ZIP)', 'Download Extension Package (.zip)')}</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Scraped Data Summary bar */}
+                                <div className="bg-white p-3 rounded-xl border border-indigo-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
+                                        <span className="font-bold text-slate-800">
+                                            {pacsRecords.length > 0 
+                                                ? txt(`تم استخراج (${pacsRecords.length}) فحص من بيانات الزيرو الحالية`, `Extracted (${pacsRecords.length}) studies from current Zero data`)
+                                                : txt('في انتظار تشغيل السكرابر أو الضغط على "لصق من الحافظة"...', 'Waiting for scraper or "Paste from Clipboard"...')
+                                            }
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={loadSampleData}
+                                            className="px-2.5 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg cursor-pointer transition"
+                                        >
+                                            <i className="fas fa-magic mr-1"></i>
+                                            <span>{txt('تجربة بيانات نموذجية', 'Load Sample')}</span>
+                                        </button>
+                                        {pacsRawText && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setPacsRawText('');
+                                                    setLastSyncTime(null);
+                                                    localStorage.removeItem('stand_pacs_raw_text');
+                                                    localStorage.removeItem('aj_pacs_last_sync_time');
+                                                    showToast(txt('تم مسح البيانات', 'Cleared data'), 'info');
+                                                }}
+                                                className="px-2.5 py-1 text-[11px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg cursor-pointer transition"
+                                            >
+                                                <i className="fas fa-trash-alt mr-1"></i>
+                                                <span>{txt('مسح', 'Clear')}</span>
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TAB 2: MANUAL TEXT AREA */}
+                        {activeInputTab === 'PASTE_TEXT' && (
+                            <div className="p-4 space-y-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                                    <label className="text-xs font-black text-slate-800 flex items-center gap-2">
+                                        <i className="fas fa-clipboard-check text-indigo-600"></i>
+                                        <span>{txt('الصق بيانات المرضى المنسوخة من الباكس هنا (Paste PACS Data):', 'Paste copied PACS data here:')}</span>
+                                    </label>
+                                    <div className="flex items-center gap-1.5">
+                                        <button
+                                            type="button"
+                                            onClick={() => handlePasteFromClipboard(false)}
+                                            className="px-3 py-1 text-[11px] font-black text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg cursor-pointer transition shadow-xs flex items-center gap-1.5"
+                                        >
+                                            <i className="fas fa-paste"></i>
+                                            <span>{txt('لصق من الحافظة (Paste)', 'Paste Clipboard')}</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={loadSampleData}
+                                            className="px-2.5 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg cursor-pointer transition"
+                                        >
+                                            <i className="fas fa-magic mr-1"></i>
+                                            <span>{txt('تجربة بيانات نموذجية', 'Load Sample PACS')}</span>
+                                        </button>
+                                        {pacsRawText && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setPacsRawText('')}
+                                                className="px-2 py-1 text-[11px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg cursor-pointer transition"
+                                            >
+                                                <i className="fas fa-trash-alt mr-1"></i>
+                                                <span>{txt('مسح النص', 'Clear')}</span>
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <textarea
+                                    rows={3}
+                                    value={pacsRawText}
+                                    onChange={e => setPacsRawText(e.target.value)}
+                                    placeholder={txt(
+                                        'الصق النص المنسوخ من الباكس هنا مباشرة (مثل:\nABDULRUHMAN MOHD 27Y, Unknown (O)ID: 1373724DoB: Jan 1, 1800\nUS - US_UNKNOWNAcn: US22802Aug 30, 2026 6:14 AM\nCR - CR_UNKNOWNAcn:Aug 30, 2026 6:12 AM)',
+                                        'Paste text copied directly from PACS here...'
+                                    )}
+                                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs font-mono text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none placeholder:text-slate-400 leading-relaxed"
+                                />
                             </div>
                         )}
                     </div>
@@ -1013,30 +1418,32 @@ US - US_UNKNOWNAcn: US22798Aug 30, 2026 2:31 AM
 
                                                     {/* Status Badge */}
                                                     <td className="p-3 text-center">
-                                                        {isMatched && (
-                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
-                                                                <i className="fas fa-check-circle text-emerald-600"></i>
-                                                                <span>{txt('مطابق بالكامل', 'Matched')}</span>
-                                                            </span>
-                                                        )}
-                                                        {isMissingInPacs && (
-                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 shadow-xs" title={txt("مسجل في IHMS ولم يتم العثور عليه في الباكس", "In IHMS but not found in PACS")}>
-                                                                <i className="fas fa-exclamation-triangle text-amber-600"></i>
-                                                                <span>{txt('ناقص في الباكس', 'Missing in PACS')}</span>
-                                                            </span>
-                                                        )}
-                                                        {isMissingInIhms && (
-                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-300 shadow-xs animate-pulse" title={txt("تم تصويره على الباكس وغير مسجل بالـ IHMS", "Found in PACS but not registered in IHMS")}>
-                                                                <i className="fas fa-user-plus text-rose-600"></i>
-                                                                <span>{txt('غير مسجل بالـ IHMS', 'Missing in IHMS')}</span>
-                                                            </span>
-                                                        )}
-                                                        {isMismatch && (
-                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-purple-100 text-purple-900 border border-purple-300 shadow-xs">
-                                                                <i className="fas fa-random text-purple-600"></i>
-                                                                <span>{txt('اختلاف القسم', 'Mismatch')}</span>
-                                                            </span>
-                                                        )}
+                                                        <div className="flex flex-col items-center gap-1">
+                                                            {isMatched && (
+                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs" title={txt("رقم الملف متطابق في الباكس والـ IHMS", "MRN matched in PACS and IHMS")}>
+                                                                    <i className="fas fa-check-circle text-emerald-600"></i>
+                                                                    <span>{txt('مطابق (رقم الملف)', 'Matched MRN')}</span>
+                                                                </span>
+                                                            )}
+                                                            {isMissingInPacs && (
+                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 shadow-xs" title={txt("مسجل في IHMS ولم يتم العثور على رقم الملف في الباكس", "In IHMS but MRN not found in PACS")}>
+                                                                    <i className="fas fa-exclamation-triangle text-amber-600"></i>
+                                                                    <span>{txt('غير موجود بالباكس', 'Missing in PACS')}</span>
+                                                                </span>
+                                                            )}
+                                                            {isMissingInIhms && (
+                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-300 shadow-xs animate-pulse" title={txt("رقم الملف موجود في الباكس وغير مسجل بالـ IHMS", "Found in PACS but MRN not in IHMS")}>
+                                                                    <i className="fas fa-user-plus text-rose-600"></i>
+                                                                    <span>{txt('غير مسجل بالـ IHMS', 'Missing in IHMS')}</span>
+                                                                </span>
+                                                            )}
+                                                            {item.discrepancyNote && (
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-bold bg-purple-100 text-purple-900 border border-purple-200" title={item.discrepancyNote}>
+                                                                    <i className="fas fa-random text-purple-600"></i>
+                                                                    <span>{txt('اختلاف القسم', 'Modality Diff')}</span>
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </td>
 
                                                     {/* File Number / MRN */}

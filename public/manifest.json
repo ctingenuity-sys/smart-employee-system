@@ -1,29 +1,20 @@
 {
-  "manifest_version": 3,
-  "name": "Smart Employee Bridge",
-  "version": "2.0",
-  "description": "Auto-sync patient data from Hospital System (IHMS) to Smart Employee App.",
-  "host_permissions": [
-    "http://*/*",
-    "https://*/*"
-  ],
-  "content_scripts": [
+  "name": "نظام الموظفين ",
+  "short_name": "SmartStaff",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#1e293b",
+  "icons": [
     {
-      "matches": [
-        "http://*/*",
-        "https://*/*"
-      ],
-      "js": [
-        "smart-bridge.js"
-      ],
-      "world": "MAIN",
-      "run_at": "document_start"
-    }
-  ],
-  "web_accessible_resources": [
+      "src": "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
     {
-      "resources": ["smart-bridge.js"],
-      "matches": ["<all_urls>"]
+      "src": "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+      "sizes": "512x512",
+      "type": "image/png"
     }
   ]
 }

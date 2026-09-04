@@ -10,8 +10,9 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useNavigate } from 'react-router-dom';
 
 const DataArchiver: React.FC = () => {
-    const { t, dir } = useLanguage();
+    const { t, dir, language } = useLanguage();
     const navigate = useNavigate();
+    const isEn = language === 'en';
     
     // --- State for Archiving ---
     const [targetCollection, setTargetCollection] = useState('attendance_logs');
@@ -27,20 +28,20 @@ const DataArchiver: React.FC = () => {
 
     const [toast, setToast] = useState<{msg: string, type: 'success'|'error'|'info'} | null>(null);
 
-    const collectionsMap = {
-        'attendance_logs': 'Firebase: سجلات الحضور (Attendance)',
-        'shiftLogs': 'Firebase: سجلات الورديات (Shift Logs)',
-        'actions': 'Firebase: الإجراءات (Actions)',
-        'schedules': 'Firebase: الجداول القديمة (Schedules)',
-        'swapRequests': 'Firebase: طلبات التبديل (Swaps)',
-        'leaveRequests': 'Firebase: طلبات الإجازة (Leaves)',
-        'appointments': 'Appointments: المواعيد والسجلات (Appointments)' // Added Appointments
+    const collectionsMap: Record<string, string> = {
+        'attendance_logs': isEn ? 'Firebase: Attendance Logs' : 'Firebase: سجلات الحضور (Attendance)',
+        'shiftLogs': isEn ? 'Firebase: Shift Logs' : 'Firebase: سجلات الورديات (Shift Logs)',
+        'actions': isEn ? 'Firebase: Actions' : 'Firebase: الإجراءات (Actions)',
+        'schedules': isEn ? 'Firebase: Past Schedules' : 'Firebase: الجداول القديمة (Schedules)',
+        'swapRequests': isEn ? 'Firebase: Shift Swaps' : 'Firebase: طلبات التبديل (Swaps)',
+        'leaveRequests': isEn ? 'Firebase: Leave Requests' : 'Firebase: طلبات الإجازة (Leaves)',
+        'appointments': isEn ? 'Appointments: Appointments & Records' : 'Appointments: المواعيد والسجلات (Appointments)'
     };
 
     // --- Archiving Logic ---
     const handleArchiveAndPurge = async () => {
-        if (!archiveDate) return setToast({ msg: 'يرجى تحديد التاريخ', type: 'error' });
-        if (deleteConfirmation !== 'DELETE') return setToast({ msg: 'يرجى كتابة كلمة DELETE للتأكيد', type: 'error' });
+        if (!archiveDate) return setToast({ msg: isEn ? 'Please specify a date' : 'يرجى تحديد التاريخ', type: 'error' });
+        if (deleteConfirmation !== 'DELETE') return setToast({ msg: isEn ? 'Please type DELETE to confirm' : 'يرجى كتابة كلمة DELETE للتأكيد', type: 'error' });
 
         setIsProcessing(true);
         try {
@@ -58,7 +59,7 @@ const DataArchiver: React.FC = () => {
                 if (error) throw error;
                 if (!data || data.length === 0) {
                     setIsProcessing(false);
-                    return setToast({ msg: 'لا توجد بيانات أقدم من هذا التاريخ', type: 'info' });
+                    return setToast({ msg: isEn ? 'No records found prior to this date' : 'لا توجد بيانات أقدم من هذا التاريخ', type: 'info' });
                 }
                 dataToExport = data;
 
@@ -132,7 +133,7 @@ const DataArchiver: React.FC = () => {
                 
                 if (snapshot.empty) {
                     setIsProcessing(false);
-                    return setToast({ msg: 'لا توجد بيانات أقدم من هذا التاريخ', type: 'info' });
+                    return setToast({ msg: isEn ? 'No records found prior to this date' : 'لا توجد بيانات أقدم من هذا التاريخ', type: 'info' });
                 }
 
                 dataToExport = snapshot.docs.map(doc => {
@@ -173,12 +174,17 @@ const DataArchiver: React.FC = () => {
             link.click();
             document.body.removeChild(link);
 
-            setToast({ msg: `تمت الأرشفة وحفظ الإحصائيات وحذف ${deletedCount} سجل بنجاح ✅`, type: 'success' });
+            setToast({ 
+                msg: isEn 
+                    ? `Archived, performance statistics backed up, and ${deletedCount} records purged successfully ✅` 
+                    : `تمت الأرشفة وحفظ الإحصائيات وحذف ${deletedCount} سجل بنجاح ✅`, 
+                type: 'success' 
+            });
             setDeleteConfirmation('');
 
         } catch (e: any) {
             console.error(e);
-            setToast({ msg: 'حدث خطأ: ' + e.message, type: 'error' });
+            setToast({ msg: (isEn ? 'An error occurred: ' : 'حدث خطأ: ') + e.message, type: 'error' });
         } finally {
             setIsProcessing(false);
         }
@@ -262,8 +268,8 @@ const DataArchiver: React.FC = () => {
                         <i className="fas fa-arrow-left rtl:rotate-180"></i>
                     </button>
                     <div>
-                        <h1 className="text-2xl font-black">أرشيف البيانات (Data Archiver)</h1>
-                        <p className="text-slate-400 text-sm">تفريغ المساحة وتصفح الأرشيف المحلي</p>
+                        <h1 className="text-2xl font-black">{isEn ? 'Data Archiver' : 'أرشيف البيانات (Data Archiver)'}</h1>
+                        <p className="text-slate-400 text-sm">{isEn ? 'Free up cloud space and browse local archives' : 'تفريغ المساحة وتصفح الأرشيف المحلي'}</p>
                     </div>
                 </div>
             </div>
@@ -274,12 +280,12 @@ const DataArchiver: React.FC = () => {
                 {!viewMode && (
                     <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-8 animate-fade-in-up">
                         <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
-                            <i className="fas fa-box-archive text-amber-500"></i> تصدير وحذف البيانات القديمة
+                            <i className="fas fa-box-archive text-amber-500"></i> {isEn ? 'Export & Purge Old Data' : 'تصدير وحذف البيانات القديمة'}
                         </h2>
                         
                         <div className="grid md:grid-cols-2 gap-6 mb-6">
                             <div>
-                                <label className="block text-sm font-bold text-slate-500 mb-2">نوع البيانات</label>
+                                <label className="block text-sm font-bold text-slate-500 mb-2">{isEn ? 'Data Type' : 'نوع البيانات'}</label>
                                 <select 
                                     className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:ring-2 focus:ring-amber-200"
                                     value={targetCollection}
@@ -291,7 +297,7 @@ const DataArchiver: React.FC = () => {
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-sm font-bold text-slate-500 mb-2">أرشفة ما قبل تاريخ</label>
+                                <label className="block text-sm font-bold text-slate-500 mb-2">{isEn ? 'Archive Before Date' : 'أرشفة ما قبل تاريخ'}</label>
                                 <input 
                                     type="date" 
                                     className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:ring-2 focus:ring-amber-200"
@@ -302,11 +308,11 @@ const DataArchiver: React.FC = () => {
                         </div>
 
                         <div className="bg-red-50 border border-red-100 p-4 rounded-xl mb-6">
-                            <p className="text-red-800 text-sm font-bold mb-2">⚠️ منطقة الخطر: البيانات سيتم حذفها نهائياً من السحابة بعد التنزيل.</p>
-                            <p className="text-xs text-red-600 mb-2 font-bold opacity-80">* ملاحظة: سيتم حفظ نسخة من إحصائيات الأداء تلقائياً قبل الحذف.</p>
+                            <p className="text-red-800 text-sm font-bold mb-2">{isEn ? '⚠️ Danger Zone: Data will be permanently deleted from the cloud after download.' : '⚠️ منطقة الخطر: البيانات سيتم حذفها نهائياً من السحابة بعد التنزيل.'}</p>
+                            <p className="text-xs text-red-600 mb-2 font-bold opacity-80">{isEn ? '* Note: A backup of performance statistics will be automatically saved before deletion.' : '* ملاحظة: سيتم حفظ نسخة من إحصائيات الأداء تلقائياً قبل الحذف.'}</p>
                             <input 
                                 className="w-full bg-white border border-red-200 rounded-lg p-2 text-sm placeholder-red-300"
-                                placeholder="اكتب DELETE للتأكيد"
+                                placeholder={isEn ? 'Type DELETE to confirm' : 'اكتب DELETE للتأكيد'}
                                 value={deleteConfirmation}
                                 onChange={e => setDeleteConfirmation(e.target.value)}
                             />
@@ -318,7 +324,7 @@ const DataArchiver: React.FC = () => {
                             className="w-full bg-slate-800 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
                         >
                             {isProcessing ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-file-export"></i>}
-                            تصدير وحذف (Export & Purge)
+                            {isEn ? 'Export & Purge' : 'تصدير وحذف (Export & Purge)'}
                         </button>
                     </div>
                 )}
@@ -327,11 +333,11 @@ const DataArchiver: React.FC = () => {
                 <div className={`bg-white rounded-3xl shadow-sm border border-slate-200 p-8 animate-fade-in-up ${viewMode ? 'min-h-[80vh]' : ''}`}>
                     <div className="flex justify-between items-center mb-6">
                         <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                            <i className="fas fa-folder-open text-blue-500"></i> المستعرض المحلي (Offline Viewer)
+                            <i className="fas fa-folder-open text-blue-500"></i> {isEn ? 'Local Archive Viewer' : 'المستعرض المحلي (Offline Viewer)'}
                         </h2>
                         {viewMode && (
                             <button onClick={() => { setViewMode(false); setLocalData([]); }} className="text-red-500 font-bold text-sm hover:underline">
-                                إغلاق الملف
+                                {isEn ? 'Close File' : 'إغلاق الملف'}
                             </button>
                         )}
                     </div>
@@ -340,8 +346,8 @@ const DataArchiver: React.FC = () => {
                         <div className="border-2 border-dashed border-slate-300 rounded-2xl p-10 text-center hover:bg-slate-50 transition-colors relative">
                             <input type="file" accept=".json" onChange={handleFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
                             <i className="fas fa-upload text-4xl text-slate-300 mb-4"></i>
-                            <p className="text-slate-500 font-bold">اضغط لاختيار ملف JSON من جهازك</p>
-                            <p className="text-xs text-slate-400 mt-2">سيتم عرض البيانات هنا دون رفعها إلى السيرفر</p>
+                            <p className="text-slate-500 font-bold">{isEn ? 'Click to select a JSON file from your device' : 'اضغط لاختيار ملف JSON من جهازك'}</p>
+                            <p className="text-xs text-slate-400 mt-2">{isEn ? 'Data will be displayed here locally without uploading to the server' : 'سيتم عرض البيانات هنا دون رفعها إلى السيرفر'}</p>
                         </div>
                     ) : (
                         <div className="space-y-4">
@@ -360,7 +366,7 @@ const DataArchiver: React.FC = () => {
                                 <i className="fas fa-search absolute right-4 top-3.5 text-slate-400"></i>
                                 <input 
                                     className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 pr-10 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-100"
-                                    placeholder="بحث في البيانات المحلية..."
+                                    placeholder={isEn ? 'Search in local records...' : 'بحث في البيانات المحلية...'}
                                     value={viewerSearch}
                                     onChange={e => setViewerSearch(e.target.value)}
                                 />

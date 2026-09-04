@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 interface StaffUser {
     id: string;
@@ -13,6 +14,8 @@ interface StaffSidebarProps {
 }
 
 const StaffSidebar: React.FC<StaffSidebarProps> = ({ users }) => {
+    const { language } = useLanguage();
+    const isEn = language === 'en';
     const [search, setSearch] = useState('');
 
     const filteredUsers = users.filter(u => 
@@ -38,12 +41,12 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({ users }) => {
     return (
         <div className="w-64 bg-white border-r border-gray-200 flex flex-col h-full print:hidden">
             <div className="p-4 border-b border-gray-100">
-                <h3 className="font-bold text-slate-800 mb-2">قائمة الموظفين</h3>
+                <h3 className="font-bold text-slate-800 mb-2">{isEn ? 'Staff List' : 'قائمة الموظفين'}</h3>
                 <div className="relative">
                     <i className="fas fa-search absolute right-3 top-2.5 text-gray-400 text-xs"></i>
                     <input 
                         className="w-full bg-gray-50 border border-gray-200 rounded-lg py-2 pr-8 pl-2 text-xs focus:ring-2 focus:ring-blue-100 outline-none"
-                        placeholder="بحث بالاسم..."
+                        placeholder={isEn ? 'Search by name...' : 'بحث بالاسم...'}
                         value={search}
                         onChange={e => setSearch(e.target.value)}
                     />
@@ -62,7 +65,7 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({ users }) => {
                             {user.name ? user.name.charAt(0) : '?'}
                         </div>
                         <div className="flex-1 min-w-0">
-                            <h4 className="text-xs font-bold text-slate-700 truncate">{user.name || 'بدون اسم'}</h4>
+                            <h4 className="text-xs font-bold text-slate-700 truncate">{user.name || (isEn ? 'Unnamed' : 'بدون اسم')}</h4>
                             <p className="text-[10px] text-slate-400 truncate">{user.role}</p>
                         </div>
                         <i className="fas fa-grip-vertical text-gray-300 text-xs opacity-0 group-hover:opacity-100"></i>
@@ -70,13 +73,13 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({ users }) => {
                 ))}
                 {filteredUsers.length === 0 && (
                     <div className="text-center py-8 text-gray-400 text-xs">
-                        لا يوجد نتائج
+                        {isEn ? 'No results found' : 'لا يوجد نتائج'}
                     </div>
                 )}
             </div>
             
             <div className="p-3 bg-slate-50 border-t border-gray-200 text-[10px] text-slate-400 text-center">
-                اسحب الموظف وأفلته في الجدول
+                {isEn ? 'Drag and drop employee into schedule table' : 'اسحب الموظف وأفلته في الجدول'}
             </div>
         </div>
     );

@@ -43,7 +43,7 @@ interface CathLabRecord {
 
 const CathLabUsage: React.FC = () => {
     const { selectedDepartmentId } = useDepartment();
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const [supplies, setSupplies] = useState<Supply[]>([]);
     const [records, setRecords] = useState<CathLabRecord[]>([]);
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
@@ -410,7 +410,11 @@ const CathLabUsage: React.FC = () => {
                             <div className="md:col-span-2">
                                 <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer bg-slate-50 p-3 rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors">
                                     <input type="checkbox" className="w-5 h-5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500" checked={showSupplies} onChange={e => setShowSupplies(e.target.checked)} />
-                                    <span>هل يتطلب هذا الفحص تسجيل مستلزمات (دعامات وبالونات)؟</span>
+                                    <span>
+                                        {language === 'en' 
+                                            ? 'Does this procedure require consumable logging (stents and balloons)?' 
+                                            : 'هل يتطلب هذا الفحص تسجيل مستلزمات (دعامات وبالونات)؟'}
+                                    </span>
                                 </label>
                             </div>
                             {showSupplies && (

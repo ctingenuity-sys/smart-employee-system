@@ -6,7 +6,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import Loading from '../components/Loading';
 
 const InventoryPage: React.FC = () => {
-    const [userData, setUserData] = useState<{role: string, name: string} | null>(null);
+    const [userData, setUserData] = useState<{role: string, name: string, email?: string, uid?: string} | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -18,7 +18,16 @@ const InventoryPage: React.FC = () => {
                         const data = snap.data() as any;
                         setUserData({
                             role: data.role,
-                            name: data.name || auth.currentUser.email || 'User'
+                            name: data.name || auth.currentUser.displayName || auth.currentUser.email || 'User',
+                            email: data.email || auth.currentUser.email || '',
+                            uid: auth.currentUser.uid
+                        });
+                    } else {
+                        setUserData({
+                            role: 'employee',
+                            name: auth.currentUser.displayName || auth.currentUser.email || 'User',
+                            email: auth.currentUser.email || '',
+                            uid: auth.currentUser.uid
                         });
                     }
                 } catch (e) {
@@ -37,7 +46,8 @@ const InventoryPage: React.FC = () => {
         <InventorySystem 
             userRole={userData.role} 
             userName={userData.name} 
-            userEmail={auth.currentUser?.email || ''} 
+            userEmail={userData.email || auth.currentUser?.email || ''} 
+            userId={userData.uid || auth.currentUser?.uid || ''}
         />
     );
 };

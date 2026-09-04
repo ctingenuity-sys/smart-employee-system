@@ -174,7 +174,7 @@ const deleteDocsInBatches = async (docs: any[]) => {
 
 const ScheduleBuilder: React.FC = () => {
     // ... (Keep existing State Hooks)
-    const { t, dir } = useLanguage();
+    const { t, dir, language } = useLanguage();
     const { selectedDepartmentId } = useDepartment();
     const navigate = useNavigate();
     const [visualSubTab, setVisualSubTab] = useState<'general' | 'friday' | 'holiday' | 'ramadan' | 'doctor' | 'doctor_friday' | 'exceptions'>('general');
@@ -984,7 +984,7 @@ const ScheduleBuilder: React.FC = () => {
                                     className="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1 rounded-lg text-xs font-bold hover:bg-blue-100 flex items-center gap-2"
                                     title="Load existing data for this month from database to edit"
                                 >
-                                    <i className="fas fa-cloud-download-alt"></i> استيراد المنشور
+                                    <i className="fas fa-cloud-download-alt"></i> {language === 'en' ? 'Import Published' : 'استيراد المنشور'}
                                 </button>
                              </div>
                         </div>

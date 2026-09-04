@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { inventoryDb, inventoryStorage } from '../firebaseInventory';
 import { db } from '../firebase';
 // @ts-ignore
@@ -14,16 +14,64 @@ import { PrintHeader, PrintFooter } from './PrintLayout';
 import { GoogleGenAI } from "@google/genai";
 import imageCompression from 'browser-image-compression';
 
+export const normalizeArabic = (text?: string): string => {
+    if (!text) return '';
+    return text
+        .trim()
+        .toLowerCase()
+        .replace(/[أإآٱ]/g, 'ا')
+        .replace(/ة/g, 'ه')
+        .replace(/ى/g, 'ي')
+        .replace(/ـ/g, '')
+        .replace(/[\u064B-\u065F\u0670]/g, '')
+        .replace(/\s+/g, ' ');
+};
+
+export const normalizeFileNumber = (text?: string): string => {
+    if (!text) return '';
+    const arabicNums = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    let str = text.trim().toLowerCase();
+    for (let i = 0; i < 10; i++) {
+        str = str.replaceAll(arabicNums[i], String(i));
+    }
+    return str.replace(/\s+/g, '');
+};
+
+interface DuplicateHistoryItem {
+    id: string;
+    material: string;
+    amount: number;
+    staffName: string;
+    fromCustody?: boolean;
+    dateStr: string;
+    timeStr: string;
+    timeAgo: string;
+    rawDate: any;
+}
+
+interface DuplicateWarningModalState {
+    isOpen: boolean;
+    patientFileNumber: string;
+    submittingType: 'mainUsage' | 'custodyUsage';
+    newMaterial: string;
+    newAmount: number;
+    history: DuplicateHistoryItem[];
+}
+
 interface InventorySystemProps {
     userRole: string;
     userName: string;
     userEmail: string;
+    userId?: string;
 }
 
-const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, userEmail }) => {
+const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, userEmail, userId }) => {
     const { t, dir, language } = useLanguage();
     const { selectedDepartmentId } = useDepartment();
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'usage' | 'incoming' | 'materials' | 'reports' | 'distribution' | 'custody'>(userRole === 'custody_clerk' ? 'distribution' : 'dashboard');
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'usage' | 'incoming' | 'materials' | 'reports' | 'distribution' | 'custody'>(
+        userRole === 'custody_clerk' ? 'distribution' : 
+        !['admin', 'supervisor'].includes(userRole) ? 'custody' : 'dashboard'
+    );
     const [materials, setMaterials] = useState<Material[]>([]);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [usages, setUsages] = useState<MaterialUsage[]>([]);
@@ -32,6 +80,10 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     const [employees, setEmployees] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
+
+    // Network and Double-Submission Guard
+    const [submittingOp, setSubmittingOp] = useState<string | null>(null);
+    const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
     // AI Forecasting State
     const [forecasts, setForecasts] = useState<ForecastResult[]>([]);
@@ -52,6 +104,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     const [distAmount, setDistAmount] = useState('');
     const [distStaffName, setDistStaffName] = useState('');
     const [distStaffEmail, setDistStaffEmail] = useState('');
+    const [distStaffId, setDistStaffId] = useState('');
     const [distDate, setDistDate] = useState(new Date().toISOString().split('T')[0]);
 
     const [custodyMaterial, setCustodyMaterial] = useState('');
@@ -109,88 +162,248 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
     const isAdmin = userRole === 'admin' || userRole === 'supervisor';
 
-    const normalizedUserEmail = useMemo(() => userEmail ? userEmail.toLowerCase().trim() : '', [userEmail]);
-    const normalizedUserName = useMemo(() => userName ? userName.toLowerCase().trim() : '', [userName]);
+    // Duplicate Patient File Confirmation Modal State
+    const [duplicateWarningModal, setDuplicateWarningModal] = useState<DuplicateWarningModalState>({
+        isOpen: false,
+        patientFileNumber: '',
+        submittingType: 'mainUsage',
+        newMaterial: '',
+        newAmount: 0,
+        history: []
+    });
 
-    const isUserDistribution = useMemo(() => {
-        return (d: MaterialDistribution) => {
-            const dEmail = d.staffEmail ? d.staffEmail.toLowerCase().trim() : '';
-            const dName = d.staffName ? d.staffName.toLowerCase().trim() : '';
-            if (dEmail && normalizedUserEmail) {
-                return dEmail === normalizedUserEmail;
+    // Robust User Matching with Arabic Normalization
+    const isUserMatch = useCallback((staffEmail?: string, staffName?: string, staffId?: string) => {
+        // 1. Direct ID match if available
+        if (staffId && userId && staffId === userId) return true;
+
+        // 2. Direct Email match
+        const cleanStaffEmail = (staffEmail || '').trim().toLowerCase();
+        const cleanUserEmail = (userEmail || '').trim().toLowerCase();
+        if (cleanStaffEmail && cleanUserEmail && cleanStaffEmail === cleanUserEmail) {
+            return true;
+        }
+
+        // 3. Arabic Normalized Name matching
+        const normStaffName = normalizeArabic(staffName);
+        const normUserName = normalizeArabic(userName);
+        if (normStaffName && normUserName) {
+            if (normStaffName === normUserName) return true;
+            // Compound / Substring match (e.g. if one contains the other)
+            if (normStaffName.length >= 4 && normUserName.length >= 4) {
+                if (normStaffName.includes(normUserName) || normUserName.includes(normStaffName)) {
+                    return true;
+                }
             }
-            return !!(normalizedUserName && dName === normalizedUserName);
-        };
-    }, [normalizedUserEmail, normalizedUserName]);
-
-    const isUserUsage = useMemo(() => {
-        return (u: MaterialUsage) => {
-            const uEmail = u.staffEmail ? u.staffEmail.toLowerCase().trim() : '';
-            const uName = u.staffName ? u.staffName.toLowerCase().trim() : '';
-            if (uEmail && normalizedUserEmail) {
-                return uEmail === normalizedUserEmail;
+            // First & last name match
+            const staffParts = normStaffName.split(' ').filter(Boolean);
+            const userParts = normUserName.split(' ').filter(Boolean);
+            if (staffParts.length >= 2 && userParts.length >= 2) {
+                if (staffParts[0] === userParts[0] && staffParts[staffParts.length - 1] === userParts[userParts.length - 1]) {
+                    return true;
+                }
             }
-            return !!(normalizedUserName && uName === normalizedUserName);
-        };
-    }, [normalizedUserEmail, normalizedUserName]);
+        }
 
+        return false;
+    }, [userEmail, userName, userId]);
+
+    const isUserDistribution = useCallback((d: MaterialDistribution) => {
+        return isUserMatch(d.staffEmail, d.staffName, (d as any).staffId);
+    }, [isUserMatch]);
+
+    const isUserUsage = useCallback((u: MaterialUsage) => {
+        return isUserMatch(u.staffEmail, u.staffName, (u as any).staffId);
+    }, [isUserMatch]);
+
+    // Data Listeners with Offline & Cross-Department Custody Sync
     useEffect(() => {
         setLoading(true);
-        if (!selectedDepartmentId) return;
+
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
 
         getDocs(collection(db, 'users')).then(snap => {
             const fetchedUsers = snap.docs.map(d => ({ ...d.data(), id: d.id } as User));
-            setEmployees(fetchedUsers.filter(u => u.departmentId === selectedDepartmentId && !['admin', 'supervisor', 'manager'].includes(u.role)));
+            if (selectedDepartmentId) {
+                setEmployees(fetchedUsers.filter(u => u.departmentId === selectedDepartmentId && !['admin', 'supervisor', 'manager'].includes(u.role)));
+            } else {
+                setEmployees(fetchedUsers.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role)));
+            }
         }).catch(err => console.error("Failed to fetch employees:", err));
 
-        const unsubMat = onSnapshot(query(collection(inventoryDb, 'materials'), where('departmentId', '==', selectedDepartmentId)), (snap: any) => {
+        const qMat = selectedDepartmentId
+            ? query(collection(inventoryDb, 'materials'), where('departmentId', '==', selectedDepartmentId))
+            : collection(inventoryDb, 'materials');
+        const unsubMat = onSnapshot(qMat, (snap: any) => {
             setMaterials(snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as Material)));
+            setLoading(false);
+        }, (err: any) => {
+            console.error("Materials error:", err);
+            setLoading(false);
         });
-        const unsubInv = onSnapshot(query(collection(inventoryDb, 'invoices'), where('departmentId', '==', selectedDepartmentId)), (snap: any) => {
+
+        const qInv = selectedDepartmentId
+            ? query(collection(inventoryDb, 'invoices'), where('departmentId', '==', selectedDepartmentId))
+            : collection(inventoryDb, 'invoices');
+        const unsubInv = onSnapshot(qInv, (snap: any) => {
             const list = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as Invoice));
             setInvoices(list.sort((a: any, b: any) => {
                 const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
                 const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
                 return db.getTime() - da.getTime();
             }));
-        });
-        const unsubUse = onSnapshot(query(collection(inventoryDb, 'usages'), where('departmentId', '==', selectedDepartmentId)), (snap: any) => {
+        }, (err: any) => console.error("Invoices error:", err));
+
+        const qUse = selectedDepartmentId
+            ? query(collection(inventoryDb, 'usages'), where('departmentId', '==', selectedDepartmentId))
+            : collection(inventoryDb, 'usages');
+        const unsubUse = onSnapshot(qUse, (snap: any) => {
             const list = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as MaterialUsage));
-            setUsages(list.sort((a: any, b: any) => {
-                const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
-                const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
-                return db.getTime() - da.getTime();
-            }));
-        });
+            setUsages(prev => {
+                const map = new Map(prev.map((u: MaterialUsage) => [u.id, u]));
+                list.forEach((u: MaterialUsage) => map.set(u.id, u));
+                return Array.from(map.values()).sort((a: any, b: any) => {
+                    const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
+                    const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
+                    return db.getTime() - da.getTime();
+                });
+            });
+        }, (err: any) => console.error("Usages error:", err));
 
-        const unsubDist = onSnapshot(query(collection(inventoryDb, 'distributions'), where('departmentId', '==', selectedDepartmentId)), (snap: any) => {
+        const qDist = selectedDepartmentId
+            ? query(collection(inventoryDb, 'distributions'), where('departmentId', '==', selectedDepartmentId))
+            : collection(inventoryDb, 'distributions');
+        const unsubDist = onSnapshot(qDist, (snap: any) => {
             const list = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as MaterialDistribution));
-            setDistributions(list.sort((a: any, b: any) => {
-                const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
-                const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
-                return db.getTime() - da.getTime();
-            }));
-        });
+            setDistributions(prev => {
+                const map = new Map(prev.map((d: MaterialDistribution) => [d.id, d]));
+                list.forEach((d: MaterialDistribution) => map.set(d.id, d));
+                return Array.from(map.values()).sort((a: any, b: any) => {
+                    const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
+                    const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
+                    return db.getTime() - da.getTime();
+                });
+            });
+        }, (err: any) => console.error("Distributions error:", err));
 
-        const unsubTransfers = onSnapshot(query(collection(inventoryDb, 'custody_transfers'), where('departmentId', '==', selectedDepartmentId)), (snap: any) => {
+        const qTransfers = selectedDepartmentId
+            ? query(collection(inventoryDb, 'custody_transfers'), where('departmentId', '==', selectedDepartmentId))
+            : collection(inventoryDb, 'custody_transfers');
+        const unsubTransfers = onSnapshot(qTransfers, (snap: any) => {
             const list = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as CustodyTransfer));
-            setTransfers(list.sort((a: any, b: any) => {
-                const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
-                const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
-                return db.getTime() - da.getTime();
-            }));
+            setTransfers(prev => {
+                const map = new Map(prev.map((t: CustodyTransfer) => [t.id, t]));
+                list.forEach((t: CustodyTransfer) => map.set(t.id, t));
+                return Array.from(map.values()).sort((a: any, b: any) => {
+                    const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
+                    const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
+                    return db.getTime() - da.getTime();
+                });
+            });
+        }, (err: any) => console.error("Transfers error:", err));
+
+        // In addition, if userEmail is present, query personal distributions, usages, and transfers to ensure no custody is hidden by department mismatch
+        let unsubUserDist = () => {};
+        let unsubUserUse = () => {};
+        let unsubUserTransfers = () => {};
+        if (userEmail) {
+            const cleanEmail = userEmail.trim().toLowerCase();
+            try {
+                unsubUserDist = onSnapshot(query(collection(inventoryDb, 'distributions'), where('staffEmail', '==', cleanEmail)), snap => {
+                    const personalList = snap.docs.map(d => ({ ...d.data(), id: d.id } as MaterialDistribution));
+                    setDistributions(prev => {
+                        const map = new Map(prev.map(d => [d.id, d]));
+                        personalList.forEach(d => map.set(d.id, d));
+                        return Array.from(map.values()).sort((a: any, b: any) => {
+                            const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
+                            const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
+                            return db.getTime() - da.getTime();
+                        });
+                    });
+                }, err => console.warn("User dist listener:", err));
+
+                unsubUserUse = onSnapshot(query(collection(inventoryDb, 'usages'), where('staffEmail', '==', cleanEmail)), snap => {
+                    const personalList = snap.docs.map(d => ({ ...d.data(), id: d.id } as MaterialUsage));
+                    setUsages(prev => {
+                        const map = new Map(prev.map(u => [u.id, u]));
+                        personalList.forEach(u => map.set(u.id, u));
+                        return Array.from(map.values()).sort((a: any, b: any) => {
+                            const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
+                            const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
+                            return db.getTime() - da.getTime();
+                        });
+                    });
+                }, err => console.warn("User usage listener:", err));
+
+                unsubUserTransfers = onSnapshot(query(collection(inventoryDb, 'custody_transfers'), where('recipientEmail', '==', cleanEmail)), snap => {
+                    const personalList = snap.docs.map(d => ({ ...d.data(), id: d.id } as CustodyTransfer));
+                    setTransfers(prev => {
+                        const map = new Map(prev.map(t => [t.id, t]));
+                        personalList.forEach(t => map.set(t.id, t));
+                        return Array.from(map.values()).sort((a: any, b: any) => {
+                            const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
+                            const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
+                            return db.getTime() - da.getTime();
+                        });
+                    });
+                }, err => console.warn("User transfer listener:", err));
+            } catch (e) {
+                console.warn(e);
+            }
+        }
+
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+            unsubMat();
+            unsubInv();
+            unsubUse();
+            unsubDist();
+            unsubTransfers();
+            unsubUserDist();
+            unsubUserUse();
+            unsubUserTransfers();
+        };
+    }, [selectedDepartmentId, userEmail]);
+
+    // Active User Custody Summary List
+    const userCustodyList = useMemo(() => {
+        const matMap: Record<string, { material: string, distributed: number, used: number, balance: number }> = {};
+        
+        distributions.filter(isUserDistribution).forEach(d => {
+            const matName = d.material.trim();
+            if (!matMap[matName]) {
+                matMap[matName] = { material: matName, distributed: 0, used: 0, balance: 0 };
+            }
+            matMap[matName].distributed += d.amount;
+            matMap[matName].balance += d.amount;
         });
 
-        setLoading(false);
-        return () => { unsubMat(); unsubInv(); unsubUse(); unsubDist(); unsubTransfers(); };
-    }, [selectedDepartmentId]);
+        usages.filter(u => u.fromCustody && isUserUsage(u)).forEach(u => {
+            const matName = u.material.trim();
+            if (!matMap[matName]) {
+                matMap[matName] = { material: matName, distributed: 0, used: 0, balance: 0 };
+            }
+            matMap[matName].used += u.amount;
+            matMap[matName].balance -= u.amount;
+        });
 
-    // ... (rest of the component implementation)
+        return Object.values(matMap).filter(item => item.distributed > 0 || item.balance !== 0);
+    }, [distributions, usages, isUserDistribution, isUserUsage]);
+
     const staffBalances = useMemo(() => {
         const getRecordKey = (email?: string, name?: string) => {
-            if (email) return email.toLowerCase().trim();
-            if (name) return name.toLowerCase().trim();
-            return '';
+            const cleanEmail = (email || '').toLowerCase().trim();
+            const normName = normalizeArabic(name);
+            const matchedEmp = employees.find(e => 
+                (cleanEmail && e.email && e.email.toLowerCase().trim() === cleanEmail) ||
+                (normName && normalizeArabic(e.name) === normName)
+            );
+            if (matchedEmp) return matchedEmp.email?.toLowerCase().trim() || normalizeArabic(matchedEmp.name);
+            return cleanEmail || normName || '';
         };
         const balances: Record<string, {name: string, materials: Record<string, number>}> = {}; 
         distributions.forEach(d => {
@@ -209,22 +422,27 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             balances[staffKey].materials[matName] = (balances[staffKey].materials[matName] || 0) - u.amount;
         });
         return balances;
-    }, [distributions, usages]);
+    }, [distributions, usages, employees]);
 
     const staffCustodyDetailed = useMemo(() => {
         const getRecordKey = (email?: string, name?: string) => {
-            if (email) return email.toLowerCase().trim();
-            if (name) return name.toLowerCase().trim();
-            return '';
+            const cleanEmail = (email || '').toLowerCase().trim();
+            const normName = normalizeArabic(name);
+            const matchedEmp = employees.find(e => 
+                (cleanEmail && e.email && e.email.toLowerCase().trim() === cleanEmail) ||
+                (normName && normalizeArabic(e.name) === normName)
+            );
+            if (matchedEmp) return matchedEmp.email?.toLowerCase().trim() || normalizeArabic(matchedEmp.name);
+            return cleanEmail || normName || '';
         };
 
         const records: Record<string, {
             staffName: string,
             staffEmail: string,
             materials: Record<string, {
-                received: number,    // Sum of positive direct distributions and incoming transfers
-                used: number,        // Sum of usages from custody
-                balance: number      // Current remaining custody
+                received: number,
+                used: number,
+                balance: number
             }>
         }> = {};
 
@@ -443,16 +661,147 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         }
     };
 
-    const handleUsageSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    // Live detection of existing patient usage for immediate visual badge feedback
+    const mainFileMatches = useMemo(() => {
+        const norm = normalizeFileNumber(patientFileNumber);
+        if (!norm || norm.length < 2) return [];
+        return usages.filter(u => {
+            if (!u.patientFileNumber || u.patientFileNumber === 'STOCK CORRECTION' || (u as any).isCorrection) return false;
+            return normalizeFileNumber(u.patientFileNumber) === norm;
+        });
+    }, [patientFileNumber, usages]);
+
+    const custodyFileMatches = useMemo(() => {
+        const norm = normalizeFileNumber(custodyPatientFile);
+        if (!norm || norm.length < 2) return [];
+        return usages.filter(u => {
+            if (!u.patientFileNumber || u.patientFileNumber === 'STOCK CORRECTION' || (u as any).isCorrection) return false;
+            return normalizeFileNumber(u.patientFileNumber) === norm;
+        });
+    }, [custodyPatientFile, usages]);
+
+    const formatUsageDateTime = (dateVal: any) => {
+        let d: Date | null = null;
+        if (dateVal) {
+            if (typeof dateVal.toDate === 'function') {
+                d = dateVal.toDate();
+            } else if (dateVal.seconds) {
+                d = new Date(dateVal.seconds * 1000);
+            } else if (dateVal instanceof Date) {
+                d = dateVal;
+            } else {
+                const parsed = new Date(dateVal);
+                if (!isNaN(parsed.getTime())) d = parsed;
+            }
+        }
+
+        if (!d) return { dateStr: language === 'en' ? 'Unspecified' : 'غير محدد', timeStr: '--:--', timeAgo: '' };
+
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const dateStr = `${year}-${month}-${day}`;
+
+        const isEn = language === 'en';
+        const hours = d.getHours();
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+        const period = hours >= 12 ? (isEn ? 'PM' : 'مساءً') : (isEn ? 'AM' : 'صباحاً');
+        const h12 = hours % 12 || 12;
+        const timeStr = `${h12}:${minutes} ${period}`;
+
+        const diffMs = Date.now() - d.getTime();
+        let timeAgo = '';
+        if (diffMs >= 0) {
+            const diffMins = Math.floor(diffMs / (1000 * 60));
+            const diffHours = Math.floor(diffMins / 60);
+            const diffDays = Math.floor(diffHours / 24);
+
+            if (diffMins < 1) timeAgo = isEn ? 'Just now' : 'الآن';
+            else if (diffMins < 60) timeAgo = isEn ? `${diffMins}m ago` : `منذ ${diffMins} دقيقة`;
+            else if (diffHours < 24) timeAgo = isEn ? `${diffHours}h ago` : `منذ ${diffHours} ساعة`;
+            else if (diffDays === 1) timeAgo = isEn ? 'Yesterday' : 'أمس';
+            else if (diffDays < 30) timeAgo = isEn ? `${diffDays}d ago` : `منذ ${diffDays} يوم`;
+            else if (diffDays < 365) timeAgo = isEn ? `${Math.floor(diffDays / 30)}mo ago` : `منذ ${Math.floor(diffDays / 30)} شهر`;
+            else timeAgo = isEn ? `${Math.floor(diffDays / 365)}y ago` : `منذ ${Math.floor(diffDays / 365)} سنة`;
+        }
+
+        return { dateStr, timeStr, timeAgo };
+    };
+
+    const findPreviousPatientUsages = async (fileNo: string): Promise<DuplicateHistoryItem[]> => {
+        const norm = normalizeFileNumber(fileNo);
+        if (!norm) return [];
+
+        const localMatches = usages.filter(u => {
+            if (!u.patientFileNumber || u.patientFileNumber === 'STOCK CORRECTION' || (u as any).isCorrection) return false;
+            return normalizeFileNumber(u.patientFileNumber) === norm;
+        });
+
+        const matchMap = new Map<string, MaterialUsage>();
+        localMatches.forEach(u => matchMap.set(u.id, u));
+
+        try {
+            const trimmed = fileNo.trim();
+            const snap = await getDocs(query(collection(inventoryDb, 'usages'), where('patientFileNumber', '==', trimmed)));
+            snap.docs.forEach(d => {
+                const data = { ...d.data(), id: d.id } as MaterialUsage;
+                if (data.patientFileNumber && data.patientFileNumber !== 'STOCK CORRECTION' && !(data as any).isCorrection) {
+                    matchMap.set(data.id, data);
+                }
+            });
+        } catch (err) {
+            console.warn("Firestore patient query err:", err);
+        }
+
+        const allMatches = Array.from(matchMap.values());
+        allMatches.sort((a, b) => {
+            const da = a.date?.toDate ? a.date.toDate().getTime() : (a.date?.seconds ? a.date.seconds * 1000 : new Date(a.date || 0).getTime());
+            const db = b.date?.toDate ? b.date.toDate().getTime() : (b.date?.seconds ? b.date.seconds * 1000 : new Date(b.date || 0).getTime());
+            return db - da;
+        });
+
+        return allMatches.map(u => {
+            const { dateStr, timeStr, timeAgo } = formatUsageDateTime(u.date);
+            return {
+                id: u.id,
+                material: u.material,
+                amount: u.amount,
+                staffName: u.staffName || (language === 'en' ? 'Unspecified' : 'غير محدد'),
+                fromCustody: u.fromCustody,
+                dateStr,
+                timeStr,
+                timeAgo,
+                rawDate: u.date
+            };
+        });
+    };
+
+    const confirmDuplicateSave = () => {
+        const type = duplicateWarningModal.submittingType;
+        setDuplicateWarningModal(prev => ({ ...prev, isOpen: false }));
+        if (type === 'mainUsage') {
+            handleUsageSubmit(undefined, true);
+        } else if (type === 'custodyUsage') {
+            handleCustodyUsageSubmit(undefined, true);
+        }
+    };
+
+    const cancelDuplicateSave = () => {
+        setDuplicateWarningModal(prev => ({ ...prev, isOpen: false }));
+    };
+
+    const handleUsageSubmit = async (e?: React.FormEvent, skipConfirmation: boolean = false) => {
+        if (e) e.preventDefault();
         
+        if (submittingOp) return;
+
         if (!isAdmin) {
             setToast({ msg: 'غير مصرح لك بالصرف من المخزن الرئيسي', type: 'error' });
             return;
         }
 
         if (!selectedMaterial || !usageAmount || !patientFileNumber) {
-            setToast({ msg: 'Missing Data', type: 'error' });
+            setToast({ msg: t('inv.usage.fillRequired'), type: 'error' });
             return;
         }
 
@@ -460,13 +809,34 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         if (!mat) return;
 
         const amount = parseFloat(usageAmount);
+        if (amount <= 0 || isNaN(amount)) {
+            setToast({ msg: t('inv.usage.amountPositive'), type: 'error' });
+            return;
+        }
         
         // STRICT CHECK: Prevent Over Usage
         if (mat.quantity < amount) {
-            setToast({ msg: `❌ خطأ: الرصيد غير كافٍ! المتاح: ${mat.quantity}`, type: 'error' });
+            setToast({ msg: language === 'en' ? `❌ Error: Insufficient stock! Available: ${mat.quantity}` : `❌ خطأ: الرصيد غير كافٍ! المتاح: ${mat.quantity}`, type: 'error' });
             return;
         }
 
+        // Check if patient file was registered before
+        if (!skipConfirmation) {
+            const history = await findPreviousPatientUsages(patientFileNumber);
+            if (history.length > 0) {
+                setDuplicateWarningModal({
+                    isOpen: true,
+                    patientFileNumber: patientFileNumber.trim(),
+                    submittingType: 'mainUsage',
+                    newMaterial: selectedMaterial,
+                    newAmount: amount,
+                    history
+                });
+                return;
+            }
+        }
+
+        setSubmittingOp('mainUsage');
         try {
             const [y, mVal, dVal] = usageDate.split('-').map(Number);
             const dateObj = new Date(y, mVal - 1, dVal);
@@ -488,17 +858,32 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 staffEmail: userEmail,
                 staffRole: userRole,
                 date: tsDate,
-                isCorrection: false, // Explicitly mark as NOT a correction
+                isCorrection: false,
                 departmentId: selectedDepartmentId
             });
 
-            setToast({ msg: t('save'), type: 'success' });
+            // Prevent double submission: Clear form immediately & display reassuring message
             setUsageAmount('');
             setPatientFileNumber('');
             setUsageDate(new Date().toISOString().split('T')[0]);
             setUsageStaffName(userName);
-        } catch (err) {
-            setToast({ msg: 'Error', type: 'error' });
+
+            setToast({ 
+                msg: isOnline ? '✅ تم تسجيل الصرف بنجاح! يرجى عدم إعادة الضغط.' : '✅ تم حفظ الصرف محلياً (ضعف إنترنت). ستتم المزامنة تلقائياً - يرجى عدم التكرار.', 
+                type: 'success' 
+            });
+        } catch (err: any) {
+            console.error('Error submitting main usage:', err);
+            // In case of network timeout, Firestore offline persistence will queue it
+            if (!navigator.onLine || err?.message?.includes('network') || err?.code === 'unavailable') {
+                setUsageAmount('');
+                setPatientFileNumber('');
+                setToast({ msg: '⚠️ تم تسجيل العملية في ذاكرة النظام (انقطاع/بطء إنترنت). سيتم ترحيلها تلقائياً عند استقرار الشبكة - يرجى عدم إعادة المحاولة.', type: 'info' });
+            } else {
+                setToast({ msg: 'حدث خطأ: ' + (err.message || 'Error'), type: 'error' });
+            }
+        } finally {
+            setSubmittingOp(null);
         }
     };
 
@@ -681,8 +1066,10 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
     const handleDistributionSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (submittingOp) return;
+
         if (!distMaterial || !distAmount || !distStaffName) {
-            setToast({ msg: 'Missing Data', type: 'error' });
+            setToast({ msg: 'يرجى إكمال بيانات التوزيع المطلوبة', type: 'error' });
             return;
         }
 
@@ -690,12 +1077,25 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         if (!mat) return;
 
         const amount = parseFloat(distAmount);
+        if (amount <= 0 || isNaN(amount)) {
+            setToast({ msg: 'الكمية يجب أن تكون أكبر من صفر', type: 'error' });
+            return;
+        }
         
         if (mat.quantity < amount) {
-            setToast({ msg: `❌ خطأ: الرصيد غير كافٍ! المتاح: ${mat.quantity}`, type: 'error' });
+            setToast({ msg: `❌ خطأ: الرصيد غير كافٍ! المتاح بالمخزن: ${mat.quantity}`, type: 'error' });
             return;
         }
 
+        // Try to enrich staffEmail and staffId if missing from state
+        const matchedEmp = employees.find(emp => 
+            (distStaffEmail && emp.email && emp.email.toLowerCase().trim() === distStaffEmail.toLowerCase().trim()) ||
+            normalizeArabic(emp.name) === normalizeArabic(distStaffName)
+        );
+        const resolvedEmail = distStaffEmail || matchedEmp?.email || '';
+        const resolvedId = distStaffId || matchedEmp?.id || '';
+
+        setSubmittingOp('distribution');
         try {
             await updateDoc(doc(inventoryDb, 'materials', mat.id), { quantity: mat.quantity - amount });
             
@@ -714,41 +1114,83 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 material: distMaterial,
                 amount: amount,
                 staffName: distStaffName,
-                staffEmail: distStaffEmail || '',
+                staffEmail: resolvedEmail,
+                staffId: resolvedId,
                 distributedBy: userName,
                 date: tsDate,
                 departmentId: selectedDepartmentId
             });
 
-            setToast({ msg: t('save'), type: 'success' });
+            // Prevent double submission: clear form immediately
             setDistMaterial('');
             setDistAmount('');
             setDistStaffName('');
             setDistStaffEmail('');
+            setDistStaffId('');
             setDistDate(new Date().toISOString().split('T')[0]);
-        } catch (err) {
-            setToast({ msg: 'Error', type: 'error' });
+
+            setToast({ 
+                msg: isOnline ? '✅ تم تسجيل توزيع العهدة بنجاح! الرجاء عدم إعادة الضغط.' : '✅ تم تسجيل التوزيع محلياً (ضعف إنترنت). ستتم المزامنة تلقائياً - يرجى عدم التكرار.', 
+                type: 'success' 
+            });
+        } catch (err: any) {
+            console.error('Error submitting distribution:', err);
+            if (!navigator.onLine || err?.message?.includes('network') || err?.code === 'unavailable') {
+                setDistMaterial('');
+                setDistAmount('');
+                setDistStaffName('');
+                setDistStaffEmail('');
+                setDistStaffId('');
+                setToast({ msg: '⚠️ تم تسجيل التوزيع في ذاكرة الجهاز (انقطاع/بطء إنترنت). سيتم ترحيل البيانات تلقائياً - يرجى عدم إعادة المحاولة.', type: 'info' });
+            } else {
+                setToast({ msg: 'خطأ أثناء تسجيل التوزيع: ' + (err.message || 'Error'), type: 'error' });
+            }
+        } finally {
+            setSubmittingOp(null);
         }
     };
 
-    const handleCustodyUsageSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleCustodyUsageSubmit = async (e?: React.FormEvent, skipConfirmation: boolean = false) => {
+        if (e) e.preventDefault();
+        if (submittingOp) return;
+
         if (!custodyMaterial || !custodyAmount || !custodyPatientFile) {
-            setToast({ msg: 'Missing Data', type: 'error' });
+            setToast({ msg: t('inv.custody.fillRequired'), type: 'error' });
             return;
         }
 
         const amount = parseFloat(custodyAmount);
+        if (amount <= 0 || isNaN(amount)) {
+            setToast({ msg: t('inv.usage.amountPositive'), type: 'error' });
+            return;
+        }
 
         const distributed = distributions.filter(d => d.material.trim() === custodyMaterial.trim() && isUserDistribution(d)).reduce((sum, d) => sum + d.amount, 0);
         const used = usages.filter(u => u.material.trim() === custodyMaterial.trim() && u.fromCustody && isUserUsage(u)).reduce((sum, u) => sum + u.amount, 0);
         const balance = distributed - used;
 
         if (amount > balance) {
-            setToast({ msg: `❌ خطأ: رصيد عهدتك غير كافٍ! المتاح: ${balance}`, type: 'error' });
+            setToast({ msg: language === 'en' ? `❌ Error: Insufficient custody balance! Available: ${balance}` : `❌ خطأ: رصيد عهدتك غير كافٍ! المتاح بعهدتك: ${balance}`, type: 'error' });
             return;
         }
 
+        // Check if patient file was registered before
+        if (!skipConfirmation) {
+            const history = await findPreviousPatientUsages(custodyPatientFile);
+            if (history.length > 0) {
+                setDuplicateWarningModal({
+                    isOpen: true,
+                    patientFileNumber: custodyPatientFile.trim(),
+                    submittingType: 'custodyUsage',
+                    newMaterial: custodyMaterial,
+                    newAmount: amount,
+                    history
+                });
+                return;
+            }
+        }
+
+        setSubmittingOp('custodyUsage');
         try {
             const [y, mVal, dVal] = custodyUsageDate.split('-').map(Number);
             const dateObj = new Date(y, mVal - 1, dVal);
@@ -760,9 +1202,6 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 dateObj.setHours(12, 0, 0);
             }
             const tsDate = isNaN(dateObj.getTime()) ? Timestamp.now() : Timestamp.fromDate(dateObj);
-            
-            // NOTE: We do NOT update the main materials collection here!
-            // It was already deducted when distributed to the staff member.
 
             await addDoc(collection(inventoryDb, 'usages'), {
                 material: custodyMaterial,
@@ -770,25 +1209,43 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 patientFileNumber: custodyPatientFile,
                 staffName: userName,
                 staffEmail: userEmail,
+                staffId: userId || '',
                 staffRole: userRole,
                 date: tsDate,
                 isCorrection: false,
-                fromCustody: true, // Mark this as a usage from personal custody
+                fromCustody: true,
                 departmentId: selectedDepartmentId
             });
 
-            setToast({ msg: t('save'), type: 'success' });
+            // Prevent double submission: clear form immediately
             setCustodyMaterial('');
             setCustodyAmount('');
             setCustodyPatientFile('');
             setCustodyUsageDate(new Date().toISOString().split('T')[0]);
-        } catch (err) {
-            setToast({ msg: 'Error', type: 'error' });
+
+            setToast({ 
+                msg: isOnline ? '✅ تم تسجيل استهلاك العهدة بنجاح! الرجاء عدم إعادة الضغط.' : '✅ تم حفظ الاستهلاك محلياً (ضعف إنترنت). ستتم المزامنة تلقائياً - يرجى عدم التكرار.', 
+                type: 'success' 
+            });
+        } catch (err: any) {
+            console.error('Error submitting custody usage:', err);
+            if (!navigator.onLine || err?.message?.includes('network') || err?.code === 'unavailable') {
+                setCustodyMaterial('');
+                setCustodyAmount('');
+                setCustodyPatientFile('');
+                setToast({ msg: '⚠️ تم حفظ استهلاك العهدة بذاكرة المتصفح (ضعف الشبكة). سيتم رفعه تلقائياً فور توفر الاتصال - لا تقم بإعادة التسجيل.', type: 'info' });
+            } else {
+                setToast({ msg: 'خطأ: ' + (err.message || 'Error'), type: 'error' });
+            }
+        } finally {
+            setSubmittingOp(null);
         }
     };
 
     const handleCustodyTransferSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (submittingOp) return;
+
         if (!transferMaterial || !transferAmount || !transferRecipient) {
             setToast({ msg: 'Missing Data', type: 'error' });
             return;
@@ -815,13 +1272,14 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             return;
         }
 
+        setSubmittingOp('custodyTransfer');
         try {
-            // Create a single pending custody transfer record
             await addDoc(collection(inventoryDb, 'custody_transfers'), {
                 material: transferMaterial,
                 amount: amount,
                 senderName: userName,
                 senderEmail: userEmail || '',
+                senderId: userId || '',
                 recipientName: recipientUser.name,
                 recipientEmail: recipientUser.email || '',
                 recipientId: recipientUser.id,
@@ -830,17 +1288,33 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 departmentId: selectedDepartmentId
             });
 
-            setToast({ msg: 'تم إرسال طلب نقل العهدة بنجاح ✅ بانتظار تأكيد الاستلام والعد من الزميل المستلم', type: 'success' });
             setTransferMaterial('');
             setTransferAmount('');
             setTransferRecipient('');
-        } catch (err) {
-            console.error(err);
-            setToast({ msg: 'Error transferring custody', type: 'error' });
+            setToast({ 
+                msg: isOnline 
+                    ? '✅ تم إرسال طلب نقل العهدة بنجاح! بانتظار تأكيد الاستلام من الزميل - يرجى عدم إعادة الإرسال.' 
+                    : '✅ تم حفظ طلب نقل العهدة محلياً (ضعف إنترنت). ستتم المزامنة تلقائياً - يرجى عدم التكرار.', 
+                type: 'success' 
+            });
+        } catch (err: any) {
+            console.error('Error transferring custody:', err);
+            if (!navigator.onLine || err?.message?.includes('network') || err?.code === 'unavailable') {
+                setTransferMaterial('');
+                setTransferAmount('');
+                setTransferRecipient('');
+                setToast({ msg: '⚠️ تم حفظ طلب النقل مؤقتاً (ضعف الشبكة). سيتم إرساله تلقائياً فور توفر الاتصال.', type: 'info' });
+            } else {
+                setToast({ msg: 'Error transferring custody: ' + (err.message || 'Error'), type: 'error' });
+            }
+        } finally {
+            setSubmittingOp(null);
         }
     };
 
     const handleConfirmTransfer = async (transfer: CustodyTransfer) => {
+        if (submittingOp) return;
+
         // Double check sender's current balance before processing!
         const normalizedSenderEmail = transfer.senderEmail ? transfer.senderEmail.toLowerCase().trim() : '';
         const normalizedSenderName = transfer.senderName ? transfer.senderName.toLowerCase().trim() : '';
@@ -873,18 +1347,18 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             return;
         }
 
+        setSubmittingOp(`confirm_${transfer.id}`);
         try {
-            // 1. Update the transfer status in custody_transfers to confirmed
             await updateDoc(doc(inventoryDb, 'custody_transfers', transfer.id), {
                 status: 'confirmed'
             });
 
-            // 2. Add negative distribution entry for sender
             await addDoc(collection(inventoryDb, 'distributions'), {
                 material: transfer.material,
                 amount: -transfer.amount,
                 staffName: transfer.senderName,
                 staffEmail: transfer.senderEmail,
+                staffId: (transfer as any).senderId || '',
                 distributedBy: transfer.senderName,
                 date: Timestamp.now(),
                 departmentId: transfer.departmentId,
@@ -893,12 +1367,12 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 transferDirection: 'out'
             });
 
-            // 3. Add positive distribution entry for recipient
             await addDoc(collection(inventoryDb, 'distributions'), {
                 material: transfer.material,
                 amount: transfer.amount,
                 staffName: transfer.recipientName,
                 staffEmail: transfer.recipientEmail,
+                staffId: transfer.recipientId || '',
                 distributedBy: transfer.senderName,
                 date: Timestamp.now(),
                 departmentId: transfer.departmentId,
@@ -907,33 +1381,42 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 transferDirection: 'in'
             });
 
-            setToast({ msg: t('inv.custody.successConfirm'), type: 'success' });
-        } catch (err) {
-            console.error(err);
-            setToast({ msg: 'Error confirming custody transfer', type: 'error' });
+            setToast({ msg: '✅ ' + t('inv.custody.successConfirm') + ' (تم تأكيد الاستلام بنجاح)', type: 'success' });
+        } catch (err: any) {
+            console.error('Error confirming custody transfer:', err);
+            setToast({ msg: 'خطأ أثناء تأكيد الاستلام: ' + (err.message || 'Error'), type: 'error' });
+        } finally {
+            setSubmittingOp(null);
         }
     };
 
     const handleRejectTransfer = async (transfer: CustodyTransfer) => {
+        if (submittingOp) return;
+        setSubmittingOp(`reject_${transfer.id}`);
         try {
             await updateDoc(doc(inventoryDb, 'custody_transfers', transfer.id), {
                 status: 'rejected'
             });
             setToast({ msg: t('inv.custody.rejected'), type: 'info' });
-        } catch (err) {
+        } catch (err: any) {
             console.error(err);
             setToast({ msg: 'Error rejecting custody transfer', type: 'error' });
+        } finally {
+            setSubmittingOp(null);
         }
     };
 
     const handleIncomingSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (uploading || submittingOp) return;
+
         if (!incMaterial || !incQuantity) {
-            setToast({ msg: 'Missing Data', type: 'error' });
+            setToast({ msg: 'يرجى تحديد المادة والكمية الواردة', type: 'error' });
             return;
         }
 
         setUploading(true);
+        setSubmittingOp('incoming');
         try {
             const mat = materials.find(m => m.name === incMaterial);
             if (!mat) throw new Error('Material not found');
@@ -964,19 +1447,33 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 imageUrl: imageUrl,
                 imageSizeKB: compressedPreview?.compressedSizeKB || (fileToUpload ? Math.round(fileToUpload.size / 1024) : null),
                 createdBy: userName,
-                isCorrection: false, // Explicitly mark as NOT a correction
+                isCorrection: false,
                 departmentId: selectedDepartmentId
             });
 
-            setToast({ msg: t('save') || 'تم حفظ الوارد بنجاح', type: 'success' });
             setIncQuantity('');
             setIncExpiry('');
             setIncImage(null);
             setCompressedPreview(null);
+
+            setToast({ 
+                msg: isOnline ? '✅ تم حفظ الفاتورة والوارد بنجاح! الرجاء عدم إعادة الإرسال.' : '✅ تم حفظ الوارد محلياً (ضعف إنترنت). ستتم المزامنة تلقائياً - يرجى عدم التكرار.', 
+                type: 'success' 
+            });
         } catch (err: any) {
-            setToast({ msg: 'Error: ' + err.message, type: 'error' });
+            console.error('Error submitting incoming:', err);
+            if (!navigator.onLine || err?.message?.includes('network') || err?.code === 'unavailable') {
+                setIncQuantity('');
+                setIncExpiry('');
+                setIncImage(null);
+                setCompressedPreview(null);
+                setToast({ msg: '⚠️ تم حفظ الوارد محلياً بسبب بطء الشبكة. لا داعي لإعادة الإرسال.', type: 'info' });
+            } else {
+                setToast({ msg: 'خطأ أثناء حفظ الوارد: ' + (err.message || 'Error'), type: 'error' });
+            }
         } finally {
             setUploading(false);
+            setSubmittingOp(null);
         }
     };
 
@@ -1413,6 +1910,20 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             {/* --- Main Content Area --- */}
             <div className="flex-1 p-6 md:p-10 overflow-y-auto print:p-0">
                 
+                {/* Offline / Slow Connection Notice */}
+                {!isOnline && (
+                    <div className="mb-6 bg-amber-500 text-white px-5 py-3.5 rounded-2xl text-xs sm:text-sm font-bold flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-amber-200 animate-pulse">
+                        <div className="flex items-center gap-3">
+                            <i className="fas fa-wifi-slash text-lg"></i>
+                            <div>
+                                <p className="font-extrabold">تنبيه: أنت غير متصل بالإنترنت حالياً (أو الاتصال ضعيف)</p>
+                                <p className="text-xs text-amber-100 font-normal">يمكنك مواصلة العمل؛ سيتم حفظ العمليات محلياً ومزامنتها تلقائياً عند استقرار الشبكة. يرجى عدم تكرار الضغط على زر التسجيل.</p>
+                            </div>
+                        </div>
+                        <span className="bg-white/25 px-3 py-1 rounded-lg text-xs font-mono shrink-0">وضع عدم الاتصال</span>
+                    </div>
+                )}
+
                 {/* Mobile Navigation */}
                 <div className="lg:hidden flex overflow-x-auto gap-2 mb-6 pb-2 no-scrollbar print:hidden">
                     {(isAdmin ? ['dashboard', 'usage', 'custody', 'distribution', 'reports', 'incoming', 'materials'] : userRole === 'custody_clerk' ? ['distribution'] : ['dashboard', 'custody']).map(tab => (
@@ -1439,14 +1950,73 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                             </button>
                         </header>
 
+                        {/* EMPLOYEE PERSONAL CUSTODY SUMMARY WIDGET */}
+                        {userRole !== 'custody_clerk' && (
+                            <div className="bg-gradient-to-br from-teal-700 via-teal-800 to-slate-900 rounded-[2rem] p-6 text-white shadow-xl shadow-teal-900/20 relative overflow-hidden">
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-teal-600/50 pb-4 mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-teal-300 text-xl font-black">
+                                            <i className="fas fa-box-open"></i>
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-black flex items-center gap-2">
+                                                <span>{language === 'en' ? 'Available Personal Custody Balance' : 'رصيد عهدتك الشخصية المتاحة'}</span>
+                                                <span className="text-xs bg-teal-500/40 text-teal-200 px-2.5 py-0.5 rounded-full font-bold">
+                                                    {userName}
+                                                </span>
+                                            </h3>
+                                            <p className="text-xs text-teal-200 mt-0.5">
+                                                {language === 'en' ? 'Materials and contrast registered in your custody by distribution supervisor' : 'المواد والصبغات المسجلة بعهدتك من مسئول التوزيع'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => setActiveTab('custody')}
+                                        className="bg-teal-500 hover:bg-teal-400 text-white px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-md self-end sm:self-auto"
+                                    >
+                                        <i className="fas fa-notes-medical"></i>
+                                        <span>{language === 'en' ? 'Record Custody Usage' : 'تسجيل استهلاك عهدة'}</span>
+                                    </button>
+                                </div>
+
+                                {userCustodyList.length === 0 ? (
+                                    <div className="py-4 text-center text-teal-200 text-xs bg-teal-900/30 rounded-xl border border-teal-600/30">
+                                        <i className="fas fa-info-circle ml-1 mr-1"></i>
+                                        {language === 'en' ? 'No custody currently registered under your name, or your full balance has been consumed.' : 'لا توجد عهدة مسجلة باسمك حالياً، أو تم استهلاك كامل الرصيد المسلم لك.'}
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                                        {userCustodyList.map((item, idx) => (
+                                            <div key={idx} className="bg-white/10 backdrop-blur-md p-3.5 rounded-xl border border-white/15 flex flex-col justify-between gap-2">
+                                                <div className="flex justify-between items-start">
+                                                    <span className="font-extrabold text-sm text-white truncate" title={item.material}>{item.material}</span>
+                                                    <span className={`text-xs px-2 py-0.5 rounded font-black ${item.balance > 0 ? 'bg-emerald-500 text-white' : 'bg-white/20 text-slate-200'}`}>
+                                                        {item.balance} {language === 'en' ? 'Available' : 'متاح'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between text-[11px] text-teal-200/90 pt-1 border-t border-white/10 font-medium">
+                                                    <span>{language === 'en' ? 'Received: ' : 'استلمت: '}<strong className="text-white font-black">{item.distributed}</strong></span>
+                                                    <span>{language === 'en' ? 'Used: ' : 'صرفت: '}<strong className="text-white font-black">{item.used}</strong></span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         {/* NEGATIVE STOCK ALERT */}
                         {stats.negativeStock > 0 && (
                             <div className="bg-red-100 border-l-4 border-red-500 text-red-800 p-4 rounded-xl shadow-md mb-6 animate-pulse">
                                 <div className="flex items-center gap-3">
                                     <i className="fas fa-exclamation-circle text-2xl"></i>
                                     <div>
-                                        <h3 className="font-bold text-lg">تحذير هام للمشرف</h3>
-                                        <p className="text-sm font-bold">يوجد {stats.negativeStock} مواد برصيد سالب (الاستهلاك تجاوز المخزون!). يرجى تصحيح الأرصدة فوراً.</p>
+                                        <h3 className="font-bold text-lg">{language === 'en' ? 'Supervisor Stock Alert' : 'تحذير هام للمشرف'}</h3>
+                                        <p className="text-sm font-bold">
+                                            {language === 'en' 
+                                                ? `There are ${stats.negativeStock} items with negative balance (usage exceeded stock!). Please correct balances immediately.` 
+                                                : `يوجد ${stats.negativeStock} مواد برصيد سالب (الاستهلاك تجاوز المخزون!). يرجى تصحيح الأرصدة فوراً.`}
+                                        </p>
                                     </div>
                                 </div>
                                 <ul className="mt-2 text-xs list-disc list-inside font-bold">
@@ -1609,8 +2179,27 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                             <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-200" value={usageAmount} onChange={e => setUsageAmount(e.target.value)} placeholder="0" />
                                         </div>
                                         <div className="space-y-2">
-                                            <label className="text-sm font-bold text-slate-600">{t('inv.usage.file')}</label>
-                                            <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-200" value={patientFileNumber} onChange={e => setPatientFileNumber(e.target.value)} placeholder="File No." />
+                                            <div className="flex items-center justify-between">
+                                                <label className="text-sm font-bold text-slate-600">{t('inv.usage.file')}</label>
+                                                {mainFileMatches.length > 0 && (
+                                                    <span className="text-[11px] font-extrabold text-amber-800 bg-amber-100/90 border border-amber-200 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                                                        <i className="fas fa-exclamation-triangle text-amber-600"></i>
+                                                        <span>{t('inv.duplicate.badge')} ({mainFileMatches.length})</span>
+                                                        {language === 'ar' && <span className="text-[9px] text-amber-700/80 font-normal">(Recorded)</span>}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <input 
+                                                type="text" 
+                                                className={`w-full bg-slate-50 border rounded-xl p-4 font-bold outline-none focus:ring-2 transition-all ${
+                                                    mainFileMatches.length > 0 
+                                                        ? 'border-amber-400 bg-amber-50/25 focus:ring-amber-200 text-amber-950' 
+                                                        : 'border-slate-200 focus:ring-indigo-200 text-slate-800'
+                                                }`} 
+                                                value={patientFileNumber} 
+                                                onChange={e => setPatientFileNumber(e.target.value)} 
+                                                placeholder="File No." 
+                                            />
                                         </div>
                                         {isAdmin && (
                                             <>
@@ -1625,8 +2214,22 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                             </>
                                         )}
                                     </div>
-                                    <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-indigo-300 hover:bg-indigo-700 hover:scale-[1.02] transition-all active:scale-95">
-                                        {t('inv.usage.confirm')}
+                                    <button 
+                                        type="submit" 
+                                        disabled={submittingOp === 'mainUsage'}
+                                        className={`w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-indigo-300 transition-all ${
+                                            submittingOp === 'mainUsage' 
+                                                ? 'opacity-60 cursor-not-allowed' 
+                                                : 'hover:bg-indigo-700 hover:scale-[1.02] active:scale-95'
+                                        }`}
+                                    >
+                                        {submittingOp === 'mainUsage' ? (
+                                            <span className="flex items-center justify-center gap-2">
+                                                <i className="fas fa-spinner fa-spin"></i> {language === 'en' ? 'Recording dispense...' : 'جاري تسجيل الصرف...'}
+                                            </span>
+                                        ) : (
+                                            t('inv.usage.confirm')
+                                        )}
                                     </button>
                                 </form>
                             </div>
@@ -1729,9 +2332,10 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                             const emp = employees.find(emp => emp.name === e.target.value);
                                                             setDistStaffName(e.target.value);
                                                             setDistStaffEmail(emp?.email || '');
+                                                            setDistStaffId(emp?.id || '');
                                                         }}
                                                     >
-                                                        <option value="">...</option>
+                                                        <option value="">{language === 'en' ? 'Select Employee...' : 'اختر الموظف...'}</option>
                                                         {employees.map(emp => (
                                                             <option key={emp.id} value={emp.name}>{emp.name}</option>
                                                         ))}
@@ -1743,8 +2347,22 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                 <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-orange-200 text-slate-600" value={distDate} onChange={e => setDistDate(e.target.value)} />
                                             </div>
                                         </div>
-                                        <button type="submit" className="w-full bg-orange-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-orange-300 hover:bg-orange-700 hover:scale-[1.02] transition-all active:scale-95">
-                                            {t('inv.dist.confirm')}
+                                        <button 
+                                            type="submit" 
+                                            disabled={submittingOp === 'distribution'}
+                                            className={`w-full bg-orange-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-orange-300 transition-all ${
+                                                submittingOp === 'distribution' 
+                                                    ? 'opacity-60 cursor-not-allowed' 
+                                                    : 'hover:bg-orange-700 hover:scale-[1.02] active:scale-95'
+                                            }`}
+                                        >
+                                            {submittingOp === 'distribution' ? (
+                                                <span className="flex items-center justify-center gap-2">
+                                                    <i className="fas fa-spinner fa-spin"></i> {language === 'en' ? 'Recording custody distribution...' : 'جاري تسجيل توزيع العهدة...'}
+                                                </span>
+                                            ) : (
+                                                t('inv.dist.confirm')
+                                            )}
                                         </button>
                                     </form>
                                 </div>
@@ -1784,18 +2402,20 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                         <div className="text-[10px] text-slate-500 space-y-0.5 mt-0.5">
                                                             <div className="flex items-center gap-1.5 truncate">
                                                                 <i className="fas fa-user text-slate-300 text-[9px]"></i> 
-                                                                <span>المستلم: <strong className="text-slate-700">{d.staffName}</strong></span>
+                                                                <span>{language === 'en' ? 'Recipient: ' : 'المستلم: '}<strong className="text-slate-700">{d.staffName}</strong></span>
                                                             </div>
                                                             {d.distributedBy && (
                                                                 <div className="flex items-center gap-1.5 truncate">
                                                                     <i className="fas fa-user-shield text-slate-300 text-[9px]"></i> 
-                                                                    <span>بواسطة: <strong className="text-slate-700">{d.distributedBy}</strong></span>
+                                                                    <span>{language === 'en' ? 'By: ' : 'بواسطة: '}<strong className="text-slate-700">{d.distributedBy}</strong></span>
                                                                 </div>
                                                             )}
                                                             {d.isTransfer && (
                                                                 <div className="mt-1">
                                                                     <span className="inline-block text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-bold">
-                                                                        {d.amount < 0 ? `نقل عهدة إلى: ${d.transferPartner}` : `استلام عهدة من: ${d.transferPartner}`}
+                                                                        {d.amount < 0 
+                                                                            ? (language === 'en' ? `Transferred custody to: ${d.transferPartner}` : `نقل عهدة إلى: ${d.transferPartner}`) 
+                                                                            : (language === 'en' ? `Received custody from: ${d.transferPartner}` : `استلام عهدة من: ${d.transferPartner}`)}
                                                                     </span>
                                                                 </div>
                                                             )}
@@ -2108,10 +2728,14 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                     <div className="w-14 h-14 bg-teal-100 text-teal-600 rounded-2xl flex items-center justify-center text-2xl"><i className="fas fa-box-open"></i></div>
                                     <div>
                                         <h2 className="text-2xl font-black text-slate-800">
-                                            {custodySubTab === 'use' ? t('inv.custody.use') : 'نقل عهدة لزميل'}
+                                            {custodySubTab === 'use' 
+                                                ? t('inv.custody.use') 
+                                                : (language === 'en' ? 'Transfer Custody to Colleague' : 'نقل عهدة لزميل')}
                                         </h2>
                                         <p className="text-slate-400 text-sm">
-                                            {custodySubTab === 'use' ? 'Record usage from your personal custody' : 'نقل رصيد من عهدتك الحالية إلى موظف آخر بالقسم (تسليم وردية)'}
+                                            {custodySubTab === 'use' 
+                                                ? (language === 'en' ? 'Record usage from your personal custody' : 'تسجيل صرف من عهدتك الشخصية') 
+                                                : (language === 'en' ? 'Transfer balance from your current custody to another employee (Shift Handover)' : 'نقل رصيد من عهدتك الحالية إلى موظف آخر بالقسم (تسليم وردية)')}
                                         </p>
                                     </div>
                                 </div>
@@ -2124,7 +2748,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                         className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all ${custodySubTab === 'use' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                                     >
                                         <i className="fas fa-notes-medical mr-1 ml-1"></i>
-                                        تسجيل استهلاك العهدة
+                                        {language === 'en' ? 'Record Custody Usage' : 'تسجيل استهلاك العهدة'}
                                     </button>
                                     <button
                                         type="button"
@@ -2132,7 +2756,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                         className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all ${custodySubTab === 'transfer' ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                                     >
                                         <i className="fas fa-exchange-alt mr-1 ml-1"></i>
-                                        نقل العهدة لزميل
+                                        {language === 'en' ? 'Transfer Custody to Colleague' : 'نقل العهدة لزميل'}
                                     </button>
                                 </div>
 
@@ -2157,52 +2781,89 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                 <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-teal-200" value={custodyAmount} onChange={e => setCustodyAmount(e.target.value)} placeholder="0" />
                                             </div>
                                             <div className="space-y-2">
-                                                <label className="text-sm font-bold text-slate-600">{t('inv.usage.file')}</label>
-                                                <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-teal-200" value={custodyPatientFile} onChange={e => setCustodyPatientFile(e.target.value)} placeholder="File No." />
+                                                <div className="flex items-center justify-between">
+                                                    <label className="text-sm font-bold text-slate-600">{t('inv.usage.file')}</label>
+                                                    {custodyFileMatches.length > 0 && (
+                                                        <span className="text-[11px] font-extrabold text-amber-800 bg-amber-100/90 border border-amber-200 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                                                            <i className="fas fa-exclamation-triangle text-amber-600"></i>
+                                                            <span>{t('inv.duplicate.badge')} ({custodyFileMatches.length})</span>
+                                                            {language === 'ar' && <span className="text-[9px] text-amber-700/80 font-normal">(Recorded)</span>}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <input 
+                                                    type="text" 
+                                                    className={`w-full bg-slate-50 border rounded-xl p-4 font-bold outline-none focus:ring-2 transition-all ${
+                                                        custodyFileMatches.length > 0 
+                                                            ? 'border-amber-400 bg-amber-50/25 focus:ring-amber-200 text-amber-950' 
+                                                            : 'border-slate-200 focus:ring-teal-200 text-slate-800'
+                                                    }`} 
+                                                    value={custodyPatientFile} 
+                                                    onChange={e => setCustodyPatientFile(e.target.value)} 
+                                                    placeholder="File No." 
+                                                />
                                             </div>
                                             <div className="space-y-2 col-span-2">
                                                 <label className="text-sm font-bold text-slate-600">{t('inv.usage.date')}</label>
                                                 <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-teal-200" value={custodyUsageDate} onChange={e => setCustodyUsageDate(e.target.value)} />
                                             </div>
                                         </div>
-                                        <button type="submit" className="w-full bg-teal-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-teal-300 hover:bg-teal-700 hover:scale-[1.02] transition-all active:scale-95">
-                                            {t('inv.usage.confirm')}
+                                        <button 
+                                            type="submit" 
+                                            disabled={submittingOp === 'custodyUsage'}
+                                            className={`w-full bg-teal-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-teal-300 transition-all ${
+                                                submittingOp === 'custodyUsage' 
+                                                    ? 'opacity-60 cursor-not-allowed' 
+                                                    : 'hover:bg-teal-700 hover:scale-[1.02] active:scale-95'
+                                            }`}
+                                        >
+                                            {submittingOp === 'custodyUsage' ? (
+                                                <span className="flex items-center justify-center gap-2">
+                                                    <i className="fas fa-spinner fa-spin"></i> {language === 'en' ? 'Recording custody usage...' : 'جاري تسجيل استهلاك العهدة...'}
+                                                </span>
+                                            ) : (
+                                                t('inv.usage.confirm')
+                                            )}
                                         </button>
                                     </form>
                                 ) : (
                                     <form onSubmit={handleCustodyTransferSubmit} className="space-y-6">
                                         <div className="space-y-2">
-                                            <label className="text-sm font-bold text-slate-600">المادة (Material)</label>
+                                            <label className="text-sm font-bold text-slate-600">{language === 'en' ? 'Material' : 'المادة (Material)'}</label>
                                             <div className="relative">
                                                 <select
                                                     className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 rtl:pr-10 ltr:pl-4 outline-none focus:ring-2 focus:ring-teal-200 font-bold text-slate-700 appearance-none"
                                                     value={transferMaterial}
                                                     onChange={e => setTransferMaterial(e.target.value)}
                                                 >
-                                                    <option value="">اختر المادة لنقلها...</option>
+                                                    <option value="">{language === 'en' ? 'Select material to transfer...' : 'اختر المادة لنقلها...'}</option>
                                                     {materials.map(m => {
                                                         const distributed = distributions.filter(d => d.material.trim() === m.name.trim() && isUserDistribution(d)).reduce((sum, d) => sum + d.amount, 0);
                                                         const used = usages.filter(u => u.material.trim() === m.name.trim() && u.fromCustody && isUserUsage(u)).reduce((sum, u) => sum + u.amount, 0);
                                                         const balance = distributed - used;
                                                         if (balance <= 0) return null;
-                                                        return <option key={m.id} value={m.name}>{m.name} (المتاح: {balance})</option>;
+                                                        return (
+                                                            <option key={m.id} value={m.name}>
+                                                                {m.name} ({language === 'en' ? 'Available:' : 'المتاح:'} {balance})
+                                                            </option>
+                                                        );
                                                     })}
                                                 </select>
                                             </div>
                                         </div>
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-2 col-span-2">
-                                                <label className="text-sm font-bold text-slate-600">الكمية المراد نقلها (Amount to transfer)</label>
+                                                <label className="text-sm font-bold text-slate-600">{language === 'en' ? 'Amount to Transfer' : 'الكمية المراد نقلها (Amount to transfer)'}</label>
                                                 <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-teal-200" value={transferAmount} onChange={e => setTransferAmount(e.target.value)} placeholder="0" />
                                             </div>
                                             <div className="space-y-2 col-span-2">
-                                                <label className="text-sm font-bold text-slate-600">الموظف المستلم (Recipient Employee)</label>
+                                                <label className="text-sm font-bold text-slate-600">{language === 'en' ? 'Recipient Employee' : 'الموظف المستلم (Recipient Employee)'}</label>
                                                 <select
                                                     className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 outline-none focus:ring-2 focus:ring-teal-200 font-bold text-slate-700 appearance-none"
                                                     value={transferRecipient}
                                                     onChange={e => setTransferRecipient(e.target.value)}
                                                 >
-                                                    <option value="">اختر الموظف المستلم...</option>
+                                                    <option value="">{language === 'en' ? 'Select recipient employee...' : 'اختر الموظف المستلم...'}</option>
                                                     {employees.filter(emp => 
                                                         emp.email !== userEmail && 
                                                         emp.name !== userName && 
@@ -2213,8 +2874,22 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                 </select>
                                             </div>
                                         </div>
-                                        <button type="submit" className="w-full bg-teal-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-teal-300 hover:bg-teal-700 hover:scale-[1.02] transition-all active:scale-95">
-                                            تأكيد نقل العهدة
+                                        <button 
+                                            type="submit" 
+                                            disabled={submittingOp === 'custodyTransfer'}
+                                            className={`w-full bg-teal-600 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-teal-300 transition-all ${
+                                                submittingOp === 'custodyTransfer' 
+                                                    ? 'opacity-60 cursor-not-allowed' 
+                                                    : 'hover:bg-teal-700 hover:scale-[1.02] active:scale-95'
+                                            }`}
+                                        >
+                                            {submittingOp === 'custodyTransfer' ? (
+                                                <span className="flex items-center justify-center gap-2">
+                                                    <i className="fas fa-spinner fa-spin"></i> {language === 'en' ? 'Sending transfer request...' : 'جاري إرسال طلب النقل...'}
+                                                </span>
+                                            ) : (
+                                                language === 'en' ? 'Confirm Custody Transfer' : 'تأكيد نقل العهدة'
+                                            )}
                                         </button>
                                     </form>
                                 )}
@@ -2264,11 +2939,13 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                 <div className="mb-6 pb-6 border-b border-slate-150">
                                     <h3 className="font-black text-slate-700 text-lg mb-4 flex items-center gap-2">
                                         <i className="fas fa-history text-teal-600"></i>
-                                        أحدث تسجيلاتك للصبغة (استهلاك العهدة)
+                                        {language === 'en' ? 'Your Recent Contrast Records (Custody Usage)' : 'أحدث تسجيلاتك للصبغة (استهلاك العهدة)'}
                                     </h3>
                                     
                                     {usages.filter(isUserUsage).length === 0 ? (
-                                        <p className="text-sm text-slate-400 text-center py-6 bg-slate-50 rounded-2xl border border-dashed border-slate-200">لا توجد تسجيلات استهلاك سابقة لك بعد</p>
+                                        <p className="text-sm text-slate-400 text-center py-6 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                                            {language === 'en' ? 'No previous usage records for you yet' : 'لا توجد تسجيلات استهلاك سابقة لك بعد'}
+                                        </p>
                                     ) : (
                                         <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
                                             {usages
@@ -2296,11 +2973,12 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                                     {u.patientFileNumber && (
                                                                         <span className="flex items-center gap-1">
                                                                             <i className="fas fa-folder text-slate-300"></i>
-                                                                            ملف: <strong className="text-slate-700">{u.patientFileNumber}</strong>
+                                                                            <span>{language === 'en' ? 'File: ' : 'ملف: '}</span>
+                                                                            <strong className="text-slate-700">{u.patientFileNumber}</strong>
                                                                         </span>
                                                                     )}
                                                                     <span className="text-slate-400 font-mono">
-                                                                        {d.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' })} - {d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                                                                        {d.toLocaleDateString(language === 'en' ? 'en-US' : 'ar-EG', { day: 'numeric', month: 'short', year: 'numeric' })} - {d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                                                                     </span>
                                                                 </div>
                                                             </div>
@@ -2323,7 +3001,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                             <div className="flex-1">
                                                 <h4 className="font-bold text-slate-800">{m.name}</h4>
                                                 <div className="text-xs text-slate-500 flex items-center gap-2 mt-1">
-                                                    In: {distributed} | Out: {used}
+                                                    {language === 'en' ? `Received: ${distributed} | Used: ${used}` : `المستلم: ${distributed} | المنصرف: ${used}`}
                                                 </div>
                                             </div>
                                             <div className="text-center">
@@ -2440,8 +3118,18 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                             )}
                                         </div>
 
-                                        <button disabled={uploading || isCompressing} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-700 hover:scale-[1.01] transition-all active:scale-95 disabled:opacity-70 disabled:scale-100">
-                                            {uploading ? <i className="fas fa-spinner fa-spin"></i> : t('inv.inc.btn')}
+                                        <button 
+                                            type="submit"
+                                            disabled={uploading || isCompressing || submittingOp === 'incoming'} 
+                                            className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-700 hover:scale-[1.01] transition-all active:scale-95 disabled:opacity-70 disabled:scale-100"
+                                        >
+                                            {(uploading || submittingOp === 'incoming') ? (
+                                                <span className="flex items-center justify-center gap-2">
+                                                    <i className="fas fa-spinner fa-spin"></i> جاري تسجيل الوارد...
+                                                </span>
+                                            ) : (
+                                                t('inv.inc.btn')
+                                            )}
                                         </button>
                                     </form>
                                 </div>
@@ -3175,6 +3863,164 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                         )}
                         
                         <PrintFooter />
+                    </div>
+                )}
+
+                {/* Patient File Duplicate Warning / Confirmation Modal */}
+                {duplicateWarningModal.isOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fade-in print:hidden">
+                        <div className="bg-white rounded-[2rem] max-w-xl w-full p-6 sm:p-7 shadow-2xl border border-slate-100 relative overflow-hidden flex flex-col max-h-[92vh] animate-scale-up" dir={dir}>
+                            {/* Modal Header */}
+                            <div className="flex justify-between items-start mb-4 border-b border-slate-100 pb-4">
+                                <div className="flex items-center gap-3.5">
+                                    <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center text-2xl shrink-0 shadow-inner">
+                                        <i className="fas fa-exclamation-triangle"></i>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg sm:text-xl font-black text-slate-800 flex flex-col gap-0.5">
+                                            <span>{t('inv.duplicate.title')}</span>
+                                            {language === 'ar' && (
+                                                <span className="text-xs font-semibold text-amber-700/80">
+                                                    Warning: Patient Previously Received Contrast / Material!
+                                                </span>
+                                            )}
+                                        </h3>
+                                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                            <span className="text-xs font-bold text-slate-500">{t('inv.duplicate.fileNo')}</span>
+                                            <span className="text-xs font-mono font-black bg-slate-100 text-slate-800 px-2.5 py-0.5 rounded-lg border border-slate-200">
+                                                {duplicateWarningModal.patientFileNumber}
+                                            </span>
+                                            <span className="text-xs bg-amber-100 text-amber-800 font-extrabold px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                                <span>{duplicateWarningModal.history.length}</span>
+                                                <span>{t('inv.duplicate.timesCount')}</span>
+                                                {language === 'ar' && <span className="text-[10px] text-amber-700/70 font-normal">({duplicateWarningModal.history.length} prev.)</span>}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button 
+                                    type="button"
+                                    onClick={cancelDuplicateSave}
+                                    className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors shrink-0"
+                                    title={language === 'en' ? 'Cancel' : 'إلغاء'}
+                                >
+                                    <i className="fas fa-times"></i>
+                                </button>
+                            </div>
+
+                            {/* Current pending action summary */}
+                            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 mb-4 text-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                                <div>
+                                    <span className="text-slate-400 block text-[11px] font-bold">
+                                        {t('inv.duplicate.pendingAction')}
+                                        {language === 'ar' && <span className="text-[10px] text-slate-400 font-normal mr-1.5 ml-1.5">(Pending Action)</span>}
+                                    </span>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                        <span className="font-extrabold text-slate-800 text-sm">{duplicateWarningModal.newMaterial}</span>
+                                        <span className="text-slate-300">•</span>
+                                        <span className="font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-md">
+                                            {t('inv.duplicate.quantity')} {duplicateWarningModal.newAmount}
+                                        </span>
+                                    </div>
+                                </div>
+                                <span className="text-[11px] font-bold text-slate-600 bg-white border border-slate-200 px-2.5 py-1 rounded-lg">
+                                    {duplicateWarningModal.submittingType === 'mainUsage' 
+                                        ? t('inv.duplicate.mainStockSource') 
+                                        : t('inv.duplicate.custodySource')}
+                                    {language === 'ar' && (
+                                        <span className="text-[10px] text-slate-400 block font-normal text-center">
+                                            {duplicateWarningModal.submittingType === 'mainUsage' ? 'Main Stock' : 'Personal Custody'}
+                                        </span>
+                                    )}
+                                </span>
+                            </div>
+
+                            {/* History List Header */}
+                            <div className="flex items-center justify-between mb-2 px-1">
+                                <span className="text-xs font-extrabold text-slate-700 flex items-center gap-1.5">
+                                    <i className="fas fa-history text-amber-500"></i>
+                                    <span>{t('inv.duplicate.historyTitle')}</span>
+                                    {language === 'ar' && <span className="text-[10px] text-slate-400 font-normal">(Previous Records)</span>}
+                                </span>
+                                <span className="text-[11px] text-slate-400 font-medium">{t('inv.duplicate.sortOrder')}</span>
+                            </div>
+
+                            {/* History Records */}
+                            <div className="overflow-y-auto max-h-[220px] space-y-2.5 pr-1 mb-4 rounded-xl">
+                                {duplicateWarningModal.history.map((item, idx) => (
+                                    <div key={item.id || idx} className="bg-amber-50/60 hover:bg-amber-50 border border-amber-200/90 rounded-2xl p-3.5 transition-all text-xs">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="w-5 h-5 rounded-full bg-amber-200 text-amber-900 font-black flex items-center justify-center text-[10px] shrink-0">
+                                                    {idx + 1}
+                                                </span>
+                                                <span className="font-black text-slate-800 text-sm">{item.material}</span>
+                                            </div>
+                                            <span className="font-black bg-white px-2.5 py-0.5 rounded-lg border border-amber-200 text-amber-900">
+                                                {t('inv.duplicate.quantity')} {item.amount}
+                                            </span>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-600 pt-2 border-t border-amber-200/60">
+                                            <div className="flex items-center gap-1.5">
+                                                <i className="far fa-calendar-alt text-amber-600"></i>
+                                                <span>{t('inv.duplicate.itemDate')} <strong className="text-slate-800 font-mono">{item.dateStr}</strong></span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <i className="far fa-clock text-amber-600"></i>
+                                                <span>{t('inv.duplicate.itemTime')} <strong className="text-slate-800 font-mono">{item.timeStr}</strong> {item.timeAgo && <span className="text-[10px] text-amber-700 font-medium">({item.timeAgo})</span>}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 truncate">
+                                                <i className="far fa-user text-slate-400"></i>
+                                                <span className="truncate">{t('inv.duplicate.itemStaff')} <strong className="text-slate-700">{item.staffName}</strong></span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <i className="fas fa-box text-slate-400"></i>
+                                                <span>{t('inv.duplicate.itemSource')} <span className="text-slate-700">{item.fromCustody ? t('inv.duplicate.custody') : t('inv.duplicate.mainStock')}</span></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Confirmation Prompt Banner */}
+                            <div className="bg-amber-100/80 border border-amber-300 rounded-2xl p-3.5 text-center mb-5">
+                                <p className="font-black text-amber-950 text-sm">
+                                    {t('inv.duplicate.promptTitle')}
+                                </p>
+                                {language === 'ar' && (
+                                    <p className="text-[11px] text-amber-900/80 font-semibold mt-0.5">
+                                        Do you want to confirm saving this material for this patient?
+                                    </p>
+                                )}
+                                <p className="text-[11px] text-amber-800 mt-1 leading-relaxed">
+                                    {t('inv.duplicate.promptSubtitle')}
+                                </p>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex flex-col-reverse sm:flex-row gap-2.5">
+                                <button
+                                    type="button"
+                                    onClick={cancelDuplicateSave}
+                                    className="flex-1 py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs sm:text-sm transition-all text-center flex flex-col items-center justify-center"
+                                >
+                                    <span>{t('inv.duplicate.cancelBtn')}</span>
+                                    {language === 'ar' && <span className="text-[10px] text-slate-500 font-normal">Cancel & Review</span>}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={confirmDuplicateSave}
+                                    disabled={Boolean(submittingOp)}
+                                    className="flex-1 py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-xl text-xs sm:text-sm shadow-lg shadow-amber-200 transition-all flex flex-col items-center justify-center gap-0.5"
+                                >
+                                    <span className="flex items-center gap-1.5">
+                                        <i className="fas fa-check-circle"></i>
+                                        <span>{t('inv.duplicate.confirmBtn')}</span>
+                                    </span>
+                                    {language === 'ar' && <span className="text-[10px] text-amber-100 font-normal">Yes, Confirm Save</span>}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 )}
 

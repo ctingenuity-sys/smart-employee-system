@@ -67,8 +67,11 @@ function ReloadPrompt() {
     <aside 
       aria-label="App Update Notification"
       dir={dir}
-      className={`fixed bottom-6 z-[100000] max-w-lg w-[calc(100vw-2rem)] sm:w-auto transition-all duration-300 animate-in fade-in slide-in-from-bottom-5 ${
-        dir === 'rtl' ? 'left-4 sm:left-6 sm:right-auto' : 'right-4 sm:right-6 sm:left-auto'
+      style={{ zIndex: 2147483647 }}
+      className={`fixed bottom-6 max-w-lg w-[calc(100vw-2rem)] sm:w-auto transition-all duration-300 animate-in fade-in slide-in-from-bottom-5 pointer-events-auto ${
+        dir === 'rtl' 
+          ? 'left-4 sm:left-8 right-4 sm:right-auto' 
+          : 'right-4 sm:right-8 left-4 sm:left-auto'
       }`}
     >
       <div className="relative overflow-hidden rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-slate-700/90 shadow-[0_20px_50px_rgba(0,0,0,0.5)] p-4 text-white">

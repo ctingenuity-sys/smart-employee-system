@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { inventoryDb, inventoryStorage } from '../firebaseInventory';
 import { db } from '../firebase';
 // @ts-ignore
-import { collection, addDoc, doc, updateDoc, onSnapshot, Timestamp, deleteDoc, writeBatch, getDocs, query, where } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, onSnapshot, Timestamp, deleteDoc, writeBatch, getDocs, query, where, increment } from 'firebase/firestore';
 // @ts-ignore
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { Material, Invoice, MaterialUsage, ForecastResult, MaterialDistribution, User, CustodyTransfer } from '../types';
@@ -139,6 +139,19 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     const [correctionDate, setCorrectionDate] = useState(new Date().toISOString().split('T')[0]); 
     const [materialSearch, setMaterialSearch] = useState('');
 
+    // Deletion states to prevent multiple clicks and display loading spinners
+    const [deletingDistIds, setDeletingDistIds] = useState<string[]>([]);
+    const [deletingUsageIds, setDeletingUsageIds] = useState<string[]>([]);
+    const [deletingInvoiceIds, setDeletingInvoiceIds] = useState<string[]>([]);
+
+    // Material Stock Adjustment Modal State
+    const [adjustingMat, setAdjustingMat] = useState<Material | null>(null);
+    const [adjustTargetQty, setAdjustTargetQty] = useState('');
+    const [adjustDate, setAdjustDate] = useState(new Date().toISOString().split('T')[0]);
+    const [adjustNote, setAdjustNote] = useState('');
+    const [isAdjusting, setIsAdjusting] = useState(false);
+    const [materialsViewMode, setMaterialsViewMode] = useState<'list' | 'corrections'>('list');
+
     // Supervisor Custody Dashboard & Handover state
     const [distSubTab, setDistSubTab] = useState<'distribute' | 'monitoring' | 'handovers'>('distribute');
     const [distMonitoringSearch, setDistMonitoringSearch] = useState('');
@@ -257,52 +270,70 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             }));
         }, (err: any) => console.error("Invoices error:", err));
 
+        let deptUsages: MaterialUsage[] = [];
+        let userUsages: MaterialUsage[] = [];
+        const syncUsages = () => {
+            const map = new Map<string, MaterialUsage>();
+            deptUsages.forEach(u => map.set(u.id, u));
+            userUsages.forEach(u => map.set(u.id, u));
+            const sorted = Array.from(map.values()).sort((a: any, b: any) => {
+                const da = a.date?.toDate ? a.date.toDate() : new Date((a.date?.seconds || 0) * 1000);
+                const db = b.date?.toDate ? b.date.toDate() : new Date((b.date?.seconds || 0) * 1000);
+                return db.getTime() - da.getTime();
+            });
+            setUsages(sorted);
+        };
+
+        let deptDists: MaterialDistribution[] = [];
+        let userDists: MaterialDistribution[] = [];
+        const syncDistributions = () => {
+            const map = new Map<string, MaterialDistribution>();
+            deptDists.forEach(d => map.set(d.id, d));
+            userDists.forEach(d => map.set(d.id, d));
+            const sorted = Array.from(map.values()).sort((a: any, b: any) => {
+                const da = a.date?.toDate ? a.date.toDate() : new Date((a.date?.seconds || 0) * 1000);
+                const db = b.date?.toDate ? b.date.toDate() : new Date((b.date?.seconds || 0) * 1000);
+                return db.getTime() - da.getTime();
+            });
+            setDistributions(sorted);
+        };
+
+        let deptTransfersList: CustodyTransfer[] = [];
+        let userTransfersList: CustodyTransfer[] = [];
+        const syncTransfers = () => {
+            const map = new Map<string, CustodyTransfer>();
+            deptTransfersList.forEach(t => map.set(t.id, t));
+            userTransfersList.forEach(t => map.set(t.id, t));
+            const sorted = Array.from(map.values()).sort((a: any, b: any) => {
+                const da = a.date?.toDate ? a.date.toDate() : new Date((a.date?.seconds || 0) * 1000);
+                const db = b.date?.toDate ? b.date.toDate() : new Date((b.date?.seconds || 0) * 1000);
+                return db.getTime() - da.getTime();
+            });
+            setTransfers(sorted);
+        };
+
         const qUse = selectedDepartmentId
             ? query(collection(inventoryDb, 'usages'), where('departmentId', '==', selectedDepartmentId))
             : collection(inventoryDb, 'usages');
         const unsubUse = onSnapshot(qUse, (snap: any) => {
-            const list = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as MaterialUsage));
-            setUsages(prev => {
-                const map = new Map(prev.map((u: MaterialUsage) => [u.id, u]));
-                list.forEach((u: MaterialUsage) => map.set(u.id, u));
-                return Array.from(map.values()).sort((a: any, b: any) => {
-                    const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
-                    const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
-                    return db.getTime() - da.getTime();
-                });
-            });
+            deptUsages = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as MaterialUsage));
+            syncUsages();
         }, (err: any) => console.error("Usages error:", err));
 
         const qDist = selectedDepartmentId
             ? query(collection(inventoryDb, 'distributions'), where('departmentId', '==', selectedDepartmentId))
             : collection(inventoryDb, 'distributions');
         const unsubDist = onSnapshot(qDist, (snap: any) => {
-            const list = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as MaterialDistribution));
-            setDistributions(prev => {
-                const map = new Map(prev.map((d: MaterialDistribution) => [d.id, d]));
-                list.forEach((d: MaterialDistribution) => map.set(d.id, d));
-                return Array.from(map.values()).sort((a: any, b: any) => {
-                    const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
-                    const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
-                    return db.getTime() - da.getTime();
-                });
-            });
+            deptDists = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as MaterialDistribution));
+            syncDistributions();
         }, (err: any) => console.error("Distributions error:", err));
 
         const qTransfers = selectedDepartmentId
             ? query(collection(inventoryDb, 'custody_transfers'), where('departmentId', '==', selectedDepartmentId))
             : collection(inventoryDb, 'custody_transfers');
         const unsubTransfers = onSnapshot(qTransfers, (snap: any) => {
-            const list = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as CustodyTransfer));
-            setTransfers(prev => {
-                const map = new Map(prev.map((t: CustodyTransfer) => [t.id, t]));
-                list.forEach((t: CustodyTransfer) => map.set(t.id, t));
-                return Array.from(map.values()).sort((a: any, b: any) => {
-                    const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
-                    const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
-                    return db.getTime() - da.getTime();
-                });
-            });
+            deptTransfersList = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as CustodyTransfer));
+            syncTransfers();
         }, (err: any) => console.error("Transfers error:", err));
 
         // In addition, if userEmail is present, query personal distributions, usages, and transfers to ensure no custody is hidden by department mismatch
@@ -313,42 +344,18 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             const cleanEmail = userEmail.trim().toLowerCase();
             try {
                 unsubUserDist = onSnapshot(query(collection(inventoryDb, 'distributions'), where('staffEmail', '==', cleanEmail)), snap => {
-                    const personalList = snap.docs.map(d => ({ ...d.data(), id: d.id } as MaterialDistribution));
-                    setDistributions(prev => {
-                        const map = new Map(prev.map(d => [d.id, d]));
-                        personalList.forEach(d => map.set(d.id, d));
-                        return Array.from(map.values()).sort((a: any, b: any) => {
-                            const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
-                            const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
-                            return db.getTime() - da.getTime();
-                        });
-                    });
+                    userDists = snap.docs.map(d => ({ ...d.data(), id: d.id } as MaterialDistribution));
+                    syncDistributions();
                 }, err => console.warn("User dist listener:", err));
 
                 unsubUserUse = onSnapshot(query(collection(inventoryDb, 'usages'), where('staffEmail', '==', cleanEmail)), snap => {
-                    const personalList = snap.docs.map(d => ({ ...d.data(), id: d.id } as MaterialUsage));
-                    setUsages(prev => {
-                        const map = new Map(prev.map(u => [u.id, u]));
-                        personalList.forEach(u => map.set(u.id, u));
-                        return Array.from(map.values()).sort((a: any, b: any) => {
-                            const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
-                            const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
-                            return db.getTime() - da.getTime();
-                        });
-                    });
+                    userUsages = snap.docs.map(d => ({ ...d.data(), id: d.id } as MaterialUsage));
+                    syncUsages();
                 }, err => console.warn("User usage listener:", err));
 
                 unsubUserTransfers = onSnapshot(query(collection(inventoryDb, 'custody_transfers'), where('recipientEmail', '==', cleanEmail)), snap => {
-                    const personalList = snap.docs.map(d => ({ ...d.data(), id: d.id } as CustodyTransfer));
-                    setTransfers(prev => {
-                        const map = new Map(prev.map(t => [t.id, t]));
-                        personalList.forEach(t => map.set(t.id, t));
-                        return Array.from(map.values()).sort((a: any, b: any) => {
-                            const da = a.date?.toDate ? a.date.toDate() : new Date(a.date?.seconds * 1000);
-                            const db = b.date?.toDate ? b.date.toDate() : new Date(b.date?.seconds * 1000);
-                            return db.getTime() - da.getTime();
-                        });
-                    });
+                    userTransfersList = snap.docs.map(d => ({ ...d.data(), id: d.id } as CustodyTransfer));
+                    syncTransfers();
                 }, err => console.warn("User transfer listener:", err));
             } catch (e) {
                 console.warn(e);
@@ -1642,51 +1649,293 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
     };
 
     const handleDeleteUsage = async (usage: MaterialUsage) => {
-        if(!confirm(t('confirm') + (usage.fromCustody ? ' (حذف الاستهلاك من عهدة الموظف)؟' : ' (سيتم استرجاع الكمية للمخزن)؟'))) return;
+        if (deletingUsageIds.includes(usage.id)) return;
+        const confirmMsg = language === 'en'
+            ? `Are you sure you want to delete this usage record?${usage.fromCustody ? ' (Removes usage from staff custody)' : ' (Restores quantity to main stock)'}`
+            : `هل أنت متأكد من حذف هذا السجل؟${usage.fromCustody ? ' (سيتم إلغاء الاستهلاك من عهدة الموظف)' : ' (سيتم استرجاع الكمية فوراً للمخزن)'}`;
+        if (!confirm(confirmMsg)) return;
+
+        // 1. Mark as deleting to prevent double clicks
+        setDeletingUsageIds(prev => [...prev, usage.id]);
+
+        // 2. Optimistic UI update: Remove usage immediately from state
+        setUsages(prev => prev.filter(u => u.id !== usage.id));
+
+        // 3. Optimistically restore stock in local state if not from custody
+        if (!usage.fromCustody) {
+            setMaterials(prev => prev.map(m => m.name === usage.material ? { ...m, quantity: m.quantity + usage.amount } : m));
+        }
+
         try {
-            // 1. Restore Stock (only if it wasn't from personal custody)
+            // 4. Update Firestore
             if (!usage.fromCustody) {
                 const mat = materials.find(m => m.name === usage.material);
                 if (mat) {
                     await updateDoc(doc(inventoryDb, 'materials', mat.id), {
-                        quantity: mat.quantity + usage.amount
+                        quantity: increment(usage.amount)
                     });
                 }
             }
-            
-            // 2. Delete Record
             await deleteDoc(doc(inventoryDb, 'usages', usage.id));
-            setToast({ msg: 'Deleted', type: 'success' });
-        } catch (e) {
-            setToast({ msg: 'Error', type: 'error' });
+            setToast({
+                msg: language === 'en' ? 'Usage record deleted and stock restored' : 'تم حذف السجل واسترجاع الكمية للمخزن فوراً ✅',
+                type: 'success'
+            });
+        } catch (e: any) {
+            console.error("Delete usage error:", e);
+            // Revert state if error occurs
+            setUsages(prev => [usage, ...prev]);
+            if (!usage.fromCustody) {
+                setMaterials(prev => prev.map(m => m.name === usage.material ? { ...m, quantity: Math.max(0, m.quantity - usage.amount) } : m));
+            }
+            setToast({ msg: language === 'en' ? 'Failed to delete record' : 'حدث خطأ أثناء الحذف', type: 'error' });
+        } finally {
+            setDeletingUsageIds(prev => prev.filter(id => id !== usage.id));
         }
     };
 
     const handleDeleteDistribution = async (dist: MaterialDistribution) => {
-        if(!confirm(t('confirm') + ' (سيتم استرجاع الكمية للمخزن)؟')) return;
+        if (deletingDistIds.includes(dist.id)) return;
+        const confirmMsg = language === 'en'
+            ? `Are you sure you want to delete this custody distribution? (Will restore ${dist.amount} to main stock)`
+            : `هل أنت متأكد من حذف حركة التوزيع هذه؟ (سيتم استرجاع ${dist.amount} علبة فوراً إلى رصيد المخزن الرئيسي)`;
+        if (!confirm(confirmMsg)) return;
+
+        // 1. Mark as deleting to prevent double clicks
+        setDeletingDistIds(prev => [...prev, dist.id]);
+
+        // 2. Optimistic UI update: Remove distribution immediately
+        setDistributions(prev => prev.filter(d => d.id !== dist.id));
+
+        // 3. Optimistically restore main stock in local state
+        setMaterials(prev => prev.map(m => m.name === dist.material ? { ...m, quantity: m.quantity + dist.amount } : m));
+
         try {
             const mat = materials.find(m => m.name === dist.material);
             if (mat) {
                 await updateDoc(doc(inventoryDb, 'materials', mat.id), {
-                    quantity: mat.quantity + dist.amount
+                    quantity: increment(dist.amount)
                 });
             }
             await deleteDoc(doc(inventoryDb, 'distributions', dist.id));
-            setToast({ msg: 'Deleted', type: 'success' });
-        } catch (e) {
-            setToast({ msg: 'Error', type: 'error' });
+            setToast({
+                msg: language === 'en' ? 'Distribution deleted and stock restored' : `تم حذف التوزيع واسترجاع ${dist.amount} للمخزن فوراً ✅`,
+                type: 'success'
+            });
+        } catch (e: any) {
+            console.error("Delete distribution error:", e);
+            // Revert optimistic state
+            setDistributions(prev => [dist, ...prev]);
+            setMaterials(prev => prev.map(m => m.name === dist.material ? { ...m, quantity: Math.max(0, m.quantity - dist.amount) } : m));
+            setToast({ msg: language === 'en' ? 'Failed to delete distribution' : 'حدث خطأ أثناء الحذف', type: 'error' });
+        } finally {
+            setDeletingDistIds(prev => prev.filter(id => id !== dist.id));
         }
     };
 
-    const handleDeleteInvoice = async (id: string) => {
-        if(!confirm(t('confirm') + '?')) return;
+    const handleDeleteInvoice = async (inv: Invoice | string) => {
+        const id = typeof inv === 'string' ? inv : inv.id;
+        if (deletingInvoiceIds.includes(id)) return;
+        if (!confirm(language === 'en' ? 'Delete this incoming invoice record?' : 'هل أنت متأكد من حذف سجل الفاتورة/الوارد هذا؟')) return;
+
+        setDeletingInvoiceIds(prev => [...prev, id]);
+        const removed = invoices.find(i => i.id === id);
+        setInvoices(prev => prev.filter(i => i.id !== id));
+
         try {
             await deleteDoc(doc(inventoryDb, 'invoices', id));
-            setToast({ msg: t('delete'), type: 'success' });
+            setToast({ msg: language === 'en' ? 'Invoice deleted' : 'تم حذف السجل بنجاح ✅', type: 'success' });
         } catch (e) {
-            setToast({ msg: 'Error', type: 'error' });
+            if (removed) setInvoices(prev => [removed, ...prev]);
+            setToast({ msg: language === 'en' ? 'Error deleting invoice' : 'حدث خطأ أثناء الحذف', type: 'error' });
+        } finally {
+            setDeletingInvoiceIds(prev => prev.filter(itemId => itemId !== id));
         }
     };
+
+    // --- NEW: Stock Adjustment & Manual Inventory Correction System ---
+    const handleOpenStockAdjustment = (mat: Material) => {
+        setAdjustingMat(mat);
+        setAdjustTargetQty(mat.quantity.toString());
+        setAdjustDate(new Date().toISOString().split('T')[0]);
+        setAdjustNote('');
+    };
+
+    const handleConfirmStockAdjustment = async () => {
+        if (!adjustingMat) return;
+        const targetQty = parseFloat(adjustTargetQty);
+        if (isNaN(targetQty) || targetQty < 0) {
+            setToast({ msg: language === 'en' ? 'Please enter a valid quantity (>= 0)' : 'يرجى إدخال كمية صحيحة أكبر من أو تساوي 0', type: 'error' });
+            return;
+        }
+
+        const oldQty = adjustingMat.quantity;
+        const diff = targetQty - oldQty;
+
+        if (diff === 0) {
+            setToast({ msg: language === 'en' ? 'No change in quantity' : 'لم يتم تغيير الكمية (الرصيد مطابق)', type: 'info' });
+            setAdjustingMat(null);
+            return;
+        }
+
+        setIsAdjusting(true);
+        try {
+            let correctionTs = Timestamp.now();
+            if (adjustDate) {
+                const [y, mVal, dVal] = adjustDate.split('-').map(Number);
+                const dateObj = new Date(y, mVal - 1, dVal);
+                const now = new Date();
+                const todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+                if (adjustDate === todayStr) {
+                    dateObj.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+                } else {
+                    dateObj.setHours(12, 0, 0);
+                }
+                correctionTs = isNaN(dateObj.getTime()) ? Timestamp.now() : Timestamp.fromDate(dateObj);
+            }
+
+            // Optimistically update material in local state
+            setMaterials(prev => prev.map(m => m.id === adjustingMat.id ? { ...m, quantity: targetQty } : m));
+
+            // Update in Firestore
+            await updateDoc(doc(inventoryDb, 'materials', adjustingMat.id), {
+                quantity: targetQty
+            });
+
+            // Create Correction Ledger Record
+            const noteText = adjustNote.trim() || 'Manual adjustment';
+            if (diff > 0) {
+                await addDoc(collection(inventoryDb, 'invoices'), {
+                    material: adjustingMat.name,
+                    quantityAdded: diff,
+                    date: correctionTs,
+                    expiryDate: null,
+                    imageUrl: null,
+                    createdBy: `${userName} (Correction: ${noteText})`,
+                    isCorrection: true,
+                    departmentId: selectedDepartmentId
+                });
+            } else {
+                await addDoc(collection(inventoryDb, 'usages'), {
+                    material: adjustingMat.name,
+                    amount: Math.abs(diff),
+                    patientFileNumber: `STOCK CORRECTION: ${noteText}`,
+                    staffName: userName,
+                    staffEmail: userEmail,
+                    staffRole: userRole,
+                    date: correctionTs,
+                    isCorrection: true,
+                    departmentId: selectedDepartmentId
+                });
+            }
+
+            setToast({
+                msg: language === 'en'
+                    ? `Stock for "${adjustingMat.name}" corrected from ${oldQty} to ${targetQty} (${diff > 0 ? '+' : ''}${diff})`
+                    : `تم تعديل وتصحيح رصيد "${adjustingMat.name}" من ${oldQty} إلى ${targetQty} (${diff > 0 ? '+' : ''}${diff}) بنجاح ✅`,
+                type: 'success'
+            });
+
+            setAdjustingMat(null);
+            setAdjustTargetQty('');
+            setAdjustNote('');
+        } catch (err: any) {
+            console.error("Adjustment error:", err);
+            setToast({ msg: language === 'en' ? 'Failed to update stock' : 'حدث خطأ أثناء تعديل الرصيد', type: 'error' });
+        } finally {
+            setIsAdjusting(false);
+        }
+    };
+
+    const handleRevertCorrection = async (corr: { id: string; type: 'invoice' | 'usage'; material: string; diff: number }) => {
+        const confirmMsg = language === 'en'
+            ? `Revert this adjustment for "${corr.material}"? This will reverse the ${corr.diff > 0 ? '+' + corr.diff : corr.diff} quantity and delete the record.`
+            : `هل أنت متأكد من التراجع عن هذا التعديل لـ "${corr.material}"؟ سيتم عكس التغيير (${corr.diff > 0 ? '+' + corr.diff : corr.diff}) وحذف سجل التصحيح.`;
+        if (!confirm(confirmMsg)) return;
+
+        try {
+            // Find material
+            const mat = materials.find(m => m.name === corr.material);
+            if (mat) {
+                const revertedQty = Math.max(0, mat.quantity - corr.diff);
+                setMaterials(prev => prev.map(m => m.id === mat.id ? { ...m, quantity: revertedQty } : m));
+                await updateDoc(doc(inventoryDb, 'materials', mat.id), {
+                    quantity: revertedQty
+                });
+            }
+
+            if (corr.type === 'invoice') {
+                setInvoices(prev => prev.filter(inv => inv.id !== corr.id));
+                await deleteDoc(doc(inventoryDb, 'invoices', corr.id));
+            } else {
+                setUsages(prev => prev.filter(u => u.id !== corr.id));
+                await deleteDoc(doc(inventoryDb, 'usages', corr.id));
+            }
+
+            setToast({
+                msg: language === 'en' ? 'Correction reverted successfully' : 'تم التراجع عن حركة التصحيح واسترجاع الرصيد بنجاح ✅',
+                type: 'success'
+            });
+        } catch (err) {
+            console.error(err);
+            setToast({ msg: language === 'en' ? 'Failed to revert correction' : 'حدث خطأ أثناء التراجع', type: 'error' });
+        }
+    };
+
+    // Corrections list extracted from both invoices and usages
+    const stockCorrections = useMemo(() => {
+        const list: Array<{
+            id: string;
+            type: 'invoice' | 'usage';
+            material: string;
+            diff: number;
+            date: any;
+            author: string;
+            note: string;
+        }> = [];
+
+        invoices.forEach(inv => {
+            if ((inv as any).isCorrection) {
+                let note = '';
+                if (inv.createdBy && inv.createdBy.includes('Correction:')) {
+                    note = inv.createdBy.split('Correction:')[1]?.replace(')', '')?.trim() || '';
+                }
+                list.push({
+                    id: inv.id,
+                    type: 'invoice',
+                    material: inv.material,
+                    diff: inv.quantityAdded,
+                    date: inv.date,
+                    author: inv.createdBy?.replace(/\(Correction.*?\)/, '').trim() || 'System',
+                    note: note || (language === 'en' ? 'Stock addition correction' : 'تصحيح إضافة رصيد')
+                });
+            }
+        });
+
+        usages.forEach(u => {
+            if ((u as any).isCorrection || (u.patientFileNumber && u.patientFileNumber.startsWith('STOCK CORRECTION'))) {
+                let note = '';
+                if (u.patientFileNumber && u.patientFileNumber.includes(':')) {
+                    note = u.patientFileNumber.split(':')[1]?.trim() || '';
+                }
+                list.push({
+                    id: u.id,
+                    type: 'usage',
+                    material: u.material,
+                    diff: -u.amount,
+                    date: u.date,
+                    author: u.staffName || 'System',
+                    note: note || (language === 'en' ? 'Stock deduction correction' : 'تصحيح خصم رصيد')
+                });
+            }
+        });
+
+        return list.sort((a, b) => {
+            const da = a.date?.toDate ? a.date.toDate().getTime() : (a.date?.seconds || 0) * 1000;
+            const db = b.date?.toDate ? b.date.toDate().getTime() : (b.date?.seconds || 0) * 1000;
+            return db - da;
+        });
+    }, [invoices, usages, language]);
 
     // --- AGGREGATION LOGIC FOR REPORTS (REVERSE CALCULATION) ---
     // Instead of summing up from zero (which drifts), we start from the CURRENT STOCK (Truth)
@@ -2426,8 +2675,17 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                             {d.amount > 0 ? `+${d.amount}` : d.amount}
                                                         </span>
                                                         <span className="text-[9px] text-slate-400 font-mono dir-ltr">{d.date?.toDate ? `${d.date.toDate().toLocaleDateString('en-US')} ${d.date.toDate().toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})}` : ''}</span>
-                                                        <button onClick={() => handleDeleteDistribution(d)} className="text-red-400 hover:text-red-600 text-xs mt-1" title="Delete">
-                                                            <i className="fas fa-trash-alt"></i>
+                                                        <button 
+                                                            disabled={deletingDistIds.includes(d.id)}
+                                                            onClick={() => handleDeleteDistribution(d)} 
+                                                            className="text-red-400 hover:text-red-600 text-xs mt-1 p-1 rounded hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed" 
+                                                            title={language === 'en' ? 'Delete & Restore Stock' : 'حذف واسترجاع للمخزن'}
+                                                        >
+                                                            {deletingDistIds.includes(d.id) ? (
+                                                                <i className="fas fa-spinner fa-spin text-red-500"></i>
+                                                            ) : (
+                                                                <i className="fas fa-trash-alt"></i>
+                                                            )}
                                                         </button>
                                                     </div>
                                                 </div>
@@ -3386,88 +3644,455 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                             </div>
                         ) : (
                             <div className="space-y-6">
-                                <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                                    <h2 className="text-2xl font-black text-slate-800">{t('inv.mat.title')}</h2>
-                                    <div className="flex gap-2 w-full md:w-auto">
-                                        <div className="relative flex-1 md:w-64">
+                                {/* Top Controls & Tab Selector */}
+                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-xl shadow-xs">
+                                            <i className="fas fa-boxes-stacked"></i>
+                                        </div>
+                                        <div>
+                                            <h2 className="text-xl font-black text-slate-800">{t('inv.mat.title')}</h2>
+                                            <p className="text-xs text-slate-400">
+                                                {language === 'en' ? 'Manage items, actual counts, and stock corrections' : 'إدارة الأصناف، الأرصدة الحالية، وسجل تصحيح الجرد'}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* View Toggle Tabs */}
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <div className="bg-slate-100 p-1 rounded-xl flex gap-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => setMaterialsViewMode('list')}
+                                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${materialsViewMode === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                                            >
+                                                <i className="fas fa-boxes"></i>
+                                                <span>{language === 'en' ? 'Stock List' : 'قائمة المواد والأرصدة'}</span>
+                                                <span className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold">{materials.length}</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setMaterialsViewMode('corrections')}
+                                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${materialsViewMode === 'corrections' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                                            >
+                                                <i className="fas fa-history"></i>
+                                                <span>{language === 'en' ? 'Corrections Log' : 'سجل تصحيحات وجرد المخزون'}</span>
+                                                {stockCorrections.length > 0 && (
+                                                    <span className="bg-amber-100 text-amber-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold">{stockCorrections.length}</span>
+                                                )}
+                                            </button>
+                                        </div>
+
+                                        <button 
+                                            onClick={() => { setEditingMat(null); setNewMatName(''); setNewMatQty(''); }} 
+                                            className="bg-blue-600 text-white px-4 py-2.5 rounded-xl font-bold text-xs shadow-md hover:bg-blue-700 transition-all flex items-center gap-1.5"
+                                        >
+                                            <i className="fas fa-plus"></i>
+                                            <span>{language === 'en' ? 'New Material' : 'صنف جديد'}</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* LIST VIEW */}
+                                {materialsViewMode === 'list' && (
+                                    <div className="space-y-6">
+                                        {/* Search Bar */}
+                                        <div className="relative max-w-md">
                                             <i className="fas fa-search absolute right-3 top-3.5 text-slate-400 text-sm"></i>
                                             <input 
-                                                className="w-full bg-white border border-slate-200 rounded-xl py-3 pr-9 pl-4 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-100"
-                                                placeholder={t('search')}
+                                                className="w-full bg-white border border-slate-200 rounded-xl py-2.5 pr-9 pl-4 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-100 shadow-xs"
+                                                placeholder={language === 'en' ? 'Search materials...' : 'بحث في الأصناف...'}
                                                 value={materialSearch}
                                                 onChange={e => setMaterialSearch(e.target.value)}
                                             />
                                         </div>
-                                        <button onClick={() => { setEditingMat(null); setNewMatName(''); setNewMatQty(''); }} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700">
-                                            <i className="fas fa-plus rtl:ml-2 ltr:mr-2"></i> {t('add')}
-                                        </button>
-                                    </div>
-                                </div>
-                                
-                                {/* Add/Edit Area (Improved for Correction) */}
-                                {(newMatName || editingMat || newMatQty) && (
-                                    <div className="bg-white border-2 border-slate-200 p-6 rounded-2xl shadow-lg flex flex-col gap-4 animate-fade-in relative overflow-hidden">
-                                        <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
-                                        <div className="flex justify-between items-center">
-                                            <h3 className="font-bold text-slate-800 text-lg">
-                                                {editingMat ? 'Correct Stock Level' : 'Add New Material'}
-                                            </h3>
-                                            <button onClick={() => { setEditingMat(null); setNewMatName(''); setNewMatQty(''); }} className="text-slate-400 hover:text-slate-600"><i className="fas fa-times"></i></button>
-                                        </div>
                                         
-                                        {editingMat && (
-                                            <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl text-xs text-amber-800 font-bold mb-2">
-                                                <i className="fas fa-info-circle mr-1"></i> Use this form to manually correct stock discrepancies.
+                                        {/* Add / Edit Form Modal-like Area */}
+                                        {(newMatName || editingMat || newMatQty) && (
+                                            <div className="bg-white border-2 border-blue-100 p-6 rounded-2xl shadow-lg flex flex-col gap-4 animate-fade-in relative overflow-hidden">
+                                                <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500"></div>
+                                                <div className="flex justify-between items-center">
+                                                    <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
+                                                        <i className="fas fa-box text-blue-500"></i>
+                                                        {editingMat 
+                                                            ? (language === 'en' ? 'Edit Material Name & Info' : 'تعديل بيانات الصنف')
+                                                            : (language === 'en' ? 'Add New Material' : 'إضافة صنف جديد')}
+                                                    </h3>
+                                                    <button onClick={() => { setEditingMat(null); setNewMatName(''); setNewMatQty(''); }} className="text-slate-400 hover:text-slate-600">
+                                                        <i className="fas fa-times"></i>
+                                                    </button>
+                                                </div>
+
+                                                <div className="grid md:grid-cols-3 gap-4">
+                                                    <div className="md:col-span-2">
+                                                        <label className="text-xs font-bold text-slate-500 mb-1 block">
+                                                            {language === 'en' ? 'Material Name' : 'اسم المادة / الصنف'}
+                                                        </label>
+                                                        <input 
+                                                            className="bg-slate-50 border border-slate-200 rounded-xl p-3 w-full text-slate-800 font-bold text-sm outline-none focus:ring-2 focus:ring-blue-100" 
+                                                            placeholder={t('inv.mat.name')} 
+                                                            value={newMatName} 
+                                                            onChange={e => setNewMatName(e.target.value)} 
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs font-bold text-slate-500 mb-1 block">
+                                                            {language === 'en' ? 'Initial Stock' : 'الرصيد الافتتاحي'}
+                                                        </label>
+                                                        <input 
+                                                            className="bg-slate-50 border border-slate-200 rounded-xl p-3 w-full text-slate-800 font-bold text-sm outline-none focus:ring-2 focus:ring-blue-100" 
+                                                            type="number" 
+                                                            placeholder="0" 
+                                                            value={newMatQty} 
+                                                            onChange={e => setNewMatQty(e.target.value)} 
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <button onClick={handleMaterialSave} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-md w-full text-sm">
+                                                    {editingMat ? (language === 'en' ? 'Save Changes' : 'حفظ التعديلات') : t('save')}
+                                                </button>
                                             </div>
                                         )}
 
-                                        <div className="grid md:grid-cols-3 gap-4">
-                                            <div className="md:col-span-2">
-                                                <label className="text-xs font-bold text-slate-500 mb-1 block">Material Name</label>
-                                                <input className="bg-slate-50 border border-slate-200 rounded-xl p-3 w-full text-slate-800 font-bold outline-none focus:ring-2 focus:ring-blue-100" placeholder={t('inv.mat.name')} value={newMatName} onChange={e => setNewMatName(e.target.value)} />
-                                            </div>
-                                            <div>
-                                                <label className="text-xs font-bold text-slate-500 mb-1 block">Actual Quantity</label>
-                                                <input className="bg-slate-50 border border-slate-200 rounded-xl p-3 w-full text-slate-800 font-bold outline-none focus:ring-2 focus:ring-blue-100" type="number" placeholder="Qty" value={newMatQty} onChange={e => setNewMatQty(e.target.value)} />
-                                            </div>
-                                        </div>
-                                        
-                                        {/* Correction Date Input */}
-                                        {editingMat && (
-                                            <div>
-                                                <label className="text-xs font-bold text-slate-500 mb-1 block">Correction Effective Date</label>
-                                                <input 
-                                                    type="date" 
-                                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 font-bold outline-none focus:ring-2 focus:ring-blue-100" 
-                                                    value={correctionDate} 
-                                                    onChange={e => setCorrectionDate(e.target.value)} 
-                                                />
-                                                <p className="text-[10px] text-slate-400 mt-1">
-                                                    * This date will be used for the adjustment transaction record.
-                                                </p>
-                                            </div>
-                                        )}
+                                        {/* Materials Grid */}
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                            {filteredMaterials.map(m => (
+                                                <div key={m.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all group flex flex-col justify-between">
+                                                    <div>
+                                                        <div className="flex justify-between items-start mb-3">
+                                                            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 group-hover:scale-105 transition-transform">
+                                                                <i className="fas fa-box"></i>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <button 
+                                                                    onClick={() => handleOpenStockAdjustment(m)}
+                                                                    className="text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100 p-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-1"
+                                                                    title={language === 'en' ? 'Correct Stock' : 'تعديل أو تصحيح الرصيد'}
+                                                                >
+                                                                    <i className="fas fa-sliders-h"></i>
+                                                                </button>
+                                                                <button 
+                                                                    onClick={() => { setEditingMat(m); setNewMatName(m.name); setNewMatQty(m.quantity.toString()); }} 
+                                                                    className="text-slate-400 hover:text-blue-500 bg-slate-50 hover:bg-blue-50 p-2 rounded-xl text-xs transition-colors"
+                                                                    title={language === 'en' ? 'Edit details' : 'تعديل الاسم'}
+                                                                >
+                                                                    <i className="fas fa-pen"></i>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                        <h4 className="font-bold text-slate-800 text-sm mb-1 truncate" title={m.name}>{m.name}</h4>
+                                                        <div className="flex items-baseline gap-1.5 mt-2">
+                                                            <span className={`text-2xl font-black ${m.quantity <= 5 ? 'text-red-500' : m.quantity <= 15 ? 'text-amber-500' : 'text-emerald-600'}`}>
+                                                                {m.quantity}
+                                                            </span>
+                                                            <span className="text-xs text-slate-400 font-bold">{t('inv.mat.unit')}</span>
+                                                        </div>
+                                                    </div>
 
-                                        <button onClick={handleMaterialSave} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-md w-full">
-                                            {editingMat ? 'Update & Correct Stock' : t('save')}
-                                        </button>
+                                                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${m.quantity <= 5 ? 'bg-red-50 text-red-600' : m.quantity <= 15 ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                                                            {m.quantity <= 5 
+                                                                ? (language === 'en' ? 'Low Stock' : 'منخفض جداً')
+                                                                : (language === 'en' ? 'Available' : 'متوفر بالمخزن')}
+                                                        </span>
+                                                        <button 
+                                                            onClick={() => handleOpenStockAdjustment(m)}
+                                                            className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                                                        >
+                                                            <span>{language === 'en' ? 'Adjust' : 'تصحيح الرصيد'}</span>
+                                                            <i className="fas fa-chevron-left text-[10px] rtl:rotate-0 ltr:rotate-180"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                 )}
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                                    {filteredMaterials.map(m => (
-                                        <div key={m.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all group relative">
-                                            <div className="flex justify-between items-start mb-2">
-                                                <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-500 transition-colors">
-                                                    <i className="fas fa-box"></i>
-                                                </div>
-                                                <button onClick={() => { setEditingMat(m); setNewMatName(m.name); setNewMatQty(m.quantity.toString()); setCorrectionDate(new Date().toISOString().split('T')[0]); }} className="text-slate-300 hover:text-blue-500 bg-slate-50 hover:bg-blue-50 p-2 rounded-full transition-colors"><i className="fas fa-pen"></i></button>
+                                {/* CORRECTIONS & AUDIT LOG VIEW */}
+                                {materialsViewMode === 'corrections' && (
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+                                        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 border-b border-slate-100 pb-4">
+                                            <div>
+                                                <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                                                    <i className="fas fa-history text-amber-500"></i>
+                                                    {language === 'en' ? 'Inventory Stock Corrections Log' : 'سجل حركات وتصحيحات جرد المخزون'}
+                                                </h3>
+                                                <p className="text-xs text-slate-400">
+                                                    {language === 'en'
+                                                        ? 'All manual quantity adjustments and inventory reconcile actions with rollback support'
+                                                        : 'كافة عمليات تعديل الأرصدة يدوياً مع إمكانية التعديل السريع أو التراجع الفوري عن أي خطأ'}
+                                                </p>
                                             </div>
-                                            <h4 className="font-bold text-slate-800 mb-1 truncate" title={m.name}>{m.name}</h4>
-                                            <p className={`text-sm font-bold ${m.quantity <= 10 ? 'text-red-500' : 'text-emerald-500'}`}>{m.quantity} {t('inv.mat.unit')}</p>
+                                            <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-xl self-start">
+                                                {language === 'en' ? `Total Corrections: ${stockCorrections.length}` : `إجمالي حركات التصحيح: ${stockCorrections.length}`}
+                                            </span>
                                         </div>
-                                    ))}
-                                </div>
+
+                                        {stockCorrections.length === 0 ? (
+                                            <div className="text-center py-12 text-slate-400">
+                                                <i className="fas fa-clipboard-check text-4xl mb-3 text-slate-200"></i>
+                                                <p className="font-bold text-sm">
+                                                    {language === 'en' ? 'No stock corrections recorded yet' : 'لا توجد حركات تصحيح رصيد مسجلة حتى الآن'}
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <div className="overflow-x-auto">
+                                                <table className={`w-full text-xs ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
+                                                    <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                                                        <tr>
+                                                            <th className="p-3">{language === 'en' ? 'Date & Time' : 'التاريخ والوقت'}</th>
+                                                            <th className="p-3">{language === 'en' ? 'Material' : 'الصنف'}</th>
+                                                            <th className="p-3">{language === 'en' ? 'Adjustment' : 'قيمة التعديل'}</th>
+                                                            <th className="p-3">{language === 'en' ? 'Reason / Notes' : 'سبب التصحيح / البيان'}</th>
+                                                            <th className="p-3">{language === 'en' ? 'User' : 'المسؤول'}</th>
+                                                            <th className="p-3 text-center">{language === 'en' ? 'Actions' : 'إجراءات'}</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100 font-medium">
+                                                        {stockCorrections.map((corr) => {
+                                                            const d = corr.date?.toDate ? corr.date.toDate() : new Date((corr.date?.seconds || 0) * 1000);
+                                                            const targetMat = materials.find(m => m.name === corr.material);
+                                                            return (
+                                                                <tr key={corr.id} className="hover:bg-amber-50/30 transition-colors">
+                                                                    <td className="p-3 font-mono text-slate-500 whitespace-nowrap">
+                                                                        {d.toLocaleDateString(language === 'en' ? 'en-US' : 'ar-EG')} {d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                    </td>
+                                                                    <td className="p-3 font-bold text-slate-800">
+                                                                        {corr.material}
+                                                                    </td>
+                                                                    <td className="p-3 font-black whitespace-nowrap">
+                                                                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs ${corr.diff > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                                                            <i className={`fas ${corr.diff > 0 ? 'fa-arrow-up' : 'fa-arrow-down'}`}></i>
+                                                                            {corr.diff > 0 ? `+${corr.diff}` : corr.diff}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="p-3 text-slate-600 max-w-xs truncate" title={corr.note}>
+                                                                        {corr.note}
+                                                                    </td>
+                                                                    <td className="p-3 text-slate-600 whitespace-nowrap">
+                                                                        {corr.author}
+                                                                    </td>
+                                                                    <td className="p-3 text-center whitespace-nowrap">
+                                                                        <div className="flex items-center justify-center gap-2">
+                                                                            {targetMat && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handleOpenStockAdjustment(targetMat)}
+                                                                                    className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
+                                                                                    title={language === 'en' ? 'Re-adjust stock for this item' : 'تعديل رصيد الصنف مجدداً'}
+                                                                                >
+                                                                                    <i className="fas fa-edit"></i>
+                                                                                    <span>{language === 'en' ? 'Edit Stock' : 'تعديل'}</span>
+                                                                                </button>
+                                                                            )}
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleRevertCorrection(corr)}
+                                                                                className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
+                                                                                title={language === 'en' ? 'Rollback and delete this correction' : 'تراجع عن حركة التصحيح واسترجاع الرصيد'}
+                                                                            >
+                                                                                <i className="fas fa-undo"></i>
+                                                                                <span>{language === 'en' ? 'Revert' : 'تراجع'}</span>
+                                                                            </button>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* QUICK STOCK ADJUSTMENT MODAL */}
+                                {adjustingMat && (
+                                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+                                        <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 space-y-5 border border-slate-100 relative animate-scale-up">
+                                            <div className="flex justify-between items-start border-b border-slate-100 pb-3">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-lg">
+                                                        <i className="fas fa-sliders-h"></i>
+                                                    </div>
+                                                    <div>
+                                                        <h3 className="font-black text-slate-800 text-lg">
+                                                            {language === 'en' ? 'Stock Adjustment & Reconcile' : 'تعديل وتصحيح رصيد الصنف'}
+                                                        </h3>
+                                                        <p className="text-xs text-slate-400 font-bold">{adjustingMat.name}</p>
+                                                    </div>
+                                                </div>
+                                                <button 
+                                                    onClick={() => setAdjustingMat(null)}
+                                                    className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100"
+                                                >
+                                                    <i className="fas fa-times text-base"></i>
+                                                </button>
+                                            </div>
+
+                                            {/* Quantity Comparison Card */}
+                                            <div className="grid grid-cols-2 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                                <div className="text-center p-2 rounded-xl bg-white border border-slate-200/60 shadow-2xs">
+                                                    <span className="text-[10px] font-bold text-slate-400 block mb-1">
+                                                        {language === 'en' ? 'Current Registered Stock' : 'الرصيد المسجل حالياً'}
+                                                    </span>
+                                                    <span className="text-2xl font-black text-slate-700 font-mono">
+                                                        {adjustingMat.quantity}
+                                                    </span>
+                                                </div>
+                                                <div className="text-center p-2 rounded-xl bg-blue-50/50 border border-blue-200/60 shadow-2xs">
+                                                    <span className="text-[10px] font-bold text-blue-600 block mb-1">
+                                                        {language === 'en' ? 'New Target Stock' : 'الرصيد الفعلي الجديد'}
+                                                    </span>
+                                                    <span className="text-2xl font-black text-blue-700 font-mono">
+                                                        {adjustTargetQty !== '' ? adjustTargetQty : '0'}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Live Difference Badge */}
+                                            {(() => {
+                                                const targetVal = parseFloat(adjustTargetQty);
+                                                const diff = isNaN(targetVal) ? 0 : targetVal - adjustingMat.quantity;
+                                                if (diff === 0) {
+                                                    return (
+                                                        <div className="p-2.5 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold text-center">
+                                                            {language === 'en' ? 'No change in quantity' : 'الرصيد مطابق - لا يوجد تعديل'}
+                                                        </div>
+                                                    );
+                                                }
+                                                return (
+                                                    <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 ${diff > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                                                        <i className={`fas ${diff > 0 ? 'fa-plus-circle' : 'fa-minus-circle'}`}></i>
+                                                        <span>
+                                                            {language === 'en'
+                                                                ? `${diff > 0 ? 'Increase' : 'Decrease'} of ${Math.abs(diff)} unit(s) will be applied`
+                                                                : diff > 0 
+                                                                    ? `سيتم زيادة ${diff} علبة في المخزن لتصحيح الرصيد`
+                                                                    : `سيتم خصم ${Math.abs(diff)} علبة من المخزن لتصحيح الرصيد`}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })()}
+
+                                            {/* Target Quantity Input & Stepper Buttons */}
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-slate-700 block">
+                                                    {language === 'en' ? 'Enter Actual Quantity' : 'أدخل الكمية الفعلية الصحيحة:'}
+                                                </label>
+                                                <input 
+                                                    type="number"
+                                                    min="0"
+                                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-3 text-center text-xl font-black text-slate-800 outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white transition-all font-mono"
+                                                    value={adjustTargetQty}
+                                                    onChange={e => setAdjustTargetQty(e.target.value)}
+                                                />
+
+                                                {/* Steppers */}
+                                                <div className="flex flex-wrap gap-1.5 justify-center pt-1">
+                                                    {[-10, -5, -3, -1, 1, 3, 5, 10].map(step => (
+                                                        <button
+                                                            key={step}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const current = parseFloat(adjustTargetQty) || 0;
+                                                                setAdjustTargetQty(Math.max(0, current + step).toString());
+                                                            }}
+                                                            className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono transition-colors ${step < 0 ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
+                                                        >
+                                                            {step > 0 ? `+${step}` : step}
+                                                        </button>
+                                                    ))}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setAdjustTargetQty(adjustingMat.quantity.toString())}
+                                                        className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+                                                    >
+                                                        {language === 'en' ? 'Reset' : 'إعادة ضبط'}
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* Reason & Date */}
+                                            <div className="space-y-3">
+                                                <div>
+                                                    <label className="text-xs font-bold text-slate-600 mb-1 block">
+                                                        {language === 'en' ? 'Reason / Notes' : 'سبب التعديل أو الملاحظة:'}
+                                                    </label>
+                                                    <input 
+                                                        type="text"
+                                                        placeholder={language === 'en' ? 'e.g. Correction of duplicate delete, physical count...' : 'مثال: تصحيح خطأ مسح مكرر، مطابقة الجرد الفعلي...'}
+                                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-200"
+                                                        value={adjustNote}
+                                                        onChange={e => setAdjustNote(e.target.value)}
+                                                    />
+                                                    {/* Quick reason chips */}
+                                                    <div className="flex flex-wrap gap-1.5 mt-2">
+                                                        {[
+                                                            language === 'en' ? 'Duplicate distribution delete fix' : 'تصحيح تكرار مسح حركة توزيع',
+                                                            language === 'en' ? 'Physical inventory match' : 'مطابقة الجرد الفعلي للمخزن',
+                                                            language === 'en' ? 'Typo correction' : 'تصحيح إدخال خاطئ للكمية',
+                                                            language === 'en' ? 'Damaged / Expired items' : 'استبعاد تالف أو منتهي'
+                                                        ].map((chipText, i) => (
+                                                            <button
+                                                                key={i}
+                                                                type="button"
+                                                                onClick={() => setAdjustNote(chipText)}
+                                                                className="text-[10px] font-bold bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 px-2 py-1 rounded-lg transition-colors"
+                                                            >
+                                                                + {chipText}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <label className="text-xs font-bold text-slate-600 mb-1 block">
+                                                        {language === 'en' ? 'Effective Date' : 'تاريخ حركة التصحيح:'}
+                                                    </label>
+                                                    <input 
+                                                        type="date"
+                                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-200"
+                                                        value={adjustDate}
+                                                        onChange={e => setAdjustDate(e.target.value)}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Actions */}
+                                            <div className="flex gap-3 pt-2">
+                                                <button
+                                                    type="button"
+                                                    disabled={isAdjusting}
+                                                    onClick={() => setAdjustingMat(null)}
+                                                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl font-bold text-xs transition-colors"
+                                                >
+                                                    {language === 'en' ? 'Cancel' : 'إلغاء'}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={isAdjusting}
+                                                    onClick={handleConfirmStockAdjustment}
+                                                    className="flex-2 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold text-xs shadow-lg shadow-blue-200 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                                                >
+                                                    {isAdjusting ? (
+                                                        <>
+                                                            <i className="fas fa-spinner fa-spin"></i>
+                                                            <span>{language === 'en' ? 'Applying...' : 'جاري الحفظ وتعديل الرصيد...'}</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <i className="fas fa-check"></i>
+                                                            <span>{language === 'en' ? 'Save & Correct Stock' : 'حفظ وتعديل الرصيد فوراً'}</span>
+                                                        </>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -3784,8 +4409,17 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                     <td className="p-4 font-mono text-slate-500 print:text-black">{u.patientFileNumber}</td>
                                                     {isAdmin && (
                                                         <td className="p-4 print:hidden text-center">
-                                                            <button onClick={() => handleDeleteUsage(u)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all" title="Delete & Restore Stock">
-                                                                <i className="fas fa-trash"></i>
+                                                            <button 
+                                                                disabled={deletingUsageIds.includes(u.id)}
+                                                                onClick={() => handleDeleteUsage(u)} 
+                                                                className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1.5 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                                                title={language === 'en' ? 'Delete & Restore Stock' : 'حذف واسترجاع للمخزن'}
+                                                            >
+                                                                {deletingUsageIds.includes(u.id) ? (
+                                                                    <i className="fas fa-spinner fa-spin text-red-500"></i>
+                                                                ) : (
+                                                                    <i className="fas fa-trash"></i>
+                                                                )}
                                                             </button>
                                                         </td>
                                                     )}

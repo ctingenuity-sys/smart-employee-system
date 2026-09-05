@@ -70,19 +70,21 @@ interface InventorySystemProps {
 const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, userEmail, userId, userPermissions = [], initialTab }) => {
     const { t, dir, language } = useLanguage();
     const { selectedDepartmentId, departments } = useDepartment();
-    const isAdmin = userRole === 'admin';
-    const isSupervisor = userRole === 'supervisor' || userRole === 'manager';
-    const canDistribute = isAdmin || isSupervisor || userRole === 'custody_clerk' || Boolean(userPermissions?.includes('custody_distribution') || userPermissions?.includes('inventory_distribution'));
-    const hasFullInventory = isAdmin || isSupervisor || Boolean(userPermissions?.includes('inventory'));
-    const canManageInventory = isAdmin || isSupervisor || hasFullInventory;
+    const normalizedRole = (userRole || '').toLowerCase();
+    const isAdmin = normalizedRole === 'admin';
+    const isSupervisor = normalizedRole === 'supervisor';
+    const isManager = normalizedRole === 'manager' || normalizedRole === 'director';
+    const canManageInventory = isAdmin || isSupervisor || isManager;
+    const canDistribute = canManageInventory || 
+        normalizedRole === 'custody_clerk' || 
+        Boolean(userPermissions?.includes('custody_distribution') || userPermissions?.includes('inventory_distribution'));
 
     const currentDept = departments?.find(d => d.id === selectedDepartmentId);
     const currentDeptName = currentDept?.name || 'الأشعة والتصوير الطبي (Radiology)';
 
     const [activeTab, setActiveTab] = useState<'dashboard' | 'usage' | 'incoming' | 'materials' | 'reports' | 'distribution' | 'custody'>(
         initialTab || (
-            userRole === 'custody_clerk' ? 'distribution' : 
-            canManageInventory ? 'dashboard' : 'custody'
+            normalizedRole === 'custody_clerk' ? 'distribution' : 'dashboard'
         )
     );
 
@@ -91,6 +93,17 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
             setActiveTab(initialTab);
         }
     }, [initialTab]);
+
+    // Safety guard against unauthorized activeTab access
+    useEffect(() => {
+        if (!canManageInventory) {
+            if (['usage', 'incoming', 'materials', 'reports'].includes(activeTab)) {
+                setActiveTab('dashboard');
+            } else if (activeTab === 'distribution' && !canDistribute) {
+                setActiveTab('dashboard');
+            }
+        }
+    }, [activeTab, canManageInventory, canDistribute]);
     const [materials, setMaterials] = useState<Material[]>([]);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [usages, setUsages] = useState<MaterialUsage[]>([]);
@@ -2157,51 +2170,77 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 </div>
                 
                 <nav className="flex-1 px-4 space-y-2">
-                    {userRole !== 'custody_clerk' && (
-                        <>
-                            {canManageInventory && (
-                                <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'dashboard' ? 'bg-slate-800 text-white shadow-lg shadow-slate-300' : 'text-slate-500 hover:bg-slate-50'}`}>
-                                    <i className="fas fa-th-large w-5"></i>
-                                    <span className="font-bold text-sm">{t('inv.dashboard')}</span>
-                                </button>
-                            )}
-                            <button onClick={() => setActiveTab('custody')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'custody' ? 'bg-teal-600 text-white shadow-lg shadow-teal-300' : 'text-slate-500 hover:bg-slate-50'}`}>
-                                <i className="fas fa-box-open w-5"></i>
-                                <span className="font-bold text-sm">{t('inv.custody')}</span>
-                            </button>
-                        </>
+                    {/* 1. نظرة عامة (Overview) - للجميع (المشرف، الأدمن، المدير، والموظف العادي) */}
+                    <button 
+                        onClick={() => setActiveTab('dashboard')} 
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'dashboard' ? 'bg-slate-800 text-white shadow-lg shadow-slate-300' : 'text-slate-500 hover:bg-slate-50'}`}
+                    >
+                        <i className="fas fa-th-large w-5"></i>
+                        <span className="font-bold text-sm">{t('inv.dashboard')}</span>
+                    </button>
+
+                    {/* 2. عهدتي (My Custody) - للجميع (المشرف، الأدمن، المدير، والموظف العادي) */}
+                    <button 
+                        onClick={() => setActiveTab('custody')} 
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'custody' ? 'bg-teal-600 text-white shadow-lg shadow-teal-300' : 'text-slate-500 hover:bg-slate-50'}`}
+                    >
+                        <i className="fas fa-box-open w-5"></i>
+                        <span className="font-bold text-sm">{t('inv.custody')}</span>
+                    </button>
+
+                    {/* 3. صرف مواد (Usage) - للمشرف والأدمن والمدير فقط */}
+                    {canManageInventory && (
+                        <button 
+                            onClick={() => setActiveTab('usage')} 
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'usage' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-300' : 'text-slate-500 hover:bg-slate-50'}`}
+                        >
+                            <i className="fas fa-hand-holding-medical w-5"></i>
+                            <span className="font-bold text-sm">{t('inv.usage')}</span>
+                        </button>
                     )}
-                    
-                    {(userRole === 'custody_clerk' || (canDistribute && !canManageInventory)) && (
-                        <button onClick={() => setActiveTab('distribution')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'distribution' ? 'bg-orange-600 text-white shadow-lg shadow-orange-300' : 'text-slate-500 hover:bg-slate-50'}`}>
+
+                    {/* 4. توزيع العهد (Distribution) - للمشرف والأدمن والمدير، وللموظف العادي إذا تم تفعيل التوزيع له */}
+                    {(canManageInventory || canDistribute) && (
+                        <button 
+                            onClick={() => setActiveTab('distribution')} 
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'distribution' ? 'bg-orange-600 text-white shadow-lg shadow-orange-300' : 'text-slate-500 hover:bg-slate-50'}`}
+                        >
                             <i className="fas fa-share-square w-5"></i>
                             <span className="font-bold text-sm">{t('inv.distribution')}</span>
                         </button>
                     )}
 
+                    {/* 5. التقارير (Reports) - للمشرف والأدمن والمدير فقط */}
                     {canManageInventory && (
-                        <>
-                            <button onClick={() => setActiveTab('usage')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'usage' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-300' : 'text-slate-500 hover:bg-slate-50'}`}>
-                                <i className="fas fa-hand-holding-medical w-5"></i>
-                                <span className="font-bold text-sm">{t('inv.usage')}</span>
-                            </button>
-                            <button onClick={() => setActiveTab('distribution')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'distribution' ? 'bg-orange-600 text-white shadow-lg shadow-orange-300' : 'text-slate-500 hover:bg-slate-50'}`}>
-                                <i className="fas fa-share-square w-5"></i>
-                                <span className="font-bold text-sm">{t('inv.distribution')}</span>
-                            </button>
-                            <button onClick={() => setActiveTab('reports')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'reports' ? 'bg-purple-600 text-white shadow-lg shadow-purple-300' : 'text-slate-500 hover:bg-slate-50'}`}>
-                                <i className="fas fa-chart-bar w-5"></i>
-                                <span className="font-bold text-sm">{t('inv.reports')}</span>
-                            </button>
-                            <button onClick={() => setActiveTab('incoming')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'incoming' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-300' : 'text-slate-500 hover:bg-slate-50'}`}>
-                                <i className="fas fa-truck-loading w-5"></i>
-                                <span className="font-bold text-sm">{t('inv.incoming')}</span>
-                            </button>
-                            <button onClick={() => setActiveTab('materials')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'materials' ? 'bg-blue-600 text-white shadow-lg shadow-blue-300' : 'text-slate-500 hover:bg-slate-50'}`}>
-                                <i className="fas fa-cubes w-5"></i>
-                                <span className="font-bold text-sm">{t('inv.materials')}</span>
-                            </button>
-                        </>
+                        <button 
+                            onClick={() => setActiveTab('reports')} 
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'reports' ? 'bg-purple-600 text-white shadow-lg shadow-purple-300' : 'text-slate-500 hover:bg-slate-50'}`}
+                        >
+                            <i className="fas fa-chart-bar w-5"></i>
+                            <span className="font-bold text-sm">{t('inv.reports')}</span>
+                        </button>
+                    )}
+
+                    {/* 6. وارد جديد (Incoming) - للمشرف والأدمن والمدير فقط */}
+                    {canManageInventory && (
+                        <button 
+                            onClick={() => setActiveTab('incoming')} 
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'incoming' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-300' : 'text-slate-500 hover:bg-slate-50'}`}
+                        >
+                            <i className="fas fa-truck-loading w-5"></i>
+                            <span className="font-bold text-sm">{t('inv.incoming')}</span>
+                        </button>
+                    )}
+
+                    {/* 7. إدارة المواد (Materials) - للمشرف والأدمن والمدير فقط */}
+                    {canManageInventory && (
+                        <button 
+                            onClick={() => setActiveTab('materials')} 
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'materials' ? 'bg-blue-600 text-white shadow-lg shadow-blue-300' : 'text-slate-500 hover:bg-slate-50'}`}
+                        >
+                            <i className="fas fa-cubes w-5"></i>
+                            <span className="font-bold text-sm">{t('inv.materials')}</span>
+                        </button>
                     )}
                 </nav>
 
@@ -2233,12 +2272,10 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 {/* Mobile Navigation */}
                 <div className="lg:hidden flex overflow-x-auto gap-2 mb-6 pb-2 no-scrollbar print:hidden">
                     {(canManageInventory 
-                        ? ['dashboard', 'usage', 'custody', 'distribution', 'reports', 'incoming', 'materials'] 
-                        : userRole === 'custody_clerk' 
-                            ? ['distribution'] 
-                            : canDistribute
-                                ? (hasFullInventory ? ['dashboard', 'custody', 'distribution'] : ['custody', 'distribution'])
-                                : (hasFullInventory ? ['dashboard', 'custody'] : ['custody'])
+                        ? ['dashboard', 'custody', 'usage', 'distribution', 'reports', 'incoming', 'materials'] 
+                        : (canDistribute
+                            ? ['dashboard', 'custody', 'distribution']
+                            : ['dashboard', 'custody'])
                     ).map(tab => (
                         <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === tab ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}>
                             {t(`inv.${tab}`)}
@@ -2438,7 +2475,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 )}
 
                 {/* --- USAGE TAB --- */}
-                {activeTab === 'usage' && (
+                {canManageInventory && activeTab === 'usage' && (
                     <div className="max-w-4xl mx-auto animate-fade-in-up">
                         <div className="grid md:grid-cols-2 gap-8 items-start">
                             <div className="bg-white p-8 rounded-[2rem] shadow-xl shadow-indigo-100 border border-indigo-50">
@@ -3338,7 +3375,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 )}
 
                 {/* --- MATERIALS & INCOMING --- */}
-                {(activeTab === 'materials' || activeTab === 'incoming') && (
+                {canManageInventory && (activeTab === 'materials' || activeTab === 'incoming') && (
                     <div className="animate-fade-in-up">
                         {activeTab === 'incoming' ? (
                             <div className="space-y-10">
@@ -4163,7 +4200,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 )}
 
                 {/* --- REPORTS TAB --- */}
-                {activeTab === 'reports' && (
+                {canManageInventory && activeTab === 'reports' && (
                     <div className="space-y-6 animate-fade-in-up">
                         
                         <PrintHeader 

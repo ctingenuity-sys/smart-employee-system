@@ -180,7 +180,13 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
           return feature === 'inventory' || feature === 'custody_distribution';
       }
       if (feature === 'inventory') {
-          return Boolean(permissions?.includes('inventory') || permissions?.includes('custody_distribution'));
+          return Boolean(
+              userRole === UserRole.ADMIN ||
+              userRole === UserRole.SUPERVISOR ||
+              userRole === UserRole.MANAGER ||
+              permissions?.includes('inventory') || 
+              permissions?.includes('custody_distribution')
+          );
       }
       if (!permissions) return true; // Legacy users
       return permissions.includes(feature);

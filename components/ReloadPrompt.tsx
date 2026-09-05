@@ -6,6 +6,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 function ReloadPrompt() {
   const { language, dir } = useLanguage();
   const [isUpdating, setIsUpdating] = useState(false);
+  const [testMode, setTestMode] = useState<'refresh' | 'offline' | null>(null);
 
   const {
     offlineReady: [offlineReady, setOfflineReady],
@@ -20,14 +21,32 @@ function ReloadPrompt() {
     },
   });
 
+  // Listen for custom test events so admin or user can test anytime
+  React.useEffect(() => {
+    const handleTest = (e: any) => {
+      setTestMode(e.detail?.type || 'refresh');
+    };
+    window.addEventListener('test-reload-prompt', handleTest);
+    return () => window.removeEventListener('test-reload-prompt', handleTest);
+  }, []);
+
   const close = () => {
     setOfflineReady(false);
     setNeedRefresh(false);
+    setTestMode(null);
   };
 
   const handleUpdate = async () => {
     try {
       setIsUpdating(true);
+      if (testMode) {
+        setTimeout(() => {
+          setIsUpdating(false);
+          setTestMode(null);
+          window.location.reload();
+        }, 1200);
+        return;
+      }
       await updateServiceWorker(true);
     } catch (e) {
       console.error('Update error:', e);
@@ -35,7 +54,10 @@ function ReloadPrompt() {
     }
   };
 
-  if (!offlineReady && !needRefresh) {
+  const isShowRefresh = needRefresh || testMode === 'refresh';
+  const isShowOffline = offlineReady || testMode === 'offline';
+
+  if (!isShowOffline && !isShowRefresh) {
     return null;
   }
 
@@ -45,20 +67,20 @@ function ReloadPrompt() {
     <aside 
       aria-label="App Update Notification"
       dir={dir}
-      className={`fixed bottom-5 z-[9999] max-w-md w-[calc(100vw-2.5rem)] sm:w-auto transition-all duration-300 animate-in fade-in slide-in-from-bottom-5 ${
-        dir === 'rtl' ? 'right-5 sm:right-6' : 'left-5 sm:left-6'
+      className={`fixed bottom-6 z-[100000] max-w-lg w-[calc(100vw-2rem)] sm:w-auto transition-all duration-300 animate-in fade-in slide-in-from-bottom-5 ${
+        dir === 'rtl' ? 'left-4 sm:left-6 sm:right-auto' : 'right-4 sm:right-6 sm:left-auto'
       }`}
     >
-      <div className="relative overflow-hidden rounded-2xl bg-slate-900/95 backdrop-blur-md border border-slate-700/80 shadow-2xl p-4 text-white">
+      <div className="relative overflow-hidden rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-slate-700/90 shadow-[0_20px_50px_rgba(0,0,0,0.5)] p-4 text-white">
         {/* Glow accent */}
-        <div className={`absolute -top-10 ${dir === 'rtl' ? '-left-10' : '-right-10'} w-28 h-28 ${offlineReady ? 'bg-emerald-500/20' : 'bg-blue-500/20'} rounded-full blur-2xl pointer-events-none`} />
+        <div className={`absolute -top-10 ${dir === 'rtl' ? '-left-10' : '-right-10'} w-28 h-28 ${isShowOffline ? 'bg-emerald-500/20' : 'bg-blue-500/20'} rounded-full blur-2xl pointer-events-none`} />
 
         <div className="flex items-start gap-3.5 relative z-10">
           {/* Icon Badge */}
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-inner ${
-            offlineReady ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+            isShowOffline ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
           }`}>
-            {offlineReady ? (
+            {isShowOffline ? (
               <i className="fas fa-check-circle text-lg"></i>
             ) : (
               <i className="fas fa-sparkles text-lg animate-pulse"></i>
@@ -68,7 +90,7 @@ function ReloadPrompt() {
           {/* Content */}
           <div className="flex-1 min-w-0 pt-0.5">
             <h4 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-              {offlineReady ? (
+              {isShowOffline ? (
                 <span>{isAr ? 'جاهز للعمل بدون إنترنت' : 'Ready for Offline Use'}</span>
               ) : (
                 <>
@@ -80,14 +102,14 @@ function ReloadPrompt() {
               )}
             </h4>
             <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-              {offlineReady
+              {isShowOffline
                 ? (isAr ? 'تم تحميل بيانات النظام بنجاح ويمكنك تصفحه والعمل عليه بدون اتصال بالشبكة.' : 'App data is cached and ready to work smoothly even when offline.')
                 : (isAr ? 'تم نشر تحسينات وميزات جديدة. حدّث التطبيق الآن للاستمتاع بآخر التحديثات والأداء الأفضل.' : 'New features and improvements are ready. Update now to ensure optimal performance.')}
             </p>
 
             {/* Action Buttons */}
             <div className="flex items-center gap-2 mt-3.5">
-              {needRefresh && (
+              {isShowRefresh && (
                 <button
                   type="button"
                   disabled={isUpdating}

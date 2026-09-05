@@ -63,13 +63,19 @@ interface InventorySystemProps {
     userName: string;
     userEmail: string;
     userId?: string;
+    userPermissions?: string[];
 }
 
-const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, userEmail, userId }) => {
+const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, userEmail, userId, userPermissions = [] }) => {
     const { t, dir, language } = useLanguage();
     const { selectedDepartmentId } = useDepartment();
+    const isAdmin = userRole === 'admin';
+    const isSupervisor = userRole === 'supervisor' || userRole === 'manager';
+    const canDistribute = isAdmin || userRole === 'custody_clerk' || Boolean(userPermissions?.includes('custody_distribution') || userPermissions?.includes('inventory_distribution'));
+    const hasFullInventory = isAdmin || isSupervisor || Boolean(userPermissions?.includes('inventory'));
+
     const [activeTab, setActiveTab] = useState<'dashboard' | 'usage' | 'incoming' | 'materials' | 'reports' | 'distribution' | 'custody'>(
-        userRole === 'custody_clerk' ? 'distribution' : 
+        userRole === 'custody_clerk' || (canDistribute && !hasFullInventory) ? 'distribution' : 
         !['admin', 'supervisor'].includes(userRole) ? 'custody' : 'dashboard'
     );
     const [materials, setMaterials] = useState<Material[]>([]);
@@ -172,8 +178,6 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
     // Incoming Tab Filter
     const [incomingViewMonth, setIncomingViewMonth] = useState(new Date().toISOString().slice(0, 7));
-
-    const isAdmin = userRole === 'admin' || userRole === 'supervisor';
 
     // Duplicate Patient File Confirmation Modal State
     const [duplicateWarningModal, setDuplicateWarningModal] = useState<DuplicateWarningModalState>({
@@ -2104,10 +2108,12 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 <nav className="flex-1 px-4 space-y-2">
                     {userRole !== 'custody_clerk' && (
                         <>
-                            <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'dashboard' ? 'bg-slate-800 text-white shadow-lg shadow-slate-300' : 'text-slate-500 hover:bg-slate-50'}`}>
-                                <i className="fas fa-th-large w-5"></i>
-                                <span className="font-bold text-sm">{t('inv.dashboard')}</span>
-                            </button>
+                            {(isAdmin || isSupervisor || hasFullInventory) && (
+                                <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'dashboard' ? 'bg-slate-800 text-white shadow-lg shadow-slate-300' : 'text-slate-500 hover:bg-slate-50'}`}>
+                                    <i className="fas fa-th-large w-5"></i>
+                                    <span className="font-bold text-sm">{t('inv.dashboard')}</span>
+                                </button>
+                            )}
                             <button onClick={() => setActiveTab('custody')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'custody' ? 'bg-teal-600 text-white shadow-lg shadow-teal-300' : 'text-slate-500 hover:bg-slate-50'}`}>
                                 <i className="fas fa-box-open w-5"></i>
                                 <span className="font-bold text-sm">{t('inv.custody')}</span>
@@ -2115,7 +2121,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                         </>
                     )}
                     
-                    {userRole === 'custody_clerk' && (
+                    {(userRole === 'custody_clerk' || (canDistribute && !isAdmin)) && (
                         <button onClick={() => setActiveTab('distribution')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'distribution' ? 'bg-orange-600 text-white shadow-lg shadow-orange-300' : 'text-slate-500 hover:bg-slate-50'}`}>
                             <i className="fas fa-share-square w-5"></i>
                             <span className="font-bold text-sm">{t('inv.distribution')}</span>
@@ -2175,7 +2181,14 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
                 {/* Mobile Navigation */}
                 <div className="lg:hidden flex overflow-x-auto gap-2 mb-6 pb-2 no-scrollbar print:hidden">
-                    {(isAdmin ? ['dashboard', 'usage', 'custody', 'distribution', 'reports', 'incoming', 'materials'] : userRole === 'custody_clerk' ? ['distribution'] : ['dashboard', 'custody']).map(tab => (
+                    {(isAdmin 
+                        ? ['dashboard', 'usage', 'custody', 'distribution', 'reports', 'incoming', 'materials'] 
+                        : userRole === 'custody_clerk' 
+                            ? ['distribution'] 
+                            : canDistribute
+                                ? (hasFullInventory ? ['dashboard', 'custody', 'distribution'] : ['custody', 'distribution'])
+                                : (hasFullInventory ? ['dashboard', 'custody'] : ['custody'])
+                    ).map(tab => (
                         <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === tab ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}>
                             {t(`inv.${tab}`)}
                         </button>
@@ -2507,8 +2520,8 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                     </div>
                 )}
 
-                {/* --- DISTRIBUTION TAB (ADMIN / CUSTODY CLERK) --- */}
-                {(isAdmin || userRole === 'custody_clerk') && activeTab === 'distribution' && (
+                {/* --- DISTRIBUTION TAB (ADMIN / CUSTODY CLERK / ASSIGNED EMPLOYEES) --- */}
+                {canDistribute && activeTab === 'distribution' && (
                     <div className="max-w-4xl mx-auto animate-fade-in-up space-y-6">
                         {/* Tab Switcher for Admin / Custody Clerk */}
                         <div className="flex bg-slate-100 p-1.5 rounded-[1.5rem] shadow-sm border border-slate-200">

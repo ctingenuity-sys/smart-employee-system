@@ -71,7 +71,7 @@ const StandaloneRadiologyLogbook = React.lazy(() => import('./pages/StandaloneRa
 interface ProtectedRouteProps {
   children?: React.ReactNode; 
   allowedRoles?: any[]; 
-  requiredPermission?: string; 
+  requiredPermission?: string | string[]; 
 }
 
 const ProtectedRoute = ({ children, allowedRoles, requiredPermission }: ProtectedRouteProps) => {
@@ -92,7 +92,9 @@ const ProtectedRoute = ({ children, allowedRoles, requiredPermission }: Protecte
     }
 
     if ((normalizedRole === UserRole.USER.toLowerCase() || normalizedRole === UserRole.SUPERVISOR.toLowerCase() || normalizedRole === UserRole.MANAGER.toLowerCase()) && requiredPermission && permissions) {
-        if (!permissions.includes(requiredPermission)) {
+        const requiredPerms = Array.isArray(requiredPermission) ? requiredPermission : [requiredPermission];
+        const hasAnyPerm = requiredPerms.some(p => permissions.includes(p));
+        if (!hasAnyPerm) {
              return (
                  <Layout userRole={role || ''} userName={userName} permissions={permissions}>
                     <div className="flex flex-col items-center justify-center h-[60vh] text-center p-6">
@@ -213,7 +215,7 @@ const AppRoutes: React.FC = () => {
 
           {/* Shared Routes with Permissions */}
           <Route path="/communications" element={<ProtectedRoute requiredPermission="communications"><CommunicationPage /></ProtectedRoute>} />
-          <Route path="/inventory" element={<ProtectedRoute requiredPermission="inventory"><InventoryPage /></ProtectedRoute>} />
+          <Route path="/inventory" element={<ProtectedRoute requiredPermission={['inventory', 'custody_distribution']}><InventoryPage /></ProtectedRoute>} />
           <Route path="/cath-lab-usage" element={<ProtectedRoute><CathLabUsage /></ProtectedRoute>} />
           <Route path="/tasks" element={<ProtectedRoute requiredPermission="tasks"><TasksPage /></ProtectedRoute>} />
           <Route path="/tech-support" element={<ProtectedRoute requiredPermission="tech_support"><TechSupportPage /></ProtectedRoute>} />

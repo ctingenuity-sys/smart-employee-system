@@ -36,6 +36,7 @@ const ALL_PERMISSIONS = [
     { key: 'appointments', label: 'المواعيد (Appointments)' },
     { key: 'communications', label: 'التواصل (Comm/Log)' },
     { key: 'inventory', label: 'المخزون (Inventory)' },
+    { key: 'custody_distribution', label: 'توزيع العهد (Custody Distribution)' },
     { key: 'tasks', label: 'المهام (Tasks)' },
     { key: 'tech_support', label: 'الدعم الفني (Tech)' },
     { key: 'hr_assistant', label: 'HR Assistant' },
@@ -521,7 +522,7 @@ const SupervisorEmployees: React.FC = () => {
             const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
             const newUserId = userCredential.user.uid;
             
-            const defaultUserPerms = ALL_PERMISSIONS.filter(p => !p.key.startsWith('sup_')).map(p => p.key);
+            const defaultUserPerms = ALL_PERMISSIONS.filter(p => !p.key.startsWith('sup_') && p.key !== 'custody_distribution').map(p => p.key);
             const defaultSupPerms = ALL_PERMISSIONS.map(p => p.key);
             const assignedPermissions = ['supervisor', 'manager', 'admin'].includes(newUserRole) ? defaultSupPerms : defaultUserPerms;
 

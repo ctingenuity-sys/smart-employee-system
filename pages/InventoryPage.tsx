@@ -6,7 +6,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import Loading from '../components/Loading';
 
 const InventoryPage: React.FC = () => {
-    const [userData, setUserData] = useState<{role: string, name: string, email?: string, uid?: string} | null>(null);
+    const [userData, setUserData] = useState<{role: string, name: string, email?: string, uid?: string, permissions?: string[]} | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -20,14 +20,16 @@ const InventoryPage: React.FC = () => {
                             role: data.role,
                             name: data.name || auth.currentUser.displayName || auth.currentUser.email || 'User',
                             email: data.email || auth.currentUser.email || '',
-                            uid: auth.currentUser.uid
+                            uid: auth.currentUser.uid,
+                            permissions: data.permissions || []
                         });
                     } else {
                         setUserData({
                             role: 'employee',
                             name: auth.currentUser.displayName || auth.currentUser.email || 'User',
                             email: auth.currentUser.email || '',
-                            uid: auth.currentUser.uid
+                            uid: auth.currentUser.uid,
+                            permissions: []
                         });
                     }
                 } catch (e) {
@@ -48,6 +50,7 @@ const InventoryPage: React.FC = () => {
             userName={userData.name} 
             userEmail={userData.email || auth.currentUser?.email || ''} 
             userId={userData.uid || auth.currentUser?.uid || ''}
+            userPermissions={userData.permissions}
         />
     );
 };

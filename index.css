@@ -173,6 +173,16 @@
     height: auto !important;
   }
 
+  /* Prevent truncation or clipping in print */
+  .overflow-y-auto,
+  .overflow-x-auto,
+  .overflow-hidden,
+  .custom-scrollbar {
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+  }
+
   table {
     width: 100% !important;
     border-collapse: collapse !important;
@@ -190,6 +200,11 @@
 
   tfoot {
     display: table-footer-group;
+  }
+
+  .print-page-break {
+    page-break-before: always;
+    break-before: page;
   }
 
   * {

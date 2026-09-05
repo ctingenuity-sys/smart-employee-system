@@ -143,7 +143,10 @@ const translations: Record<string, { ar: string; en: string }> = {
   'nav.sharedTools': { ar: 'أدوات مشتركة', en: 'Shared Tools' },
   'nav.communications': { ar: 'التواصل والورديات', en: 'Communication & Log' },
   'nav.inventory': { ar: 'نظام المخزون', en: 'Inventory System' },
+  'nav.myCustody': { ar: 'عهدتي', en: 'My Custody' },
   'nav.cathLabUsage': { ar: 'مستلزمات القسطرة', en: 'Cath-Lab Usage' },
+  'nav.radiologyLog': { ar: 'سجل الأشعة المستقل', en: 'Radiology Logbook' },
+  'nav.handover': { ar: 'الهاند اوفر والتواصل', en: 'Handover & Communications' },
   'nav.tasks': { ar: 'لوحة المهام', en: 'Task Board' },
 
   // --- Cath-Lab Usage ---

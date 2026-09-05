@@ -214,9 +214,10 @@ const AppRoutes: React.FC = () => {
           <Route path="/doctor" element={<ProtectedRoute allowedRoles={[UserRole.DOCTOR]}><DoctorDashboard /></ProtectedRoute>} />
 
           {/* Shared Routes with Permissions */}
+          <Route path="/radiology-logbook" element={<ProtectedRoute requiredPermission="radiology_log"><StandaloneRadiologyLogbook /></ProtectedRoute>} />
           <Route path="/communications" element={<ProtectedRoute requiredPermission="communications"><CommunicationPage /></ProtectedRoute>} />
-          <Route path="/inventory" element={<ProtectedRoute requiredPermission={['inventory', 'custody_distribution']}><InventoryPage /></ProtectedRoute>} />
-          <Route path="/cath-lab-usage" element={<ProtectedRoute><CathLabUsage /></ProtectedRoute>} />
+          <Route path="/inventory" element={<ProtectedRoute requiredPermission={['inventory', 'custody_distribution', 'my_custody']}><InventoryPage /></ProtectedRoute>} />
+          <Route path="/cath-lab-usage" element={<ProtectedRoute requiredPermission="catheter_supplies"><CathLabUsage /></ProtectedRoute>} />
           <Route path="/tasks" element={<ProtectedRoute requiredPermission="tasks"><TasksPage /></ProtectedRoute>} />
           <Route path="/tech-support" element={<ProtectedRoute requiredPermission="tech_support"><TechSupportPage /></ProtectedRoute>} />
           <Route path="/hr-assistant" element={<ProtectedRoute requiredPermission="hr_assistant"><HRAssistantPage /></ProtectedRoute>} />

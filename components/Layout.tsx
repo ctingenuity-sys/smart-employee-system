@@ -163,7 +163,14 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
       setIsPwLoading(false);
   };
 
-  const isActive = (path: string) => location.pathname === path ? 'bg-primary text-white shadow-lg' : 'text-slate-300 hover:bg-slate-700 hover:text-white';
+  const isActive = (path: string, exact: boolean = true) => {
+    if (exact) {
+      return (location.pathname + location.search) === path || (path === location.pathname && !location.search)
+        ? 'bg-primary text-white shadow-lg' 
+        : 'text-slate-300 hover:bg-slate-700 hover:text-white';
+    }
+    return location.pathname === path ? 'bg-primary text-white shadow-lg' : 'text-slate-300 hover:bg-slate-700 hover:text-white';
+  };
   const sidebarPosition = dir === 'rtl' ? 'right-0' : 'left-0';
   const transformDirection = dir === 'rtl' ? 'translate-x-full' : '-translate-x-full';
 
@@ -330,15 +337,17 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                   </Link>
              )}
 
-             <Link to="/radiology-logbook" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/radiology-logbook')}`}>
-                <i className="fas fa-book-medical w-6 text-amber-400"></i>
-                <span className="font-medium">{language === 'en' ? 'Standalone Radiology Log (Excel)' : 'سجل الأشعة المستقل (Excel)'}</span>
-             </Link>
+             {canAccess('radiology_log') && (
+               <Link to="/radiology-logbook" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/radiology-logbook')}`}>
+                  <i className="fas fa-book-medical w-6 text-amber-400"></i>
+                  <span className="font-medium">{t('nav.radiologyLog')}</span>
+               </Link>
+             )}
               
-             {(userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR || userRole === UserRole.MANAGER || userRole === UserRole.DOCTOR || userRole === UserRole.USER) && (
+             {(userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR || userRole === UserRole.MANAGER || userRole === UserRole.DOCTOR || userRole === UserRole.USER) && canAccess('handover') && canAccess('communications') && (
                  <Link to="/communications" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/communications')}`}>
                     <i className="fas fa-handshake w-6 text-blue-400"></i>
-                    <span className="font-medium">Shift Handover & Communications</span>
+                    <span className="font-medium">{t('nav.handover')}</span>
                  </Link>
              )}
 
@@ -350,7 +359,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
              )}
 
              {canAccess('inventory') && (
-                 <Link to="/inventory" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/inventory')}`}>
+                 <Link to="/inventory" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/inventory', false)}`}>
                     <i className="fas fa-boxes w-6 text-emerald-400"></i>
                     <span className="font-medium">{t('nav.inventory')}</span>
                  </Link>
@@ -358,7 +367,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
             </div>
           )}
 
-             {userRole !== UserRole.CUSTODY_CLERK && (
+             {userRole !== UserRole.CUSTODY_CLERK && canAccess('catheter_supplies') && (
              <div className={userRole === UserRole.CATH_LAB ? "pt-4 mt-4 border-t border-slate-700" : ""}>
                <Link to="/cath-lab-usage" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/cath-lab-usage')}`}>
                   <i className="fas fa-heartbeat w-6 text-rose-400"></i>

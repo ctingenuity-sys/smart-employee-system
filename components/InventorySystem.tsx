@@ -64,20 +64,33 @@ interface InventorySystemProps {
     userEmail: string;
     userId?: string;
     userPermissions?: string[];
+    initialTab?: 'dashboard' | 'usage' | 'incoming' | 'materials' | 'reports' | 'distribution' | 'custody';
 }
 
-const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, userEmail, userId, userPermissions = [] }) => {
+const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, userEmail, userId, userPermissions = [], initialTab }) => {
     const { t, dir, language } = useLanguage();
-    const { selectedDepartmentId } = useDepartment();
+    const { selectedDepartmentId, departments } = useDepartment();
     const isAdmin = userRole === 'admin';
     const isSupervisor = userRole === 'supervisor' || userRole === 'manager';
-    const canDistribute = isAdmin || userRole === 'custody_clerk' || Boolean(userPermissions?.includes('custody_distribution') || userPermissions?.includes('inventory_distribution'));
+    const canDistribute = isAdmin || isSupervisor || userRole === 'custody_clerk' || Boolean(userPermissions?.includes('custody_distribution') || userPermissions?.includes('inventory_distribution'));
     const hasFullInventory = isAdmin || isSupervisor || Boolean(userPermissions?.includes('inventory'));
+    const canManageInventory = isAdmin || isSupervisor || hasFullInventory;
+
+    const currentDept = departments?.find(d => d.id === selectedDepartmentId);
+    const currentDeptName = currentDept?.name || 'الأشعة والتصوير الطبي (Radiology)';
 
     const [activeTab, setActiveTab] = useState<'dashboard' | 'usage' | 'incoming' | 'materials' | 'reports' | 'distribution' | 'custody'>(
-        userRole === 'custody_clerk' || (canDistribute && !hasFullInventory) ? 'distribution' : 
-        !['admin', 'supervisor'].includes(userRole) ? 'custody' : 'dashboard'
+        initialTab || (
+            userRole === 'custody_clerk' ? 'distribution' : 
+            canManageInventory ? 'dashboard' : 'custody'
+        )
     );
+
+    useEffect(() => {
+        if (initialTab) {
+            setActiveTab(initialTab);
+        }
+    }, [initialTab]);
     const [materials, setMaterials] = useState<Material[]>([]);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [usages, setUsages] = useState<MaterialUsage[]>([]);
@@ -806,7 +819,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         
         if (submittingOp) return;
 
-        if (!isAdmin) {
+        if (!canManageInventory) {
             setToast({ msg: 'غير مصرح لك بالصرف من المخزن الرئيسي', type: 'error' });
             return;
         }
@@ -2086,6 +2099,44 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
         return Object.entries(stats).sort((a,b) => a[0].localeCompare(b[0]));
     }, [filteredInvoices, filteredUsages, invoices, usages, reportFilter, reportStart, reportEnd, materials]);
 
+    const handleExportCSV = () => {
+        let csv = '\uFEFF';
+        csv += `تقرير حركة ومخزون المواد والصبغات الطبية - مستشفى الجدعاني\n`;
+        csv += `القسم:,"${currentDeptName}"\n`;
+        csv += `الفترة:,"${reportFilter === 'range' ? `${reportStart} إلى ${reportEnd}` : 'جميع السجلات'}"\n`;
+        csv += `تاريخ التصدير:,"${new Date().toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}"\n`;
+        csv += `المشرف المستخرج:,"${userName || 'المشرف'}"\n\n`;
+
+        // 1. Materials Summary
+        csv += `=== كشف أرصدة وجرد المواد والصبغات ===\n`;
+        csv += `م,اسم المادة,الرصيد الافتتاحي,الوارد (+),المنصرف (-),العهد النشطة,صافي الرصيد المتبقي,حالة المخزون\n`;
+        materialStats.forEach(([matName, stat], idx) => {
+            const totalCustody = Object.values(staffBalances)
+                .reduce((sum, d) => sum + (d.materials[matName.trim()] || 0), 0);
+            const status = stat.endBalance <= 10 ? 'رصيد منخفض' : 'متوفر';
+            csv += `${idx + 1},"${matName}",${stat.startBalance},${stat.periodIn},${stat.periodOut},${totalCustody},${stat.endBalance},"${status}"\n`;
+        });
+
+        // 2. Transaction Logs
+        csv += `\n=== سجل تفاصيل العمليات والحركات ===\n`;
+        csv += `م,التاريخ,المادة,الكمية,الموظف,رقم ملف المريض,نوع الحركة\n`;
+        filteredUsages.forEach((u, idx) => {
+            const dateStr = u.date?.toDate ? u.date.toDate().toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US') : 'N/A';
+            const src = u.fromCustody ? 'عهدة شخصية' : 'مخزن رئيسي';
+            csv += `${idx + 1},"${dateStr}","${u.material}",-${u.amount},"${u.staffName || ''}","${u.patientFileNumber || ''}","${src}"\n`;
+        });
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `تقرير_المخزون_${currentDeptName.replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
 
     const filteredMaterials = materials.filter(m => 
         m.name.toLowerCase().includes(materialSearch.toLowerCase())
@@ -2108,7 +2159,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 <nav className="flex-1 px-4 space-y-2">
                     {userRole !== 'custody_clerk' && (
                         <>
-                            {(isAdmin || isSupervisor || hasFullInventory) && (
+                            {canManageInventory && (
                                 <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'dashboard' ? 'bg-slate-800 text-white shadow-lg shadow-slate-300' : 'text-slate-500 hover:bg-slate-50'}`}>
                                     <i className="fas fa-th-large w-5"></i>
                                     <span className="font-bold text-sm">{t('inv.dashboard')}</span>
@@ -2121,14 +2172,14 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                         </>
                     )}
                     
-                    {(userRole === 'custody_clerk' || (canDistribute && !isAdmin)) && (
+                    {(userRole === 'custody_clerk' || (canDistribute && !canManageInventory)) && (
                         <button onClick={() => setActiveTab('distribution')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'distribution' ? 'bg-orange-600 text-white shadow-lg shadow-orange-300' : 'text-slate-500 hover:bg-slate-50'}`}>
                             <i className="fas fa-share-square w-5"></i>
                             <span className="font-bold text-sm">{t('inv.distribution')}</span>
                         </button>
                     )}
 
-                    {isAdmin && (
+                    {canManageInventory && (
                         <>
                             <button onClick={() => setActiveTab('usage')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'usage' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-300' : 'text-slate-500 hover:bg-slate-50'}`}>
                                 <i className="fas fa-hand-holding-medical w-5"></i>
@@ -2181,7 +2232,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
                 {/* Mobile Navigation */}
                 <div className="lg:hidden flex overflow-x-auto gap-2 mb-6 pb-2 no-scrollbar print:hidden">
-                    {(isAdmin 
+                    {(canManageInventory 
                         ? ['dashboard', 'usage', 'custody', 'distribution', 'reports', 'incoming', 'materials'] 
                         : userRole === 'custody_clerk' 
                             ? ['distribution'] 
@@ -2463,7 +2514,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                 placeholder="File No." 
                                             />
                                         </div>
-                                        {isAdmin && (
+                                        {canManageInventory && (
                                             <>
                                                 <div className="space-y-2">
                                                     <label className="text-sm font-bold text-slate-600">{t('inv.usage.date')}</label>
@@ -3413,7 +3464,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                             <span className="text-xs bg-slate-200 text-slate-600 px-2.5 py-1 rounded-full font-mono">{displayedInvoices.length}</span>
                                         </h3>
                                         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                                            {isAdmin && (
+                                            {canManageInventory && (
                                                 <button 
                                                     onClick={() => setIsPurgeModalOpen(true)} 
                                                     className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-3.5 py-2 rounded-xl font-bold transition-all shadow-xs flex items-center gap-1.5"
@@ -3435,7 +3486,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                                         {displayedInvoices.map(inv => (
                                             <div key={inv.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all group flex flex-col relative">
-                                                {isAdmin && (
+                                                {canManageInventory && (
                                                     <button 
                                                         onClick={() => handleDeleteInvoice(inv.id)}
                                                         className="absolute top-2 left-2 z-20 text-red-400 hover:text-red-600 bg-white/80 p-1.5 rounded-full hover:bg-white shadow-sm opacity-0 group-hover:opacity-100 transition-all"
@@ -4115,7 +4166,31 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                 {activeTab === 'reports' && (
                     <div className="space-y-6 animate-fade-in-up">
                         
-                        <PrintHeader title={t('inv.rep.title')} subtitle="TRANSACTION LOG" />
+                        <PrintHeader 
+                            title={language === 'ar' ? 'تقرير حركة ومخزون المواد والصبغات الطبية' : 'Official Material Inventory & Audit Report'} 
+                            subtitle={language === 'ar' ? 'سجل العمليات ومطابقة الأرصدة المستندية' : 'TRANSACTION LOG & STOCK AUDIT'}
+                            departmentName={currentDeptName}
+                            themeColor="indigo"
+                            compact={true}
+                            titleClassName="text-sm sm:text-base font-bold"
+                            subtitleClassName="text-[8px] py-0.5 px-2.5"
+                        />
+
+                        {/* PRINT-ONLY METADATA AUDIT BAR */}
+                        <div className="hidden print:flex justify-between items-center bg-slate-100 border border-slate-400 p-2.5 rounded mb-4 text-[10px] text-slate-900 font-sans" dir={dir}>
+                            <div>
+                                <span className="font-bold">{language === 'ar' ? 'نطاق التقرير: ' : 'Reporting Period: '}</span>
+                                <span className="font-mono font-black">{reportFilter === 'range' ? `${reportStart} ➜ ${reportEnd}` : (language === 'ar' ? 'كافة السجلات التاريخية' : 'All Time')}</span>
+                            </div>
+                            <div>
+                                <span className="font-bold">{language === 'ar' ? 'تاريخ ووقت التوليد: ' : 'Printed On: '}</span>
+                                <span className="font-mono">{new Date().toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span>
+                            </div>
+                            <div>
+                                <span className="font-bold">{language === 'ar' ? 'المشرف المسؤول: ' : 'Issued By: '}</span>
+                                <span className="font-bold">{userName || 'Supervisor'}</span>
+                            </div>
+                        </div>
 
                         {/* Control Panel: Filters & Print Trigger */}
                         <div className="flex flex-col sm:flex-row justify-between sm:items-center bg-white p-5 rounded-2xl shadow-sm border border-slate-150 print:hidden gap-4">
@@ -4140,8 +4215,13 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                         <input type="month" className="bg-transparent border-none text-sm p-1 font-bold text-slate-600 outline-none" value={reportEnd} onChange={e => setReportEnd(e.target.value)} />
                                     </div>
                                 )}
+                                <button onClick={handleExportCSV} className="bg-emerald-600 text-white px-4 py-3 rounded-xl text-sm font-bold hover:bg-emerald-700 transition-all flex items-center gap-2 shadow-lg shadow-emerald-100 hover:scale-[1.01] active:scale-95" title="تصدير جدول إكسل منظم">
+                                    <i className="fas fa-file-excel"></i>
+                                    <span>{language === 'ar' ? 'تصدير إكسل' : 'Export Excel'}</span>
+                                </button>
                                 <button onClick={() => window.print()} className="bg-indigo-600 text-white px-5 py-3 rounded-xl text-sm font-bold hover:bg-indigo-750 transition-all flex items-center gap-2 shadow-lg shadow-indigo-100 hover:scale-[1.01] active:scale-95">
-                                    <i className="fas fa-print"></i> {t('print')}
+                                    <i className="fas fa-print"></i>
+                                    <span>{language === 'ar' ? 'طباعة تقرير منسق (PDF / A4)' : t('print')}</span>
                                 </button>
                             </div>
                         </div>
@@ -4221,8 +4301,61 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                         ({reportFilter === 'range' ? `${reportStart} ➜ ${reportEnd}` : 'All Time'})
                                     </span>
                                 </h3>
+
+                                {/* PRINT-ONLY: Comprehensive Materials Balance & Movement Table */}
+                                <div className="hidden print:block mb-6">
+                                    <table className="w-full text-[10px] border-collapse border border-slate-400 text-right" dir="rtl">
+                                        <thead>
+                                            <tr className="bg-slate-200 text-slate-900 font-bold border-b border-slate-400">
+                                                <th className="p-1.5 border border-slate-300 text-center w-8">#</th>
+                                                <th className="p-1.5 border border-slate-300 text-right">{language === 'ar' ? 'اسم المادة / الصنف' : 'Material'}</th>
+                                                <th className="p-1.5 border border-slate-300 text-center">{language === 'ar' ? 'الرصيد الافتتاحي' : 'Opening'}</th>
+                                                <th className="p-1.5 border border-slate-300 text-center text-emerald-800">{language === 'ar' ? 'الوارد (+)' : 'Added (+)'}</th>
+                                                <th className="p-1.5 border border-slate-300 text-center text-red-800">{language === 'ar' ? 'المنصرف (-)' : 'Used (-)'}</th>
+                                                <th className="p-1.5 border border-slate-300 text-center text-teal-800">{language === 'ar' ? 'العهد النشطة' : 'In Custody'}</th>
+                                                <th className="p-1.5 border border-slate-300 text-center font-black">{language === 'ar' ? 'صافي الرصيد المتبقي' : 'Net Balance'}</th>
+                                                <th className="p-1.5 border border-slate-300 text-center">{language === 'ar' ? 'حالة المخزون' : 'Status'}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {materialStats.map(([matName, stat], idx) => {
+                                                const totalCustody = Object.values(staffBalances)
+                                                    .reduce((sum, d) => sum + (d.materials[matName.trim()] || 0), 0);
+                                                return (
+                                                    <tr key={matName} className="border-b border-slate-300 text-slate-900">
+                                                        <td className="p-1.5 border border-slate-300 text-center font-mono">{idx + 1}</td>
+                                                        <td className="p-1.5 border border-slate-300 font-bold text-right">{matName}</td>
+                                                        <td className="p-1.5 border border-slate-300 text-center font-mono">{stat.startBalance}</td>
+                                                        <td className="p-1.5 border border-slate-300 text-center font-mono font-bold text-emerald-800">+{stat.periodIn}</td>
+                                                        <td className="p-1.5 border border-slate-300 text-center font-mono font-bold text-red-800">-{stat.periodOut}</td>
+                                                        <td className="p-1.5 border border-slate-300 text-center font-mono text-teal-800 font-bold">{totalCustody}</td>
+                                                        <td className="p-1.5 border border-slate-300 text-center font-mono font-black bg-slate-100">{stat.endBalance}</td>
+                                                        <td className="p-1.5 border border-slate-300 text-center text-[9px] font-bold">
+                                                            {stat.endBalance <= 10 
+                                                                ? (language === 'ar' ? 'منخفض' : 'Low Stock') 
+                                                                : (language === 'ar' ? 'متوفر' : 'Good Level')}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                        <tfoot>
+                                            <tr className="bg-slate-200 font-bold border-t-2 border-slate-400 text-slate-900">
+                                                <td colSpan={2} className="p-1.5 text-center font-bold">{language === 'ar' ? 'الإجماليات (Totals)' : 'Totals'}</td>
+                                                <td className="p-1.5 text-center font-mono">{materialStats.reduce((s, [, m]) => s + m.startBalance, 0)}</td>
+                                                <td className="p-1.5 text-center font-mono text-emerald-800">+{materialStats.reduce((s, [, m]) => s + m.periodIn, 0)}</td>
+                                                <td className="p-1.5 text-center font-mono text-red-800">-{materialStats.reduce((s, [, m]) => s + m.periodOut, 0)}</td>
+                                                <td className="p-1.5 text-center font-mono text-teal-800">
+                                                    {materialStats.reduce((s, [matName]) => s + Object.values(staffBalances).reduce((sum, d) => sum + (d.materials[matName.trim()] || 0), 0), 0)}
+                                                </td>
+                                                <td className="p-1.5 text-center font-mono font-black">{materialStats.reduce((s, [, m]) => s + m.endBalance, 0)}</td>
+                                                <td className="p-1.5 text-center">-</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
                                 
-                                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 print:hidden">
                                     {materialStats.map(([matName, stat]) => {
                                         // 1. Calculate Active Custody Holders for this specific material
                                         const activeCustodies = Object.entries(staffBalances)
@@ -4381,7 +4514,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
                         {/* --- SECTION 2: TRANSACTION LOGS --- */}
                         {printTransactionLogs && (
-                            <div className="space-y-4 print:break-inside-avoid print:mt-8">
+                            <div className="space-y-4 print:break-inside-avoid print:mt-6">
                                 {/* Logs Header with Search */}
                                 <div className="flex flex-col sm:flex-row justify-between sm:items-center mt-8 mb-4 print:hidden gap-4">
                                     <h3 className="text-lg font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
@@ -4393,35 +4526,44 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                     </div>
                                 </div>
 
-                                <div className="hidden print:block mb-3">
-                                    <h3 className="text-lg font-black text-slate-700 uppercase tracking-wider flex items-center gap-2 border-b border-slate-100 pb-2 print:border-slate-300">
-                                        <i className="fas fa-list text-indigo-500"></i> {t('inv.print.transactionLogs')}
+                                <div className="hidden print:flex justify-between items-end mb-2 border-b-2 border-slate-800 pb-1">
+                                    <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                                        <span>2. {language === 'ar' ? 'سجل تفاصيل العمليات وحركات الصرف (Detailed Transaction Logs)' : '2. Detailed Transaction Logs'}</span>
                                     </h3>
+                                    <span className="text-[9px] font-mono text-slate-600">
+                                        {language === 'ar' ? `إجمالي السجلات: ${filteredUsages.length} حركة` : `Total: ${filteredUsages.length} records`}
+                                    </span>
                                 </div>
 
-                                {/* Original Detailed Log Table */}
+                                {/* Detailed Log Table */}
                                 <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-400 print:shadow-none print:rounded-none">
-                                    <table className={`w-full text-sm ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
-                                        <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 print:bg-slate-100 print:border-b print:border-slate-400 print:text-black">
+                                    <table className={`w-full text-sm print:text-[10px] border-collapse ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
+                                        <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-150 print:bg-slate-200 print:border-b-2 print:border-slate-400 print:text-slate-900">
                                             <tr>
-                                                <th className="p-4 border-r print:border-slate-400">{t('date')}</th>
-                                                <th className="p-4 border-r print:border-slate-400">{t('inv.usage.material')}</th>
-                                                <th className="p-4 border-r print:border-slate-400">{t('inv.usage.amount')}</th>
-                                                <th className="p-4 border-r print:border-slate-400">{t('role.user')}</th>
-                                                <th className="p-4">{t('inv.usage.file')}</th>
-                                                {isAdmin && <th className="p-4 print:hidden w-10"></th>}
+                                                <th className="p-3 print:p-1.5 border-r print:border-slate-300 text-center w-8 print:w-7">#</th>
+                                                <th className="p-3 print:p-1.5 border-r print:border-slate-300">{t('date')}</th>
+                                                <th className="p-3 print:p-1.5 border-r print:border-slate-300">{t('inv.usage.material')}</th>
+                                                <th className="p-3 print:p-1.5 border-r print:border-slate-300 text-center">{t('inv.usage.amount')}</th>
+                                                <th className="p-3 print:p-1.5 border-r print:border-slate-300">{t('role.user')}</th>
+                                                <th className="p-3 print:p-1.5 border-r print:border-slate-300">{t('inv.usage.file')}</th>
+                                                <th className="p-3 print:p-1.5 border-r print:border-slate-300 text-center hidden print:table-cell">{language === 'ar' ? 'المصدر' : 'Source'}</th>
+                                                {canManageInventory && <th className="p-3 print:hidden w-10"></th>}
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 print:divide-slate-300">
-                                            {filteredUsages.map(u => (
-                                                <tr key={u.id} className="hover:bg-slate-50/50 print:break-inside-avoid group">
-                                                    <td className="p-4 font-mono text-slate-500 dir-ltr print:text-black border-r print:border-slate-400">{u.date?.toDate ? u.date.toDate().toLocaleDateString('en-US') : 'N/A'}</td>
-                                                    <td className="p-4 font-bold text-slate-800 border-r print:border-slate-400">{u.material}</td>
-                                                    <td className="p-4 font-bold text-red-500 border-r print:border-slate-400">-{u.amount}</td>
-                                                    <td className="p-4 text-slate-600 border-r print:border-slate-400 print:text-black">{u.staffName}</td>
-                                                    <td className="p-4 font-mono text-slate-500 print:text-black">{u.patientFileNumber}</td>
-                                                    {isAdmin && (
-                                                        <td className="p-4 print:hidden text-center">
+                                            {filteredUsages.map((u, idx) => (
+                                                <tr key={u.id} className="hover:bg-slate-50/50 print:break-inside-avoid group text-slate-800">
+                                                    <td className="p-3 print:p-1.5 font-mono text-center text-slate-500 print:text-slate-900 border-r print:border-slate-300">{idx + 1}</td>
+                                                    <td className="p-3 print:p-1.5 font-mono text-slate-600 print:text-slate-900 border-r print:border-slate-300 dir-ltr">{u.date?.toDate ? u.date.toDate().toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US') : 'N/A'}</td>
+                                                    <td className="p-3 print:p-1.5 font-bold text-slate-800 border-r print:border-slate-300">{u.material}</td>
+                                                    <td className="p-3 print:p-1.5 font-bold text-red-600 border-r print:border-slate-300 text-center font-mono">-{u.amount}</td>
+                                                    <td className="p-3 print:p-1.5 text-slate-700 print:text-slate-900 border-r print:border-slate-300">{u.staffName}</td>
+                                                    <td className="p-3 print:p-1.5 font-mono text-slate-600 print:text-slate-900 border-r print:border-slate-300">{u.patientFileNumber || '-'}</td>
+                                                    <td className="p-3 print:p-1.5 text-center text-slate-600 print:text-slate-900 border-r print:border-slate-300 hidden print:table-cell font-sans">
+                                                        {u.fromCustody ? (language === 'ar' ? 'عهدة شخصية' : 'Custody') : (language === 'ar' ? 'مخزن رئيسي' : 'Main')}
+                                                    </td>
+                                                    {canManageInventory && (
+                                                        <td className="p-3 print:hidden text-center">
                                                             <button 
                                                                 disabled={deletingUsageIds.includes(u.id)}
                                                                 onClick={() => handleDeleteUsage(u)} 
@@ -4440,12 +4582,28 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                             ))}
                                             {filteredUsages.length === 0 && (
                                                 <tr>
-                                                    <td colSpan={isAdmin ? 6 : 5} className="text-center py-8 text-slate-400 italic bg-slate-50/50">
-                                                        No records found
+                                                    <td colSpan={canManageInventory ? 7 : 6} className="text-center py-8 text-slate-400 italic bg-slate-50/50">
+                                                        {language === 'ar' ? 'لا توجد حركات مسجلة خلال الفترة' : 'No records found'}
                                                     </td>
                                                 </tr>
                                             )}
                                         </tbody>
+                                        {filteredUsages.length > 0 && (
+                                            <tfoot>
+                                                <tr className="bg-slate-100 font-bold border-t-2 border-slate-300 print:bg-slate-200 print:border-slate-400 text-slate-900 text-xs print:text-[10px]">
+                                                    <td colSpan={3} className="p-3 print:p-1.5 text-center font-bold">
+                                                        {language === 'ar' ? 'إجمالي المنصرف (Total Disbursed)' : 'Total Disbursed'}
+                                                    </td>
+                                                    <td className="p-3 print:p-1.5 text-center font-mono font-black text-red-700">
+                                                        -{filteredUsages.reduce((sum, u) => sum + (u.amount || 0), 0)}
+                                                    </td>
+                                                    <td colSpan={canManageInventory ? 3 : 2} className="p-3 print:p-1.5 text-slate-500 print:text-slate-700 font-mono text-[10px]">
+                                                        {filteredUsages.length} {language === 'ar' ? 'حركات منفذة' : 'transactions'}
+                                                    </td>
+                                                    <td className="print:hidden"></td>
+                                                </tr>
+                                            </tfoot>
+                                        )}
                                     </table>
                                 </div>
                             </div>
@@ -4453,22 +4611,31 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
 
                         {/* --- SECTION 3: STAFF CUSTODY REPORT --- */}
                         {printStaffCustody && (
-                            <div className="space-y-4 print:break-inside-avoid print:mt-8">
-                                <div className="mt-8 mb-4">
-                                    <h3 className="text-lg font-black text-slate-700 uppercase tracking-wider flex items-center gap-2 border-b border-slate-100 pb-2 print:border-slate-300">
+                            <div className="space-y-4 print:break-inside-avoid print:mt-6">
+                                <div className="mt-8 mb-4 print:hidden">
+                                    <h3 className="text-lg font-black text-slate-700 uppercase tracking-wider flex items-center gap-2 border-b border-slate-100 pb-2">
                                         <i className="fas fa-briefcase text-indigo-500"></i> {t('inv.print.staffCustody')}
                                     </h3>
                                 </div>
 
+                                <div className="hidden print:flex justify-between items-end mb-2 border-b-2 border-slate-800 pb-1">
+                                    <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                                        <span>3. {language === 'ar' ? 'كشف أرصدة العهد الشخصية للموظفين (Staff Custody Balances)' : '3. Staff Custody Balances'}</span>
+                                    </h3>
+                                    <span className="text-[9px] font-mono text-slate-600">
+                                        {Object.keys(staffBalances).length} {language === 'ar' ? 'موظفين لديهم عهد' : 'staff members'}
+                                    </span>
+                                </div>
+
                                 <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:shadow-none print:border print:border-slate-400 print:rounded-none">
-                                    <table className="w-full text-left text-sm print:text-xs">
-                                        <thead className="bg-slate-50 text-slate-500 font-bold print:bg-slate-100 print:border-b print:border-slate-400 print:text-black">
+                                    <table className={`w-full text-sm print:text-[10px] border-collapse ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
+                                        <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-150 print:bg-slate-200 print:border-b-2 print:border-slate-400 print:text-slate-900">
                                             <tr>
-                                                <th className="p-4 border-r print:border-slate-400">{t('inv.dist.staffName')}</th>
-                                                <th className="p-4 border-r print:border-slate-400">{t('inv.usage.material')}</th>
-                                                <th className="p-4 border-r print:border-slate-400">Total In</th>
-                                                <th className="p-4 border-r print:border-slate-400">Total Out</th>
-                                                <th className="p-4 print:border-slate-400">Balance</th>
+                                                <th className="p-3 print:p-1.5 border-r print:border-slate-300">{t('inv.dist.staffName')}</th>
+                                                <th className="p-3 print:p-1.5 border-r print:border-slate-300">{t('inv.usage.material')}</th>
+                                                <th className="p-3 print:p-1.5 border-r print:border-slate-300 text-center">{language === 'ar' ? 'إجمالي المستلم (+)' : 'Total In (+)'}</th>
+                                                <th className="p-3 print:p-1.5 border-r print:border-slate-300 text-center">{language === 'ar' ? 'المستهلك للمرضى (-)' : 'Total Used (-)'}</th>
+                                                <th className="p-3 print:p-1.5 text-center">{language === 'ar' ? 'المتبقي بالعهدة' : 'Custody Balance'}</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 print:divide-slate-300">
@@ -4482,16 +4649,16 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                                     const distSum = distributions.filter(d => d.material === mat && getStaffKey(d.staffEmail, d.staffName) === emailKey).reduce((sum, d) => sum + d.amount, 0);
                                                     const useSum = usages.filter(u => u.material === mat && u.fromCustody && getStaffKey(u.staffEmail, u.staffName) === emailKey).reduce((sum, u) => sum + u.amount, 0);
                                                     return (
-                                                        <tr key={`${emailKey}-${mat}`} className="hover:bg-slate-50/50 print:break-inside-avoid">
+                                                        <tr key={`${emailKey}-${mat}`} className="hover:bg-slate-50/50 print:break-inside-avoid text-slate-800">
                                                             {idx === 0 && (
-                                                                <td className="p-4 font-bold text-slate-800 border-r print:border-slate-400 print:text-black" rowSpan={Object.keys(data.materials).length}>
+                                                                <td className="p-3 print:p-1.5 font-bold text-slate-800 border-r print:border-slate-300 print:text-black bg-slate-50/40 print:bg-transparent" rowSpan={Object.keys(data.materials).length}>
                                                                     {data.name}
                                                                 </td>
                                                             )}
-                                                            <td className="p-4 font-bold text-slate-700 border-r print:border-slate-400">{mat}</td>
-                                                            <td className="p-4 text-orange-600 font-bold border-r print:border-slate-400">+{distSum}</td>
-                                                            <td className="p-4 text-teal-600 font-bold border-r print:border-slate-400 text-teal-600 font-bold">-{useSum}</td>
-                                                            <td className={`p-4 font-black ${bal > 0 ? 'text-emerald-600' : 'text-red-500'}`}>{bal}</td>
+                                                            <td className="p-3 print:p-1.5 font-bold text-slate-700 border-r print:border-slate-300">{mat}</td>
+                                                            <td className="p-3 print:p-1.5 text-orange-600 font-bold border-r print:border-slate-300 text-center font-mono">+{distSum}</td>
+                                                            <td className="p-3 print:p-1.5 text-teal-600 font-bold border-r print:border-slate-300 text-center font-mono">-{useSum}</td>
+                                                            <td className={`p-3 print:p-1.5 font-black text-center font-mono ${bal > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>{bal}</td>
                                                         </tr>
                                                     );
                                                 })
@@ -4499,7 +4666,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                                             {Object.keys(staffBalances).length === 0 && (
                                                 <tr>
                                                     <td colSpan={5} className="text-center py-8 text-slate-400 italic bg-slate-50/50">
-                                                        No active custody balances
+                                                        {language === 'ar' ? 'لا توجد عهد نشطة حالياً' : 'No active custody balances'}
                                                     </td>
                                                 </tr>
                                             )}
@@ -4509,7 +4676,7 @@ const InventorySystem: React.FC<InventorySystemProps> = ({ userRole, userName, u
                             </div>
                         )}
                         
-                        <PrintFooter />
+                        <PrintFooter themeColor="indigo" />
                     </div>
                 )}
 

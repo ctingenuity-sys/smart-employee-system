@@ -12,6 +12,8 @@ interface PrintHeaderProps {
   hideCoverageBadge?: boolean; 
   compact?: boolean; 
   useOldLogo?: boolean;
+  titleClassName?: string;
+  subtitleClassName?: string;
 }
 
 export const PrintHeader: React.FC<PrintHeaderProps> = ({ 
@@ -24,7 +26,9 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
     themeColor = 'slate',
     hideCoverageBadge = false,
     compact = false,
-    useOldLogo = false
+    useOldLogo = false,
+    titleClassName,
+    subtitleClassName
 }) => {
     // Format month title
     let displayMonth = month || "";
@@ -55,10 +59,13 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
     const headerHeightClass = compact ? 'mb-0.5' : 'mb-2';
     const topBarHeight = compact ? 'h-1 mb-1' : 'h-2 mb-4';
     const logoSize = compact ? 'w-10 h-10 text-base border' : 'w-20 h-20 text-3xl border-4';
-    const titleSize = compact ? 'text-lg' : 'text-4xl';
-    const deptSize = compact ? 'text-sm' : 'text-3xl';
+    const defaultTitleSize = compact 
+        ? 'text-sm sm:text-base font-bold' 
+        : ((title && title.length > 25) ? 'text-lg sm:text-xl font-black' : 'text-4xl font-black');
+    const finalTitleClass = titleClassName || defaultTitleSize;
+    const deptSize = compact ? 'text-xs sm:text-sm font-bold' : 'text-3xl font-black';
     const subTextSize = compact ? 'text-[7px] mt-0 tracking-wide' : 'text-[10px] mt-1 tracking-[0.4em]';
-    const badgePadding = compact ? 'py-0 px-2 text-[8px]' : 'py-1 px-3 text-[10px]';
+    const badgePadding = compact ? 'py-0.5 px-2 text-[8px]' : 'py-1 px-3 text-[10px]';
 
     return (
         <div className={`hidden print:flex flex-col ${headerHeightClass} w-full break-inside-avoid print-color-adjust-exact font-serif`} dir="ltr">
@@ -73,25 +80,25 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
                         <img src="/cbahi.png" alt="CBAHI Logo" className={`${compact ? 'w-8 h-8' : 'w-16 h-16'} object-contain`} />
                     </div>
                     <div className="flex flex-col justify-center">
-                        <h1 className={`${compact ? 'text-sm' : 'text-2xl'} font-black text-blue-900 uppercase tracking-tight leading-none`}>AL JEDAANI HOSPITAL</h1>
-                        <h1 className={`${compact ? 'text-[8px]' : 'text-[10px]'} font-bold text-blue-800 tracking-widest leading-none mt-1`}>AL SAFA DISTRICT</h1>
-                        <h2 className={`${compact ? 'text-[9px]' : 'text-sm'} font-bold text-gray-600 uppercase tracking-widest leading-none mt-1`}>مستشفى الجدعاني</h2>
-                        <h2 className={`${compact ? 'text-[9px]' : 'text-sm'} font-bold text-gray-500 tracking-widest leading-none mt-0.5`}>حي الصفــــا</h2>
+                        <h1 className={`${compact ? 'text-xs' : 'text-2xl'} font-black text-blue-900 uppercase tracking-tight leading-none`}>AL JEDAANI HOSPITAL</h1>
+                        <h1 className={`${compact ? 'text-[7px]' : 'text-[10px]'} font-bold text-blue-800 tracking-widest leading-none mt-1`}>AL SAFA DISTRICT</h1>
+                        <h2 className={`${compact ? 'text-[8px]' : 'text-sm'} font-bold text-gray-600 uppercase tracking-widest leading-none mt-1`}>مستشفى الجدعاني</h2>
+                        <h2 className={`${compact ? 'text-[8px]' : 'text-sm'} font-bold text-gray-500 tracking-widest leading-none mt-0.5`}>حي الصفــــا</h2>
                     </div>
                 </div>
                 
                 {/* Center: Title Context */}
-                <div className="text-center absolute left-1/2 transform -translate-x-1/2 bottom-0 w-full max-w-2xl">
-                     <h1 className={`${titleSize} font-black ${c.primary} uppercase tracking-tight leading-none mb-1`}>{displayMonth || title || "REPORT"}</h1>
+                <div className="text-center absolute left-1/2 transform -translate-x-1/2 bottom-0 w-full max-w-xl">
+                     <h1 className={`${finalTitleClass} ${c.primary} uppercase tracking-tight leading-snug mb-0.5`}>{displayMonth || title || "REPORT"}</h1>
                      <div className="flex flex-col items-center gap-1">
                         {/* Note displayed here */}
                         {note && (
-                            <div className="text-lg font-bold text-red-700 bg-red-50 border border-red-200 px-4 py-0.5 rounded-md uppercase tracking-tight leading-none print-color-adjust-exact">
+                            <div className="text-sm font-bold text-red-700 bg-red-50 border border-red-200 px-3 py-0.5 rounded-md uppercase tracking-tight leading-none print-color-adjust-exact">
                                 {note}
                             </div>
                         )}
                         {dateRange && (
-                             <div className={`text-[10px] font-bold text-gray-800 ${c.light} px-2 rounded-full border border-gray-300 inline-block uppercase tracking-wide leading-tight`}>
+                             <div className={`text-[9px] font-bold text-gray-800 ${c.light} px-2 rounded-full border border-gray-300 inline-block uppercase tracking-wide leading-tight`}>
                                  {dateRange}
                              </div>
                         )}
@@ -101,10 +108,10 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
                 {/* Right: Department Info */}
                 <div className="text-right">
                     <div className="flex flex-col items-end">
-                        <h1 className={`${deptSize} font-black ${c.primary} uppercase leading-none`}>{departmentName || "RADIOLOGY"}</h1>
+                        <h1 className={`${deptSize} ${c.primary} uppercase leading-none`}>{departmentName || "RADIOLOGY"}</h1>
                         <h2 className={`font-bold text-gray-400 uppercase mr-0.5 ${subTextSize}`}>Department</h2>
                     </div>
-                    <div className={`mt-0.5 ${badgePadding} ${c.bg} text-white font-bold uppercase tracking-widest rounded-l-md shadow-sm`}>
+                    <div className={`mt-0.5 ${badgePadding} ${c.bg} text-white font-bold uppercase tracking-widest rounded-l-md shadow-sm ${subtitleClassName || ''}`}>
                         {subtitle || "Duty Schedule"}
                     </div>
                 </div>

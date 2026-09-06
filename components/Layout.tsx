@@ -515,7 +515,6 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                         </select>
                     </div>
                 )}
-                <NotificationBell userRole={userRole} />
             </div>
         </header>
 

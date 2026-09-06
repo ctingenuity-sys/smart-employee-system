@@ -15,6 +15,7 @@ export interface Penalty {
   description: string;
   status: 'pending' | 'accepted' | 'rejected';
   rejectionReason?: string;
+  actionId?: string;
   createdAt: any; // Firestore Timestamp
 }
 
@@ -113,6 +114,8 @@ export interface Schedule {
   isRamadan?: boolean; // NEW: Explicit flag to force Ramadan theme regardless of dates
   isException?: boolean; // NEW: Explicit flag for Exception days
   shiftType?: 'morning' | 'evening' | 'night' | 'broken' | 'straight' | 'high_broken' | 'long_duty'; // NEW: Explicit shift type indicator
+  description?: string;
+  actionDetails?: any;
 }
 
 export interface SwapRequest {
@@ -214,6 +217,10 @@ export interface ActionLog {
   from?: string;
   status?: string;
   departmentId?: string;
+  hours?: number | string;
+  timeFrom?: string;
+  timeTo?: string;
+  penaltyId?: string;
 }
 
 // --- NEW: Communication Features ---

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../../firebase';
-import { collection, addDoc, onSnapshot, serverTimestamp, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, serverTimestamp, query, orderBy, deleteDoc, doc, getDocs, where, updateDoc } from 'firebase/firestore';
 import { User, Penalty } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import { useFilteredUsers } from '../../hooks/useFilteredUsers';
@@ -79,6 +79,7 @@ const SupervisorPenalties: React.FC = () => {
     const [violation, setViolation] = useState(VIOLATION_CATEGORIES[Object.keys(VIOLATION_CATEGORIES)[0] as keyof typeof VIOLATION_CATEGORIES][0]);
     const [selectedPenalty, setSelectedPenalty] = useState<Penalty | null>(null);
     const [isPrintStyleModalOpen, setIsPrintStyleModalOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
     
     const [deductionDays, setDeductionDays] = useState<number | ''>('');
     const [suspensionDays, setSuspensionDays] = useState<number | ''>('');
@@ -121,7 +122,30 @@ const SupervisorPenalties: React.FC = () => {
             penaltyData.suspensionTo = suspensionTo;
         }
 
-        await addDoc(collection(db, 'penalties'), penaltyData);
+        const penaltyRef = await addDoc(collection(db, 'penalties'), penaltyData);
+
+        // Sync to actions collection so it also automatically shows in Reports!
+        try {
+            const todayStr = new Date().toISOString().split('T')[0];
+            const actionPayload: any = {
+                employeeId: selectedEmployee,
+                employeeName: employee?.name || 'Unknown',
+                userName: employee?.name || 'Unknown',
+                type: 'violation',
+                fromDate: suspensionFrom || todayStr,
+                toDate: suspensionTo || todayStr,
+                description: `[جزاء رسمي] ${violation}`,
+                createdAt: serverTimestamp(),
+                penaltyId: penaltyRef.id
+            };
+            const actionRef = await addDoc(collection(db, 'actions'), actionPayload);
+            await updateDoc(doc(db, 'penalties', penaltyRef.id), {
+                actionId: actionRef.id
+            });
+        } catch (syncErr) {
+            console.warn("Could not sync penalty to actions:", syncErr);
+        }
+
         alert(t('penalty.successSend'));
         
         // Reset form
@@ -135,7 +159,68 @@ const SupervisorPenalties: React.FC = () => {
     const handleDeletePenalty = async (penaltyId: string) => {
         if (window.confirm(t('penalty.confirmDelete'))) {
             try {
+                // 1. Identify penalty before deletion
+                const targetPenalty = penalties.find(p => p.id === penaltyId);
+
+                // 2. Delete the penalty document from 'penalties' collection
+                // This instantly removes it from the supervisor table, and from UserPenalties & UserDashboard for the employee!
                 await deleteDoc(doc(db, 'penalties', penaltyId));
+
+                // 3. Delete linked action from 'actions' collection by actionId
+                if (targetPenalty?.actionId) {
+                    try {
+                        await deleteDoc(doc(db, 'actions', targetPenalty.actionId));
+                    } catch (e) {
+                        console.warn("Error deleting action by actionId:", e);
+                    }
+                }
+
+                // 4. Also delete any actions linked via penaltyId == penaltyId
+                try {
+                    const qActions = query(collection(db, 'actions'), where('penaltyId', '==', penaltyId));
+                    const snapActions = await getDocs(qActions);
+                    for (const aDoc of snapActions.docs) {
+                        await deleteDoc(doc(db, 'actions', aDoc.id));
+                    }
+                } catch (e) {
+                    console.warn("Error deleting actions with matching penaltyId:", e);
+                }
+
+                // 5. Fallback: match by employeeId and description
+                if (targetPenalty?.employeeId) {
+                    try {
+                        const qEmpActions = query(collection(db, 'actions'), where('employeeId', '==', targetPenalty.employeeId));
+                        const snapEmp = await getDocs(qEmpActions);
+                        for (const aDoc of snapEmp.docs) {
+                            const aData = aDoc.data();
+                            if (aData.penaltyId === penaltyId || aDoc.id === targetPenalty.actionId) {
+                                await deleteDoc(doc(db, 'actions', aDoc.id));
+                            } else if (aData.description && targetPenalty.description) {
+                                const cleanPenaltyDesc = targetPenalty.description.replace(/^\[جزاء رسمي\]\s*/, '').trim();
+                                if (cleanPenaltyDesc && (aData.description.includes(cleanPenaltyDesc) || cleanPenaltyDesc.includes(aData.description))) {
+                                    await deleteDoc(doc(db, 'actions', aDoc.id));
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.warn("Fallback action delete error:", e);
+                    }
+
+                    // 6. Clean notifications for employee
+                    try {
+                        const qNotif = query(collection(db, 'notifications'), where('userId', '==', targetPenalty.employeeId), where('type', '==', 'penalty'));
+                        const snapNotif = await getDocs(qNotif);
+                        for (const nDoc of snapNotif.docs) {
+                            const nData = nDoc.data();
+                            if (targetPenalty.description && nData.message && nData.message.includes(targetPenalty.description.slice(0, 20))) {
+                                await deleteDoc(doc(db, 'notifications', nDoc.id));
+                            }
+                        }
+                    } catch (nErr) {
+                        console.warn("Notification cleanup error:", nErr);
+                    }
+                }
+
                 alert(t('penalty.successDelete'));
             } catch (error) {
                 console.error("Error deleting penalty: ", error);
@@ -240,15 +325,52 @@ const SupervisorPenalties: React.FC = () => {
                 </button>
             </div>
             
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
-                <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-gray-800">
-                    <i className="fas fa-history text-blue-500"></i>
-                    {t('penalty.history')}
-                </h2>
+            <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-gray-100">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                    <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800">
+                        <i className="fas fa-history text-blue-500"></i>
+                        {t('penalty.history')}
+                        <span className="text-xs font-normal text-gray-400 font-mono">({penalties.length})</span>
+                    </h2>
+                    
+                    {/* Search box by REF #, Name, or Violation */}
+                    <div className="relative w-full sm:w-80">
+                        <i className="fas fa-search absolute right-3 top-3 text-gray-400 text-xs"></i>
+                        <input 
+                            type="text" 
+                            placeholder={dir === 'rtl' ? 'بحث بالرقم المرجعي (REF #) أو الموظف...' : 'Search by REF # or employee...'} 
+                            value={searchTerm} 
+                            onChange={e => setSearchTerm(e.target.value)} 
+                            className="w-full bg-gray-50 border border-gray-200 rounded-xl pr-9 pl-8 py-2 text-xs font-bold focus:ring-2 focus:ring-blue-100 outline-none"
+                        />
+                        {searchTerm && (
+                            <button onClick={() => setSearchTerm('')} className="absolute left-3 top-2.5 text-xs text-gray-400 hover:text-gray-600">
+                                <i className="fas fa-times"></i>
+                            </button>
+                        )}
+                    </div>
+                </div>
                 
                 <div className="space-y-4">
-                    {penalties.map(p => {
+                    {penalties.filter(p => {
+                        if (!searchTerm.trim()) return true;
+                        const raw = searchTerm.toLowerCase().trim();
+                        const clean = raw.replace(/^ref\s*#?|^#/i, '').trim();
+                        const empName = (p.employeeName || '').toLowerCase();
+                        const desc = (p.description || '').toLowerCase();
+                        const pType = (p.penaltyType || '').toLowerCase();
+                        const pId = (p.id || '').toLowerCase();
+                        const pRef = (p.id ? p.id.slice(-6) : '').toLowerCase();
+                        const actId = (p.actionId || '').toLowerCase();
+                        const actRef = (p.actionId ? p.actionId.slice(-6) : '').toLowerCase();
+
+                        return empName.includes(raw) ||
+                            desc.includes(raw) ||
+                            pType.includes(raw) ||
+                            (clean ? (pId.includes(clean) || pRef.includes(clean) || actId.includes(clean) || actRef.includes(clean)) : false);
+                    }).map(p => {
                         const descKey = getTranslationKeyForArabic(p.description);
+                        const refCode = (p.actionId ? p.actionId.slice(-6) : p.id.slice(-6)).toUpperCase();
                         return (
                         <div key={p.id} className="border border-gray-200 rounded-xl p-5 hover:shadow-md transition-shadow bg-gray-50/50">
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
@@ -257,8 +379,13 @@ const SupervisorPenalties: React.FC = () => {
                                         {p.employeeName.charAt(0)}
                                     </div>
                                     <div>
-                                        <p className="font-bold text-lg text-gray-900">{p.employeeName}</p>
-                                        <div className="flex items-center gap-2 text-sm">
+                                        <div className="flex items-center gap-2">
+                                            <p className="font-bold text-lg text-gray-900">{p.employeeName}</p>
+                                            <span className="font-mono text-[11px] font-black text-slate-700 bg-white border border-gray-200 px-2 py-0.5 rounded shadow-xs" title="الرقم المرجعي">
+                                                REF #{refCode}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-sm mt-0.5">
                                             <span className="px-2 py-1 bg-gray-200 text-gray-700 rounded-md font-medium">
                                                 {
                                                     p.penaltyType === '1st Warning' ? t('penalty.1stWarning') :

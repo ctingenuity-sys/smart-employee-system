@@ -183,9 +183,47 @@ const formatTime12 = (time24: string) => {
 
 const formatDateSimple = (dateStr: string) => {
     if (!dateStr) return '???';
-    const d = new Date(dateStr);
+    const d = parseDateString(dateStr) || new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
     return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
-}
+};
+
+const formatDateLocalized = (dateStr?: string, isRtl?: boolean) => {
+    if (!dateStr) return isRtl ? 'غير محدد' : 'Not specified';
+    const d = parseDateString(dateStr) || new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const day = d.getDate();
+    const month = d.toLocaleString(isRtl ? 'ar-EG' : 'en-US', { month: 'short' });
+    const year = d.getFullYear();
+    return `${day} ${month} ${year}`;
+};
+
+const calculateShiftDuration = (start: string, end: string, isRtl?: boolean) => {
+    try {
+        if (!start || !end) return '';
+        const [sh, sm] = start.split(':').map(Number);
+        const [eh, em] = end.split(':').map(Number);
+        if (isNaN(sh) || isNaN(eh)) return '';
+        let diffMinutes = (eh * 60 + (sm || 0)) - (sh * 60 + (sm || 0));
+        if (diffMinutes <= 0) diffMinutes += 24 * 60;
+        const hrs = Math.floor(diffMinutes / 60);
+        const mins = diffMinutes % 60;
+        if (isRtl) {
+            if (mins === 0) {
+                if (hrs === 1) return 'ساعة واحدة';
+                if (hrs === 2) return 'ساعتان';
+                if (hrs >= 3 && hrs <= 10) return `${hrs} ساعات`;
+                return `${hrs} ساعة`;
+            }
+            const minsStr = mins === 30 ? 'ونصف' : `${mins} دقيقة`;
+            return `${hrs} ساعة ${minsStr}`;
+        }
+        if (mins === 0) return `${hrs}h`;
+        return `${hrs}h ${mins}m`;
+    } catch {
+        return '';
+    }
+};
 
 const isDateInMonth = (dateStr: string, targetMonth: string) => {
     if (!dateStr) return false;
@@ -310,6 +348,106 @@ const getEidNameForRange = (validFrom: string | undefined, validTo: string | und
 const SHIFT_DESCRIPTIONS: Record<string, string> = {
     'Straight Morning': '9am-5pm\nXRAYS + USG',
     'Straight Evening': '5pm-1am\nXRAYS + USG',
+};
+
+const getScheduleBilingualInfo = (sch: Schedule, status: any, isRtl: boolean) => {
+    const isRamadan = Boolean(
+        status.isRamadan ||
+        sch.isRamadan ||
+        (sch.periodName && /ramadan|رمضان/i.test(sch.periodName)) ||
+        (status.label && /ramadan/i.test(status.label))
+    );
+    const isEid = Boolean(
+        status.isEid ||
+        (sch.periodName && /eid|عيد/i.test(sch.periodName)) ||
+        (status.label && /eid/i.test(status.label))
+    );
+    const isHoliday = Boolean(
+        status.isHoliday ||
+        sch.locationId === 'Holiday Shift' ||
+        (sch.periodName && /holiday|عطلة|اجازة|إجازة/i.test(sch.periodName))
+    );
+    const isSwap = Boolean(
+        status.isSwap ||
+        (sch.locationId || '').toLowerCase().includes('swap') ||
+        (sch.note || '').toLowerCase().includes('swap')
+    );
+
+    if (isRamadan) {
+        return {
+            primary: isRtl ? 'جدول شهر رمضان المبارك' : 'RAMADAN SCHEDULE',
+            secondary: isRtl ? 'جدول الدوام الشهري المعتمد' : 'OFFICIAL MONTHLY ROSTER',
+            badge: isRtl ? 'جدول شهر رمضان' : 'RAMADAN ROSTER',
+            classBadge: isRtl ? 'تكليف رمضان' : 'RAMADAN DUTY',
+            shiftTitle: isRtl ? 'جدول شهر رمضان المبارك' : 'Ramadan Schedule',
+            isRamadan: true
+        };
+    }
+    if (isEid) {
+        return {
+            primary: isRtl ? 'جدول عطلة العيد المبارك' : 'EID MUBARAK SCHEDULE',
+            secondary: isRtl ? 'جدول الإجازات والمناسبات الرسمية' : 'OFFICIAL HOLIDAY ROSTER',
+            badge: isRtl ? 'عطلة العيد' : 'EID ROSTER',
+            classBadge: isRtl ? 'تكليف العيد' : 'EID DUTY',
+            shiftTitle: isRtl ? 'جدول عطلة العيد المبارك' : 'Eid Mubarak Schedule',
+            isEid: true
+        };
+    }
+    if (isHoliday) {
+        return {
+            primary: isRtl ? 'جدول العطلات والإجازات الرسمية' : 'OFFICIAL HOLIDAY SCHEDULE',
+            secondary: isRtl ? 'جدول التكليف في العطلات الرسمية' : 'PUBLIC HOLIDAY ROSTER',
+            badge: isRtl ? 'عطلة رسمية' : 'HOLIDAY ROSTER',
+            classBadge: isRtl ? 'تكليف عطلة' : 'HOLIDAY DUTY',
+            shiftTitle: isRtl ? 'جدول العطلات الرسمية' : 'Official Holiday Schedule',
+            isHoliday: true
+        };
+    }
+    if (isSwap) {
+        return {
+            primary: isRtl ? 'جدول التبديل المعتمد' : 'CONFIRMED SWAP ROSTER',
+            secondary: isRtl ? 'تصريح تبديل نوبتجية رسمي' : 'OFFICIAL DUTY SWAP PASS',
+            badge: isRtl ? 'تبديل معتمد' : 'SWAP PASS',
+            classBadge: isRtl ? 'تبديل معتمد' : 'SWAP DUTY',
+            shiftTitle: isRtl ? 'جدول التبديل المعتمد' : 'Confirmed Swap Roster',
+            isSwap: true
+        };
+    }
+    if (sch.locationId === 'common_duty') {
+        return {
+            primary: isRtl ? 'جدول التكليف الشهري العام' : 'GENERAL MONTHLY ROSTER',
+            secondary: isRtl ? 'جدول دوام رسمي معتمد' : 'OFFICIAL DUTY SCHEDULE',
+            badge: isRtl ? 'جدول شهري' : 'MONTHLY ROSTER',
+            classBadge: isRtl ? 'تكليف شهري' : 'MONTHLY DUTY',
+            shiftTitle: isRtl ? 'جدول التكليف الشهري العام' : 'General Monthly Roster',
+            isRamadan: false
+        };
+    }
+
+    if (sch.periodName) {
+        const isPeriodRamadan = /ramadan|رمضان/i.test(sch.periodName);
+        return {
+            primary: isPeriodRamadan 
+                ? (isRtl ? 'جدول شهر رمضان المبارك' : 'RAMADAN SCHEDULE')
+                : sch.periodName,
+            secondary: isRtl ? 'جدول دوام رسمي معتمد' : 'OFFICIAL CERTIFIED ROSTER',
+            badge: isRtl ? 'جدول معتمد' : 'DUTY ROSTER',
+            classBadge: isRtl ? 'تكليف معتمد' : 'CONFIRMED ROSTER',
+            shiftTitle: isPeriodRamadan 
+                ? (isRtl ? 'جدول شهر رمضان المبارك' : 'Ramadan Schedule')
+                : sch.periodName,
+            isRamadan: isPeriodRamadan
+        };
+    }
+
+    return {
+        primary: isRtl ? (status.subLabel || 'جدول الدوام المعتمد') : (status.label || 'CONFIRMED SCHEDULE'),
+        secondary: isRtl ? 'جدول دوام رسمي معتمد' : 'OFFICIAL CERTIFIED ROSTER',
+        badge: isRtl ? 'جدول معتمد' : 'DUTY ROSTER',
+        classBadge: isRtl ? 'تكليف معتمد' : 'CONFIRMED ROSTER',
+        shiftTitle: isRtl ? (status.subLabel || 'جدول الدوام المعتمد') : (status.label || 'Official Schedule'),
+        isRamadan: false
+    };
 };
 
 const PersonalNotepad: React.FC = () => {
@@ -461,11 +599,21 @@ const UserSchedule: React.FC = () => {
                     const actionSchedules: Schedule[] = [];
                     fetchedActions.forEach(act => {
                         if (act.type === 'positive') return;
-                        const startDate = new Date(act.fromDate);
-                        const endDate = new Date(act.toDate);
+                        
+                        // Parse dates reliably without timezone day-shifting
+                        const sParts = (act.fromDate || '').split('-').map(Number);
+                        const eParts = (act.toDate || '').split('-').map(Number);
+                        if (sParts.length < 3 || eParts.length < 3) return;
+                        
+                        const startDate = new Date(sParts[0], sParts[1] - 1, sParts[2]);
+                        const endDate = new Date(eParts[0], eParts[1] - 1, eParts[2]);
                         
                         for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-                            const dateStr = d.toISOString().split('T')[0];
+                            const y = d.getFullYear();
+                            const m = String(d.getMonth() + 1).padStart(2, '0');
+                            const day = String(d.getDate()).padStart(2, '0');
+                            const dateStr = `${y}-${m}-${day}`;
+                            
                             if (dateStr.startsWith(selectedMonth)) {
                                 actionSchedules.push({
                                     id: `action_${act.id}_${dateStr}`,
@@ -475,14 +623,33 @@ const UserSchedule: React.FC = () => {
                                     shifts: [],
                                     note: act.type,
                                     userType: 'user',
-                                    month: selectedMonth
+                                    month: selectedMonth,
+                                    description: act.description,
+                                    actionDetails: {
+                                        actionId: act.id,
+                                        type: act.type,
+                                        description: act.description,
+                                        deductionDays: (act as any).deductionDays,
+                                        suspensionDays: (act as any).suspensionDays,
+                                        permissionHours: (act as any).permissionHours || act.hours,
+                                        timeFrom: act.timeFrom,
+                                        timeTo: act.timeTo,
+                                        penaltyId: act.penaltyId,
+                                        fromDate: act.fromDate,
+                                        toDate: act.toDate
+                                    }
                                 });
                             }
                         }
                     });
 
-                    const actionDates = new Set(actionSchedules.map(s => s.date));
-                    const filteredRegularSchedules = data.filter(s => !s.date || !actionDates.has(s.date));
+                    // Only full-day absences and leaves replace regular work shifts;
+                    // disciplinary notices/violations will be displayed alongside duty shifts!
+                    const fullDayLeaveTypes = ['annual_leave', 'sick_leave', 'unjustified_absence', 'justified_absence', 'suspension'];
+                    const fullDayLeaveDates = new Set(
+                        actionSchedules.filter(s => fullDayLeaveTypes.includes(s.note || '')).map(s => s.date)
+                    );
+                    const filteredRegularSchedules = data.filter(s => !s.date || !fullDayLeaveDates.has(s.date));
                     const combined = [...filteredRegularSchedules, ...actionSchedules];
                     
                     combined.sort((a, b) => {
@@ -528,14 +695,27 @@ const UserSchedule: React.FC = () => {
 
     const getLocationName = useCallback((sch: Schedule) => {
         if (sch.locationId === 'LEAVE_ACTION') {
-            const map: Record<string, string> = {
-                'annual_leave': 'ANNUAL LEAVE',
-                'sick_leave': 'SICK LEAVE',
-                'unjustified_absence': 'ABSENT (ADMIN)',
-                'justified_absence': 'EXCUSED ABSENCE',
-                'mission': 'ON MISSION'
+            const map: Record<string, { ar: string; en: string }> = {
+                'conduct_violation': { ar: 'مخالفة سلوك / تعليمات', en: 'CONDUCT VIOLATION' },
+                'violation': { ar: 'مخالفة إدارية رسمية', en: 'ADMINISTRATIVE VIOLATION' },
+                'late': { ar: 'تأخير عن مواعيد العمل', en: 'LATE ATTENDANCE' },
+                'early_leave': { ar: 'انصراف مبكر بدون إذن', en: 'EARLY DEPARTURE' },
+                'permission_hours': { ar: 'إذن خروج مؤقت (ساعات)', en: 'TIME PERMIT' },
+                'neglect': { ar: 'إهمال وتقصير في العمل', en: 'WORK NEGLECT' },
+                'verbal_warning': { ar: 'لفت نظر / تنبيه شفوي', en: 'VERBAL WARNING' },
+                'deduction': { ar: 'خصم مالي من الراتب', en: 'SALARY DEDUCTION' },
+                'suspension': { ar: 'إيقاف مؤقت عن العمل', en: 'WORK SUSPENSION' },
+                'unjustified_absence': { ar: 'غياب بدون عذر مقبول', en: 'UNAUTHORIZED ABSENCE' },
+                'justified_absence': { ar: 'غياب بعذر معتمد', en: 'EXCUSED ABSENCE' },
+                'annual_leave': { ar: 'إجازة اعتيادية سنوية', en: 'ANNUAL LEAVE' },
+                'sick_leave': { ar: 'إجازة مرضية معتمدة', en: 'SICK LEAVE' },
+                'mission': { ar: 'مأمورية عمل رسمية', en: 'OFFICIAL MISSION' }
             };
-            return map[sch.note || ''] || (sch.note || 'LEAVE').toUpperCase().replace('_', ' ');
+            const actInfo = map[sch.note || ''];
+            if (actInfo) {
+                return dir === 'rtl' ? actInfo.ar : actInfo.en;
+            }
+            return (sch.note || 'LEAVE').toUpperCase().replace(/_/g, ' ');
         }
         
         let display = '';
@@ -564,13 +744,196 @@ const UserSchedule: React.FC = () => {
             display = l ? l.name : sch.locationId;
         }
         return display;
-    }, [locations]);
+    }, [locations, dir]);
 
     // Enhanced Status Logic with Absence Detection AND Manual Flag
     const getTicketStatus = (sch: Schedule) => {
         if (sch.locationId === 'LEAVE_ACTION') {
-            if ((sch.note || '').includes('absence')) return { label: 'ABSENT', theme: 'red', icon: 'fa-user-slash', isAction: true };
-            return { label: 'ON LEAVE', theme: 'purple', icon: 'fa-umbrella-beach', isAction: true };
+            const actType = sch.note || '';
+            const actionStatusMap: Record<string, any> = {
+                conduct_violation: {
+                    label: 'CONDUCT VIOLATION',
+                    subLabel: 'مخالفة سلوكية',
+                    classBadge: 'DISCIPLINARY',
+                    theme: 'crimson',
+                    icon: 'fa-user-shield',
+                    watermarkIcon: 'fa-scale-unbalanced-flip',
+                    isAction: true,
+                    isViolation: true,
+                    severity: 'critical'
+                },
+                violation: {
+                    label: 'OFFICIAL VIOLATION',
+                    subLabel: 'مخالفة رسمية',
+                    classBadge: 'INFRACTION',
+                    theme: 'rose_dark',
+                    icon: 'fa-triangle-exclamation',
+                    watermarkIcon: 'fa-gavel',
+                    isAction: true,
+                    isViolation: true,
+                    severity: 'critical'
+                },
+                late: {
+                    label: 'LATE ARRIVAL',
+                    subLabel: 'تأخير دوام',
+                    classBadge: 'TIME BREACH',
+                    theme: 'amber_glow',
+                    icon: 'fa-user-clock',
+                    watermarkIcon: 'fa-clock',
+                    isAction: true,
+                    isViolation: true,
+                    severity: 'medium'
+                },
+                early_leave: {
+                    label: 'EARLY DEPARTURE',
+                    subLabel: 'انصراف مبكر',
+                    classBadge: 'EARLY EXIT',
+                    theme: 'orange_burn',
+                    icon: 'fa-person-walking-arrow-right',
+                    watermarkIcon: 'fa-door-open',
+                    isAction: true,
+                    isViolation: true,
+                    severity: 'medium'
+                },
+                permission_hours: {
+                    label: 'TIME PERMIT',
+                    subLabel: 'إذن ساعات',
+                    classBadge: 'EXIT PASS',
+                    theme: 'cyan_ocean',
+                    icon: 'fa-business-time',
+                    watermarkIcon: 'fa-clock-rotate-left',
+                    isAction: true,
+                    isViolation: false,
+                    severity: 'info'
+                },
+                neglect: {
+                    label: 'WORK NEGLECT',
+                    subLabel: 'إهمال وتقصير',
+                    classBadge: 'PERFORMANCE',
+                    theme: 'burnt_rust',
+                    icon: 'fa-clipboard-xmark',
+                    watermarkIcon: 'fa-triangle-exclamation',
+                    isAction: true,
+                    isViolation: true,
+                    severity: 'high'
+                },
+                verbal_warning: {
+                    label: 'VERBAL NOTICE',
+                    subLabel: 'لفت نظر',
+                    classBadge: 'ADVISORY',
+                    theme: 'yellow_gold',
+                    icon: 'fa-bullhorn',
+                    watermarkIcon: 'fa-comment-dots',
+                    isAction: true,
+                    isViolation: true,
+                    severity: 'low'
+                },
+                deduction: {
+                    label: 'DEDUCTION ORDER',
+                    subLabel: 'خصم من الراتب',
+                    classBadge: 'PAYROLL ACTION',
+                    theme: 'wine_red',
+                    icon: 'fa-file-invoice-dollar',
+                    watermarkIcon: 'fa-hand-holding-dollar',
+                    isAction: true,
+                    isViolation: true,
+                    severity: 'critical'
+                },
+                suspension: {
+                    label: 'WORK SUSPENSION',
+                    subLabel: 'إيقاف عن العمل',
+                    classBadge: 'WORK HALT',
+                    theme: 'obsidian_dark',
+                    icon: 'fa-ban',
+                    watermarkIcon: 'fa-hand',
+                    isAction: true,
+                    isViolation: true,
+                    severity: 'critical'
+                },
+                unjustified_absence: {
+                    label: 'UNEXCUSED ABSENT',
+                    subLabel: 'غياب غير مبرر',
+                    classBadge: 'ATTENDANCE FAULT',
+                    theme: 'scarlet_blood',
+                    icon: 'fa-user-xmark',
+                    watermarkIcon: 'fa-calendar-xmark',
+                    isAction: true,
+                    isViolation: true,
+                    severity: 'critical'
+                },
+                justified_absence: {
+                    label: 'EXCUSED ABSENCE',
+                    subLabel: 'غياب بعذر',
+                    classBadge: 'EXCUSED NOTE',
+                    theme: 'slate_indigo',
+                    icon: 'fa-envelope-open-text',
+                    watermarkIcon: 'fa-file-lines',
+                    isAction: true,
+                    isViolation: false,
+                    severity: 'info'
+                },
+                annual_leave: {
+                    label: 'ANNUAL LEAVE',
+                    subLabel: 'إجازة سنوية',
+                    classBadge: 'VACATION PASS',
+                    theme: 'emerald_paradise',
+                    icon: 'fa-umbrella-beach',
+                    watermarkIcon: 'fa-plane',
+                    isAction: true,
+                    isViolation: false,
+                    severity: 'leave'
+                },
+                sick_leave: {
+                    label: 'SICK LEAVE',
+                    subLabel: 'إجازة مرضية',
+                    classBadge: 'MEDICAL PASS',
+                    theme: 'teal_clinic',
+                    icon: 'fa-heart-pulse',
+                    watermarkIcon: 'fa-notes-medical',
+                    isAction: true,
+                    isViolation: false,
+                    severity: 'leave'
+                },
+                mission: {
+                    label: 'OFFICIAL MISSION',
+                    subLabel: 'مأمورية رسمية',
+                    classBadge: 'MISSION DUTY',
+                    theme: 'royal_blue',
+                    icon: 'fa-briefcase',
+                    watermarkIcon: 'fa-building',
+                    isAction: true,
+                    isViolation: false,
+                    severity: 'duty'
+                }
+            };
+
+            const matched = actionStatusMap[actType];
+            if (matched) return matched;
+            
+            if (actType.includes('absence')) {
+                return {
+                    label: 'ABSENT',
+                    subLabel: 'غياب',
+                    classBadge: 'ABSENCE',
+                    theme: 'scarlet_blood',
+                    icon: 'fa-user-slash',
+                    watermarkIcon: 'fa-calendar-xmark',
+                    isAction: true,
+                    isViolation: true,
+                    severity: 'critical'
+                };
+            }
+            return {
+                label: (actType || 'ACTION').toUpperCase().replace(/_/g, ' '),
+                subLabel: 'إجراء إداري',
+                classBadge: 'ADMIN ACTION',
+                theme: 'crimson',
+                icon: 'fa-file-shield',
+                watermarkIcon: 'fa-shield-halved',
+                isAction: true,
+                isViolation: true,
+                severity: 'medium'
+            };
         }
 
         const isSwap = (sch.locationId || '').toLowerCase().includes('swap') || (sch.note || '').toLowerCase().includes('swap');
@@ -586,16 +949,58 @@ const UserSchedule: React.FC = () => {
           
           const isEidRange = checkEidOverlap(sch.validFrom, sch.validTo, sch.month);
 
-          if(sch.locationId === 'common_duty') return { label: isRamadanRange ? 'RAMADAN' : 'GENERAL', theme: isRamadanRange ? 'indigo' : 'purple', icon: isRamadanRange ? 'fa-moon' : 'fa-layer-group', isHoliday: false, isRamadan: isRamadanRange };
+          if(sch.locationId === 'common_duty') return { 
+              label: isRamadanRange ? 'RAMADAN ROSTER' : 'GENERAL ROSTER', 
+              subLabel: isRamadanRange ? 'جدول تكليف رمضان' : 'جدول تكليف شهري',
+              classBadge: 'MONTHLY ROSTER',
+              theme: isRamadanRange ? 'indigo' : 'purple', 
+              icon: isRamadanRange ? 'fa-moon' : 'fa-layer-group', 
+              watermarkIcon: isRamadanRange ? 'fa-mosque' : 'fa-clipboard-list',
+              isHoliday: false, 
+              isRamadan: isRamadanRange 
+          };
           
           if(sch.locationId === 'Holiday Shift') {
-              if (isEidRange) return { label: 'EID MUBARAK', theme: 'teal', icon: 'fa-star', isHoliday: true, isEid: true };
-              return { label: 'HOLIDAY', theme: 'rose', icon: 'fa-gift', isHoliday: true };
+              if (isEidRange) return { 
+                  label: 'EID MUBARAK', 
+                  subLabel: 'جدول عطلة العيد',
+                  classBadge: 'EID ROSTER',
+                  theme: 'teal', 
+                  icon: 'fa-star', 
+                  watermarkIcon: 'fa-kaaba',
+                  isHoliday: true, 
+                  isEid: true 
+              };
+              return { 
+                  label: 'HOLIDAY ROSTER', 
+                  subLabel: 'جدول العطلات الرسمية',
+                  classBadge: 'HOLIDAY ROSTER',
+                  theme: 'rose', 
+                  icon: 'fa-gift', 
+                  watermarkIcon: 'fa-gift',
+                  isHoliday: true 
+              };
           }
           
-          if (isSwap) return { label: 'SWAP', theme: 'violet', icon: 'fa-exchange-alt', pulse: true };
+          if (isSwap) return { 
+              label: 'SWAP ROSTER', 
+              subLabel: 'جدول تبديل معتمد',
+              classBadge: 'SWAP PASS',
+              theme: 'violet', 
+              icon: 'fa-right-left', 
+              watermarkIcon: 'fa-arrow-right-arrow-left',
+              pulse: true 
+          };
           
-          return { label: isRamadanRange ? 'RAMADAN' : 'GENERAL', theme: isRamadanRange ? 'indigo' : 'indigo', icon: isRamadanRange ? 'fa-moon' : 'fa-calendar-alt', isRamadan: isRamadanRange };
+          return { 
+              label: isRamadanRange ? 'RAMADAN ROSTER' : 'GENERAL SCHEDULE', 
+              subLabel: isRamadanRange ? 'جدول شهر رمضان' : 'جدول الدوام المعتمد',
+              classBadge: 'CONFIRMED ROSTER',
+              theme: isRamadanRange ? 'indigo' : 'sky', 
+              icon: isRamadanRange ? 'fa-moon' : 'fa-calendar-days', 
+              watermarkIcon: isRamadanRange ? 'fa-mosque' : 'fa-hospital',
+              isRamadan: isRamadanRange 
+          };
         }
         
         const shiftDate = parseDateString(sch.date) || new Date();
@@ -615,51 +1020,174 @@ const UserSchedule: React.FC = () => {
 
         if (shiftDate < today) {
             if (!punchedDates.has(sch.date)) {
-                return { label: 'ABSENT', theme: 'red', icon: 'fa-times-circle', isAbsent: true };
+                return { 
+                    label: 'ABSENT', 
+                    subLabel: 'غياب غير مسجل',
+                    classBadge: 'UNRECORDED',
+                    theme: 'red', 
+                    icon: 'fa-times-circle', 
+                    watermarkIcon: 'fa-user-slash',
+                    isAbsent: true 
+                };
             }
-            if (national) return { label: 'COMPLETED', theme: 'emerald', icon: 'fa-check-circle', grayscale: true, isNational: true };
-            if (isRamadan) return { label: 'COMPLETED', theme: 'indigo', icon: 'fa-check-circle', grayscale: true, isRamadan: true };
-            return { label: 'COMPLETED', theme: 'slate', icon: 'fa-check-circle', grayscale: true };
+            if (national) return { 
+                label: 'COMPLETED', 
+                subLabel: 'دوام عطلة رسمية منجز',
+                classBadge: 'HOLIDAY RECORD',
+                theme: 'emerald', 
+                icon: 'fa-check-circle', 
+                watermarkIcon: 'fa-award',
+                grayscale: true, 
+                isNational: true 
+            };
+            if (isRamadan) return { 
+                label: 'COMPLETED', 
+                subLabel: 'دوام رمضاني منجز',
+                classBadge: 'RAMADAN RECORD',
+                theme: 'indigo', 
+                icon: 'fa-check-circle', 
+                watermarkIcon: 'fa-moon',
+                grayscale: true, 
+                isRamadan: true 
+            };
+            return { 
+                label: 'COMPLETED', 
+                subLabel: 'دوام منجز ومؤكد',
+                classBadge: 'SERVED DUTY',
+                theme: 'slate', 
+                icon: 'fa-check-circle', 
+                watermarkIcon: 'fa-circle-check',
+                grayscale: true 
+            };
         }
 
-        if (isSwap) return { label: 'SWAP', theme: 'violet', icon: 'fa-exchange-alt', pulse: true, isRamadan, isEid };
+        if (isSwap) return { 
+            label: 'SWAP DUTY', 
+            subLabel: 'تبديل معتمد',
+            classBadge: 'SWAP PASS',
+            theme: 'violet', 
+            icon: 'fa-right-left', 
+            watermarkIcon: 'fa-arrow-right-arrow-left',
+            pulse: true, 
+            isRamadan, 
+            isEid 
+        };
         
         if (shiftDate.getTime() === today.getTime()) {
-            return { label: 'TODAY', theme: 'amber', icon: 'fa-briefcase', pulse: true, isRamadan, isEid, isNational: !!national };
+            return { 
+                label: 'TODAY ON DUTY', 
+                subLabel: 'دوام اليوم النشط',
+                classBadge: 'ACTIVE DUTY',
+                theme: 'amber', 
+                icon: 'fa-briefcase', 
+                watermarkIcon: 'fa-business-time',
+                pulse: true, 
+                isToday: true,
+                isRamadan, 
+                isEid, 
+                isNational: !!national 
+            };
         }
         
-        if (national) return { label: national.name, theme: 'emerald', icon: national.icon, isNational: true };
-        if (isEid) return { label: 'EID MUBARAK', theme: 'teal', icon: 'fa-star', isEid: true };
+        if (national) return { 
+            label: national.name.toUpperCase(), 
+            subLabel: 'عطلة رسمية معتمدة',
+            classBadge: 'NATIONAL HOLIDAY',
+            theme: 'emerald', 
+            icon: national.icon, 
+            watermarkIcon: 'fa-landmark',
+            isNational: true 
+        };
+        if (isEid) return { 
+            label: 'EID MUBARAK', 
+            subLabel: 'عيد مبارك',
+            classBadge: 'EID SPECIAL',
+            theme: 'teal', 
+            icon: 'fa-star', 
+            watermarkIcon: 'fa-kaaba',
+            isEid: true 
+        };
         
         // NEW: Exception Theme
-        if (sch.isException) return { label: 'EXCEPTION', theme: 'purple', icon: 'fa-exclamation-circle' };
+        if (sch.isException) return { 
+            label: 'EXCEPTION DUTY', 
+            subLabel: 'تكليف استثنائي',
+            classBadge: 'SPECIAL SHIFT',
+            theme: 'purple', 
+            icon: 'fa-star-of-life',
+            watermarkIcon: 'fa-bolt'
+        };
 
-        if (isRamadan) return { label: 'RAMADAN', theme: 'indigo', icon: 'fa-moon', isRamadan: true };
+        if (isRamadan) return { 
+            label: 'RAMADAN DUTY', 
+            subLabel: 'دوام شهر رمضان',
+            classBadge: 'RAMADAN SHIFT',
+            theme: 'indigo', 
+            icon: 'fa-moon', 
+            watermarkIcon: 'fa-mosque',
+            isRamadan: true 
+        };
 
-        if (sch.locationId.includes('Friday')) return { label: 'FRIDAY', theme: 'emerald', icon: 'fa-mosque' };
-        if (sch.locationId.includes('Holiday')) return { label: 'HOLIDAY', theme: 'rose', icon: 'fa-gift' };
+        if (sch.locationId.includes('Friday')) return { 
+            label: 'FRIDAY SHIFT', 
+            subLabel: 'نوبتجية الجمعة',
+            classBadge: 'FRIDAY DUTY',
+            theme: 'emerald', 
+            icon: 'fa-mosque', 
+            watermarkIcon: 'fa-hands-praying'
+        };
+        if (sch.locationId.includes('Holiday')) return { 
+            label: 'HOLIDAY SHIFT', 
+            subLabel: 'نوبتجية عطلة',
+            classBadge: 'HOLIDAY PASS',
+            theme: 'rose', 
+            icon: 'fa-gift', 
+            watermarkIcon: 'fa-gift'
+        };
         
-        return { label: 'UPCOMING', theme: 'sky', icon: 'fa-calendar-day' };
+        return { 
+            label: 'UPCOMING SHIFT', 
+            subLabel: 'دوام قادم معتمد',
+            classBadge: 'CONFIRMED SHIFT',
+            theme: 'sky', 
+            icon: 'fa-calendar-check',
+            watermarkIcon: 'fa-hospital-user'
+        };
     };
 
     const getGradient = (theme: string, isGrayscale: boolean, isRamadan?: boolean, isEid?: boolean, isNational?: boolean, isAbsent?: boolean) => {
-        if (isAbsent) return 'bg-gradient-to-br from-red-50 to-red-100 border-red-300 text-red-800';
-        if (isGrayscale) return 'bg-gradient-to-r from-slate-200 to-slate-300 text-slate-500 border-slate-300';
-        if (isNational) return 'bg-gradient-to-br from-emerald-700 via-green-800 to-teal-900 text-white border-amber-400';
-        if (isRamadan) return 'bg-gradient-to-br from-indigo-900 via-slate-800 to-indigo-900 text-amber-100 border-amber-500/50';
-        if (isEid) return 'bg-gradient-to-br from-rose-600 via-pink-500 to-red-500 text-white border-pink-300';
+        if (isAbsent) return 'bg-gradient-to-br from-red-950 via-rose-950 to-neutral-950 text-white border-red-600/80 shadow-red-950/50';
+        if (isGrayscale) return 'bg-gradient-to-br from-slate-900 via-slate-800 to-zinc-900 text-slate-200 border-slate-700/60 shadow-slate-950/40';
+        if (isNational) return 'bg-gradient-to-br from-emerald-950 via-green-900 to-teal-950 text-white border-amber-400/80 shadow-emerald-950/40';
+        if (isRamadan) return 'bg-gradient-to-br from-indigo-950 via-slate-900 to-indigo-950 text-amber-100 border-amber-500/60 shadow-indigo-950/50';
+        if (isEid) return 'bg-gradient-to-br from-rose-950 via-pink-900 to-red-950 text-white border-pink-400/70 shadow-rose-950/40';
         const themes: Record<string, string> = {
-            purple: 'bg-gradient-to-br from-purple-700 via-purple-600 to-indigo-700 text-white border-purple-500',
-            rose: 'bg-gradient-to-br from-rose-600 via-pink-600 to-red-600 text-white border-rose-500',
-            blue: 'bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-700 text-white border-blue-500',
-            amber: 'bg-gradient-to-br from-amber-500 via-orange-500 to-yellow-600 text-white border-amber-500',
-            violet: 'bg-gradient-to-br from-violet-700 via-purple-700 to-fuchsia-800 text-white border-violet-500',
-            teal: 'bg-gradient-to-br from-teal-600 via-emerald-600 to-green-700 text-white border-teal-500',
-            emerald: 'bg-gradient-to-br from-emerald-600 via-teal-600 to-green-700 text-white border-emerald-500',
-            sky: 'bg-gradient-to-br from-sky-600 via-blue-500 to-cyan-600 text-white border-sky-500',
-            indigo: 'bg-gradient-to-br from-indigo-700 via-blue-800 to-slate-900 text-white border-indigo-500',
-            slate: 'bg-gradient-to-br from-slate-500 to-slate-700 text-white border-slate-500',
-            red: 'bg-gradient-to-br from-red-700 via-red-600 to-rose-700 text-white border-red-500'
+            purple: 'bg-gradient-to-br from-purple-950 via-indigo-900 to-slate-950 text-white border-purple-400/60 shadow-purple-950/40',
+            rose: 'bg-gradient-to-br from-rose-950 via-rose-800 to-red-950 text-white border-rose-400/60 shadow-rose-950/40',
+            blue: 'bg-gradient-to-br from-blue-950 via-indigo-900 to-sky-950 text-white border-blue-400/60 shadow-blue-950/40',
+            amber: 'bg-gradient-to-br from-amber-950 via-amber-750 to-orange-950 text-white border-amber-400/70 shadow-amber-950/50',
+            violet: 'bg-gradient-to-br from-violet-950 via-purple-900 to-slate-950 text-white border-purple-400/60 shadow-purple-950/40',
+            teal: 'bg-gradient-to-br from-teal-950 via-teal-800 to-emerald-950 text-white border-teal-400/60 shadow-teal-950/40',
+            emerald: 'bg-gradient-to-br from-emerald-950 via-teal-900 to-green-950 text-white border-emerald-400/60 shadow-emerald-950/40',
+            sky: 'bg-gradient-to-br from-slate-950 via-blue-900 to-sky-900 text-white border-sky-400/60 shadow-sky-950/50',
+            indigo: 'bg-gradient-to-br from-indigo-950 via-slate-900 to-blue-950 text-amber-100 border-indigo-400/60 shadow-indigo-950/40',
+            slate: 'bg-gradient-to-br from-slate-900 via-slate-800 to-zinc-900 text-slate-200 border-slate-700/60 shadow-slate-950/40',
+            red: 'bg-gradient-to-br from-red-950 via-red-900 to-rose-950 text-white border-red-500/70 shadow-red-950/40',
+            // --- High Impact Specialized Themes for Disciplinary Actions & Permissions ---
+            crimson: 'bg-gradient-to-br from-rose-950 via-rose-800 to-red-900 text-white border-rose-500/80 shadow-rose-900/30',
+            rose_dark: 'bg-gradient-to-br from-red-950 via-red-800 to-rose-950 text-white border-red-500/80 shadow-red-900/30',
+            amber_glow: 'bg-gradient-to-br from-amber-900 via-amber-700 to-yellow-800 text-white border-amber-400/80 shadow-amber-900/30',
+            orange_burn: 'bg-gradient-to-br from-orange-950 via-orange-700 to-rose-900 text-white border-orange-500/80 shadow-orange-900/30',
+            cyan_ocean: 'bg-gradient-to-br from-cyan-950 via-cyan-800 to-blue-900 text-white border-cyan-400/80 shadow-cyan-900/30',
+            burnt_rust: 'bg-gradient-to-br from-stone-950 via-stone-800 to-red-950 text-white border-stone-500/80 shadow-stone-900/30',
+            yellow_gold: 'bg-gradient-to-br from-amber-900 via-yellow-700 to-amber-900 text-white border-yellow-400/80 shadow-yellow-900/30',
+            wine_red: 'bg-gradient-to-br from-red-950 via-rose-900 to-neutral-950 text-white border-rose-500/80 shadow-red-900/30',
+            obsidian_dark: 'bg-gradient-to-br from-slate-950 via-stone-900 to-red-950 text-white border-red-700/80 shadow-black/50',
+            scarlet_blood: 'bg-gradient-to-br from-red-950 via-rose-950 to-neutral-950 text-white border-red-600/80 shadow-red-950/40',
+            slate_indigo: 'bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-800 text-white border-indigo-400/80 shadow-indigo-950/30',
+            emerald_paradise: 'bg-gradient-to-br from-emerald-950 via-teal-800 to-green-950 text-white border-emerald-400/80 shadow-emerald-900/30',
+            teal_clinic: 'bg-gradient-to-br from-teal-950 via-teal-800 to-cyan-950 text-white border-teal-400/80 shadow-teal-900/30',
+            royal_blue: 'bg-gradient-to-br from-blue-950 via-blue-800 to-indigo-950 text-white border-blue-400/80 shadow-blue-900/30'
         };
         return themes[theme] || themes.blue;
     };
@@ -901,9 +1429,70 @@ const UserSchedule: React.FC = () => {
                         }
                         if (!displayShifts || displayShifts.length === 0) displayShifts = [{ start: '08:00', end: '16:00' }];
 
-                        const isValidityTicket = !sch.date && sch.validFrom;
-                        const validFromStr = sch.validFrom ? formatDateSimple(sch.validFrom) : '???';
-                        const validToStr = sch.validTo ? formatDateSimple(sch.validTo) : 'End of Month';
+                        const titleInfo = getScheduleBilingualInfo(sch, status, dir === 'rtl');
+                        
+                        let effectiveValidFrom = sch.validFrom;
+                        let effectiveValidTo = sch.validTo;
+
+                        if (!effectiveValidFrom && sch.month) {
+                            effectiveValidFrom = `${sch.month}-01`;
+                        }
+                        if (!effectiveValidTo && sch.month) {
+                            const [yStr, mStr] = sch.month.split('-');
+                            const y = parseInt(yStr, 10);
+                            const m = parseInt(mStr, 10);
+                            if (!isNaN(y) && !isNaN(m)) {
+                                const lastDay = new Date(y, m, 0).getDate();
+                                effectiveValidTo = `${sch.month}-${String(lastDay).padStart(2, '0')}`;
+                            }
+                        } else if (effectiveValidFrom && !effectiveValidTo) {
+                            const parts = effectiveValidFrom.split('-');
+                            if (parts.length >= 2) {
+                                const y = parseInt(parts[0], 10);
+                                const m = parseInt(parts[1], 10);
+                                const lastDay = new Date(y, m, 0).getDate();
+                                effectiveValidTo = `${parts[0]}-${parts[1]}-${String(lastDay).padStart(2, '0')}`;
+                            }
+                        }
+
+                        const isValidityTicket = Boolean(!sch.date || sch.validFrom);
+
+                        const now = new Date();
+                        let isExpired = false;
+                        let isUpcoming = false;
+
+                        const expiryDateTarget = effectiveValidTo || sch.date || effectiveValidFrom;
+                        if (expiryDateTarget) {
+                            const pEnd = parseDateString(expiryDateTarget);
+                            if (pEnd) {
+                                pEnd.setHours(23, 59, 59, 999);
+                                isExpired = pEnd.getTime() < now.getTime();
+                            }
+                        }
+
+                        const startDateTarget = effectiveValidFrom || sch.date;
+                        if (startDateTarget && !isExpired) {
+                            const pStart = parseDateString(startDateTarget);
+                            if (pStart) {
+                                pStart.setHours(0, 0, 0, 0);
+                                isUpcoming = pStart.getTime() > now.getTime();
+                            }
+                        }
+
+                        const validFromStr = formatDateLocalized(effectiveValidFrom, dir === 'rtl');
+                        const validToStr = formatDateLocalized(effectiveValidTo, dir === 'rtl');
+
+                        let durationDays: number | null = null;
+                        if (effectiveValidFrom && effectiveValidTo) {
+                            const dStart = parseDateString(effectiveValidFrom);
+                            const dEnd = parseDateString(effectiveValidTo);
+                            if (dStart && dEnd) {
+                                const diffMs = dEnd.getTime() - dStart.getTime();
+                                const days = Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1;
+                                if (days > 0) durationDays = days;
+                            }
+                        }
+
                         let displayDateObj = sch.date ? parseDateString(sch.date) : null;
                         const eidName = getEidName(sch.date) || getEidNameForRange(sch.validFrom, sch.validTo) || "";
                         const isEidAdha = eidName.toUpperCase().includes("ADHA");
@@ -913,6 +1502,20 @@ const UserSchedule: React.FC = () => {
                                 
                                 <div className={`flex-1 relative overflow-hidden ${gradientClass} p-0 flex flex-col`}>
                                     
+                                    {/* Action & Violation Specialized Atmospheric Watermark & Patterns */}
+                                    {status.isAction && (
+                                        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+                                            <div className="absolute top-[-25%] right-[-10%] w-96 h-96 bg-white/10 rounded-full blur-3xl"></div>
+                                            <div className="absolute bottom-[-20%] left-[-10%] w-80 h-80 bg-black/30 rounded-full blur-2xl"></div>
+                                            <div className="absolute top-1/2 right-6 md:right-16 -translate-y-1/2 opacity-10 pointer-events-none">
+                                                <i className={`fas ${status.watermarkIcon || status.icon || 'fa-shield-halved'} text-[14rem] md:text-[18rem] transform rotate-6`}></i>
+                                            </div>
+                                            {status.isViolation && (
+                                                <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.03)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.03)_50%,rgba(255,255,255,0.03)_75%,transparent_75%,transparent)] bg-[length:24px_24px] pointer-events-none opacity-50"></div>
+                                            )}
+                                        </div>
+                                    )}
+
                                     {status.isNational && (
                                         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
                                             <div className="absolute top-[-50%] right-[-10%] w-[80%] h-[150%] bg-white/5 skew-x-12"></div>
@@ -965,52 +1568,220 @@ const UserSchedule: React.FC = () => {
                                         <div className="absolute inset-0 bg-white/5 mix-blend-overlay" style={{backgroundImage: 'radial-gradient(circle, #fff 10%, transparent 10%)', backgroundSize: '15px 15px'}}></div>
                                     </div>
                                     )}
+
+                                    {/* Standard / Regular Duty Atmospheric Watermark & Patterns */}
+                                    {!status.isAction && !status.isNational && !status.isRamadan && !status.isEid && (
+                                        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+                                            <div className="absolute top-[-25%] right-[-10%] w-[32rem] h-[32rem] bg-white/10 rounded-full blur-3xl"></div>
+                                            <div className="absolute bottom-[-20%] left-[-10%] w-96 h-96 bg-black/40 rounded-full blur-2xl"></div>
+                                            <div className="absolute top-1/2 right-6 md:right-16 -translate-y-1/2 opacity-10 pointer-events-none">
+                                                <i className={`fas ${status.watermarkIcon || status.icon || 'fa-building-shield'} text-[14rem] md:text-[20rem] transform rotate-6 text-white`}></i>
+                                            </div>
+                                            {status.isToday && (
+                                                <div className="absolute top-1/4 left-1/3 w-80 h-80 bg-amber-400/20 rounded-full blur-3xl animate-pulse"></div>
+                                            )}
+                                            <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.02)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.02)_50%,rgba(255,255,255,0.02)_75%,transparent_75%,transparent)] bg-[length:32px_32px] pointer-events-none opacity-40"></div>
+                                        </div>
+                                    )}
                                     
                                     {isValidityTicket && (
-                                        <div className="bg-black/50 backdrop-blur-md border-b border-white/10 px-2 py-3 flex justify-between items-center z-20">
-                                            <div className="flex items-center gap-2 text-[14px] font-black tracking-[0.1em] text-white/90 uppercase animate-pulse">
-                                                <i className="fas fa-circle text-[6px] text-emerald-400"></i> Valid
+                                        <div className={`backdrop-blur-md border-b px-3.5 py-3 sm:px-6 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 z-20 transition-all ${
+                                            isExpired 
+                                                ? 'bg-rose-950/85 border-rose-500/40 text-rose-100 shadow-[0_4px_25px_rgba(225,29,72,0.25)]' 
+                                                : isUpcoming
+                                                    ? 'bg-sky-950/85 border-sky-500/40 text-sky-100 shadow-[0_4px_25px_rgba(14,165,233,0.25)]'
+                                                    : 'bg-black/60 border-white/15 text-white shadow-lg'
+                                        }`}>
+                                            {/* Status Indicator Badge (VALID / EXPIRED / UPCOMING) */}
+                                            <div className="flex items-center justify-between sm:justify-start gap-2.5">
+                                                <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase border shadow-md ${
+                                                    isExpired
+                                                        ? 'bg-rose-500/30 border-rose-400/60 text-rose-200 ring-1 ring-rose-400/40'
+                                                        : isUpcoming
+                                                            ? 'bg-sky-500/30 border-sky-400/60 text-sky-200 ring-1 ring-sky-400/40'
+                                                            : 'bg-emerald-500/30 border-emerald-400/60 text-emerald-200 ring-1 ring-emerald-400/40'
+                                                }`}>
+                                                    <span className="flex h-2.5 w-2.5 relative">
+                                                        {!isExpired && (
+                                                            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                                                                isUpcoming ? 'bg-sky-400' : 'bg-emerald-400'
+                                                            }`}></span>
+                                                        )}
+                                                        <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                                                            isExpired ? 'bg-rose-400' : isUpcoming ? 'bg-sky-400' : 'bg-emerald-400'
+                                                        }`}></span>
+                                                    </span>
+                                                    <i className={`fas ${
+                                                        isExpired ? 'fa-clock-rotate-left' : isUpcoming ? 'fa-hourglass-start' : 'fa-circle-check'
+                                                    } text-xs`}></i>
+                                                    <span className="tracking-wide font-black">
+                                                        {isExpired 
+                                                            ? (dir === 'rtl' ? 'منتهي الصلاحية' : 'EXPIRED') 
+                                                            : isUpcoming
+                                                                ? (dir === 'rtl' ? 'يبدأ قريباً' : 'UPCOMING')
+                                                                : (dir === 'rtl' ? 'ساري المفعول' : 'VALID')}
+                                                    </span>
+                                                </div>
+                                                
+                                                <span className="text-[11px] font-bold text-white/80 hidden sm:inline">
+                                                    {dir === 'rtl' ? 'مدة فاعلية وسريان الجدول' : 'Schedule Validity Period'}
+                                                </span>
                                             </div>
-                                            <div className="font-mono text-xs font-bold text-white flex items-center gap-2">
-                                                <span className="opacity-100">FROM</span>
-                                                <span className="bg-white/10 px-2 rounded text-emerald-300">{validFromStr}</span>
-                                                <span className="opacity-100">➜</span>
-                                                <span className="opacity-100">TO</span>
-                                                <span className="bg-white/10 px-2 rounded text-emerald-300">{validToStr}</span>
+
+                                            {/* Validity Range: FROM -> TO with prominent clear badges */}
+                                            <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 font-mono text-[11px] sm:text-xs font-bold text-white bg-black/50 px-3 sm:px-3.5 py-1.5 rounded-xl border border-white/20 shadow-inner">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="text-[10px] uppercase tracking-wider text-white/70 font-sans font-black">
+                                                        {dir === 'rtl' ? 'من' : 'FROM'}
+                                                    </span>
+                                                    <span className={`px-2 sm:px-2.5 py-0.5 rounded-lg font-bold border text-[10px] sm:text-xs ${
+                                                        isExpired 
+                                                            ? 'bg-rose-500/25 text-rose-200 border-rose-500/40' 
+                                                            : 'bg-emerald-500/25 text-emerald-300 border-emerald-500/40'
+                                                    }`}>
+                                                        {validFromStr}
+                                                    </span>
+                                                </div>
+
+                                                <i className={`fas fa-arrow-${dir === 'rtl' ? 'left' : 'right'} text-[10px] sm:text-xs ${isExpired ? 'text-rose-400' : 'text-emerald-400'}`}></i>
+
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="text-[10px] uppercase tracking-wider text-white/70 font-sans font-black">
+                                                        {dir === 'rtl' ? 'إلى' : 'TO'}
+                                                    </span>
+                                                    <span className={`px-2 sm:px-2.5 py-0.5 rounded-lg font-bold border text-[10px] sm:text-xs ${
+                                                        isExpired 
+                                                            ? 'bg-rose-500/25 text-rose-200 border-rose-500/40' 
+                                                            : 'bg-emerald-500/25 text-emerald-300 border-emerald-500/40'
+                                                    }`}>
+                                                        {validToStr}
+                                                    </span>
+                                                </div>
+
+                                                {durationDays && (
+                                                    <div className="flex items-center gap-1 border-l rtl:border-l-0 rtl:border-r border-white/20 pl-2 rtl:pl-0 rtl:pr-2 ml-1 rtl:ml-0 rtl:mr-1 text-white/90 font-sans font-bold text-[10px] sm:text-[11px]">
+                                                        <i className="fas fa-calendar-days text-white/60 text-[10px]"></i>
+                                                        <span>{dir === 'rtl' ? `${durationDays} يوم` : `${durationDays} Days`}</span>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     )}
 
-                                    <div className="p-6 md:p-8 flex flex-col h-full relative z-10">
-                                        <div className="flex justify-between items-start mb-6">
+                                    <div className="p-4 sm:p-6 md:p-8 flex flex-col h-full relative z-10">
+                                        <div className="flex flex-col sm:flex-row justify-between items-start gap-3 sm:gap-4 mb-5 sm:mb-6">
                                             {sch.date && displayDateObj ? (
                                                 <div className="flex flex-col">
-                                                    <span className={`text-sm font-bold uppercase tracking-widest opacity-70 mb-[-5px] ${status.isAbsent ? 'text-red-800' : ''}`}>{displayDateObj.toLocaleString('en-US', { month: 'long' })}</span>
-                                                    <span className={`text-6xl font-black leading-none tracking-tighter drop-shadow-lg font-oswald ${status.isAbsent ? 'text-red-900' : ''}`}>{displayDateObj.getDate()}</span>
-                                                    <span className={`text-xs font-medium opacity-80 uppercase tracking-wide mt-1 ${status.isAbsent ? 'text-red-800' : ''}`}>{displayDateObj.toLocaleString('en-US', { weekday: 'long' })}</span>
+                                                    <span className={`text-sm font-bold uppercase tracking-widest opacity-70 mb-[-5px] ${status.isAbsent ? 'text-red-800' : ''}`}>
+                                                        {displayDateObj.toLocaleString(dir === 'rtl' ? 'ar-EG' : 'en-US', { month: 'long' })}
+                                                    </span>
+                                                    <span className={`text-5xl sm:text-6xl font-black leading-none tracking-tighter drop-shadow-lg font-oswald ${status.isAbsent ? 'text-red-900' : ''}`}>
+                                                        {displayDateObj.getDate()}
+                                                    </span>
+                                                    <span className={`text-xs font-medium opacity-80 uppercase tracking-wide mt-1 ${status.isAbsent ? 'text-red-800' : ''}`}>
+                                                        {displayDateObj.toLocaleString(dir === 'rtl' ? 'ar-EG' : 'en-US', { weekday: 'long' })}
+                                                    </span>
                                                 </div>
                                             ) : (
-                                                <div className="flex flex-col">
-                                                    <i className={`fas ${status.icon} text-4xl opacity-90 mb-2`}></i>
-                                                    <span className="text-2xl font-black uppercase tracking-tight font-oswald leading-none">{sch.periodName || status.label}</span>
-                                                    <span className="text-[10px] uppercase tracking-[0.3em] opacity-60">Schedule</span>
+                                                <div className="flex flex-col min-w-0 flex-1">
+                                                    <div className="flex items-center gap-2.5 sm:gap-3 mb-1 min-w-0">
+                                                        <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex-shrink-0 flex items-center justify-center text-xl sm:text-2xl shadow-inner ${
+                                                            status.isRamadan 
+                                                                ? 'bg-amber-400/25 text-amber-300 border border-amber-400/40 shadow-amber-900/30' 
+                                                                : isExpired
+                                                                    ? 'bg-rose-500/25 text-rose-300 border border-rose-500/40 shadow-rose-900/30'
+                                                                    : 'bg-white/20 text-white border border-white/30 shadow-black/20'
+                                                        }`}>
+                                                            <i className={`fas ${status.icon}`}></i>
+                                                        </div>
+                                                        <div className="min-w-0 flex-1">
+                                                            <span className="text-[9px] sm:text-[10px] uppercase tracking-[0.2em] text-white/70 font-bold block truncate">
+                                                                {titleInfo.secondary}
+                                                            </span>
+                                                            <h3 className="text-xl sm:text-2xl md:text-3xl font-black uppercase tracking-tight font-oswald leading-snug text-white drop-shadow-md mt-0.5 break-words">
+                                                                {titleInfo.primary}
+                                                            </h3>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                                                        <span className="text-[9px] sm:text-[10px] uppercase tracking-[0.15em] px-2.5 py-0.5 rounded-md bg-white/10 text-white/80 font-bold border border-white/15">
+                                                            {dir === 'rtl' ? 'جدول دوام رسمي معتمد' : 'OFFICIAL CERTIFIED ROSTER'}
+                                                        </span>
+                                                        {isExpired && (
+                                                            <span className="text-[9px] sm:text-[10px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-md bg-rose-500/30 text-rose-200 font-bold border border-rose-400/40">
+                                                                {dir === 'rtl' ? 'منتهي الصلاحية' : 'EXPIRED'}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             )}
                                             
-                                            {!isValidityTicket && (
-                                                <div className={`bg-white/20 backdrop-blur-md px-3 py-1 rounded-lg border border-white/20 text-[10px] font-black uppercase tracking-widest shadow-sm ${status.isAbsent ? 'text-red-900 bg-red-100 border-red-200' : 'text-white'}`}>
-                                                    {status.isRamadan ? <><i className="fas fa-moon text-amber-300 mr-1"></i> RAMADAN</> : (sch.periodName || status.label)}
-                                                </div>
-                                            )}
+                                            {/* Top Right Status Badge */}
+                                            <div className={`backdrop-blur-md px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-xl border text-[10px] sm:text-[11px] font-black uppercase tracking-wider shadow-md self-start flex items-center gap-1.5 sm:gap-2 flex-shrink-0 ${
+                                                status.isAction 
+                                                    ? 'bg-black/35 border-white/20 text-white shadow-black/30' 
+                                                    : status.isAbsent 
+                                                        ? 'text-red-900 bg-red-100 border-red-200' 
+                                                        : isExpired
+                                                            ? 'bg-rose-500/25 border-rose-400/40 text-rose-200'
+                                                            : status.isRamadan 
+                                                                ? 'bg-amber-500/25 border-amber-400/40 text-amber-200' 
+                                                                : 'bg-white/20 border-white/20 text-white'
+                                            }`}>
+                                                {status.isAction ? (
+                                                    <>
+                                                        <span className="flex h-2 w-2 relative">
+                                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-300 opacity-75"></span>
+                                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400"></span>
+                                                        </span>
+                                                        <i className={`fas ${status.icon} text-xs`}></i>
+                                                        <span>{status.subLabel || status.label}</span>
+                                                    </>
+                                                ) : status.isRamadan ? (
+                                                    <>
+                                                        <i className="fas fa-moon text-amber-300 text-xs"></i>
+                                                        <span>{dir === 'rtl' ? 'جدول شهر رمضان' : 'RAMADAN ROSTER'}</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <i className={`fas ${status.icon} text-xs`}></i>
+                                                        <span>{titleInfo.badge}</span>
+                                                    </>
+                                                )}
+                                            </div>
                                         </div>
 
-                                        <div className="mb-8">
-                                            <p className="text-[9px] font-bold uppercase tracking-[0.3em] opacity-50 mb-1">{sch.locationId === 'LEAVE_ACTION' ? 'Status Update' : 'Assigned Unit'}</p>
-                                            <h3 className={`text-2xl md:text-4xl font-black uppercase tracking-tight leading-none drop-shadow-md font-oswald max-w-lg ${status.isAbsent ? 'text-red-900' : ''}`}>
+                                        <div className="mb-6">
+                                            <p className="text-[10px] font-black uppercase tracking-[0.25em] opacity-70 mb-1 flex items-center gap-1.5">
+                                                <i className={`fas ${status.isAction ? (status.isViolation ? 'fa-triangle-exclamation text-amber-300' : 'fa-clipboard-check text-emerald-300') : 'fa-building-shield'}`}></i>
+                                                <span>
+                                                    {sch.locationId === 'LEAVE_ACTION' 
+                                                        ? (status.isViolation 
+                                                            ? (dir === 'rtl' ? 'مخالفة إدارية مقيدة' : 'Disciplinary Record') 
+                                                            : (dir === 'rtl' ? 'إجراء وتصريح إداري' : 'Administrative Record')) 
+                                                        : (dir === 'rtl' ? 'مكان الدوام والتكليف' : 'Assigned Unit')}
+                                                </span>
+                                            </p>
+                                            
+                                            <h3 className={`text-2xl md:text-4xl font-black uppercase tracking-tight leading-tight drop-shadow-md font-oswald max-w-2xl ${status.isAbsent ? 'text-red-900' : 'text-white'}`}>
                                                 {getLocationName(sch)}
                                             </h3>
                                             
-                                            <div className="flex flex-wrap gap-2 mt-3">
+                                            <div className="flex flex-wrap items-center gap-2 mt-2">
+                                                {status.isAction && (
+                                                    <>
+                                                        <div className="inline-flex items-center gap-1.5 bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] font-black tracking-wider text-white border border-white/20 shadow-sm">
+                                                            <i className={`fas ${status.icon}`}></i>
+                                                            <span>{status.label}</span>
+                                                        </div>
+                                                        {status.subLabel && (
+                                                            <div className="inline-flex items-center gap-1.5 bg-black/25 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] font-bold text-white/90 border border-white/10">
+                                                                <span>{status.subLabel}</span>
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                )}
+
                                                 {customNote && ( 
                                                     <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] font-bold border border-white/10 hover:bg-white/20 transition-colors">
                                                         <i className="fas fa-info-circle text-sky-300"></i> {customNote}
@@ -1024,59 +1795,335 @@ const UserSchedule: React.FC = () => {
                                             </div>
                                         </div>
 
-                                        {sch.locationId !== 'LEAVE_ACTION' && !status.isAbsent && (
-                                            <div className="mt-auto space-y-3">
-                                                {displayShifts.map((s, i) => (
-                                                    <div key={i} className={`flex items-center gap-4 bg-black/20 backdrop-blur-sm rounded-xl p-3 border border-white/10 hover:bg-black/30 transition-colors group/shift ${status.isRamadan ? 'border-amber-500/30' : ''}`}>
-                                                        <div className="flex flex-col min-w-[60px]">
-                                                            <span className="text-[9px] uppercase font-bold opacity-50 tracking-wider">Start</span>
-                                                            <span className={`text-xl font-mono font-bold tracking-tight group-hover/shift:text-emerald-300 transition-colors ${status.isRamadan ? 'text-amber-200' : status.isNational ? 'text-amber-100' : 'text-white'}`}>{formatTime12(s.start)}</span>
-                                                        </div>
-                                                        
-                                                        <div className="flex-1 flex flex-col justify-center relative px-2">
-                                                            <div className="h-[2px] w-full bg-gradient-to-r from-white/20 via-white/60 to-white/20 rounded-full"></div>
-                                                            <i className={`fas fa-plane text-xs absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transform rotate-90 md:rotate-0 ${status.isRamadan ? 'text-amber-300' : 'text-white/80'}`}></i>
+                                        {/* SPECIALIZED VIOLATION / ACTION DETAILS PANEL */}
+                                        {sch.locationId === 'LEAVE_ACTION' ? (
+                                            <div className="mt-auto pt-2 space-y-3">
+                                                <div className="bg-black/35 backdrop-blur-md rounded-2xl p-4 md:p-5 border border-white/15 shadow-xl relative overflow-hidden group/violation hover:bg-black/45 transition-all">
+                                                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl pointer-events-none"></div>
+                                                    
+                                                    {/* Notice Header Row */}
+                                                    <div className="flex flex-wrap items-center justify-between gap-3 mb-3 pb-3 border-b border-white/10">
+                                                        <div className="flex items-center gap-2.5">
+                                                            <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center text-white text-sm shadow-inner">
+                                                                <i className={`fas ${status.icon}`}></i>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-[9px] uppercase tracking-widest text-white/60 font-bold">
+                                                                    {dir === 'rtl' ? 'بيان المخالفة وتفاصيل الإجراء' : 'Action Details & Notice'}
+                                                                </p>
+                                                                <p className="text-xs font-black text-white font-mono">
+                                                                    REF #{sch.actionDetails?.actionId ? sch.actionDetails.actionId.slice(-6).toUpperCase() : (sch.id ? sch.id.slice(-6).toUpperCase() : 'REC-01')}
+                                                                </p>
+                                                            </div>
                                                         </div>
 
-                                                        <div className="flex flex-col text-right min-w-[60px]">
-                                                            <span className="text-[9px] uppercase font-bold opacity-50 tracking-wider">End</span>
-                                                            <span className={`text-xl font-mono font-bold tracking-tight group-hover/shift:text-emerald-300 transition-colors ${status.isRamadan ? 'text-amber-200' : status.isNational ? 'text-amber-100' : 'text-white'}`}>{formatTime12(s.end)}</span>
+                                                        {/* Action Metrics Badges */}
+                                                        <div className="flex flex-wrap items-center gap-1.5">
+                                                            {sch.actionDetails?.deductionDays && Number(sch.actionDetails.deductionDays) > 0 ? (
+                                                                <span className="bg-red-500/80 text-white border border-red-400/50 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
+                                                                    <i className="fas fa-coins text-[9px]"></i>
+                                                                    <span>{sch.actionDetails.deductionDays} {dir === 'rtl' ? 'أيام خصم' : 'Days Deduction'}</span>
+                                                                </span>
+                                                            ) : null}
+
+                                                            {sch.actionDetails?.suspensionDays && Number(sch.actionDetails.suspensionDays) > 0 ? (
+                                                                <span className="bg-orange-500/80 text-white border border-orange-400/50 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
+                                                                    <i className="fas fa-user-slash text-[9px]"></i>
+                                                                    <span>{sch.actionDetails.suspensionDays} {dir === 'rtl' ? 'أيام إيقاف' : 'Days Suspension'}</span>
+                                                                </span>
+                                                            ) : null}
+
+                                                            {sch.actionDetails?.permissionHours && Number(sch.actionDetails.permissionHours) > 0 ? (
+                                                                <span className="bg-cyan-500/80 text-white border border-cyan-400/50 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
+                                                                    <i className="fas fa-hourglass-half text-[9px]"></i>
+                                                                    <span>{sch.actionDetails.permissionHours} {dir === 'rtl' ? 'ساعات إذن' : 'Permit Hours'}</span>
+                                                                </span>
+                                                            ) : null}
+
+                                                            {sch.actionDetails?.timeFrom && sch.actionDetails?.timeTo ? (
+                                                                <span className="bg-white/15 text-white border border-white/20 px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1">
+                                                                    <i className="fas fa-clock text-[9px]"></i>
+                                                                    <span>{sch.actionDetails.timeFrom} - {sch.actionDetails.timeTo}</span>
+                                                                </span>
+                                                            ) : null}
                                                         </div>
                                                     </div>
-                                                ))}
+
+                                                    {/* Description Content */}
+                                                    <div className="space-y-1.5">
+                                                        <p className="text-[10px] uppercase font-bold text-white/70 tracking-wider flex items-center gap-1.5">
+                                                            <i className="fas fa-align-left text-xs text-white/80"></i>
+                                                            <span>{dir === 'rtl' ? 'نص المخالفة والسبب المدون في السجل:' : 'Violation Description & Reason:'}</span>
+                                                        </p>
+                                                        
+                                                        <div className="bg-white/10 rounded-xl p-3 border border-white/10 text-white text-xs md:text-sm font-medium leading-relaxed shadow-inner">
+                                                            {sch.description || sch.actionDetails?.description ? (
+                                                                <span className="font-semibold text-white tracking-wide">
+                                                                    {sch.description || sch.actionDetails?.description}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-white/60 italic">
+                                                                    {dir === 'rtl' ? 'تم قيد هذه المخالفة من قبل الإدارة والمشرف دون إرفاق ملاحظات إضافية.' : 'Logged by supervisor/management without additional note.'}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Verification Footer */}
+                                                    <div className="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between text-[10px] text-white/70">
+                                                        <span className="flex items-center gap-1.5">
+                                                            <i className="fas fa-stamp text-amber-300"></i>
+                                                            <span className="font-bold text-white/90">
+                                                                {dir === 'rtl' ? 'سجل رسمي معتمد ومقيد لدى المشرف' : 'Verified Official Disciplinary Log'}
+                                                            </span>
+                                                        </span>
+                                                        {sch.actionDetails?.fromDate && (
+                                                            <span className="font-mono opacity-80">
+                                                                {sch.actionDetails.fromDate === sch.actionDetails.toDate ? sch.actionDetails.fromDate : `${sch.actionDetails.fromDate} ➜ ${sch.actionDetails.toDate}`}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : !status.isAbsent && (
+                                            <div className="mt-auto pt-2 space-y-3">
+                                                {displayShifts.map((s, i) => {
+                                                    const durationText = calculateShiftDuration(s.start, s.end, dir === 'rtl');
+                                                    return (
+                                                        <div 
+                                                            key={i} 
+                                                            className="bg-black/35 backdrop-blur-md rounded-2xl p-3.5 sm:p-4 md:p-5 border border-white/15 shadow-xl relative overflow-hidden group/shift hover:bg-black/45 hover:border-white/25 transition-all"
+                                                        >
+                                                            <div className="absolute top-0 right-0 w-36 h-36 bg-white/5 rounded-full blur-2xl pointer-events-none"></div>
+
+                                                            {/* Shift Card Header Bar */}
+                                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 mb-3 sm:mb-4 pb-2.5 sm:pb-3 border-b border-white/10">
+                                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                                    <div className="w-8 h-8 rounded-xl bg-white/15 flex-shrink-0 flex items-center justify-center text-white text-sm shadow-inner">
+                                                                        <i className={`fas ${status.isRamadan ? 'fa-moon text-amber-300' : status.isNational ? 'fa-landmark text-emerald-300' : status.isToday ? 'fa-briefcase text-amber-300' : 'fa-clock text-sky-300'}`}></i>
+                                                                    </div>
+                                                                    <div className="min-w-0">
+                                                                        <p className="text-[9px] uppercase tracking-widest text-white/60 font-bold truncate">
+                                                                            {displayShifts.length > 1 
+                                                                                ? (dir === 'rtl' ? `الفترة ${i + 1} من ${displayShifts.length}` : `Shift Segment ${i + 1} of ${displayShifts.length}`)
+                                                                                : (dir === 'rtl' ? 'بيانات الوردية وساعات العمل' : 'Shift Schedule & Duty Hours')}
+                                                                        </p>
+                                                                        <p className="text-xs sm:text-sm font-black text-white font-mono truncate">
+                                                                            {titleInfo.shiftTitle || (dir === 'rtl' ? 'جدول دوام رسمي معتمد' : 'Official Shift Schedule')}
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="flex items-center gap-2 self-start sm:self-auto flex-shrink-0">
+                                                                    {durationText && (
+                                                                        <div className="inline-flex items-center gap-1.5 bg-white/10 backdrop-blur-sm px-2.5 py-1 rounded-lg border border-white/15 text-[10px] sm:text-[11px] font-bold text-white font-mono">
+                                                                            <i className="fas fa-hourglass-half text-amber-300 text-[10px]"></i>
+                                                                            <span>{durationText}</span>
+                                                                            <span className="text-[9px] opacity-70 text-white/80">{dir === 'rtl' ? 'عمل' : 'Duration'}</span>
+                                                                        </div>
+                                                                    )}
+                                                                    {status.isToday && (
+                                                                        <div className="inline-flex items-center gap-1.5 bg-amber-500/30 backdrop-blur-sm px-2.5 py-1 rounded-lg border border-amber-400/40 text-[10px] sm:text-[11px] font-black text-amber-200">
+                                                                            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                                                                            <span>{dir === 'rtl' ? 'دوام اليوم' : 'Active Today'}</span>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Check-in / Transit / Check-out Timeline */}
+                                                            <div className="flex items-center justify-between gap-2 sm:gap-4 md:gap-6 bg-black/25 rounded-xl p-3 sm:p-3.5 border border-white/10">
+                                                                {/* Check-In */}
+                                                                <div className="flex flex-col items-start min-w-[72px] sm:min-w-[90px] md:min-w-[120px]">
+                                                                    <div className="flex items-center gap-1 sm:gap-1.5 text-[8px] sm:text-[9px] uppercase font-bold text-emerald-300 tracking-wider mb-0.5">
+                                                                        <i className="fas fa-right-to-bracket text-[9px] sm:text-[10px]"></i>
+                                                                        <span>{dir === 'rtl' ? 'حضور' : 'Check-In'}</span>
+                                                                    </div>
+                                                                    <span className={`text-lg sm:text-xl md:text-2xl font-mono font-black tracking-tight group-hover/shift:text-emerald-300 transition-colors drop-shadow-sm ${
+                                                                        status.isRamadan ? 'text-amber-200' : status.isNational ? 'text-amber-100' : 'text-white'
+                                                                    }`}>
+                                                                        {formatTime12(s.start)}
+                                                                    </span>
+                                                                    <span className="text-[9px] sm:text-[10px] text-white/60 font-medium hidden sm:inline">
+                                                                        {dir === 'rtl' ? 'بدء الوردية' : 'Shift Start'}
+                                                                    </span>
+                                                                </div>
+
+                                                                {/* Midline flight track */}
+                                                                <div className="flex-1 flex flex-col items-center justify-center relative px-1 sm:px-2">
+                                                                    <div className="h-[2px] w-full bg-gradient-to-r from-emerald-400/50 via-white/70 to-rose-400/50 rounded-full shadow-[0_0_10px_rgba(255,255,255,0.3)]"></div>
+                                                                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white/15 backdrop-blur-md border border-white/30 flex items-center justify-center absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 shadow-lg group-hover/shift:scale-110 transition-transform">
+                                                                        <i className={`fas ${status.isToday ? 'fa-briefcase text-amber-300' : 'fa-plane text-white'} text-[10px] sm:text-xs`}></i>
+                                                                    </div>
+                                                                    <span className="text-[7px] sm:text-[8px] uppercase tracking-[0.25em] text-white/50 font-bold mt-3.5 hidden md:block">
+                                                                        {dir === 'rtl' ? 'مسار الوردية' : 'Duty Track'}
+                                                                    </span>
+                                                                </div>
+
+                                                                {/* Check-Out */}
+                                                                <div className="flex flex-col items-end min-w-[72px] sm:min-w-[90px] md:min-w-[120px] text-right">
+                                                                    <div className="flex items-center gap-1 sm:gap-1.5 text-[8px] sm:text-[9px] uppercase font-bold text-rose-300 tracking-wider mb-0.5">
+                                                                        <span>{dir === 'rtl' ? 'انصراف' : 'Check-Out'}</span>
+                                                                        <i className="fas fa-right-from-bracket text-[9px] sm:text-[10px]"></i>
+                                                                    </div>
+                                                                    <span className={`text-lg sm:text-xl md:text-2xl font-mono font-black tracking-tight group-hover/shift:text-emerald-300 transition-colors drop-shadow-sm ${
+                                                                        status.isRamadan ? 'text-amber-200' : status.isNational ? 'text-amber-100' : 'text-white'
+                                                                    }`}>
+                                                                        {formatTime12(s.end)}
+                                                                    </span>
+                                                                    <span className="text-[9px] sm:text-[10px] text-white/60 font-medium hidden sm:inline">
+                                                                        {dir === 'rtl' ? 'نهاية الوردية' : 'Shift End'}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Schedule Verification Sub-bar */}
+                                                            <div className="mt-2.5 sm:mt-3 pt-2 sm:pt-2.5 border-t border-white/10 flex items-center justify-between text-[10px] text-white/70">
+                                                                <span className="flex items-center gap-1.5">
+                                                                    <i className="fas fa-shield-check text-emerald-400"></i>
+                                                                    <span className="font-bold text-white/90">
+                                                                        {sch.date && punchedDates.has(sch.date)
+                                                                            ? (dir === 'rtl' ? 'تم تسجيل الحضور بالبصمة البيومترية' : 'Punched via biometric attendance')
+                                                                            : (dir === 'rtl' ? 'جدول دوام رسمي معتمد ومقيد بالنظام' : 'Official Verified Roster Schedule')}
+                                                                    </span>
+                                                                </span>
+                                                                <span className="font-mono text-[9px] opacity-75 hidden sm:inline">
+                                                                    ID: #{sch.id ? sch.id.slice(-6).toUpperCase() : 'DUTY'}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         )}
                                         
                                         {status.isAbsent && (
                                             <div className="mt-auto p-4 border-2 border-dashed border-red-300 bg-white/50 rounded-xl text-center">
-                                                <p className="text-red-700 font-bold text-sm">NO ATTENDANCE RECORD</p>
-                                                <p className="text-red-500 text-[10px] mt-1">Please contact supervisor if this is an error.</p>
+                                                <p className="text-red-700 font-bold text-sm">
+                                                    {dir === 'rtl' ? 'لا يوجد تسجيل حضور' : 'NO ATTENDANCE RECORD'}
+                                                </p>
+                                                <p className="text-red-500 text-[10px] mt-1">
+                                                    {dir === 'rtl' ? 'يرجى مراجعة المشرف الإداري في حال وجود أي خطأ.' : 'Please contact supervisor if this is an error.'}
+                                                </p>
                                             </div>
                                         )}
                                     </div>
                                 </div>
 
-                                <div className="relative flex-shrink-0 w-full h-6 md:w-6 md:h-auto bg-[#f1f5f9] flex md:flex-col items-center justify-between overflow-hidden z-20">
-                                    <div className="absolute -left-3 md:left-auto md:-top-3 w-6 h-6 bg-[#f1f5f9] rounded-full z-30 shadow-inner"></div>
-                                    <div className="absolute -right-3 md:right-auto md:-bottom-3 w-6 h-6 bg-[#f1f5f9] rounded-full z-30 shadow-inner"></div>
-                                    <div className="w-full h-[2px] md:w-[2px] md:h-full border-b-2 md:border-b-0 md:border-r-2 border-dashed border-slate-300 my-auto md:mx-auto"></div>
+                                {/* PERFORATION DIVIDER & NOTCHES */}
+                                <div className="relative flex-shrink-0 w-full h-6 md:w-6 md:h-auto bg-[#f8fafc] flex md:flex-col items-center justify-between overflow-hidden z-20">
+                                    {/* Cutout Notches on Mobile (Left & Right) */}
+                                    <div className="absolute -left-3.5 top-1/2 -translate-y-1/2 md:hidden w-7 h-7 bg-slate-100 rounded-full z-30 shadow-inner"></div>
+                                    <div className="absolute -right-3.5 top-1/2 -translate-y-1/2 md:hidden w-7 h-7 bg-slate-100 rounded-full z-30 shadow-inner"></div>
+                                    {/* Cutout Notches on Desktop (Top & Bottom) */}
+                                    <div className="hidden md:block absolute -top-3.5 left-1/2 -translate-x-1/2 w-7 h-7 bg-slate-100 rounded-full z-30 shadow-inner"></div>
+                                    <div className="hidden md:block absolute -bottom-3.5 left-1/2 -translate-x-1/2 w-7 h-7 bg-slate-100 rounded-full z-30 shadow-inner"></div>
+                                    {/* Perforation Line */}
+                                    <div className="w-full h-0 md:w-0 md:h-full border-b-2 md:border-b-0 md:border-r-2 border-dashed border-slate-300 my-auto md:mx-auto"></div>
                                 </div>
 
-                                <div className={`w-full md:w-56 bg-white p-6 flex flex-row md:flex-col items-center justify-between gap-4 border-2 border-dashed border-slate-100 ${status.grayscale ? 'opacity-60' : ''}`}>
-                                    <div className="text-center w-full hidden md:block">
-                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Class</p>
-                                        <div className={`inline-block px-4 py-1 rounded-full border-2 font-black text-xs uppercase ${status.theme === 'amber' ? 'border-amber-500 text-amber-600 bg-amber-50' : 'border-slate-800 text-slate-800 bg-slate-50'}`}>
-                                            STANDARD
+                                {/* TICKET STUB */}
+                                <div className={`w-full md:w-64 bg-white p-4 sm:p-5 md:p-7 flex flex-col items-center justify-between gap-4 md:gap-5 border-t-2 md:border-t-0 md:border-l-2 border-slate-100 relative overflow-hidden ${status.grayscale ? 'opacity-70' : ''}`}>
+                                    {/* Decorative watermark in stub background */}
+                                    <div className="absolute -bottom-6 -right-6 text-slate-100 pointer-events-none select-none opacity-40 md:opacity-100">
+                                        <i className={`fas ${status.watermarkIcon || status.icon || 'fa-ticket'} text-8xl md:text-9xl`}></i>
+                                    </div>
+
+                                    {/* Top Section / Class Badge (Always visible on mobile & desktop) */}
+                                    <div className="text-center w-full relative z-10">
+                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.25em] mb-1.5">
+                                            {dir === 'rtl' ? 'التصنيف' : 'Class'}
+                                        </p>
+                                        <div className={`inline-block px-3.5 py-1 rounded-full border-2 font-black text-xs uppercase tracking-wider shadow-sm ${
+                                            status.isViolation 
+                                                ? 'border-red-500 text-red-700 bg-red-50'
+                                                : isExpired
+                                                    ? 'border-rose-500 text-rose-700 bg-rose-50 ring-2 ring-rose-200/60'
+                                                    : status.isToday
+                                                        ? 'border-amber-500 text-amber-700 bg-amber-50 ring-2 ring-amber-200/60'
+                                                        : status.theme === 'cyan_ocean'
+                                                            ? 'border-cyan-500 text-cyan-700 bg-cyan-50'
+                                                            : status.theme === 'emerald_paradise' || status.theme === 'emerald'
+                                                                ? 'border-emerald-500 text-emerald-700 bg-emerald-50'
+                                                                : status.theme === 'violet' || status.theme === 'purple'
+                                                                    ? 'border-purple-500 text-purple-700 bg-purple-50'
+                                                                    : status.isRamadan 
+                                                                        ? 'border-indigo-400 text-indigo-800 bg-indigo-50'
+                                                                        : status.theme === 'amber' 
+                                                                            ? 'border-amber-500 text-amber-700 bg-amber-50' 
+                                                                            : status.theme === 'sky'
+                                                                                ? 'border-sky-500 text-sky-700 bg-sky-50'
+                                                                                : 'border-slate-800 text-slate-800 bg-slate-50'
+                                        }`}>
+                                            {isExpired 
+                                                ? (dir === 'rtl' ? 'منتهي الصلاحية' : 'EXPIRED') 
+                                                : titleInfo.classBadge}
                                         </div>
                                     </div>
-                                    <div className="w-24 md:w-full md:h-24 opacity-60 mix-blend-multiply rotate-90 md:rotate-0">
-                                        <Barcode />
+
+                                    {/* Middle Section: Duty Status & Title */}
+                                    <div className="text-center relative z-10 w-full">
+                                        <div className="relative inline-block">
+                                            <i className={`fas ${status.icon} text-3xl md:text-5xl mb-1.5 md:mb-2 block ${
+                                                status.isViolation 
+                                                    ? 'text-red-500/80' 
+                                                    : isExpired
+                                                        ? 'text-rose-600/80'
+                                                        : status.isToday
+                                                            ? 'text-amber-500'
+                                                            : status.theme === 'cyan_ocean'
+                                                                ? 'text-cyan-600/80'
+                                                                : status.theme === 'emerald_paradise' || status.theme === 'emerald'
+                                                                    ? 'text-emerald-600/80'
+                                                                    : status.theme === 'violet' || status.theme === 'purple'
+                                                                        ? 'text-purple-600/80'
+                                                                        : status.isRamadan 
+                                                                            ? 'text-amber-500' 
+                                                                            : status.theme === 'sky'
+                                                                                ? 'text-sky-600/80'
+                                                                                : 'text-slate-400'
+                                            }`}></i>
+                                            {status.isToday && !isExpired && (
+                                                <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-500 animate-ping"></span>
+                                            )}
+                                        </div>
+
+                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.25em]">
+                                            {status.isViolation 
+                                                ? (dir === 'rtl' ? 'كود المخالفة' : 'INFRACTION CODE') 
+                                                : status.isAction 
+                                                    ? (dir === 'rtl' ? 'رمز الإجراء' : 'ACTION CODE') 
+                                                    : (dir === 'rtl' ? 'نوع التكليف' : 'DUTY STATUS')}
+                                        </p>
+
+                                        <p className={`text-base md:text-lg font-black leading-tight mt-0.5 ${
+                                            status.isViolation 
+                                                ? 'text-red-800' 
+                                                : isExpired
+                                                    ? 'text-rose-800'
+                                                    : status.isToday
+                                                        ? 'text-amber-700'
+                                                        : status.grayscale 
+                                                            ? 'text-slate-500' 
+                                                            : 'text-slate-800'
+                                        }`}>
+                                            {titleInfo.primary}
+                                        </p>
+
+                                        {titleInfo.secondary && (
+                                            <p className="text-[10px] font-bold text-slate-500 mt-0.5">
+                                                {titleInfo.secondary}
+                                            </p>
+                                        )}
                                     </div>
-                                    <div className="text-right md:text-center">
-                                        <i className={`fas ${status.icon} text-3xl md:text-5xl mb-2 text-slate-200 block ${status.isRamadan ? 'text-amber-400' : ''}`}></i>
-                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Boarding</p>
-                                        <p className={`text-lg font-black ${status.grayscale ? 'text-slate-500' : 'text-slate-800'}`}>
-                                            {sch.periodName || status.label}
+
+                                    {/* Bottom Section: Barcode & Pass ID (Clean, full-width on mobile) */}
+                                    <div className="flex flex-col items-center justify-center relative z-10 w-full pt-1 border-t border-slate-100">
+                                        <div className="w-full max-w-[200px] md:max-w-none h-11 md:h-14 opacity-70 mix-blend-multiply">
+                                            <Barcode />
+                                        </div>
+                                        <p className="font-mono text-[9px] font-bold text-slate-400 tracking-[0.2em] mt-1">
+                                            *{sch.date ? sch.date.replace(/-/g, '') : 'PASS'}-{(sch.userId || 'DUTY').slice(-4).toUpperCase()}*
                                         </p>
                                     </div>
                                 </div>

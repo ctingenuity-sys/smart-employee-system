@@ -104,6 +104,24 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
   const { t, language, toggleLanguage, dir } = useLanguage();
   const { departments, selectedDepartmentId, setSelectedDepartmentId } = useDepartment();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isDesktopCollapsed, setIsDesktopCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('sidebar_desktop_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleDesktopSidebar = () => {
+    setIsDesktopCollapsed(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('sidebar_desktop_collapsed', String(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
   const navigate = useNavigate();
   const location = useLocation();
   const currentUserId = auth.currentUser?.uid;
@@ -173,6 +191,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
   };
   const sidebarPosition = dir === 'rtl' ? 'right-0' : 'left-0';
   const transformDirection = dir === 'rtl' ? 'translate-x-full' : '-translate-x-full';
+  const desktopWidthClass = isDesktopCollapsed ? 'lg:w-20' : 'lg:w-64';
 
   const canAccess = (feature: string) => {
       if (userRole === UserRole.ADMIN) return true;
@@ -193,108 +212,144 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
   };
 
   return (
-    <div className="flex h-screen overflow-hidden print:h-auto print:overflow-visible" dir={dir}>
+    <div className="flex h-screen overflow-hidden print:h-auto print:overflow-visible bg-slate-100" dir={dir}>
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
       {currentUserId && <GlobalNotificationListener userId={currentUserId} userRole={userRole} departmentId={selectedDepartmentId} />}
 
-      <div className={`fixed inset-0 z-[9990] transition-opacity bg-black opacity-50 lg:hidden ${isSidebarOpen ? 'block' : 'hidden'} print:hidden`} onClick={() => setIsSidebarOpen(false)}></div>
+      {/* Mobile Backdrop */}
+      <div className={`fixed inset-0 z-[9990] transition-opacity bg-black opacity-50 lg:hidden ${isSidebarOpen ? 'block pointer-events-auto' : 'hidden pointer-events-none'} print:hidden`} onClick={() => setIsSidebarOpen(false)}></div>
 
-      <div className={`fixed inset-y-0 ${sidebarPosition} z-[9999] w-64 transition duration-300 transform bg-secondary lg:translate-x-0 lg:static lg:inset-0 ${isSidebarOpen ? 'translate-x-0' : transformDirection} print:hidden flex flex-col`}>
-        <div className="flex items-center justify-between h-20 shadow-md bg-slate-900 flex-shrink-0 px-4">
-          <h1 className="text-xl font-bold text-white flex items-center">
-            <i className="fas fa-hospital-user mr-2 text-accent"></i>
-            {t('app.name')}
-          </h1>
-        </div>
-
-        <div className="p-4 border-b border-slate-700 mb-4 flex-shrink-0 relative">
-          <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                 <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-white font-bold">
-                     {userName.charAt(0).toUpperCase()}
-                 </div>
-                 <div>
-                    <p className="text-sm font-bold text-white truncate max-w-[120px]">{userName}</p>
-                    <span className="inline-block px-2 py-0.5 text-[10px] font-medium bg-blue-600 text-white rounded-full">
-                        {t(`role.${userRole}`) || userRole}
-                    </span>
-                 </div>
-              </div>
-              <NotificationBell userRole={userRole} />
-          </div>
-          <button onClick={() => setIsPasswordModalOpen(true)} className="mt-3 w-full py-1.5 text-xs bg-slate-800 text-slate-300 rounded hover:bg-slate-700 transition-colors">
-             <i className="fas fa-key mr-1"></i> {t('pw.change')}
+      {/* Sidebar (Desktop Collapsible & Mobile Drawer) */}
+      <div className={`fixed inset-y-0 ${sidebarPosition} z-[9999] w-64 ${desktopWidthClass} transition-all duration-300 transform bg-secondary lg:translate-x-0 lg:static lg:inset-0 ${isSidebarOpen ? 'translate-x-0 opacity-100 pointer-events-auto visible' : `${transformDirection} opacity-0 pointer-events-none invisible lg:opacity-100 lg:pointer-events-auto lg:visible`} print:hidden flex flex-col shadow-xl`}>
+        <div className="flex items-center justify-between h-16 shadow-md bg-slate-900 flex-shrink-0 px-3">
+          {!isDesktopCollapsed ? (
+            <h1 className="text-lg font-bold text-white flex items-center truncate">
+              <i className="fas fa-hospital-user mr-2 text-accent"></i>
+              <span className="truncate">{t('app.name')}</span>
+            </h1>
+          ) : (
+            <div className="mx-auto text-accent text-xl hidden lg:block" title={t('app.name')}>
+              <i className="fas fa-hospital-user"></i>
+            </div>
+          )}
+          
+          <button 
+            type="button"
+            onClick={toggleDesktopSidebar}
+            className="hidden lg:flex items-center justify-center w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+            title={isDesktopCollapsed ? "توسيع القائمة الجانبية (Expand)" : "طي القائمة الجانبية (Collapse)"}
+          >
+            <i className={`fas ${isDesktopCollapsed ? (dir === 'rtl' ? 'fa-angles-left' : 'fa-angles-right') : (dir === 'rtl' ? 'fa-angles-right' : 'fa-angles-left')} text-xs`}></i>
           </button>
         </div>
 
-        <nav className="px-4 space-y-2 flex-1 overflow-y-auto">
-          {userRole === UserRole.ADMIN && (
-              <div className="mb-4">
+        {/* User Card */}
+        <div className={`p-3 border-b border-slate-700/80 mb-2 flex-shrink-0 relative ${isDesktopCollapsed ? 'lg:px-2' : ''}`}>
+          <div className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center' : 'justify-between'}`}>
+              <div className="flex items-center gap-2.5">
+                 <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center text-white font-bold text-sm shrink-0" title={userName}>
+                     {userName.charAt(0).toUpperCase()}
+                 </div>
+                 {!isDesktopCollapsed && (
+                   <div className="overflow-hidden">
+                      <p className="text-xs font-bold text-white truncate max-w-[110px]">{userName}</p>
+                      <span className="inline-block px-1.5 py-0.2 text-[9px] font-medium bg-blue-600 text-white rounded-full">
+                          {t(`role.${userRole}`) || userRole}
+                      </span>
+                   </div>
+                 )}
+              </div>
+              {!isDesktopCollapsed && <NotificationBell userRole={userRole} />}
+          </div>
+          {!isDesktopCollapsed ? (
+            <button onClick={() => setIsPasswordModalOpen(true)} className="mt-2.5 w-full py-1 text-[11px] bg-slate-800 text-slate-300 rounded hover:bg-slate-700 transition-colors">
+               <i className="fas fa-key mr-1"></i> {t('pw.change')}
+            </button>
+          ) : (
+            <button onClick={() => setIsPasswordModalOpen(true)} className="mt-2 w-full py-1 text-xs bg-slate-800 text-slate-300 rounded hover:bg-slate-700 transition-colors hidden lg:flex items-center justify-center" title={t('pw.change')}>
+               <i className="fas fa-key"></i>
+            </button>
+          )}
+        </div>
+
+        <nav 
+          className="px-2 space-y-1.5 flex-1 overflow-y-auto"
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest('a')) {
+              setIsSidebarOpen(false);
+            }
+          }}
+        >
+          {userRole === UserRole.ADMIN && !isDesktopCollapsed && (
+              <div className="mb-3 px-1">
                   <select 
-                      className="w-full bg-slate-800 text-slate-300 border border-slate-700 rounded-lg px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full bg-slate-800 text-slate-300 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500"
                       value={selectedDepartmentId || ''}
                       onChange={(e) => setSelectedDepartmentId(e.target.value || null)}
                   >
-                      <option value="">All Departments</option>
+                      <option value="">كل الأقسام (All)</option>
                       {departments.map(d => (
                           <option key={d.id} value={d.id}>{d.name}</option>
                       ))}
                   </select>
               </div>
           )}
-          <button onClick={toggleLanguage} className="flex items-center w-full px-4 py-2 mb-4 text-sm font-bold text-slate-300 bg-slate-800 rounded-lg hover:text-white hover:bg-slate-700 transition-colors">
-              <i className="fas fa-globe w-6"></i>
-              <span className="font-medium">{language === 'ar' ? 'English' : 'العربية'}</span>
+          
+          <button 
+            onClick={toggleLanguage} 
+            className={`flex items-center w-full ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2 mb-2 text-xs font-bold text-slate-300 bg-slate-800 rounded-lg hover:text-white hover:bg-slate-700 transition-colors`}
+            title={language === 'ar' ? 'English' : 'العربية'}
+          >
+              <i className="fas fa-globe w-5 text-center"></i>
+              {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{language === 'ar' ? 'English' : 'العربية'}</span>}
           </button>
 
           {(userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR || userRole === UserRole.MANAGER) && (
             <>
               {userRole === UserRole.ADMIN && (
-                  <Link to="/admin/departments" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/admin/departments')}`}>
-                    <i className="fas fa-building w-6 text-purple-400"></i>
-                    <span className="font-medium">Departments</span>
+                  <Link to="/admin/departments" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/admin/departments')}`} title="Departments">
+                    <i className="fas fa-building w-5 text-center text-purple-400"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">Departments</span>}
                   </Link>
               )}
-              <Link to="/supervisor" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor')}`}>
-                <i className="fas fa-chart-line w-6"></i>
-                <span className="font-medium">{t('nav.dashboard')}</span>
+              <Link to="/supervisor" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/supervisor')}`} title={t('nav.dashboard')}>
+                <i className="fas fa-chart-line w-5 text-center"></i>
+                {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.dashboard')}</span>}
               </Link>
               {canAccess('sup_schedule_builder') && (
-                  <Link to="/schedule-builder" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/schedule-builder')}`}>
-                    <i className="fas fa-calendar-alt w-6"></i>
-                    <span className="font-medium">{t('nav.scheduleBuilder')}</span>
+                  <Link to="/schedule-builder" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/schedule-builder')}`} title={t('nav.scheduleBuilder')}>
+                    <i className="fas fa-calendar-alt w-5 text-center"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.scheduleBuilder')}</span>}
                   </Link>
               )}
-
-              
               {canAccess('sup_rotation') && (
-                  <Link to="/supervisor/rotation" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/rotation')}`}>
-                    <i className="fas fa-sync-alt w-6"></i>
-                    <span className="font-medium">{t('nav.rotation')}</span>
+                  <Link to="/supervisor/rotation" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/supervisor/rotation')}`} title={t('nav.rotation')}>
+                    <i className="fas fa-sync-alt w-5 text-center"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.rotation')}</span>}
                   </Link>
               )}
               {canAccess('sup_penalties') && (
-                  <Link to="/supervisor/penalties" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/penalties')}`}>
-                    <i className="fas fa-gavel w-6"></i>
-                    <span className="font-medium">{t('nav.penalties')}</span>
+                  <Link to="/supervisor/penalties" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/supervisor/penalties')}`} title={t('nav.penalties')}>
+                    <i className="fas fa-gavel w-5 text-center text-amber-400"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.penalties')}</span>}
                   </Link>
               )}
               {canAccess('sup_reports') && (
-                  <Link to="/reports" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/reports')}`}>
-                    <i className="fas fa-file-contract w-6"></i>
-                    <span className="font-medium">{t('nav.reports')}</span>
+                  <Link to="/reports" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/reports')}`} title={t('nav.reports')}>
+                    <i className="fas fa-file-contract w-5 text-center text-blue-400"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.reports')}</span>}
                   </Link>
               )}
               {canAccess('sup_attendance') && (
-                  <Link to="/attendance" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/attendance')}`}>
-                    <i className="fas fa-robot w-6"></i>
-                    <span className="font-medium">{t('nav.attendance')}</span>
+                  <Link to="/attendance" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/attendance')}`} title={t('nav.attendance')}>
+                    <i className="fas fa-robot w-5 text-center text-emerald-400"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.attendance')}</span>}
                   </Link>
               )}
               {canAccess('sup_archive') && (
-                  <Link to="/supervisor/archive" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/archive')}`}>
-                    <i className="fas fa-archive w-6"></i>
-                    <span className="font-medium">{t('nav.dataArchive')}</span>
+                  <Link to="/supervisor/archive" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/supervisor/archive')}`} title={t('nav.dataArchive')}>
+                    <i className="fas fa-archive w-5 text-center text-slate-400"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.dataArchive')}</span>}
                   </Link>
               )}
             </>
@@ -302,106 +357,106 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
 
           {(userRole === UserRole.USER) && (
             <>
-              <Link to="/user" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/user')}`}>
-                <i className="fas fa-user-clock w-6"></i>
-                <span className="font-medium">{t('nav.dashboard')}</span>
+              <Link to="/user" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/user')}`} title={t('nav.dashboard')}>
+                <i className="fas fa-user-clock w-5 text-center"></i>
+                {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.dashboard')}</span>}
               </Link>
               {canAccess('schedule') && (
-                  <Link to="/user/schedule" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/user/schedule')}`}>
-                    <i className="fas fa-calendar-alt w-6"></i>
-                    <span className="font-medium">{t('user.tab.schedule')}</span>
+                  <Link to="/user/schedule" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/user/schedule')}`} title={t('user.tab.schedule')}>
+                    <i className="fas fa-calendar-alt w-5 text-center"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('user.tab.schedule')}</span>}
                   </Link>
               )}
-              <Link to="/user/penalties" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/user/penalties')}`}>
-                <i className="fas fa-gavel w-6"></i>
-                <span className="font-medium">{t('nav.penalties')}</span>
+              <Link to="/user/penalties" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/user/penalties')}`} title={t('nav.penalties')}>
+                <i className="fas fa-gavel w-5 text-center text-amber-400"></i>
+                {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.penalties')}</span>}
               </Link>
-              <Link to="/department-bookings" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/department-bookings')}`}>
-                <i className="fas fa-calendar-check w-6"></i>
-                <span className="font-medium">Department Bookings</span>
+              <Link to="/department-bookings" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/department-bookings')}`} title="Department Bookings">
+                <i className="fas fa-calendar-check w-5 text-center"></i>
+                {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">Department Bookings</span>}
               </Link>
             </>
           )}
 
           {(userRole === UserRole.DOCTOR) && (
             <>
-              <Link to="/doctor" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/doctor')}`}>
-                <i className="fas fa-user-md w-6"></i>
-                <span className="font-medium">{t('doc.station')}</span>
+              <Link to="/doctor" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/doctor')}`} title={t('doc.station')}>
+                <i className="fas fa-user-md w-5 text-center"></i>
+                {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('doc.station')}</span>}
               </Link>
             </>
           )}
 
           {(userRole !== UserRole.CATH_LAB) && (
-            <div className="pt-4 mt-4 border-t border-slate-700">
-             <p className="px-4 text-xs font-bold text-slate-500 mb-2">{t('nav.sharedTools')}</p>
+            <div className="pt-2 mt-2 border-t border-slate-700/80">
+             {!isDesktopCollapsed && <p className="px-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">{t('nav.sharedTools')}</p>}
              
              {canAccess('sup_schedule_builder') && (
-                  <Link to="/department-bookings" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/department-bookings')}`}>
-                    <i className="fas fa-calendar-check w-6"></i>
-                    <span className="font-medium">Department Bookings</span>
+                  <Link to="/department-bookings" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/department-bookings')}`} title="Department Bookings">
+                    <i className="fas fa-calendar-check w-5 text-center text-sky-400"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">Department Bookings</span>}
                   </Link>
              )}
 
              {canAccess('radiology_log') && (
-               <Link to="/radiology-logbook" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/radiology-logbook')}`}>
-                  <i className="fas fa-book-medical w-6 text-amber-400"></i>
-                  <span className="font-medium">{t('nav.radiologyLog')}</span>
+               <Link to="/radiology-logbook" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/radiology-logbook')}`} title={t('nav.radiologyLog')}>
+                  <i className="fas fa-book-medical w-5 text-center text-amber-400"></i>
+                  {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.radiologyLog')}</span>}
                </Link>
              )}
               
              {(userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR || userRole === UserRole.MANAGER || userRole === UserRole.DOCTOR || userRole === UserRole.USER) && canAccess('handover') && canAccess('communications') && (
-                 <Link to="/communications" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/communications')}`}>
-                    <i className="fas fa-handshake w-6 text-blue-400"></i>
-                    <span className="font-medium">{t('nav.handover')}</span>
+                 <Link to="/communications" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/communications')}`} title={t('nav.handover')}>
+                    <i className="fas fa-handshake w-5 text-center text-blue-400"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.handover')}</span>}
                  </Link>
              )}
 
              {(userRole === UserRole.ADMIN || userRole === UserRole.SUPERVISOR || userRole === UserRole.MANAGER || userRole === UserRole.DOCTOR || userRole === UserRole.USER) && (
-                 <Link to="/supervisor/oncall" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/supervisor/oncall')}`}>
-                    <i className="fas fa-phone-volume w-6 text-emerald-400"></i>
-                    <span className="font-medium">On-Call Management</span>
+                 <Link to="/supervisor/oncall" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/supervisor/oncall')}`} title="On-Call Management">
+                    <i className="fas fa-phone-volume w-5 text-center text-emerald-400"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">On-Call Management</span>}
                  </Link>
              )}
 
              {canAccess('inventory') && (
-                 <Link to="/inventory" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/inventory', false)}`}>
-                    <i className="fas fa-boxes w-6 text-emerald-400"></i>
-                    <span className="font-medium">{t('nav.inventory')}</span>
+                 <Link to="/inventory" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/inventory', false)}`} title={t('nav.inventory')}>
+                    <i className="fas fa-boxes w-5 text-center text-emerald-400"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.inventory')}</span>}
                  </Link>
              )}
             </div>
           )}
 
-             {userRole !== UserRole.CUSTODY_CLERK && canAccess('catheter_supplies') && (
-             <div className={userRole === UserRole.CATH_LAB ? "pt-4 mt-4 border-t border-slate-700" : ""}>
-               <Link to="/cath-lab-usage" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/cath-lab-usage')}`}>
-                  <i className="fas fa-heartbeat w-6 text-rose-400"></i>
-                  <span className="font-medium">{t('nav.cathLabUsage')}</span>
-               </Link>
-             </div>
-             )}
+          {userRole !== UserRole.CUSTODY_CLERK && canAccess('catheter_supplies') && (
+          <div className={userRole === UserRole.CATH_LAB ? "pt-2 mt-2 border-t border-slate-700/80" : ""}>
+            <Link to="/cath-lab-usage" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/cath-lab-usage')}`} title={t('nav.cathLabUsage')}>
+               <i className="fas fa-heartbeat w-5 text-center text-rose-400"></i>
+               {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.cathLabUsage')}</span>}
+            </Link>
+          </div>
+          )}
              
           {(userRole !== UserRole.CATH_LAB && userRole !== UserRole.CUSTODY_CLERK) && (
             <>
              {canAccess('tasks') && (
-                 <Link to="/tasks" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/tasks')}`}>
-                    <i className="fas fa-tasks w-6 text-amber-400"></i>
-                    <span className="font-medium">{t('nav.tasks')}</span>
+                 <Link to="/tasks" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/tasks')}`} title={t('nav.tasks')}>
+                    <i className="fas fa-tasks w-5 text-center text-amber-400"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.tasks')}</span>}
                  </Link>
              )}
 
              {canAccess('tech_support') && (
-                 <Link to="/tech-support" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/tech-support')}`}>
-                    <i className="fas fa-headset w-6 text-cyan-400"></i>
-                    <span className="font-medium">{t('nav.techSupport')}</span>
+                 <Link to="/tech-support" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/tech-support')}`} title={t('nav.techSupport')}>
+                    <i className="fas fa-headset w-5 text-center text-cyan-400"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.techSupport')}</span>}
                  </Link>
              )}
 
              {canAccess('hr_assistant') && (
-                 <Link to="/hr-assistant" className={`flex items-center px-4 py-3 rounded-lg transition-colors ${isActive('/hr-assistant')}`}>
-                    <i className="fas fa-user-tie w-6 text-pink-400"></i>
-                    <span className="font-medium">HR Assistant</span>
+                 <Link to="/hr-assistant" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/hr-assistant')}`} title="HR Assistant">
+                    <i className="fas fa-user-tie w-5 text-center text-pink-400"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">HR Assistant</span>}
                  </Link>
              )}
             </>
@@ -409,26 +464,62 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
 
         </nav>
         
-        <div className="p-4 bg-slate-900 mt-auto flex-shrink-0">
-            <button onClick={handleLogout} className="flex items-center justify-center w-full px-4 py-2 text-sm font-bold text-white transition-colors bg-danger rounded-lg hover:bg-red-700">
-                <i className="fas fa-sign-out-alt w-6"></i>
-                {t('logout')}
+        <div className="p-3 bg-slate-900 mt-auto flex-shrink-0">
+            <button 
+              onClick={handleLogout} 
+              className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'justify-center px-3'} w-full py-2 text-xs font-bold text-white transition-colors bg-danger rounded-lg hover:bg-red-700`}
+              title={t('logout')}
+            >
+                <i className="fas fa-sign-out-alt w-5 text-center"></i>
+                {!isDesktopCollapsed && <span className="mr-2 ml-2">{t('logout')}</span>}
             </button>
         </div>
       </div>
 
-      <div className="flex flex-col flex-1 overflow-hidden print:overflow-visible print:h-auto">
-        <header className="flex items-center justify-between px-6 py-4 bg-white shadow-sm lg:hidden print:hidden">
-            <div className="text-xl font-bold text-secondary">{t('app.name')}</div>
-            <div className="flex items-center gap-4">
-                <NotificationBell userRole={userRole} />
-                <button onClick={() => setIsSidebarOpen(true)} className="text-secondary focus:outline-none">
-                    <i className="fas fa-bars fa-lg"></i>
+      <div className="flex flex-col flex-1 overflow-hidden print:overflow-visible print:h-auto min-w-0">
+        {/* Top Header Bar for Desktop and Mobile */}
+        <header className="flex items-center justify-between px-4 lg:px-6 py-2.5 bg-white border-b border-slate-200 shadow-2xs print:hidden shrink-0">
+            <div className="flex items-center gap-3">
+                <button 
+                  type="button"
+                  onClick={toggleDesktopSidebar} 
+                  className="hidden lg:inline-flex items-center justify-center w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                  title={isDesktopCollapsed ? "توسيع القائمة الجانبية (Expand)" : "طي القائمة الجانبية (Collapse)"}
+                >
+                    <i className="fas fa-bars text-sm"></i>
                 </button>
+                <button 
+                  type="button"
+                  onClick={() => setIsSidebarOpen(true)} 
+                  className="lg:hidden inline-flex items-center justify-center w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors focus:outline-none"
+                >
+                    <i className="fas fa-bars text-sm"></i>
+                </button>
+                <div className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                   <span>{t('app.name')}</span>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+                {userRole === UserRole.ADMIN && (
+                    <div className="hidden sm:block">
+                        <select 
+                            className="bg-slate-50 text-slate-700 border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                            value={selectedDepartmentId || ''}
+                            onChange={(e) => setSelectedDepartmentId(e.target.value || null)}
+                        >
+                            <option value="">كل الأقسام (All)</option>
+                            {departments.map(d => (
+                                <option key={d.id} value={d.id}>{d.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+                <NotificationBell userRole={userRole} />
             </div>
         </header>
 
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-100 p-4 lg:p-8 print:bg-white print:p-0 print:overflow-visible">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-100 p-4 lg:p-6 print:bg-white print:p-0 print:overflow-visible min-w-0">
             {children}
         </main>
       </div>

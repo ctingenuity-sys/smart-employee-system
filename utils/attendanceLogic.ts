@@ -2,7 +2,7 @@
 import { AttendanceLog } from '../types';
 
 export interface AttendanceStateResult {
-    state: 'LOADING' | 'READY_IN' | 'READY_OUT' | 'LOCKED' | 'COMPLETED' | 'MISSED_OUT' | 'ABSENT' | 'WAITING' | 'NEXT_SHIFT' | 'OFF' | 'UPCOMING' | 'ON_LEAVE';
+    state: 'LOADING' | 'READY_IN' | 'READY_OUT' | 'LOCKED' | 'COMPLETED' | 'MISSED_OUT' | 'ABSENT' | 'WAITING' | 'NEXT_SHIFT' | 'OFF' | 'UPCOMING' | 'ON_LEAVE' | 'LATE' | 'PERMISSION' | 'MISSION' | 'SUSPENDED';
     message: string;
     sub: string;
     canPunch: boolean;
@@ -10,6 +10,28 @@ export interface AttendanceStateResult {
     isBreak?: boolean;
     timeRemaining?: string;
     color?: string;
+    actionDetails?: {
+        type: string;
+        title?: string;
+        subtitle?: string;
+        hours?: number | string;
+        timeFrom?: string;
+        timeTo?: string;
+        reason?: string;
+    };
+}
+
+export interface ActiveActionRecord {
+    type: string;
+    title?: string;
+    subtitle?: string;
+    description?: string;
+    reason?: string;
+    hours?: number | string;
+    timeFrom?: string;
+    timeTo?: string;
+    startDate?: string;
+    endDate?: string;
 }
 
 // Helper to safely extract Date object from log, handling pending serverTimestamp (null)
@@ -151,31 +173,196 @@ export const calculateShiftStatus = (
     todayShifts: { start: string, end: string }[],
     hasOverride: boolean,
     yesterdayShifts: { start: string, end: string }[] = [],
-    activeActionType: string | null = null
+    activeAction: string | ActiveActionRecord | null = null
 ): AttendanceStateResult => {
     if (!currentTime) return { state: 'LOADING', message: 'SYNCING', sub: 'Server Time', canPunch: false };
 
-    // --- PRIORITY 0: CHECK FOR ADMIN ACTIONS (LEAVES/ABSENCE) ---
-    if (activeActionType) {
-        const actionMap: Record<string, string> = {
-            'annual_leave': 'ON LEAVE',
-            'sick_leave': 'SICK LEAVE',
-            'unjustified_absence': 'ABSENT',
-            'justified_absence': 'EXCUSED ABSENCE',
-            'mission': 'ON MISSION'
-        };
-        
-        const message = actionMap[activeActionType] || activeActionType.replace('_', ' ').toUpperCase();
-        const sub = 'Status Update';
-        const canPunch = activeActionType === 'mission' || hasOverride; 
-        const color = activeActionType.includes('absence') ? 'bg-red-600 text-white' : 'bg-purple-600 text-white';
+    // --- PRIORITY 0: CHECK FOR ADMIN ACTIONS (LEAVES/ABSENCE/PERMISSIONS/DELAYS) ---
+    if (activeAction) {
+        const rawType = typeof activeAction === 'string' ? activeAction : activeAction.type;
+        const normalizedType = (rawType || '').toLowerCase().trim();
+        const actionObj = typeof activeAction === 'object' ? activeAction : { type: rawType };
 
+        const isSick = normalizedType.includes('sick') || normalizedType === 'مرضي' || normalizedType.includes('مرضية');
+        const isAnnual = normalizedType.includes('annual') || normalizedType === 'سنوي' || normalizedType.includes('سنوية');
+        const isEmergency = normalizedType.includes('emergency') || normalizedType.includes('casual') || normalizedType.includes('طارئة') || normalizedType.includes('عارضة');
+        const isRegular = normalizedType.includes('regular') || normalizedType.includes('اعتيا') || normalizedType === 'leave';
+        const isGeneralLeave = isSick || isAnnual || isEmergency || isRegular || normalizedType.includes('leave') || normalizedType.includes('إجازة') || normalizedType.includes('اجازة');
+
+        const isUnjustifiedAbsence = normalizedType.includes('unjustified') || normalizedType === 'absence' || (normalizedType.includes('غياب') && !normalizedType.includes('مبرر') && !normalizedType.includes('إذن') && !normalizedType.includes('اذن'));
+        const isJustifiedAbsence = normalizedType.includes('justified') || normalizedType.includes('excused') || (normalizedType.includes('غياب') && (normalizedType.includes('مبرر') || normalizedType.includes('إذن') || normalizedType.includes('اذن')));
+
+        const isLate = normalizedType.includes('delay') || normalizedType.includes('late') || normalizedType.includes('تأخير') || normalizedType.includes('تاخير');
+        const isPermission = normalizedType.includes('permission') || normalizedType.includes('إذن') || normalizedType.includes('اذن') || normalizedType.includes('تصريح');
+        const isMission = normalizedType.includes('mission') || normalizedType.includes('task') || normalizedType.includes('مأمورية') || normalizedType.includes('مامورية');
+        const isSuspension = normalizedType.includes('suspension') || normalizedType.includes('إيقاف') || normalizedType.includes('ايقاف');
+
+        if (isGeneralLeave) {
+            let title = 'إجازة رسمية معتمدة';
+            if (isSick) title = 'إجازة مرضية معتمدة';
+            else if (isAnnual) title = 'إجازة سنوية معتمدة';
+            else if (isEmergency) title = 'إجازة عارضة / طارئة';
+            else if (isRegular) title = 'إجازة اعتيادية معتمدة';
+            if (actionObj.title) title = actionObj.title;
+
+            let sub = actionObj.subtitle || actionObj.reason || actionObj.description || 'طلب إجازة رسمي معتمد ومسجل بالسيستم';
+
+            return {
+                state: 'ON_LEAVE',
+                message: title,
+                sub,
+                canPunch: hasOverride,
+                color: 'bg-purple-600 text-white',
+                actionDetails: {
+                    type: rawType,
+                    title,
+                    subtitle: sub,
+                    reason: actionObj.reason || actionObj.description,
+                    hours: actionObj.hours,
+                    timeFrom: actionObj.timeFrom,
+                    timeTo: actionObj.timeTo
+                }
+            };
+        }
+
+        if (isUnjustifiedAbsence) {
+            const title = actionObj.title || 'غياب غير مبرر مسجل';
+            const sub = actionObj.subtitle || actionObj.description || 'تم قيد حالة غياب بدون إذن مسبق في سجل الإجراءات';
+
+            return {
+                state: 'ABSENT',
+                message: title,
+                sub,
+                canPunch: false,
+                color: 'bg-rose-600 text-white',
+                actionDetails: {
+                    type: rawType,
+                    title,
+                    subtitle: sub,
+                    reason: actionObj.reason || actionObj.description
+                }
+            };
+        }
+
+        if (isJustifiedAbsence) {
+            const title = actionObj.title || 'غياب مبرر بإذن';
+            const sub = actionObj.subtitle || actionObj.description || 'غياب رسمي مبرر ومسجل في النظام';
+
+            return {
+                state: 'ON_LEAVE',
+                message: title,
+                sub,
+                canPunch: hasOverride,
+                color: 'bg-indigo-600 text-white',
+                actionDetails: {
+                    type: rawType,
+                    title,
+                    subtitle: sub,
+                    reason: actionObj.reason || actionObj.description
+                }
+            };
+        }
+
+        if (isLate) {
+            const title = actionObj.title || 'تأخير مسجل على الوردية';
+            const sub = actionObj.subtitle || (actionObj.hours ? `تأخير مسجل (${actionObj.hours} دقيقة/ساعة)` : (actionObj.description || 'تم قيد تأخير رسمي في سجل الإجراءات اليومي'));
+
+            return {
+                state: 'LATE',
+                message: title,
+                sub,
+                canPunch: true,
+                color: 'bg-amber-600 text-white',
+                actionDetails: {
+                    type: rawType,
+                    title,
+                    subtitle: sub,
+                    hours: actionObj.hours,
+                    reason: actionObj.reason || actionObj.description
+                }
+            };
+        }
+
+        if (isPermission) {
+            const title = actionObj.title || 'تصريح إذن ساعي نشط';
+            let sub = actionObj.subtitle || actionObj.description;
+            if (!sub && actionObj.timeFrom && actionObj.timeTo) {
+                sub = `إذن من ${actionObj.timeFrom} إلى ${actionObj.timeTo} (${actionObj.hours || ''} س)`;
+            } else if (!sub) {
+                sub = 'تصريح إذن خروج ساعي موثق بالنظام';
+            }
+
+            return {
+                state: 'PERMISSION',
+                message: title,
+                sub,
+                canPunch: true,
+                color: 'bg-teal-600 text-white',
+                actionDetails: {
+                    type: rawType,
+                    title,
+                    subtitle: sub,
+                    hours: actionObj.hours,
+                    timeFrom: actionObj.timeFrom,
+                    timeTo: actionObj.timeTo,
+                    reason: actionObj.reason || actionObj.description
+                }
+            };
+        }
+
+        if (isMission) {
+            const title = actionObj.title || 'مأمورية عمل رسمية';
+            const sub = actionObj.subtitle || actionObj.description || 'مكلف بمهمة عمل رسمية خارج المنشأة';
+
+            return {
+                state: 'MISSION',
+                message: title,
+                sub,
+                canPunch: true,
+                color: 'bg-blue-600 text-white',
+                actionDetails: {
+                    type: rawType,
+                    title,
+                    subtitle: sub,
+                    reason: actionObj.reason || actionObj.description
+                }
+            };
+        }
+
+        if (isSuspension) {
+            const title = actionObj.title || 'إيقاف مؤقت عن العمل';
+            const sub = actionObj.subtitle || actionObj.description || 'قرار إداري بالإيقاف المؤقت';
+
+            return {
+                state: 'SUSPENDED',
+                message: title,
+                sub,
+                canPunch: false,
+                color: 'bg-red-800 text-white',
+                actionDetails: {
+                    type: rawType,
+                    title,
+                    subtitle: sub,
+                    reason: actionObj.reason || actionObj.description
+                }
+            };
+        }
+
+        // Generic fallback for any other action
+        const title = actionObj.title || rawType.replace('_', ' ').toUpperCase();
+        const sub = actionObj.subtitle || actionObj.description || 'إجراء إداري مسجل بالنظام';
         return {
             state: 'ON_LEAVE',
-            message,
+            message: title,
             sub,
-            canPunch,
-            color
+            canPunch: hasOverride,
+            color: 'bg-purple-600 text-white',
+            actionDetails: {
+                type: rawType,
+                title,
+                subtitle: sub,
+                reason: actionObj.reason || actionObj.description
+            }
         };
     }
 

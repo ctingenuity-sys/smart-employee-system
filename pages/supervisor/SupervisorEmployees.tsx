@@ -1194,12 +1194,6 @@ const SupervisorEmployees: React.FC = () => {
         setHiddenEmployeesVisible(nextVal);
         localStorage.setItem('show_hidden_employees', String(nextVal));
         window.dispatchEvent(new Event('storage'));
-        setToast({ 
-            msg: nextVal 
-                ? (dir === 'rtl' ? 'تم إظهار الحسابات والموظفين المخفيين' : 'Hidden profiles are now visible') 
-                : (dir === 'rtl' ? 'تم إخفاء الحسابات المحددة كمخفية' : 'Hidden profiles are now hidden'), 
-            type: 'info' 
-        });
     };
 
     const getAvatar = (user: User) => {
@@ -1270,10 +1264,7 @@ const SupervisorEmployees: React.FC = () => {
             <div id="secretTrigger" onClick={toggleHiddenEmployees} className="fixed bottom-0 left-1/2 -translate-x-1/2 w-40 h-16 cursor-pointer z-[9900] opacity-0" title="Secret Trigger"></div>
 
             <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-                <div className="flex items-center gap-4">
-                    <button onClick={() => navigate('/supervisor')} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${isDark ? 'bg-slate-800 text-slate-200 hover:bg-slate-700' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>
-                        <i className="fas fa-arrow-left rtl:rotate-180"></i>
-                    </button>
+                <div className="flex items-center gap-3">
                     <div>
                         <h1 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-800'}`}>{t('sup.tab.users')}</h1>
                         <p className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Staff Records & Compliance</p>

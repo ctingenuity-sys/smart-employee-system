@@ -7,6 +7,7 @@ import Modal from '../components/Modal';
 import Toast from '../components/Toast';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useDepartment } from '../contexts/DepartmentContext';
+import { useTheme } from '../contexts/ThemeContext';
 import GeneralScheduleView from '../components/schedule/GeneralScheduleView';
 import FridayScheduleView from '../components/schedule/FridayScheduleView';
 import HolidayScheduleView from '../components/schedule/HolidayScheduleView';
@@ -160,6 +161,7 @@ const ppRegex = /(?:\(|\[|\{)\s*pp\s*(?:\)|\]|\})|(?:\bPP\b)/i;
 const DoctorDashboard: React.FC = () => {
   const { t, dir } = useLanguage();
   const { selectedDepartmentId } = useDepartment();
+  const { isDark } = useTheme();
   
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1460,99 +1462,135 @@ const DoctorDashboard: React.FC = () => {
           </div>
       </Modal>
 
-       {/* Floating On Shift Widget */}
-                      {/* Floating On Shift Widget */}
-            <div className={`fixed bottom-6 left-6 z-40 transition-all duration-300 ${onShiftNow.length > 0 || isShiftWidgetOpen ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'}`}>
-                <div className={`bg-white/95 backdrop-blur-md shadow-2xl border border-slate-200 transition-all duration-300 overflow-hidden ${isShiftWidgetOpen ? 'rounded-3xl w-80' : 'rounded-full w-auto hover:scale-105'}`}>
-                    
-                    <div 
-                        onClick={() => setIsShiftWidgetOpen(!isShiftWidgetOpen)}
-                        className={`cursor-pointer flex items-center justify-between p-3 ${isShiftWidgetOpen ? 'bg-slate-50 border-b border-slate-100' : 'bg-slate-900 text-white px-5 py-3'}`}
-                    >
-                        <div className="flex items-center gap-2">
-                            <span className="relative flex h-2.5 w-2.5">
-                            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isShiftWidgetOpen ? 'bg-cyan-500' : 'bg-emerald-400'}`}></span>
-                            <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isShiftWidgetOpen ? 'bg-cyan-600' : 'bg-emerald-500'}`}></span>
-                            </span>
-                            <h4 className={`font-black text-sm uppercase tracking-wide ${isShiftWidgetOpen ? 'text-slate-800' : 'text-white'}`}>{t('dash.onShift')}</h4>
-                        </div>
-                        
-                        {isShiftWidgetOpen ? (
-                            <i className="fas fa-chevron-down text-slate-400 text-xs"></i>
-                        ) : (
-                            <span className="ml-3 text-xs font-bold bg-white/20 px-2 py-0.5 rounded-full">{onShiftNow.length}</span>
-                        )}
+        {/* 9. Floating On Shift Monitor Capsule */}
+        <div className={`fixed bottom-4 ${dir === 'rtl' ? 'left-3 sm:left-5' : 'right-3 sm:right-5'} z-[10010] transition-all duration-300 ${onShiftNow.length > 0 || isShiftWidgetOpen ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'}`}>
+            <div className={`backdrop-blur-2xl transition-all duration-300 overflow-hidden ${
+                isDark 
+                    ? 'bg-slate-900/95 shadow-[0_15px_35px_rgba(0,0,0,0.85)] border border-slate-700/80' 
+                    : 'bg-white/95 shadow-[0_15px_35px_rgba(0,0,0,0.15)] border border-slate-300'
+            } ${isShiftWidgetOpen ? 'rounded-2xl w-[calc(100vw-24px)] sm:w-72 max-w-[280px]' : 'rounded-full hover:scale-105'}`}>
+                
+                <div 
+                    onClick={() => setIsShiftWidgetOpen(!isShiftWidgetOpen)}
+                    className={`cursor-pointer flex items-center justify-between select-none ${
+                        isShiftWidgetOpen 
+                            ? (isDark ? 'p-2.5 bg-slate-950/80 border-b border-white/10' : 'p-2.5 bg-slate-100 border-b border-slate-200') 
+                            : (isDark ? 'px-3.5 py-2 bg-slate-900 border border-slate-700 text-white shadow-xl' : 'px-3.5 py-2 bg-slate-900 text-white shadow-xl')
+                    }`}
+                >
+                    <div className="flex items-center gap-2">
+                        <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-400"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
+                        </span>
+                        <h4 className={`font-black text-xs uppercase tracking-wider ${isDark ? 'text-white' : (isShiftWidgetOpen ? 'text-slate-900' : 'text-white')}`}>
+                            {t('dash.onShift') || 'المناوبون الآن'}
+                        </h4>
                     </div>
                     
-                    {isShiftWidgetOpen && (
-                        <div className="flex flex-col">
-                            {/* Filter Toggle */}
-                            <div className="flex p-2 bg-slate-50 border-b border-slate-100 gap-1">
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); setShiftFilterMode('present'); }} 
-                                    className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${shiftFilterMode === 'present' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
-                                >
-                                    <i className="fas fa-check-circle mr-1"></i> {t('dash.filterActive')}
-                                </button>
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); setShiftFilterMode('all'); }} 
-                                    className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${shiftFilterMode === 'all' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
-                                >
-                                    <i className="fas fa-list mr-1"></i> {t('dash.filterAll')}
-                                </button>
-                            </div>
+                    {isShiftWidgetOpen ? (
+                        <i className={`fas fa-chevron-down text-[10px] ${isDark ? 'text-white/50' : 'text-slate-400'}`}></i>
+                    ) : (
+                        <span className="ml-2 rtl:ml-0 rtl:mr-2 text-[10px] font-mono font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded-full">
+                            {onShiftNow.length}
+                        </span>
+                    )}
+                </div>
+                
+                {isShiftWidgetOpen && (
+                    <div className="flex flex-col">
+                        {/* Filter Toggle */}
+                        <div className={`flex p-1.5 border-b gap-1 ${isDark ? 'bg-slate-950/50 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setShiftFilterMode('present'); }} 
+                                className={`flex-1 py-1 text-[9px] font-bold rounded-lg transition-all cursor-pointer ${
+                                    shiftFilterMode === 'present' 
+                                        ? 'bg-emerald-500 text-slate-950 font-black shadow-xs' 
+                                        : (isDark ? 'text-white/60 hover:text-white hover:bg-white/5' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60')
+                                }`}
+                            >
+                                <i className="fas fa-check-circle mr-0.5"></i> {t('dash.filterActive') || 'الحاضرون الآن'}
+                            </button>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setShiftFilterMode('all'); }} 
+                                className={`flex-1 py-1 text-[9px] font-bold rounded-lg transition-all cursor-pointer ${
+                                    shiftFilterMode === 'all' 
+                                        ? 'bg-cyan-500 text-slate-950 font-black shadow-xs' 
+                                        : (isDark ? 'text-white/60 hover:text-white hover:bg-white/5' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60')
+                                }`}
+                            >
+                                <i className="fas fa-list mr-0.5"></i> {t('dash.filterAll') || 'كل المجدولين'}
+                            </button>
+                        </div>
 
-                            <div className="space-y-1 max-h-[300px] overflow-y-auto custom-scrollbar-dark p-2">
-                                {onShiftNow.length === 0 ? (
-                                    <div className="text-center py-4 text-xs text-slate-400">{t('dash.noActiveStaff')}</div>
-                                ) : (
-                                    onShiftNow.map((p, i) => (
-                                        <div key={i} className={`flex items-center justify-between p-2 rounded-xl transition-colors ${p.role === 'doctor' ? 'bg-cyan-50 border border-cyan-100' : 'hover:bg-slate-50'}`}>
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex items-center gap-1">
-                                                    <div className={`w-2 h-2 rounded-full mr-1 ${p.isPresent ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
-                                                    <span className={`font-bold text-xs truncate max-w-[100px] ${p.role === 'doctor' ? 'text-cyan-900' : 'text-slate-700'}`}>
-                                                        {p.name}
+                        <div className="space-y-1 max-h-[220px] overflow-y-auto custom-scrollbar-dark p-2">
+                            {onShiftNow.length === 0 ? (
+                                <div className={`text-center py-4 text-[11px] font-bold ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
+                                    {t('dash.noActiveStaff') || 'لا يوجد أطباء أو مناوبون حالياً'}
+                                </div>
+                            ) : (
+                                onShiftNow.map((p, i) => (
+                                    <div key={i} className={`flex items-center justify-between p-2 rounded-xl transition-colors border ${
+                                        p.role === 'doctor' 
+                                            ? (isDark ? 'bg-cyan-950/30 border-cyan-500/30' : 'bg-cyan-50 border-cyan-200') 
+                                            : (isDark ? 'bg-white/5 border-white/5 hover:bg-white/10' : 'bg-slate-50 border-slate-200 hover:bg-slate-100')
+                                    }`}>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-1">
+                                                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.isPresent ? 'bg-emerald-500 shadow-[0_0_6px_#10b981] animate-pulse' : (isDark ? 'bg-white/30' : 'bg-slate-300')}`}></div>
+                                                <span className={`font-bold text-[11px] truncate max-w-[110px] ${
+                                                    p.role === 'doctor' 
+                                                        ? (isDark ? 'text-cyan-200' : 'text-cyan-800') 
+                                                        : (isDark ? 'text-white' : 'text-slate-800')
+                                                }`}>
+                                                    {p.name}
+                                                </span>
+                                                {p.role === 'doctor' && <i className="fas fa-user-md text-[9px] text-cyan-500 shrink-0"></i>}
+                                                {p.isPP && (
+                                                    <span className="shrink-0 text-[7px] bg-yellow-400 text-black px-1 rounded font-black border border-yellow-600" title="Portable & Procedure">
+                                                        PP
                                                     </span>
-                                                    {p.role === 'doctor' && <i className="fas fa-user-md text-[10px] text-cyan-500 shrink-0"></i>}
-                                                    {p.isPP && (
-                                                        <span className="shrink-0 text-[9px] bg-yellow-400 text-black px-1 rounded font-black border border-yellow-600 shadow-sm" title="Portable & Procedure">
-                                                            PP
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <span className="text-[10px] text-slate-400 block truncate max-w-[150px] pl-3">{p.location}</span>
+                                                )}
                                             </div>
-                                            <div className="flex flex-col items-end gap-1 pl-2">
-                                                <div className="text-[9px] bg-slate-100 px-2 py-1 rounded text-slate-500 font-mono whitespace-nowrap">
-                                                    {p.time}
-                                                </div>
-                                                {/* VISIBLE STATUS INDICATOR */}
+                                            <span className={`text-[9px] block truncate max-w-[130px] pl-2 rtl:pl-0 rtl:pr-2 mt-0.5 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>{p.location}</span>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-0.5 shrink-0 pl-1.5 rtl:pl-0 rtl:pr-1.5">
+                                            <div className={`text-[8px] px-1.5 py-0.5 rounded font-mono whitespace-nowrap ${
+                                                isDark ? 'bg-black/40 text-slate-300' : 'bg-slate-200/70 text-slate-700'
+                                            }`}>
+                                                {p.time}
+                                            </div>
+                                            <div className="flex items-center gap-1">
                                                 {p.isPresent ? (
-                                                    <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
-                                                        <i className="fas fa-check-circle text-[8px]"></i> {t('status.in')}
+                                                    <span className="text-[7px] font-bold text-emerald-600 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-100 flex items-center gap-0.5">
+                                                        <i className="fas fa-check-circle text-[6px]"></i> {t('status.in') || 'حاضر'}
                                                     </span>
                                                 ) : (
-                                                    <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
-                                                        {t('status.notyet')}
+                                                    <span className={`text-[7px] font-bold px-1 py-0.2 rounded border ${
+                                                        isDark ? 'text-white/40 bg-white/5 border-white/10' : 'text-slate-400 bg-slate-50 border-slate-100'
+                                                    }`}>
+                                                        {t('status.notyet') || 'لم يحضر'}
                                                     </span>
                                                 )}
                                                 {p.phone && (
                                                     <a 
-                                                        href={`tel:${p.phone}`} 
-                                                        className="hidden" // Hiding phone to save space, relies on click if needed in future
+                                                        href={`tel:${p.phone}`}
+                                                        className="w-4 h-4 flex items-center justify-center rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/40 border border-emerald-500/30 transition-colors cursor-pointer"
+                                                        title={t('dash.call') || 'اتصال'}
                                                     >
+                                                        <i className="fas fa-phone text-[8px]"></i>
                                                     </a>
                                                 )}
                                             </div>
                                         </div>
-                                    ))
-                                )}
-                            </div>
+                                    </div>
+                                ))
+                            )}
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
+        </div>
 
         </div>
 </div>

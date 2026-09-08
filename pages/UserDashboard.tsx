@@ -461,50 +461,92 @@ const handleGenerateManualCode = () => {
       setOnShiftNow(activePeople);
   }, [currentSchedules, allUsers, allTodayLogs, shiftFilterMode]);
 
-  // --- ENHANCED HERO LOGIC ---
+  // --- ENHANCED HERO LOGIC (BILINGUAL) ---
   const getHeroInfo = () => {
     const s = shiftStatus;
+    const isRtl = dir === 'rtl';
     
     let mode = 'off';
     let title = s.message;
     let subtitle = s.sub;
-    let location = 'Hospital';
+    let location = isRtl ? 'المستشفى العام' : 'General Hospital';
 
     if (s.state === 'LOADING') {
         mode = 'off';
-        title = 'Loading...';
-        subtitle = 'Syncing Status';
+        title = isRtl ? 'جاري التحميل...' : 'Loading...';
+        subtitle = isRtl ? 'مزامنة الحالة والورديات' : 'Syncing Status';
     } else if (s.state === 'ON_LEAVE') {
         mode = 'leave';
-        location = 'System Update';
-    } else if (s.state === 'READY_IN') {
-        mode = s.message.includes('LATE') ? 'late' : 'upcoming';
-        location = 'Pending Check-in';
-    } else if (s.state === 'READY_OUT') {
-        mode = 'active';
-        location = 'On Duty';
-    } else if (s.state === 'LOCKED') {
-        mode = 'upcoming'; // Changed from 'active'
-        location = 'Too Early'; // Changed from 'On Duty'
-    } else if (s.state === 'COMPLETED') {
-        mode = 'complete';
-        location = 'Done';
-    } else if (s.state === 'MISSED_OUT') {
-        mode = 'late'; 
-        location = 'Action Required';
+        location = s.actionDetails?.reason || (isRtl ? 'إجازة معتمدة' : 'Approved Leave');
+        title = s.actionDetails?.title || (isRtl ? 'إجازة رسمية معتمدة' : 'Approved Official Leave');
+        subtitle = s.actionDetails?.subtitle || s.actionDetails?.reason || (isRtl ? 'إجازة معتمدة مسجلة بالنظام' : 'Official leave logged in the system');
     } else if (s.state === 'ABSENT') {
         mode = 'absent';
-        location = 'Action Required';
+        location = s.actionDetails?.reason || (isRtl ? 'سجل الغياب' : 'Absence Record');
+        title = s.actionDetails?.title || (isRtl ? 'غياب غير مسجل' : 'Unexcused Absence');
+        subtitle = s.actionDetails?.subtitle || s.actionDetails?.reason || (isRtl ? 'تم قيد حالة غياب في سجل الإجراءات اليومي' : 'Absence recorded in daily log');
+    } else if (s.state === 'PERMISSION') {
+        mode = 'permission';
+        location = s.actionDetails?.reason || (isRtl ? 'إذن مصرح به' : 'Authorized Permission');
+        title = s.actionDetails?.title || (isRtl ? 'تصريح إذن ساعي نشط' : 'Hourly Permission Active');
+        subtitle = s.actionDetails?.subtitle || (s.actionDetails?.timeFrom ? (isRtl ? `إذن من ${s.actionDetails.timeFrom} إلى ${s.actionDetails.timeTo}` : `Permission from ${s.actionDetails.timeFrom} to ${s.actionDetails.timeTo}`) : (isRtl ? 'تصريح إذن خروج ساعي موثق بالنظام' : 'Authorized hourly exit permission'));
+    } else if (s.state === 'MISSION') {
+        mode = 'mission';
+        location = s.actionDetails?.reason || (isRtl ? 'مأمورية خارج المستشفى' : 'External Mission');
+        title = s.actionDetails?.title || (isRtl ? 'مأمورية عمل رسمية' : 'Official Work Mission');
+        subtitle = s.actionDetails?.subtitle || s.actionDetails?.reason || (isRtl ? 'مكلف بمهمة عمل رسمية خارج المستشفى' : 'Assigned to official mission outside hospital');
+    } else if (s.state === 'SUSPENDED') {
+        mode = 'suspended';
+        location = s.actionDetails?.reason || (isRtl ? 'إيقاف إداري' : 'Administrative Suspension');
+        title = s.actionDetails?.title || (isRtl ? 'إيقاف مؤقت عن العمل' : 'Temporary Suspension');
+        subtitle = s.actionDetails?.subtitle || s.actionDetails?.reason || (isRtl ? 'قرار إداري بالإيقاف المؤقت عن العمل' : 'Temporary administrative suspension order');
+    } else if (s.state === 'READY_IN') {
+        const isLate = s.message && s.message.includes('LATE');
+        mode = isLate ? 'late' : 'upcoming';
+        location = isRtl ? 'نافذة تسجيل الحضور' : 'Check-in Window';
+        if (isRtl) {
+            title = isLate ? (s.shiftIdx ? `تسجيل حضور متأخر (وردية ${s.shiftIdx})` : 'تسجيل حضور متأخر') : (s.shiftIdx ? `بدء الوردية ${s.shiftIdx}` : 'تسجيل الحضور متاح');
+            subtitle = isLate ? 'تأخرت عن موعد بدء الوردية، سجل بصمتك الآن' : (s.shiftIdx ? `حان موعد تسجيل الحضور للوردية ${s.shiftIdx}` : 'اضغط على زر البصمة لتسجيل الدخول');
+        } else {
+            title = isLate ? (s.shiftIdx ? `Late Check-In (Shift ${s.shiftIdx})` : 'Late Check-In') : (s.shiftIdx ? `Start Shift ${s.shiftIdx}` : 'Ready to Check In');
+            subtitle = isLate ? 'Past shift start time, please punch in now' : (s.shiftIdx ? `Shift ${s.shiftIdx} check-in window is open` : 'Tap biometric button to check in');
+        }
+    } else if (s.state === 'READY_OUT') {
+        mode = 'active';
+        location = isRtl ? 'على رأس العمل' : 'On Duty';
+        title = isRtl ? (s.shiftIdx ? `إنهاء الوردية ${s.shiftIdx}` : 'تسجيل الانصراف متاح') : (s.shiftIdx ? `End Shift ${s.shiftIdx}` : 'Ready to Check Out');
+        subtitle = isRtl ? 'دوامك جاري وموثق داخل النظام، اضغط لتسجيل الانصراف' : 'Your shift is active in the system, tap to check out';
+    } else if (s.state === 'LOCKED') {
+        mode = 'upcoming';
+        location = isRtl ? 'قبل موعد الوردية' : 'Too Early';
+        const isDuty = s.message === 'ON DUTY';
+        title = isRtl ? (isDuty ? 'على رأس العمل (مغلق)' : 'قبل موعد الوردية') : (isDuty ? 'On Duty (Locked)' : 'Too Early');
+        subtitle = s.sub ? (isRtl && s.sub.includes('Unlock in') ? s.sub.replace('Unlock in', 'يفتح الانصراف خلال') : s.sub) : (isRtl ? 'في انتظار فتح نافذة البصمة' : 'Waiting for punch window');
+    } else if (s.state === 'COMPLETED') {
+        mode = 'complete';
+        location = isRtl ? 'تم إنجاز الدوام' : 'Duty Completed';
+        title = isRtl ? 'اكتملت الورديات بنجاح' : 'All Shifts Completed';
+        subtitle = isRtl ? 'تم تسجيل كافة بصمات الحضور والانصراف المقررة اليوم' : 'All scheduled punches recorded successfully today';
+    } else if (s.state === 'MISSED_OUT') {
+        mode = 'late'; 
+        location = isRtl ? 'مطلوب إجراء' : 'Action Required';
+        title = isRtl ? 'فائت بصمة انصراف' : 'Missed Check-Out';
+        subtitle = isRtl ? 'انتهت نافذة الانصراف دون تسجيل بصمة خروج' : 'Departure window closed without recorded checkout';
     } else if (s.state === 'WAITING') {
-        mode = 'upcoming'; // Changed from 'active'
-        location = 'Waiting'; // Changed from 'On Duty'
-        if (s.timeRemaining) subtitle = `Next shift in ${s.timeRemaining}`;
+        mode = 'upcoming';
+        location = isRtl ? 'استراحة' : 'Break Time';
+        title = isRtl ? 'فترة استراحة بين الورديات' : 'Break Between Shifts';
+        subtitle = s.timeRemaining ? (isRtl ? `الوردية القادمة تفتح خلال ${s.timeRemaining}` : `Next shift opens in ${s.timeRemaining}`) : (isRtl ? 'في انتظار بداية الوردية التالية' : 'Waiting for next shift window');
     } else if (s.state === 'UPCOMING') {
         mode = 'upcoming';
-        location = 'Scheduled';
+        location = isRtl ? 'مجدول اليوم' : 'Scheduled Today';
+        title = isRtl ? 'الوردية القادمة مجدولة' : 'Upcoming Shift Scheduled';
+        subtitle = s.sub || (isRtl ? 'في انتظار بداية وقت الوردية المقررة اليوم' : 'Waiting for scheduled shift to start');
     } else if (s.state === 'OFF') {
         mode = 'off';
-        location = 'Off Duty';
+        location = isRtl ? 'خارج أوقات العمل' : 'Off Duty';
+        title = isRtl ? 'خارج أوقات الدوام الرسمي' : 'Off Duty Today';
+        subtitle = isRtl ? 'لا توجد ورديات نشطة أو مجدولة لك اليوم' : 'No active or scheduled shifts for today';
     }
 
     return { mode, title, subtitle, location };
@@ -651,7 +693,7 @@ const handleGenerateManualCode = () => {
       button: 'bg-gradient-to-r from-purple-500 to-pink-500 text-white font-black shadow-[0_0_25px_rgba(168,85,247,0.4)] hover:scale-105',
       beacon: 'bg-purple-400',
       beaconShadow: 'shadow-[0_0_12px_#c084fc]',
-      beaconText: 'إجازة رسمية',
+      beaconText: t('dash.leaveBeacon'),
       actionText: t('user.tab.requests')
     },
     absent: {
@@ -667,8 +709,56 @@ const handleGenerateManualCode = () => {
       button: 'bg-gradient-to-r from-rose-600 to-red-600 text-white font-black shadow-[0_0_25px_rgba(244,63,94,0.4)] hover:scale-105',
       beacon: 'bg-rose-400',
       beaconShadow: 'shadow-[0_0_12px_#f43f5e]',
-      beaconText: 'تغيب غير مسجل',
+      beaconText: t('dash.absentBeacon'),
       actionText: t('att.punch.checkIn')
+    },
+    permission: {
+      gradient: 'from-amber-900/80 via-slate-800 to-slate-900',
+      blob1: 'bg-amber-500/25',
+      blob2: 'bg-yellow-500/20',
+      accentText: 'text-amber-400',
+      glassBorder: 'border-amber-500/40',
+      iconBg: 'bg-gradient-to-br from-amber-400 to-yellow-600 shadow-amber-500/30 text-slate-950',
+      badge: 'bg-amber-500/25 text-amber-200 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.3)]',
+      glow: 'from-amber-500/25 to-yellow-500/15',
+      subText: 'text-amber-200',
+      button: 'bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 text-slate-950 font-black shadow-[0_0_25px_rgba(245,158,11,0.4)] hover:scale-105',
+      beacon: 'bg-amber-400',
+      beaconShadow: 'shadow-[0_0_12px_#fbbf24]',
+      beaconText: t('dash.permissionBeacon'),
+      actionText: t('user.tab.requests')
+    },
+    mission: {
+      gradient: 'from-blue-900/80 via-slate-800 to-slate-900',
+      blob1: 'bg-blue-500/25',
+      blob2: 'bg-cyan-500/20',
+      accentText: 'text-blue-400',
+      glassBorder: 'border-blue-500/40',
+      iconBg: 'bg-gradient-to-br from-blue-400 to-cyan-600 shadow-blue-500/30 text-white',
+      badge: 'bg-blue-500/25 text-blue-200 border-blue-500/50 shadow-[0_0_20px_rgba(59,130,246,0.3)]',
+      glow: 'from-blue-500/25 to-cyan-500/15',
+      subText: 'text-blue-200',
+      button: 'bg-gradient-to-r from-blue-500 via-sky-500 to-cyan-500 text-white font-black shadow-[0_0_25px_rgba(59,130,246,0.4)] hover:scale-105',
+      beacon: 'bg-blue-400',
+      beaconShadow: 'shadow-[0_0_12px_#60a5fa]',
+      beaconText: t('dash.missionBeacon'),
+      actionText: t('att.punch.checkIn')
+    },
+    suspended: {
+      gradient: 'from-red-950 via-slate-850 to-slate-900',
+      blob1: 'bg-red-600/30',
+      blob2: 'bg-rose-700/20',
+      accentText: 'text-red-400',
+      glassBorder: 'border-red-500/50',
+      iconBg: 'bg-gradient-to-br from-red-600 to-rose-700 shadow-red-500/40 text-white',
+      badge: 'bg-red-500/25 text-red-200 border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.3)]',
+      glow: 'from-red-600/25 to-rose-600/15',
+      subText: 'text-red-200',
+      button: 'bg-gradient-to-r from-red-600 to-rose-700 text-white font-black shadow-[0_0_25px_rgba(239,68,68,0.4)] hover:scale-105',
+      beacon: 'bg-red-400',
+      beaconShadow: 'shadow-[0_0_12px_#f87171]',
+      beaconText: t('dash.suspendedBeacon'),
+      actionText: t('user.tab.requests')
     },
     upcoming: {
       gradient: 'from-cyan-900/80 via-slate-800 to-slate-900',
@@ -699,7 +789,7 @@ const handleGenerateManualCode = () => {
       button: 'bg-gradient-to-r from-teal-400 to-emerald-500 text-slate-950 font-black shadow-[0_0_25px_rgba(20,184,166,0.4)] hover:scale-105',
       beacon: 'bg-teal-400',
       beaconShadow: 'shadow-[0_0_12px_#2dd4bf]',
-      beaconText: 'اكتملت الورديات',
+      beaconText: t('dash.completeBeacon'),
       actionText: t('dash.punchNow')
     },
     off: {
@@ -1124,7 +1214,7 @@ const handleGenerateManualCode = () => {
                             {hasAttendanceOverride && (
                                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
                                     <i className="fas fa-shield-alt text-[9px]"></i>
-                                    <span>استثناء نشط</span>
+                                    <span>{t('dash.activeOverride')}</span>
                                 </span>
                             )}
                         </div>
@@ -1135,7 +1225,7 @@ const handleGenerateManualCode = () => {
                                 {heroInfo.title}
                             </h2>
                             <p className={`text-xs sm:text-sm font-medium mt-1 tracking-wide ${isDark ? currentStyle.subText : 'text-slate-600 font-semibold'}`}>
-                                {heroInfo.subtitle || (heroInfo.mode === 'active' ? 'دوامك جاري وموثق داخل النظام' : 'تأكد من تسجيل الحضور في موعد الوردية')}
+                                {heroInfo.subtitle || (heroInfo.mode === 'active' ? (dir === 'rtl' ? 'دوامك جاري وموثق داخل النظام' : 'Your shift is active in the system') : (dir === 'rtl' ? 'تأكد من تسجيل الحضور في موعد الوردية' : 'Make sure to check in at shift time'))}
                             </p>
                         </div>
 
@@ -1145,7 +1235,7 @@ const handleGenerateManualCode = () => {
                                 isDark ? 'bg-slate-900/60 border-slate-700/80 text-white/90' : 'bg-slate-100 border-slate-300 text-slate-800'
                             }`}>
                                 <i className={`fas fa-map-marker-alt text-xs ${isDark ? 'text-cyan-400' : 'text-blue-600'}`}></i>
-                                <span className="font-bold">{heroInfo.location || 'المستشفى العام'}</span>
+                                <span className="font-bold">{heroInfo.location || t('dash.generalHospital')}</span>
                             </div>
                             <div className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border backdrop-blur-md font-mono text-[11px] ${
                                 isDark ? 'bg-slate-900/60 border-slate-700/80 text-white/70' : 'bg-slate-100 border-slate-300 text-slate-600'
@@ -1172,7 +1262,7 @@ const handleGenerateManualCode = () => {
                                     {currentStyle.actionText}
                                 </span>
                                 <span className="text-[9px] opacity-80 uppercase tracking-widest font-mono">
-                                    Smart Biometric
+                                    {t('dash.smartBiometric')}
                                 </span>
                             </div>
                             <i className="fas fa-arrow-left rtl:rotate-0 rotate-180 text-xs mr-auto rtl:mr-auto rtl:ml-0 ltr:ml-auto ltr:mr-0 opacity-80"></i>
@@ -1342,36 +1432,36 @@ const handleGenerateManualCode = () => {
 
         {/* --- 4. FLOATING / SLIDING "WHO'S ON SHIFT" WIDGET --- */}
         {/* Placed opposite to the sidebar: in RTL (sidebar on right) -> place on LEFT; in LTR (sidebar on left) -> place on RIGHT */}
-        <div className={`fixed bottom-5 ${dir === 'rtl' ? 'left-4 sm:left-6' : 'right-4 sm:right-6'} z-[9990] transition-all duration-300 ${onShiftNow.length > 0 || isShiftWidgetOpen ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'}`}>
+        <div className={`fixed bottom-4 ${dir === 'rtl' ? 'left-3 sm:left-5' : 'right-3 sm:right-5'} z-[10010] transition-all duration-300 ${onShiftNow.length > 0 || isShiftWidgetOpen ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'}`}>
             <div className={`backdrop-blur-2xl transition-all duration-300 overflow-hidden ${
                 isDark 
-                    ? 'bg-slate-900/95 shadow-[0_20px_50px_rgba(0,0,0,0.85)] border border-white/15' 
-                    : 'bg-white/95 shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-slate-300'
-            } ${isShiftWidgetOpen ? 'rounded-3xl w-[calc(100vw-32px)] sm:w-84' : 'rounded-full hover:scale-105'}`}>
+                    ? 'bg-slate-900/95 shadow-[0_15px_35px_rgba(0,0,0,0.85)] border border-white/15' 
+                    : 'bg-white/95 shadow-[0_15px_35px_rgba(0,0,0,0.15)] border border-slate-300'
+            } ${isShiftWidgetOpen ? 'rounded-2xl w-[calc(100vw-24px)] sm:w-72 max-w-[280px]' : 'rounded-full hover:scale-105'}`}>
                 
                 {/* Header Bar / Capsule Toggle */}
                 <div 
                     onClick={() => setIsShiftWidgetOpen(!isShiftWidgetOpen)}
                     className={`cursor-pointer flex items-center justify-between select-none ${
                         isShiftWidgetOpen 
-                            ? (isDark ? 'p-3.5 bg-slate-950/80 border-b border-white/10' : 'p-3.5 bg-slate-100 border-b border-slate-200') 
-                            : (isDark ? 'px-4 py-2.5 bg-slate-900 border border-white/20 text-white shadow-xl' : 'px-4 py-2.5 bg-white border border-slate-300 text-slate-800 shadow-xl')
+                            ? (isDark ? 'p-2.5 bg-slate-950/80 border-b border-white/10' : 'p-2.5 bg-slate-100 border-b border-slate-200') 
+                            : (isDark ? 'px-3.5 py-2 bg-slate-900 border border-white/20 text-white shadow-xl' : 'px-3.5 py-2 bg-white border border-slate-300 text-slate-800 shadow-xl')
                     }`}
                 >
-                    <div className="flex items-center gap-2.5">
-                        <span className="relative flex h-2.5 w-2.5">
+                    <div className="flex items-center gap-2">
+                        <span className="relative flex h-2 w-2">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-400"></span>
-                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
                         </span>
-                        <h4 className={`font-black text-xs sm:text-sm uppercase tracking-wider ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        <h4 className={`font-black text-xs uppercase tracking-wider ${isDark ? 'text-white' : 'text-slate-900'}`}>
                             {t('dash.onShift')}
                         </h4>
                     </div>
                     
                     {isShiftWidgetOpen ? (
-                        <i className={`fas fa-chevron-down text-xs ${isDark ? 'text-white/50' : 'text-slate-400'}`}></i>
+                        <i className={`fas fa-chevron-down text-[10px] ${isDark ? 'text-white/50' : 'text-slate-400'}`}></i>
                     ) : (
-                        <span className="ml-2.5 rtl:ml-0 rtl:mr-2.5 text-xs font-mono font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                        <span className="ml-2 rtl:ml-0 rtl:mr-2 text-[10px] font-mono font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded-full">
                             {onShiftNow.length}
                         </span>
                     )}
@@ -1382,77 +1472,77 @@ const handleGenerateManualCode = () => {
                     <div className="flex flex-col">
                         
                         {/* Filter Toggle */}
-                        <div className={`flex p-2 border-b gap-1.5 ${isDark ? 'bg-slate-950/50 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                        <div className={`flex p-1.5 border-b gap-1 ${isDark ? 'bg-slate-950/50 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
                             <button 
                                 onClick={(e) => { e.stopPropagation(); setShiftFilterMode('present'); }} 
-                                className={`flex-1 py-1.5 text-[10px] font-bold rounded-xl transition-all cursor-pointer ${
+                                className={`flex-1 py-1 text-[9px] font-bold rounded-lg transition-all cursor-pointer ${
                                     shiftFilterMode === 'present' 
-                                        ? 'bg-emerald-500 text-slate-950 font-black shadow-md' 
+                                        ? 'bg-emerald-500 text-slate-950 font-black shadow-xs' 
                                         : (isDark ? 'text-white/60 hover:text-white hover:bg-white/5' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60')
                                 }`}
                             >
-                                <i className="fas fa-check-circle mr-1"></i> {t('dash.filterActive')}
+                                <i className="fas fa-check-circle mr-0.5"></i> {t('dash.filterActive')}
                             </button>
                             <button 
                                 onClick={(e) => { e.stopPropagation(); setShiftFilterMode('all'); }} 
-                                className={`flex-1 py-1.5 text-[10px] font-bold rounded-xl transition-all cursor-pointer ${
+                                className={`flex-1 py-1 text-[9px] font-bold rounded-lg transition-all cursor-pointer ${
                                     shiftFilterMode === 'all' 
-                                        ? 'bg-cyan-500 text-slate-950 font-black shadow-md' 
+                                        ? 'bg-cyan-500 text-slate-950 font-black shadow-xs' 
                                         : (isDark ? 'text-white/60 hover:text-white hover:bg-white/5' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60')
                                 }`}
                             >
-                                <i className="fas fa-list mr-1"></i> {t('dash.filterAll')}
+                                <i className="fas fa-list mr-0.5"></i> {t('dash.filterAll')}
                             </button>
                         </div>
 
                         {/* Staff List */}
-                        <div className="space-y-1.5 max-h-[300px] overflow-y-auto custom-scrollbar-dark p-2.5">
+                        <div className="space-y-1 max-h-[220px] overflow-y-auto custom-scrollbar-dark p-2">
                             {onShiftNow.length === 0 ? (
-                                <div className={`text-center py-6 text-xs ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
-                                    <i className="far fa-user-slash text-xl mb-2 block opacity-40"></i>
+                                <div className={`text-center py-4 text-[11px] ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
+                                    <i className="far fa-user-slash text-base mb-1 block opacity-40"></i>
                                     {t('dash.noActiveStaff')}
                                 </div>
                             ) : (
                                 onShiftNow.map((p, i) => (
-                                    <div key={i} className={`flex items-center justify-between p-2.5 rounded-2xl transition-colors border ${
+                                    <div key={i} className={`flex items-center justify-between p-2 rounded-xl transition-colors border ${
                                         p.role === 'doctor' 
                                             ? (isDark ? 'bg-cyan-950/30 border-cyan-500/30' : 'bg-cyan-50 border-cyan-200') 
                                             : (isDark ? 'bg-white/5 border-white/5 hover:bg-white/10' : 'bg-slate-50 border-slate-200 hover:bg-slate-100')
                                     }`}>
                                         <div className="min-w-0 flex-1">
-                                            <div className="flex items-center gap-1.5">
+                                            <div className="flex items-center gap-1">
                                                 {p.role !== 'doctor' && (
-                                                    <div className={`w-2 h-2 rounded-full shrink-0 ${p.isPresent ? 'bg-emerald-400 shadow-[0_0_6px_#34d399] animate-pulse' : (isDark ? 'bg-white/30' : 'bg-slate-300')}`}></div>
+                                                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.isPresent ? 'bg-emerald-400 shadow-[0_0_6px_#34d399] animate-pulse' : (isDark ? 'bg-white/30' : 'bg-slate-300')}`}></div>
                                                 )}
-                                                <span className={`font-bold text-xs truncate max-w-[130px] ${
+                                                <span className={`font-bold text-[11px] truncate max-w-[110px] ${
                                                     p.role === 'doctor' 
                                                         ? (isDark ? 'text-cyan-200' : 'text-cyan-800') 
                                                         : (isDark ? 'text-white' : 'text-slate-900')
                                                 }`}>
                                                     {p.name}
                                                 </span>
-                                                {p.role === 'doctor' && <i className="fas fa-user-md text-[10px] text-cyan-400 shrink-0"></i>}
+                                                {p.role === 'doctor' && <i className="fas fa-user-md text-[9px] text-cyan-400 shrink-0"></i>}
                                                 {p.isPP && (
-                                                    <span className="shrink-0 text-[8px] bg-amber-400 text-black px-1 rounded font-black border border-amber-600 shadow-sm" title="Portable & Procedure">
+                                                    <span className="shrink-0 text-[7px] bg-amber-400 text-black px-1 rounded font-black border border-amber-600" title="Portable & Procedure">
                                                         PP
                                                     </span>
                                                 )}
                                             </div>
-                                            <span className={`text-[10px] block truncate max-w-[150px] pl-3 rtl:pl-0 rtl:pr-3 mt-0.5 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>{p.location}</span>
+                                            <span className={`text-[9px] block truncate max-w-[130px] pl-2 rtl:pl-0 rtl:pr-2 mt-0.5 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>{p.location}</span>
                                         </div>
 
-                                        <div className="flex flex-col items-end gap-1 shrink-0">
-                                            <span className={`text-[9px] px-2 py-0.5 rounded-lg font-mono ${isDark ? 'bg-black/40 text-white/70' : 'bg-slate-200 text-slate-700'}`}>
+                                        <div className="flex flex-col items-end gap-0.5 shrink-0">
+                                            <span className={`text-[8px] px-1.5 py-0.5 rounded font-mono ${isDark ? 'bg-black/40 text-white/70' : 'bg-slate-200 text-slate-700'}`}>
                                                 {p.time}
                                             </span>
                                             <div className="flex items-center gap-1">
                                                 {p.role !== 'doctor' && (
                                                     p.isPresent ? (
-                                                        <span className="text-[8px] font-bold text-emerald-300 bg-emerald-500/20 px-1.5 py-0.5 rounded-md border border-emerald-500/30 flex items-center gap-1">
-                                                            <i className="fas fa-check text-[7px]"></i> {t('status.in')}
+                                                        <span className="text-[7px] font-bold text-emerald-300 bg-emerald-500/20 px-1 py-0.2 rounded border border-emerald-500/30 flex items-center gap-0.5">
+                                                            <i className="fas fa-check text-[6px]"></i> {t('status.in')}
                                                         </span>
                                                     ) : (
-                                                        <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-md border ${
+                                                        <span className={`text-[7px] font-bold px-1 py-0.2 rounded border ${
                                                             isDark ? 'text-white/40 bg-white/5 border-white/10' : 'text-slate-500 bg-slate-100 border-slate-300'
                                                         }`}>
                                                             {t('status.notyet')}
@@ -1462,10 +1552,10 @@ const handleGenerateManualCode = () => {
                                                 {p.phone && (
                                                     <a 
                                                         href={`tel:${p.phone}`}
-                                                        className="w-5 h-5 flex items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/40 border border-emerald-500/30 transition-colors cursor-pointer"
+                                                        className="w-4 h-4 flex items-center justify-center rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/40 border border-emerald-500/30 transition-colors cursor-pointer"
                                                         title={t('dash.call')}
                                                     >
-                                                        <i className="fas fa-phone text-[9px]"></i>
+                                                        <i className="fas fa-phone text-[8px]"></i>
                                                     </a>
                                                 )}
                                             </div>

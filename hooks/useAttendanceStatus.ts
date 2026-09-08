@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { AttendanceLog, Schedule, ActionLog } from '../types';
-import { calculateShiftStatus, toMins } from '../utils/attendanceLogic';
+import { AttendanceLog, Schedule, ActionLog, LeaveRequest } from '../types';
+import { calculateShiftStatus, toMins, ActiveActionRecord } from '../utils/attendanceLogic';
 
 const getLocalDateKey = (d: Date) => {
     const year = d.getFullYear();
@@ -64,9 +64,13 @@ export const useAttendanceStatus = (userId: string | undefined) => {
     const [todayLogs, setTodayLogs] = useState<AttendanceLog[]>([]);
     const [yesterdayLogs, setYesterdayLogs] = useState<AttendanceLog[]>([]);
     const [schedules, setSchedules] = useState<Schedule[]>([]);
-    const [todayAction, setTodayAction] = useState<string | null>(null);
+    const [todayAction, setTodayAction] = useState<ActiveActionRecord | string | null>(null);
     const [hasOverride, setHasOverride] = useState(false);
     const [logicTicker, setLogicTicker] = useState(0);
+
+    // Raw actions & leaves state
+    const [actionsList, setActionsList] = useState<any[]>([]);
+    const [leaveRequestsList, setLeaveRequestsList] = useState<LeaveRequest[]>([]);
 
     // Loading States
     const [loadingSchedules, setLoadingSchedules] = useState(true);
@@ -99,13 +103,8 @@ export const useAttendanceStatus = (userId: string | undefined) => {
         const yesterdayDate = new Date(todayDate);
         yesterdayDate.setDate(yesterdayDate.getDate() - 1);
         const yesterdayStr = getLocalDateKey(yesterdayDate);
-        
-        // Calculate a date 30 days ago for limiting queries
-        const thirtyDaysAgo = new Date(todayDate);
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        const thirtyDaysAgoStr = getLocalDateKey(thirtyDaysAgo);
 
-        // 1. Fetch Schedules (Limit to recent or future)
+        // 1. Fetch Schedules
         const qSchedules = query(
             collection(db, 'schedules'), 
             where('userId', '==', userId)
@@ -129,19 +128,42 @@ export const useAttendanceStatus = (userId: string | undefined) => {
             setLoadingLogsYesterday(false);
         });
 
-        // 4. Fetch Actions (Limit to recent)
-        const qActions = query(
-            collection(db, 'action_logs'), 
-            where('userId', '==', userId)
-        );
-        const unsubActions = onSnapshot(qActions, snap => {
-            const actions = snap.docs.map(d => ({ ...d.data(), id: d.id } as ActionLog));
-            const active = actions.find(a => a.fromDate <= todayStr && a.toDate >= todayStr);
-            setTodayAction(active ? active.type : null);
-            setLoadingActions(false);
-        });
+        // 4. Fetch Actions from 'actions' (by employeeId and by userId) & 'action_logs'
+        const qActionsEmp = query(collection(db, 'actions'), where('employeeId', '==', userId));
+        const qActionsUser = query(collection(db, 'actions'), where('userId', '==', userId));
+        const qActionLogs = query(collection(db, 'action_logs'), where('userId', '==', userId));
 
-        // 5. Fetch Overrides
+        let actionsMap: Record<string, any> = {};
+
+        const updateCombinedActions = () => {
+            const allItems = Object.values(actionsMap);
+            setActionsList(allItems);
+            setLoadingActions(false);
+        };
+
+        const unsubActEmp = onSnapshot(qActionsEmp, snap => {
+            snap.docs.forEach(d => { actionsMap[`emp_${d.id}`] = { ...d.data(), id: d.id }; });
+            updateCombinedActions();
+        }, () => setLoadingActions(false));
+
+        const unsubActUser = onSnapshot(qActionsUser, snap => {
+            snap.docs.forEach(d => { actionsMap[`usr_${d.id}`] = { ...d.data(), id: d.id }; });
+            updateCombinedActions();
+        }, () => setLoadingActions(false));
+
+        const unsubActLogs = onSnapshot(qActionLogs, snap => {
+            snap.docs.forEach(d => { actionsMap[`log_${d.id}`] = { ...d.data(), id: d.id }; });
+            updateCombinedActions();
+        }, () => setLoadingActions(false));
+
+        // 5. Fetch Approved Leave Requests
+        const qLeaves = query(collection(db, 'leaveRequests'), where('from', '==', userId));
+        const unsubLeaves = onSnapshot(qLeaves, snap => {
+            const leaves = snap.docs.map(d => ({ ...d.data(), id: d.id } as LeaveRequest));
+            setLeaveRequestsList(leaves);
+        }, () => {});
+
+        // 6. Fetch Overrides
         const qOverride = query(collection(db, 'attendance_overrides'), where('userId', '==', userId));
         const unsubOver = onSnapshot(qOverride, snap => {
             const validDoc = snap.docs.find(d => {
@@ -157,10 +179,67 @@ export const useAttendanceStatus = (userId: string | undefined) => {
             unsubSchedules();
             unsubLogsToday();
             unsubLogsYesterday();
-            unsubActions();
+            unsubActEmp();
+            unsubActUser();
+            unsubActLogs();
+            unsubLeaves();
             unsubOver();
         };
     }, [userId]);
+
+    // Active action calculation for today
+    useEffect(() => {
+        const todayStr = getLocalDateKey(currentTime);
+
+        // 1. Check approved leaves
+        const activeApprovedLeave = leaveRequestsList.find(l => {
+            const isApproved = (l.status as string) === 'approved' || (l.status as string) === 'approvedBySupervisor' || (l.status as string) === 'approvedByManager';
+            if (!isApproved) return false;
+            const start = l.startDate;
+            const end = l.endDate || l.startDate;
+            return start <= todayStr && end >= todayStr;
+        });
+
+        if (activeApprovedLeave) {
+            const leaveTypeStr = activeApprovedLeave.typeOfLeave || 'إجازة رسمية';
+            setTodayAction({
+                type: activeApprovedLeave.typeOfLeave ? `leave_${activeApprovedLeave.typeOfLeave.toLowerCase()}` : 'annual_leave',
+                title: `إجازة ${leaveTypeStr} معتمدة`,
+                subtitle: activeApprovedLeave.reason || `معتمدة من ${activeApprovedLeave.startDate} إلى ${activeApprovedLeave.endDate}`,
+                reason: activeApprovedLeave.reason,
+                startDate: activeApprovedLeave.startDate,
+                endDate: activeApprovedLeave.endDate
+            });
+            return;
+        }
+
+        // 2. Check actions / penalties / permissions / delays / absences in actions collection
+        const activeActionItem = actionsList.find(a => {
+            const from = a.fromDate || a.date || a.startDate;
+            const to = a.toDate || a.date || a.endDate || from;
+            if (!from) return false;
+            return from <= todayStr && to >= todayStr;
+        });
+
+        if (activeActionItem) {
+            const type = activeActionItem.type || 'action';
+            setTodayAction({
+                type,
+                title: activeActionItem.title || activeActionItem.name,
+                subtitle: activeActionItem.subtitle || activeActionItem.description,
+                description: activeActionItem.description || activeActionItem.notes,
+                reason: activeActionItem.reason || activeActionItem.description,
+                hours: activeActionItem.hours || activeActionItem.duration,
+                timeFrom: activeActionItem.timeFrom,
+                timeTo: activeActionItem.timeTo,
+                startDate: activeActionItem.fromDate || activeActionItem.date,
+                endDate: activeActionItem.toDate || activeActionItem.date
+            });
+            return;
+        }
+
+        setTodayAction(null);
+    }, [currentTime, actionsList, leaveRequestsList]);
 
     const getShiftsForDate = (targetDate: Date) => {
         // ... (existing implementation) ...

@@ -9,6 +9,7 @@ import Toast from '../../components/Toast';
 import Modal from '../../components/Modal';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDepartment } from '../../contexts/DepartmentContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import { PrintHeader, PrintFooter } from '../../components/PrintLayout';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
@@ -186,6 +187,7 @@ interface EmployeeAttendanceSummary {
 
 const SupervisorAttendance: React.FC = () => {
     const { t, dir } = useLanguage();
+    const { isDark } = useTheme();
     const navigate = useNavigate();
     const { selectedDepartmentId, departments, filterVisualUsers } = useDepartment();
     const [users, setUsers] = useState<User[]>([]);
@@ -1073,7 +1075,7 @@ const SupervisorAttendance: React.FC = () => {
     const totalOvertime = attendanceSummaries.reduce((acc, curr) => acc + curr.totalOvertimeHours, 0);
 
     return (
-        <div className="min-h-screen bg-slate-50 font-sans pb-12 print:bg-white print:pb-0" dir={dir}>
+        <div className={`min-h-screen font-sans pb-12 print:bg-white print:pb-0 transition-colors duration-300 ${isDark ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-800'}`} dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
             
             {/* OFFLINE BANNER */}
@@ -1093,52 +1095,52 @@ const SupervisorAttendance: React.FC = () => {
                 {/* Controls (Screen Only) */}
                 <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 print:hidden">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => navigate('/supervisor')} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-300 transition-colors">
+                        <button onClick={() => navigate('/supervisor')} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${isDark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>
                             <i className="fas fa-arrow-left rtl:rotate-180"></i>
                         </button>
-                        <h1 className="text-2xl font-black text-slate-800">{t('att.title')}</h1>
+                        <h1 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-800'}`}>{t('att.title')}</h1>
                     </div>
                     
-                    <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-xl shadow-sm border border-slate-200">
+                    <div className={`flex flex-wrap items-center gap-2 p-2 rounded-xl shadow-sm border transition-colors ${isDark ? 'bg-slate-800/90 border-slate-700' : 'bg-white border-slate-200'}`}>
                         {/* OFFLINE IMPORT BUTTON */}
                         {!isOfflineMode && (
-                            <label className="bg-amber-100 text-amber-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-amber-200 transition-all flex items-center gap-2 cursor-pointer border border-amber-200">
+                            <label className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border ${isDark ? 'bg-amber-950/40 text-amber-400 border-amber-800 hover:bg-amber-900/50' : 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200'}`}>
                                 <i className="fas fa-box-open"></i> Import Archive
                                 <input type="file" accept=".json" className="hidden" onChange={handleImportArchive} />
                             </label>
                         )}
 
-                        <input type="date" className="bg-slate-50 border-none rounded-lg px-3 py-2 text-xs font-bold text-slate-700" value={attFilterStart} onChange={e => setAttFilterStart(e.target.value)} />
+                        <input type="date" className={`border rounded-lg px-3 py-2 text-xs font-bold outline-none transition-colors ${isDark ? 'bg-slate-700 border-slate-600 text-slate-100' : 'bg-slate-50 border-transparent text-slate-700'}`} value={attFilterStart} onChange={e => setAttFilterStart(e.target.value)} />
                         <span className="text-slate-400">➜</span>
-                        <input type="date" className="bg-slate-50 border-none rounded-lg px-3 py-2 text-xs font-bold text-slate-700" value={attFilterEnd} onChange={e => setAttFilterEnd(e.target.value)} />
-                        <div className="h-6 w-px bg-slate-200 mx-1"></div>
-                        <select className="bg-slate-50 border-none rounded-lg px-3 py-2 text-xs font-bold text-slate-700 outline-none" value={attFilterUser} onChange={e => setAttFilterUser(e.target.value)}>
+                        <input type="date" className={`border rounded-lg px-3 py-2 text-xs font-bold outline-none transition-colors ${isDark ? 'bg-slate-700 border-slate-600 text-slate-100' : 'bg-slate-50 border-transparent text-slate-700'}`} value={attFilterEnd} onChange={e => setAttFilterEnd(e.target.value)} />
+                        <div className={`h-6 w-px mx-1 ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}></div>
+                        <select className={`border rounded-lg px-3 py-2 text-xs font-bold outline-none transition-colors ${isDark ? 'bg-slate-700 border-slate-600 text-slate-100' : 'bg-slate-50 border-transparent text-slate-700'}`} value={attFilterUser} onChange={e => setAttFilterUser(e.target.value)}>
                             <option value="">All Staff</option>
                             {users.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
                         </select>
                         
                         {/* Overtime Setting */}
-                        <div className="flex items-center gap-2 px-2 border-l border-slate-200">
-                            <span className="text-xs font-bold text-slate-500">OT starts after:</span>
+                        <div className={`flex items-center gap-2 px-2 border-l ${isDark ? 'border-slate-700' : 'border-slate-200'}`}>
+                            <span className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>OT starts after:</span>
                             <input
                                 type="number"
                                 min="1"
                                 max="24"
-                                className="w-12 bg-slate-50 border-none rounded-lg text-xs font-bold text-center text-slate-700 focus:ring-2 focus:ring-emerald-200"
+                                className={`w-12 border rounded-lg text-xs font-bold text-center outline-none focus:ring-2 focus:ring-emerald-400 ${isDark ? 'bg-slate-700 border-slate-600 text-slate-100' : 'bg-slate-50 border-transparent text-slate-700'}`}
                                 value={overtimeThreshold}
                                 onChange={(e) => setOvertimeThreshold(Number(e.target.value))}
                             />
-                            <span className="text-xs font-bold text-slate-500">Hrs</span>
+                            <span className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Hrs</span>
                         </div>
 
-                        <button onClick={calculateAttendance} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all flex items-center gap-2">
+                        <button onClick={calculateAttendance} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-sm">
                             {isCalculatingAtt ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-sync-alt"></i>} {isOfflineMode ? 'Recalculate' : 'Refresh'}
                         </button>
                         
                         {/* Show Suspicious Toggle */}
                         <button 
                             onClick={() => setShowOnlySuspicious(!showOnlySuspicious)} 
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${showOnlySuspicious ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-500'}`}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${showOnlySuspicious ? 'bg-red-500 text-white' : isDark ? 'bg-slate-700 text-slate-300 hover:bg-red-950 hover:text-red-400' : 'bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-500'}`}
                             title="Show only rows with fraud or risk"
                         >
                             <i className="fas fa-shield-alt"></i> Risk Filter
@@ -1153,7 +1155,7 @@ const SupervisorAttendance: React.FC = () => {
                         <button onClick={handlePayrollReport} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-purple-700 transition-all flex items-center gap-2">
                             <i className="fas fa-file-invoice-dollar"></i> Payroll Report
                         </button>
-                        <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-700 transition-all flex items-center gap-2">
+                        <button onClick={() => window.print()} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${isDark ? 'bg-slate-700 text-slate-100 hover:bg-slate-600' : 'bg-slate-800 text-white hover:bg-slate-700'}`}>
                             <i className="fas fa-print"></i> Print
                         </button>
                     </div>
@@ -1191,12 +1193,12 @@ const SupervisorAttendance: React.FC = () => {
                 </div>
 
                 {/* Detailed Table */}
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:shadow-none print:border-2 print:border-slate-800 print:rounded-none">
+                <div className={`rounded-3xl shadow-sm border overflow-hidden transition-colors ${isDark ? 'bg-slate-800/90 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'} print:shadow-none print:border-2 print:border-slate-800 print:rounded-none print:bg-white print:text-black`}>
                     
                             {/* Summary Table */}
                             <div className="overflow-x-auto">
                                 <table className="w-full text-xs text-left">
-                                    <thead className="bg-slate-100 text-slate-600 font-bold uppercase border-b border-slate-200 print:bg-white print:border-black print:text-black">
+                                    <thead className={`font-bold uppercase border-b transition-colors ${isDark ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-600 border-slate-200'} print:bg-white print:border-black print:text-black`}>
                                         <tr>
                                             <th className="p-3">Employee</th>
                                             <th className="p-3 text-center">Work Days</th>
@@ -1209,7 +1211,7 @@ const SupervisorAttendance: React.FC = () => {
                                             <th className="p-3 text-center print:hidden">Details</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-100 print:divide-slate-300">
+                                    <tbody className={`divide-y transition-colors ${isDark ? 'divide-slate-700/60' : 'divide-slate-100'} print:divide-slate-300`}>
                                         {attendanceSummaries.length === 0 ? (
                                             <tr><td colSpan={10} className="p-8 text-center text-slate-400">Click 'Refresh' to calculate.</td></tr>
                                         ) : (
@@ -1217,8 +1219,8 @@ const SupervisorAttendance: React.FC = () => {
                                             .filter(s => showOnlySuspicious ? s.riskCount > 0 : true)
                                             .map((summary, i) => (
                                                 <React.Fragment key={summary.userId}>
-                                                    <tr className="hover:bg-slate-50/50 print:break-inside-avoid">
-                                                        <td className="p-3 font-bold text-slate-800">{summary.userName}</td>
+                                                    <tr className={`transition-colors print:break-inside-avoid ${isDark ? 'hover:bg-slate-700/40 text-slate-200' : 'hover:bg-slate-50/50 text-slate-800'}`}>
+                                                        <td className={`p-3 font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>{summary.userName}</td>
                                                         <td className="p-3 text-center font-mono">{summary.totalWorkDays}</td>
                                                         <td className="p-3 text-center font-mono">{summary.fridaysWorked}</td>
                                                         <td className="p-3 text-center font-bold text-red-600">{summary.absentDays}</td>
@@ -1231,7 +1233,7 @@ const SupervisorAttendance: React.FC = () => {
                                                         <td className="p-3 text-center print:hidden">
                                                             <button 
                                                                 onClick={() => setExpandedUser(expandedUser === summary.userId ? null : summary.userId)}
-                                                                className="text-slate-400 hover:text-indigo-600"
+                                                                className={`transition-colors ${isDark ? 'text-slate-400 hover:text-indigo-400' : 'text-slate-400 hover:text-indigo-600'}`}
                                                             >
                                                                 <i className={`fas fa-chevron-${expandedUser === summary.userId ? 'up' : 'down'}`}></i>
                                                             </button>
@@ -1243,39 +1245,39 @@ const SupervisorAttendance: React.FC = () => {
                                                         const hasShift4 = summary.details.some(d => d.actualIn4 || d.actualOut4);
                                                         return (
                                                         <tr>
-                                                            <td colSpan={10} className="p-0 bg-slate-50/50">
-                                                                <div className="p-2 border-b border-slate-200 overflow-x-auto">
-                                                                    <table className="w-full text-[10px] min-w-max">
-                                                                        <thead className="bg-slate-200 text-slate-600 uppercase">
+                                                            <td colSpan={10} className={`p-0 ${isDark ? 'bg-slate-900/60' : 'bg-slate-50/50'}`}>
+                                                                <div className={`p-2 border-b overflow-x-auto ${isDark ? 'border-slate-700' : 'border-slate-200'}`}>
+                                                                    <table className={`w-full text-[10px] min-w-max ${isDark ? 'bg-slate-900 text-slate-200' : 'bg-white text-slate-800'}`}>
+                                                                        <thead className={`uppercase ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-600'}`}>
                                                                             <tr>
                                                                                 <th className="p-2">Date</th>
                                                                                 <th className="p-2">Day</th>
-                                                                                <th className="p-2 text-center text-blue-700 border-l border-slate-300">Shift 1 In</th>
-                                                                                <th className="p-2 text-center text-blue-700">Shift 1 Out</th>
-                                                                                <th className="p-2 text-center text-indigo-700 border-l border-slate-300">Shift 2 In</th>
-                                                                                <th className="p-2 text-center text-indigo-700">Shift 2 Out</th>
-                                                                                {hasShift3 && <th className="p-2 text-center text-purple-700 border-l border-slate-300">Shift 3 In</th>}
-                                                                                {hasShift3 && <th className="p-2 text-center text-purple-700">Shift 3 Out</th>}
-                                                                                {hasShift4 && <th className="p-2 text-center text-pink-700 border-l border-slate-300">Shift 4 In</th>}
-                                                                                {hasShift4 && <th className="p-2 text-center text-pink-700">Shift 4 Out</th>}
-                                                                                <th className="p-2 text-center border-l border-slate-300">Work (Hrs)</th>
-                                                                                <th className="p-2 text-center text-amber-700">Late (Hrs)</th>
-                                                                                <th className="p-2 text-center text-orange-700">Early (Hrs)</th>
-                                                                                <th className="p-2 text-center text-emerald-700">Overtime</th>
+                                                                                <th className={`p-2 text-center border-l ${isDark ? 'text-blue-400 border-slate-700' : 'text-blue-700 border-slate-300'}`}>Shift 1 In</th>
+                                                                                <th className={`p-2 text-center ${isDark ? 'text-blue-400' : 'text-blue-700'}`}>Shift 1 Out</th>
+                                                                                <th className={`p-2 text-center border-l ${isDark ? 'text-indigo-400 border-slate-700' : 'text-indigo-700 border-slate-300'}`}>Shift 2 In</th>
+                                                                                <th className={`p-2 text-center ${isDark ? 'text-indigo-400' : 'text-indigo-700'}`}>Shift 2 Out</th>
+                                                                                {hasShift3 && <th className={`p-2 text-center border-l ${isDark ? 'text-purple-400 border-slate-700' : 'text-purple-700 border-slate-300'}`}>Shift 3 In</th>}
+                                                                                {hasShift3 && <th className={`p-2 text-center ${isDark ? 'text-purple-400' : 'text-purple-700'}`}>Shift 3 Out</th>}
+                                                                                {hasShift4 && <th className={`p-2 text-center border-l ${isDark ? 'text-pink-400 border-slate-700' : 'text-pink-700 border-slate-300'}`}>Shift 4 In</th>}
+                                                                                {hasShift4 && <th className={`p-2 text-center ${isDark ? 'text-pink-400' : 'text-pink-700'}`}>Shift 4 Out</th>}
+                                                                                <th className={`p-2 text-center border-l ${isDark ? 'border-slate-700' : 'border-slate-300'}`}>Work (Hrs)</th>
+                                                                                <th className={`p-2 text-center ${isDark ? 'text-amber-400' : 'text-amber-700'}`}>Late (Hrs)</th>
+                                                                                <th className={`p-2 text-center ${isDark ? 'text-orange-400' : 'text-orange-700'}`}>Early (Hrs)</th>
+                                                                                <th className={`p-2 text-center ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}>Overtime</th>
                                                                                 <th className="p-2 text-center">Status</th>
                                                                                 <th className="p-2 text-center">Risk</th>
                                                                             </tr>
                                                                         </thead>
-                                                                        <tbody className="divide-y divide-slate-100 bg-white">
+                                                                        <tbody className={`divide-y ${isDark ? 'divide-slate-800 bg-slate-900/90' : 'divide-slate-100 bg-white'}`}>
                                                                             {summary.details
                                                                                 .filter(d => showOnlySuspicious ? d.riskFlags.length > 0 : true)
                                                                                 .map((detail, idx) => (
-                                                                                <tr key={idx} className={`${detail.riskFlags.length > 0 ? 'bg-red-50 border-l-4 border-red-500' : detail.absentValue > 0 ? 'bg-orange-50' : ''}`}>
+                                                                                <tr key={idx} className={`${detail.riskFlags.length > 0 ? (isDark ? 'bg-red-950/40 border-l-4 border-red-500' : 'bg-red-50 border-l-4 border-red-500') : detail.absentValue > 0 ? (isDark ? 'bg-orange-950/30' : 'bg-orange-50') : ''}`}>
                                                                                     <td className="p-2">{detail.date}</td>
                                                                                     <td className="p-2">{detail.day}</td>
                                                                                     
                                                                                     {/* Shift 1 */}
-                                                                                    <td className="p-2 text-center font-mono text-emerald-600 border-l border-slate-100 group relative">
+                                                                                    <td className={`p-2 text-center font-mono border-l group relative ${isDark ? 'text-emerald-400 border-slate-800' : 'text-emerald-600 border-slate-100'}`}>
                                                                                         {detail.actualIn1 || (
                                                                                             <button 
                                                                                                 onClick={() => openManualLog(summary.userId, summary.userName, detail.date, 'IN')}
@@ -1285,7 +1287,7 @@ const SupervisorAttendance: React.FC = () => {
                                                                                         )}
                                                                                         {detail.in1Lat && <button onClick={() => openMapModal(detail.in1Lat!, detail.in1Lng!, 'IN 1')} className="ml-1 text-blue-400"><i className="fas fa-map-marker-alt"></i></button>}
                                                                                     </td>
-                                                                                    <td className="p-2 text-center font-mono text-red-500 group relative">
+                                                                                    <td className={`p-2 text-center font-mono group relative ${isDark ? 'text-red-400' : 'text-red-500'}`}>
                                                                                         {detail.actualOut1 || (
                                                                                             <button 
                                                                                                 onClick={() => openManualLog(summary.userId, summary.userName, detail.date, 'OUT')}
@@ -1297,7 +1299,7 @@ const SupervisorAttendance: React.FC = () => {
                                                                                     </td>
 
                                                                                     {/* Shift 2 */}
-                                                                                    <td className="p-2 text-center font-mono text-emerald-600 border-l border-slate-100 group relative">
+                                                                                    <td className={`p-2 text-center font-mono border-l group relative ${isDark ? 'text-emerald-400 border-slate-800' : 'text-emerald-600 border-slate-100'}`}>
                                                                                         {detail.actualIn2 || (
                                                                                             <button 
                                                                                                 onClick={() => openManualLog(summary.userId, summary.userName, detail.date, 'IN')}
@@ -1307,7 +1309,7 @@ const SupervisorAttendance: React.FC = () => {
                                                                                         )}
                                                                                         {detail.in2Lat && <button onClick={() => openMapModal(detail.in2Lat!, detail.in2Lng!, 'IN 2')} className="ml-1 text-blue-400"><i className="fas fa-map-marker-alt"></i></button>}
                                                                                     </td>
-                                                                                    <td className="p-2 text-center font-mono text-red-500 group relative">
+                                                                                    <td className={`p-2 text-center font-mono group relative ${isDark ? 'text-red-400' : 'text-red-500'}`}>
                                                                                         {detail.actualOut2 || (
                                                                                             <button 
                                                                                                 onClick={() => openManualLog(summary.userId, summary.userName, detail.date, 'OUT')}
@@ -1321,11 +1323,11 @@ const SupervisorAttendance: React.FC = () => {
                                                                                     {/* Shift 3 */}
                                                                                     {hasShift3 && (
                                                                                         <>
-                                                                                            <td className="p-2 text-center font-mono text-emerald-600 border-l border-slate-100 group relative">
+                                                                                            <td className={`p-2 text-center font-mono border-l group relative ${isDark ? 'text-emerald-400 border-slate-800' : 'text-emerald-600 border-slate-100'}`}>
                                                                                                 {detail.actualIn3 || '-'}
                                                                                                 {detail.in3Lat && <button onClick={() => openMapModal(detail.in3Lat!, detail.in3Lng!, 'IN 3')} className="ml-1 text-blue-400"><i className="fas fa-map-marker-alt"></i></button>}
                                                                                             </td>
-                                                                                            <td className="p-2 text-center font-mono text-red-500 group relative">
+                                                                                            <td className={`p-2 text-center font-mono group relative ${isDark ? 'text-red-400' : 'text-red-500'}`}>
                                                                                                 {detail.actualOut3 || '-'}
                                                                                                 {detail.out3Lat && <button onClick={() => openMapModal(detail.out3Lat!, detail.out3Lng!, 'OUT 3')} className="ml-1 text-red-400"><i className="fas fa-map-marker-alt"></i></button>}
                                                                                             </td>
@@ -1335,30 +1337,30 @@ const SupervisorAttendance: React.FC = () => {
                                                                                     {/* Shift 4 */}
                                                                                     {hasShift4 && (
                                                                                         <>
-                                                                                            <td className="p-2 text-center font-mono text-emerald-600 border-l border-slate-100 group relative">
+                                                                                            <td className={`p-2 text-center font-mono border-l group relative ${isDark ? 'text-emerald-400 border-slate-800' : 'text-emerald-600 border-slate-100'}`}>
                                                                                                 {detail.actualIn4 || '-'}
                                                                                                 {detail.in4Lat && <button onClick={() => openMapModal(detail.in4Lat!, detail.in4Lng!, 'IN 4')} className="ml-1 text-blue-400"><i className="fas fa-map-marker-alt"></i></button>}
                                                                                             </td>
-                                                                                            <td className="p-2 text-center font-mono text-red-500 group relative">
+                                                                                            <td className={`p-2 text-center font-mono group relative ${isDark ? 'text-red-400' : 'text-red-500'}`}>
                                                                                                 {detail.actualOut4 || '-'}
                                                                                                 {detail.out4Lat && <button onClick={() => openMapModal(detail.out4Lat!, detail.out4Lng!, 'OUT 4')} className="ml-1 text-red-400"><i className="fas fa-map-marker-alt"></i></button>}
                                                                                             </td>
                                                                                         </>
                                                                                     )}
 
-                                                                                    <td className="p-2 text-center font-mono border-l border-slate-100">{detail.dailyWorkHours > 0 ? formatAsDotMinutes(detail.dailyWorkHours) : '-'}</td>
-                                                                                    <td className="p-2 text-center text-amber-600 font-bold">{detail.lateHours > 0 ? formatAsDotMinutes(detail.lateHours) : '-'}</td>
-                                                                                    <td className="p-2 text-center text-orange-600 font-bold">{detail.earlyHours > 0 ? formatAsDotMinutes(detail.earlyHours) : '-'}</td>
-                                                                                    <td className="p-2 text-center text-emerald-600 font-bold">{detail.overtimeHours > 0 ? formatAsDotMinutes(detail.overtimeHours) : '-'}</td>
+                                                                                    <td className={`p-2 text-center font-mono border-l ${isDark ? 'border-slate-800 text-slate-300' : 'border-slate-100'}`}>{detail.dailyWorkHours > 0 ? formatAsDotMinutes(detail.dailyWorkHours) : '-'}</td>
+                                                                                    <td className={`p-2 text-center font-bold ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>{detail.lateHours > 0 ? formatAsDotMinutes(detail.lateHours) : '-'}</td>
+                                                                                    <td className={`p-2 text-center font-bold ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>{detail.earlyHours > 0 ? formatAsDotMinutes(detail.earlyHours) : '-'}</td>
+                                                                                    <td className={`p-2 text-center font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{detail.overtimeHours > 0 ? formatAsDotMinutes(detail.overtimeHours) : '-'}</td>
                                                                                     
                                                                                     <td className="p-2 text-center">
-                                                                                        <span className={`px-2 py-0.5 rounded ${detail.status === 'Present' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{detail.status}</span>
+                                                                                        <span className={`px-2 py-0.5 rounded font-bold ${detail.status === 'Present' ? (isDark ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800' : 'bg-emerald-100 text-emerald-700') : (isDark ? 'bg-red-950/60 text-red-400 border border-red-800' : 'bg-red-100 text-red-700')}`}>{detail.status}</span>
                                                                                     </td>
                                                                                     <td className="p-2 text-center">
                                                                                         {detail.riskFlags.length > 0 ? (
                                                                                             <div className="flex flex-col gap-1">
                                                                                                 {detail.riskFlags.map((flag, fi) => (
-                                                                                                    <span key={fi} className="text-[9px] font-black bg-red-600 text-white px-1.5 py-0.5 rounded uppercase tracking-tighter">
+                                                                                                    <span key={fi} className="text-[9px] font-black bg-red-600 text-white px-1.5 py-0.5 rounded uppercase tracking-tighter shadow-sm">
                                                                                                         {flag === 'MOCK_LOCATION_DETECTED' ? <><i className="fas fa-satellite-dish mr-1"></i> FAKE GPS</> : 
                                                                                                          flag === 'MANUAL_TIME_CHANGE' ? <><i className="fas fa-clock mr-1"></i> TIME MANIP</> : 
                                                                                                          flag === 'OUT_OF_RANGE' ? <><i className="fas fa-map-marked-alt mr-1"></i> FAR DIST</> : flag}

@@ -9,6 +9,7 @@ import Modal from '../../components/Modal';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDepartment } from '../../contexts/DepartmentContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import { useFilteredUsers } from '../../hooks/useFilteredUsers';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
@@ -16,6 +17,7 @@ import { PrintStyleModal } from '../../components/PrintStyleModal';
 
 const SupervisorSwaps: React.FC = () => {
     const { t, dir } = useLanguage();
+    const { isDark } = useTheme();
     const navigate = useNavigate();
     const { selectedDepartmentId } = useDepartment();
     const { role: authRole, user: currentUser } = useAuth();
@@ -1048,224 +1050,226 @@ const SupervisorSwaps: React.FC = () => {
     };
 
     return (
-        <div className="max-w-5xl mx-auto px-4 py-8 animate-fade-in" dir={dir}>
-            {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
-            
-            <div className="flex items-center justify-between mb-8">
-                <div className="flex items-center gap-4">
-                    <button onClick={() => navigate('/supervisor')} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-300 transition-colors">
-                        <i className="fas fa-arrow-left rtl:rotate-180"></i>
-                    </button>
-                    <h1 className="text-2xl font-black text-slate-800">{t('sup.swapReqs')}</h1>
-                </div>
+        <div className={`min-h-screen py-8 px-4 transition-colors duration-300 ${isDark ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-800'}`} dir={dir}>
+            <div className="max-w-5xl mx-auto animate-fade-in">
+                {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
                 
-                <div className="flex items-center gap-4">
-                    <button 
-                        onClick={handleCleanOrphanedSwaps}
-                        disabled={isCleaning}
-                        className="bg-rose-50 text-rose-600 px-4 py-2 rounded-xl font-bold hover:bg-rose-100 transition-colors flex items-center gap-2 text-xs"
-                        title="Delete swap schedules that have no corresponding swap request"
-                    >
-                        <i className={`fas ${isCleaning ? 'fa-spinner fa-spin' : 'fa-broom'}`}></i> 
-                        {isCleaning ? 'Cleaning...' : 'Clean Orphaned Swaps'}
-                    </button>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => navigate('/supervisor')} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${isDark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>
+                            <i className="fas fa-arrow-left rtl:rotate-180"></i>
+                        </button>
+                        <h1 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-800'}`}>{t('sup.swapReqs')}</h1>
+                    </div>
+                    
+                    <div className="flex flex-wrap items-center gap-3">
+                        <button 
+                            onClick={handleCleanOrphanedSwaps}
+                            disabled={isCleaning}
+                            className={`px-4 py-2 rounded-xl font-bold transition-colors flex items-center gap-2 text-xs ${isDark ? 'bg-rose-950/40 text-rose-300 border border-rose-800 hover:bg-rose-900/50' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}
+                            title="Delete swap schedules that have no corresponding swap request"
+                        >
+                            <i className={`fas ${isCleaning ? 'fa-spinner fa-spin' : 'fa-broom'}`}></i> 
+                            {isCleaning ? 'Cleaning...' : 'Clean Orphaned Swaps'}
+                        </button>
 
-                    <div className="flex bg-slate-100 p-1 rounded-xl">
-                        <button 
-                            onClick={() => setActiveTab('pending')}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'pending' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}
-                        >
-                            Pending ({pendingRequests.length})
-                        </button>
-                        <button 
-                            onClick={() => setActiveTab('history')}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'history' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}
-                        >
-                            Active History
-                        </button>
+                        <div className={`flex p-1 rounded-xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'}`}>
+                            <button 
+                                onClick={() => setActiveTab('pending')}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'pending' ? (isDark ? 'bg-slate-700 text-indigo-400 shadow' : 'bg-white shadow text-indigo-600') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500')}`}
+                            >
+                                Pending ({pendingRequests.length})
+                            </button>
+                            <button 
+                                onClick={() => setActiveTab('history')}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'history' ? (isDark ? 'bg-slate-700 text-white shadow' : 'bg-white shadow text-slate-800') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500')}`}
+                            >
+                                Active History
+                            </button>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div className="grid gap-4">
-                {(activeTab === 'pending' ? pendingRequests : historyRequests)
-                    .filter(req => users.some(u => u.id === req.from || u.id === req.to))
-                    .length === 0 ? (
-                    <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-slate-200 text-slate-400">
-                        {activeTab === 'pending' ? 'No pending requests' : 'No active history'}
-                    </div>
-                ) : (
-                    (activeTab === 'pending' ? pendingRequests : historyRequests)
+                <div className="grid gap-4">
+                    {(activeTab === 'pending' ? pendingRequests : historyRequests)
                         .filter(req => users.some(u => u.id === req.from || u.id === req.to))
-                        .map(req => (
-                        <div key={req.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 group hover:border-indigo-200 transition-colors">
-                            <div className="flex items-center gap-4">
-                                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl shadow-sm ${req.status === 'approvedBySupervisor' ? 'bg-emerald-50 text-emerald-600' : 'bg-indigo-50 text-indigo-600'}`}>
-                                    <i className="fas fa-exchange-alt"></i>
-                                </div>
-                                <div>
-                                    <div className="flex items-center gap-2 font-bold text-slate-800 text-lg">
-                                        <span>{getUserName(req.from)}</span>
-                                        <i className="fas fa-arrow-right text-slate-300 text-xs"></i>
-                                        <span>{getUserName(req.to)}</span>
+                        .length === 0 ? (
+                        <div className={`text-center py-20 rounded-3xl border-2 border-dashed ${isDark ? 'bg-slate-800/40 border-slate-700 text-slate-400' : 'bg-white border-slate-200 text-slate-400'}`}>
+                            {activeTab === 'pending' ? 'No pending requests' : 'No active history'}
+                        </div>
+                    ) : (
+                        (activeTab === 'pending' ? pendingRequests : historyRequests)
+                            .filter(req => users.some(u => u.id === req.from || u.id === req.to))
+                            .map(req => (
+                            <div key={req.id} className={`p-6 rounded-2xl shadow-sm border flex flex-col md:flex-row justify-between items-center gap-4 transition-colors ${isDark ? 'bg-slate-800/90 border-slate-700 hover:border-indigo-500/50' : 'bg-white border-slate-200 hover:border-indigo-200'}`}>
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl shadow-sm ${req.status === 'approvedBySupervisor' ? (isDark ? 'bg-emerald-950/60 text-emerald-400' : 'bg-emerald-50 text-emerald-600') : (isDark ? 'bg-indigo-950/60 text-indigo-400' : 'bg-indigo-50 text-indigo-600')}`}>
+                                        <i className="fas fa-exchange-alt"></i>
                                     </div>
-                                    <p className="text-sm text-slate-500 mt-1 flex items-center gap-2">
-                                        <span className={`bg-slate-100 px-2 py-0.5 rounded font-bold ${req.type === 'month' ? 'text-indigo-600' : 'text-slate-600'}`}>
-                                            {req.type === 'month' ? `MONTH: ${req.startDate?.slice(0,7)}` : req.type === 'period' ? `${req.startDate} > ${req.endDate}` : req.startDate}
-                                        </span>
-                                        {req.details && <span className="italic text-slate-400">"{req.details}"</span>}
-                                        {(req as any).swapOption === 'exclude_fridays' && (
-                                            <span className="text-[10px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded font-bold">No Fridays</span>
-                                        )}
-                                    </p>
+                                    <div>
+                                        <div className={`flex items-center gap-2 font-bold text-lg ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                                            <span>{getUserName(req.from)}</span>
+                                            <i className="fas fa-arrow-right text-slate-400 text-xs"></i>
+                                            <span>{getUserName(req.to)}</span>
+                                        </div>
+                                        <p className={`text-sm mt-1 flex flex-wrap items-center gap-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                                            <span className={`px-2 py-0.5 rounded font-bold ${isDark ? 'bg-slate-700/80 text-indigo-300' : 'bg-slate-100 text-slate-600'} ${req.type === 'month' ? 'text-indigo-500' : ''}`}>
+                                                {req.type === 'month' ? `MONTH: ${req.startDate?.slice(0,7)}` : req.type === 'period' ? `${req.startDate} > ${req.endDate}` : req.startDate}
+                                            </span>
+                                            {req.details && <span className="italic text-slate-400">"{req.details}"</span>}
+                                            {(req as any).swapOption === 'exclude_fridays' && (
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${isDark ? 'bg-yellow-950/60 text-yellow-400 border border-yellow-800' : 'bg-yellow-100 text-yellow-800'}`}>No Fridays</span>
+                                            )}
+                                        </p>
+                                    </div>
                                 </div>
-                            </div>
-                            
-                            <div className="flex flex-col gap-2">
-                                {activeTab === 'pending' ? (
-                                    <>
-                                        <div className="flex gap-2">
-                                            <button onClick={() => initiateApproval(req)} className="bg-emerald-500 text-white px-5 py-2 rounded-xl font-bold hover:bg-emerald-600 shadow-md transition-all text-sm flex-1">
-                                                {t('sup.approve')}
+                                
+                                <div className="flex flex-col gap-2 w-full md:w-auto">
+                                    {activeTab === 'pending' ? (
+                                        <>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => initiateApproval(req)} className="bg-emerald-500 text-white px-5 py-2 rounded-xl font-bold hover:bg-emerald-600 shadow-md transition-all text-sm flex-1">
+                                                    {t('sup.approve')}
+                                                </button>
+                                                <button onClick={() => handleSwapAction(req, false)} className={`border px-5 py-2 rounded-xl font-bold transition-all text-sm flex-1 ${isDark ? 'bg-slate-800 border-red-800 text-red-400 hover:bg-red-950/50' : 'bg-white border-red-200 text-red-500 hover:bg-red-50'}`}>
+                                                    {t('sup.reject')}
+                                                </button>
+                                            </div>
+                                            <button onClick={() => {
+                                                setItemToPrint(req);
+                                                setIsPrintStyleModalOpen(true);
+                                            }} className={`px-5 py-2 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${isDark ? 'bg-slate-700 text-slate-200 hover:bg-slate-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                                                <i className="fas fa-print"></i> {t('print')}
                                             </button>
-                                            <button onClick={() => handleSwapAction(req, false)} className="bg-white border border-red-200 text-red-500 px-5 py-2 rounded-xl font-bold hover:bg-red-50 transition-all text-sm flex-1">
-                                                {t('sup.reject')}
+                                        </>
+                                    ) : (
+                                        // HISTORY ACTIONS: REVERT & EXCEPTION
+                                        <div className="flex flex-wrap gap-2">
+                                            <button onClick={() => {
+                                                setItemToPrint(req);
+                                                setIsPrintStyleModalOpen(true);
+                                            }} className={`px-4 py-2 rounded-xl font-bold transition-all text-xs flex items-center gap-2 shadow-sm ${isDark ? 'bg-slate-700 text-slate-200 hover:bg-slate-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                                                <i className="fas fa-print"></i> {t('print')}
+                                            </button>
+                                            {req.type === 'month' && (
+                                                <button 
+                                                    onClick={() => handleOpenException(req)}
+                                                    className={`px-4 py-2 rounded-xl font-bold border transition-all text-xs flex items-center gap-2 ${isDark ? 'bg-amber-950/40 text-amber-300 border-amber-800 hover:bg-amber-900/50' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'}`}
+                                                    title="تبديل يوم محدد داخل الشهر"
+                                                >
+                                                    <i className="fas fa-calendar-day"></i> استثناء يوم
+                                                </button>
+                                            )}
+                                            <button onClick={() => handleRevertSwap(req)} className={`border px-4 py-2 rounded-xl font-bold transition-all text-xs flex items-center gap-2 shadow-sm ${isDark ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-red-950/50 hover:text-red-400 hover:border-red-800' : 'bg-white border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200'}`}>
+                                                <i className="fas fa-undo"></i> إلغاء التبديل
                                             </button>
                                         </div>
-                                        <button onClick={() => {
-                                            setItemToPrint(req);
-                                            setIsPrintStyleModalOpen(true);
-                                        }} className="bg-slate-100 text-slate-600 px-5 py-2 rounded-xl font-bold hover:bg-slate-200 transition-all flex items-center justify-center gap-2">
-                                            <i className="fas fa-print"></i> {t('print')}
-                                        </button>
-                                    </>
-                                ) : (
-                                    // HISTORY ACTIONS: REVERT & EXCEPTION
-                                    <div className="flex gap-2">
-                                        <button onClick={() => {
-                                            setItemToPrint(req);
-                                            setIsPrintStyleModalOpen(true);
-                                        }} className="bg-slate-100 text-slate-600 px-4 py-2 rounded-xl font-bold hover:bg-slate-200 transition-all text-xs flex items-center gap-2 shadow-sm">
-                                            <i className="fas fa-print"></i> {t('print')}
-                                        </button>
-                                        {req.type === 'month' && (
-                                            <button 
-                                                onClick={() => handleOpenException(req)}
-                                                className="bg-amber-50 text-amber-700 px-4 py-2 rounded-xl font-bold hover:bg-amber-100 border border-amber-200 transition-all text-xs flex items-center gap-2"
-                                                title="تبديل يوم محدد داخل الشهر"
-                                            >
-                                                <i className="fas fa-calendar-day"></i> استثناء يوم
-                                            </button>
-                                        )}
-                                        <button onClick={() => handleRevertSwap(req)} className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl font-bold hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all text-xs flex items-center gap-2 shadow-sm">
-                                            <i className="fas fa-undo"></i> إلغاء التبديل
-                                        </button>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    ))
-                )}
-            </div>
-
-            {/* Modal for Month/Period Swap Options */}
-            <Modal isOpen={isOptionModalOpen} onClose={() => setIsOptionModalOpen(false)} title={selectedReq?.type === 'period' ? "خيارات تبديل الفترة" : "خيارات تبديل الشهر"}>
-                <div className="space-y-4 text-center">
-                    <p className="text-slate-600 mb-4 font-bold">
-                        {selectedReq?.type === 'period' 
-                            ? `موافقة على الفترة من ${selectedReq.startDate} إلى ${selectedReq.endDate}`
-                            : 'كيف تريد تنفيذ تبديل الشهر؟'}
-                    </p>
-                    
-                    <button 
-                        onClick={() => selectedReq && handleSwapAction(selectedReq, true, false)}
-                        className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-indigo-700 flex items-center justify-center gap-2"
-                    >
-                        <i className="fas fa-calendar-alt"></i>
-                        {selectedReq?.type === 'period' ? 'تبديل الفترة بالكامل' : 'تبديل الشهر بالكامل'}
-                        <span className="text-xs font-normal opacity-80">(يشمل الجمع)</span>
-                    </button>
-
-                    <button 
-                        onClick={() => selectedReq && handleSwapAction(selectedReq, true, true)}
-                        className="w-full bg-white border-2 border-indigo-100 text-indigo-700 py-4 rounded-xl font-bold hover:bg-indigo-50 flex items-center justify-center gap-2"
-                    >
-                        <i className="fas fa-calendar-minus"></i>
-                        {selectedReq?.type === 'period' ? 'تبديل الفترة' : 'تبديل الشهر'}
-                        <span className="text-red-500 font-black">(بدون الجمع)</span>
-                    </button>
-
-                    <button 
-                        onClick={() => setIsOptionModalOpen(false)}
-                        className="text-slate-400 text-sm mt-2 hover:text-slate-600"
-                    >
-                        إلغاء
-                    </button>
+                        ))
+                    )}
                 </div>
-            </Modal>
 
-            {/* Exception Day Modal */}
-            <Modal isOpen={isExceptionModalOpen} onClose={() => setIsExceptionModalOpen(false)} title="استثناء يوم (تبديل جزئي)">
-                <div className="space-y-4">
-                    <div className="bg-amber-50 p-3 rounded-xl text-amber-800 text-xs font-bold border border-amber-200">
-                        <i className="fas fa-info-circle mr-1"></i> سيتم إنشاء "تبديل يومي" للتاريخ المحدد، مما يغطي على التبديل الشهري لهذا اليوم فقط.
-                    </div>
-
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">اختر التاريخ</label>
-                        <input 
-                            type="date" 
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold"
-                            value={exceptionDate}
-                            onChange={e => setExceptionDate(e.target.value)}
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">الموظف البديل لهذا اليوم</label>
-                        <select 
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold"
-                            value={exceptionTargetUser}
-                            onChange={e => setExceptionTargetUser(e.target.value)}
+                {/* Modal for Month/Period Swap Options */}
+                <Modal isOpen={isOptionModalOpen} onClose={() => setIsOptionModalOpen(false)} title={selectedReq?.type === 'period' ? "خيارات تبديل الفترة" : "خيارات تبديل الشهر"}>
+                    <div className="space-y-4 text-center">
+                        <p className={`mb-4 font-bold ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                            {selectedReq?.type === 'period' 
+                                ? `موافقة على الفترة من ${selectedReq.startDate} إلى ${selectedReq.endDate}`
+                                : 'كيف تريد تنفيذ تبديل الشهر؟'}
+                        </p>
+                        
+                        <button 
+                            onClick={() => selectedReq && handleSwapAction(selectedReq, true, false)}
+                            className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-indigo-700 flex items-center justify-center gap-2 transition-all"
                         >
-                            <option value="">اختر موظف...</option>
-                            {/* Option 1: The original requester (Swap Back) */}
-                            {currentMonthReq && (
-                                <>
-                                    <option value={currentMonthReq.from}>
-                                        {getUserName(currentMonthReq.from)} (إرجاع للأصل)
-                                    </option>
-                                    <option value={currentMonthReq.to}>
-                                        {getUserName(currentMonthReq.to)} (تثبيت للبديل)
-                                    </option>
-                                </>
-                            )}
-                            <option disabled>-----------</option>
-                            {/* Option 2: Anyone else */}
-                            {users.map(u => (
-                                <option key={u.id} value={u.id}>{u.name || u.email}</option>
-                            ))}
-                        </select>
+                            <i className="fas fa-calendar-alt"></i>
+                            {selectedReq?.type === 'period' ? 'تبديل الفترة بالكامل' : 'تبديل الشهر بالكامل'}
+                            <span className="text-xs font-normal opacity-80">(يشمل الجمع)</span>
+                        </button>
+
+                        <button 
+                            onClick={() => selectedReq && handleSwapAction(selectedReq, true, true)}
+                            className={`w-full border-2 py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${isDark ? 'bg-slate-800 border-indigo-500 text-indigo-300 hover:bg-slate-700' : 'bg-white border-indigo-100 text-indigo-700 hover:bg-indigo-50'}`}
+                        >
+                            <i className="fas fa-calendar-minus"></i>
+                            {selectedReq?.type === 'period' ? 'تبديل الفترة' : 'تبديل الشهر'}
+                            <span className="text-red-500 font-black">(بدون الجمع)</span>
+                        </button>
+
+                        <button 
+                            onClick={() => setIsOptionModalOpen(false)}
+                            className={`text-sm mt-2 transition-colors ${isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
+                        >
+                            إلغاء
+                        </button>
                     </div>
+                </Modal>
 
-                    <button 
-                        onClick={confirmExceptionSwap}
-                        className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-black transition-all"
-                    >
-                        تأكيد التبديل الجزئي
-                    </button>
-                </div>
-            </Modal>
+                {/* Exception Day Modal */}
+                <Modal isOpen={isExceptionModalOpen} onClose={() => setIsExceptionModalOpen(false)} title="استثناء يوم (تبديل جزئي)">
+                    <div className="space-y-4">
+                        <div className={`p-3 rounded-xl text-xs font-bold border ${isDark ? 'bg-amber-950/40 text-amber-300 border-amber-800' : 'bg-amber-50 text-amber-800 border-amber-200'}`}>
+                            <i className="fas fa-info-circle mr-1"></i> سيتم إنشاء "تبديل يومي" للتاريخ المحدد، مما يغطي على التبديل الشهري لهذا اليوم فقط.
+                        </div>
 
-            <PrintStyleModal 
-                isOpen={isPrintStyleModalOpen} 
-                onClose={() => setIsPrintStyleModalOpen(false)} 
-                onConfirm={(style) => {
-                    if (itemToPrint) {
-                        handlePrintSwap(itemToPrint, style);
-                    }
-                }} 
-            />
+                        <div>
+                            <label className={`block text-xs font-bold mb-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>اختر التاريخ</label>
+                            <input 
+                                type="date" 
+                                className={`w-full border rounded-xl p-3 font-bold outline-none transition-colors ${isDark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
+                                value={exceptionDate}
+                                onChange={e => setExceptionDate(e.target.value)}
+                            />
+                        </div>
+
+                        <div>
+                            <label className={`block text-xs font-bold mb-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>الموظف البديل لهذا اليوم</label>
+                            <select 
+                                className={`w-full border rounded-xl p-3 font-bold outline-none transition-colors ${isDark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
+                                value={exceptionTargetUser}
+                                onChange={e => setExceptionTargetUser(e.target.value)}
+                            >
+                                <option value="">اختر موظف...</option>
+                                {/* Option 1: The original requester (Swap Back) */}
+                                {currentMonthReq && (
+                                    <>
+                                        <option value={currentMonthReq.from}>
+                                            {getUserName(currentMonthReq.from)} (إرجاع للأصل)
+                                        </option>
+                                        <option value={currentMonthReq.to}>
+                                            {getUserName(currentMonthReq.to)} (تثبيت للبديل)
+                                        </option>
+                                    </>
+                                )}
+                                <option disabled>-----------</option>
+                                {/* Option 2: Anyone else */}
+                                {users.map(u => (
+                                    <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <button 
+                            onClick={confirmExceptionSwap}
+                            className={`w-full py-3 rounded-xl font-bold shadow-lg transition-all ${isDark ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-900 hover:bg-black text-white'}`}
+                        >
+                            تأكيد التبديل الجزئي
+                        </button>
+                    </div>
+                </Modal>
+
+                <PrintStyleModal 
+                    isOpen={isPrintStyleModalOpen} 
+                    onClose={() => setIsPrintStyleModalOpen(false)} 
+                    onConfirm={(style) => {
+                        if (itemToPrint) {
+                            handlePrintSwap(itemToPrint, style);
+                        }
+                    }} 
+                />
+            </div>
         </div>
     );
 };

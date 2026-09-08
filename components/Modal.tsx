@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface ModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface ModalProps {
 
 const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, maxWidth = 'max-w-lg' }) => {
   const modalRef = useRef<HTMLDivElement>(null);
+  const { isDark } = useTheme();
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -28,14 +30,18 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, maxWidt
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm transition-opacity">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 backdrop-blur-sm transition-opacity">
       <div 
         ref={modalRef}
-        className={`bg-white rounded-xl shadow-2xl w-full ${maxWidth} mx-4 transform transition-all scale-100 overflow-hidden`}
+        className={`rounded-2xl shadow-2xl w-full ${maxWidth} mx-4 transform transition-all scale-100 overflow-hidden border ${
+          isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+        }`}
       >
-        <div className="flex justify-between items-center p-5 border-b border-gray-100 bg-gray-50">
-          <h3 className="text-xl font-bold text-gray-800">{title}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+        <div className={`flex justify-between items-center p-5 border-b transition-colors ${
+          isDark ? 'border-slate-800 bg-slate-800/80 text-white' : 'border-gray-100 bg-gray-50 text-gray-800'
+        }`}>
+          <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-800'}`}>{title}</h3>
+          <button onClick={onClose} className={`transition-colors ${isDark ? 'text-slate-400 hover:text-white' : 'text-gray-400 hover:text-gray-600'}`}>
             <i className="fas fa-times text-xl"></i>
           </button>
         </div>

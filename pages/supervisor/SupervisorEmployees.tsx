@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { auth, db as mainDb, firebaseConfig as mainConfig } from '../../firebase';
 import { db as certDb } from '../../firebaseData';
 // @ts-ignore
@@ -15,6 +15,7 @@ import Toast from '../../components/Toast';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useDepartment } from '../../contexts/DepartmentContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import { UserRole } from '../../types';
 // @ts-ignore
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -247,9 +248,26 @@ const styles = `
 .input-group-modern:focus-within .input-icon {
     color: #3b82f6;
 }
+.dark-theme .input-modern {
+    background: #1e293b;
+    border-color: #334155;
+    color: #f1f5f9;
+}
+.dark-theme .input-modern:focus {
+    background: #0f172a;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
+}
+.dark-theme .input-icon {
+    color: #64748b;
+}
+.dark-theme .input-group-modern:focus-within .input-icon {
+    color: #818cf8;
+}
 `;
 
 const SupervisorEmployees: React.FC = () => {
+    const { isDark } = useTheme();
     const { t, dir } = useLanguage();
     const navigate = useNavigate();
     const location = useLocation();
@@ -1012,11 +1030,13 @@ const SupervisorEmployees: React.FC = () => {
         
         // Supervisor/Manager Isolation: Can only see users in their department or users assigned to them
         if (authRole === UserRole.SUPERVISOR) {
-            if (u.departmentId !== selectedDepartmentId && u.supervisorId !== currentUser?.uid) {
+            const isSelf = u.id === currentUser?.uid || u.uid === currentUser?.uid;
+            if (!isSelf && u.departmentId !== selectedDepartmentId && u.supervisorId !== currentUser?.uid) {
                 return false;
             }
         } else if (authRole === UserRole.MANAGER) {
-            if (u.departmentId !== selectedDepartmentId && u.managerId !== currentUser?.uid) {
+            const isSelf = u.id === currentUser?.uid || u.uid === currentUser?.uid;
+            if (!isSelf && u.departmentId !== selectedDepartmentId && u.managerId !== currentUser?.uid) {
                 return false;
             }
         }
@@ -1166,13 +1186,20 @@ const SupervisorEmployees: React.FC = () => {
         return "bg-gradient-to-r from-emerald-500 to-teal-600 text-white dazzle-btn border-none"; // Valid
     };
     
+    const hiddenUsersCount = useMemo(() => users.filter(u => u.isHidden).length, [users]);
+
     // Toggle hidden employees visibility
     const toggleHiddenEmployees = () => {
         const nextVal = !hiddenEmployeesVisible;
-        if (nextVal && !confirm(dir === 'rtl' ? 'هل تريد إظهار الحسابات والموظفين المخفيين؟' : 'Show hidden profiles?')) return;
         setHiddenEmployeesVisible(nextVal);
         localStorage.setItem('show_hidden_employees', String(nextVal));
         window.dispatchEvent(new Event('storage'));
+        setToast({ 
+            msg: nextVal 
+                ? (dir === 'rtl' ? 'تم إظهار الحسابات والموظفين المخفيين' : 'Hidden profiles are now visible') 
+                : (dir === 'rtl' ? 'تم إخفاء الحسابات المحددة كمخفية' : 'Hidden profiles are now hidden'), 
+            type: 'info' 
+        });
     };
 
     const getAvatar = (user: User) => {
@@ -1233,36 +1260,56 @@ const SupervisorEmployees: React.FC = () => {
     });
 
     return (
-        <div className="max-w-7xl mx-auto px-4 py-8 animate-fade-in" dir={dir}>
+        <div className={`min-h-screen py-8 px-4 transition-colors duration-300 ${isDark ? 'dark-theme bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-800'}`} dir={dir}>
+            <div className="max-w-7xl mx-auto animate-fade-in">
             <style>{styles}</style>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
-            {loading && <div className="fixed inset-0 bg-white/50 z-50 flex items-center justify-center"><div className="w-10 h-10 border-4 border-blue-500 rounded-full animate-spin border-t-transparent"></div></div>}
+            {loading && <div className={`fixed inset-0 ${isDark ? 'bg-slate-900/70' : 'bg-white/50'} z-50 flex items-center justify-center`}><div className="w-10 h-10 border-4 border-blue-500 rounded-full animate-spin border-t-transparent"></div></div>}
             
             {/* Secret / Invisible Trigger in Bottom Center */}
             <div id="secretTrigger" onClick={toggleHiddenEmployees} className="fixed bottom-0 left-1/2 -translate-x-1/2 w-40 h-16 cursor-pointer z-[9900] opacity-0" title="Secret Trigger"></div>
 
             <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
                 <div className="flex items-center gap-4">
-                    <button onClick={() => navigate('/supervisor')} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-300 transition-colors">
+                    <button onClick={() => navigate('/supervisor')} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${isDark ? 'bg-slate-800 text-slate-200 hover:bg-slate-700' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>
                         <i className="fas fa-arrow-left rtl:rotate-180"></i>
                     </button>
                     <div>
-                        <h1 className="text-2xl font-black text-slate-800">{t('sup.tab.users')}</h1>
-                        <p className="text-xs text-slate-500 font-bold">Staff Records & Compliance</p>
+                        <h1 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-800'}`}>{t('sup.tab.users')}</h1>
+                        <p className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Staff Records & Compliance</p>
                     </div>
                 </div>
                 
-                <div className="flex gap-3 items-center">
-                    <div className="bg-slate-100 p-1 rounded-xl flex">
+                <div className="flex gap-3 items-center flex-wrap">
+                    {/* Toggle Hidden Employees Button */}
+                    <button 
+                        onClick={toggleHiddenEmployees}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
+                            hiddenEmployeesVisible 
+                            ? 'bg-amber-500 text-white border-amber-600 ring-2 ring-amber-300 shadow-amber-200' 
+                            : (isDark ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50')
+                        }`}
+                        title={hiddenEmployeesVisible ? 'إخفاء الحسابات المخفية' : 'إظهار الحسابات المخفية'}
+                    >
+                        <i className={`fas ${hiddenEmployeesVisible ? 'fa-eye' : 'fa-eye-slash'}`}></i>
+                        <span>{hiddenEmployeesVisible ? (dir === 'rtl' ? 'المخفيين معروضين' : 'Hidden Visible') : (dir === 'rtl' ? 'عرض المخفيين' : 'Show Hidden')}</span>
+                        {hiddenUsersCount > 0 && (
+                            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${hiddenEmployeesVisible ? 'bg-amber-700 text-white' : (isDark ? 'bg-slate-700 text-slate-200 border border-slate-600' : 'bg-slate-100 text-slate-700 border border-slate-300')}`}>
+                                {hiddenUsersCount}
+                            </span>
+                        )}
+                    </button>
+
+                    <div className={`${isDark ? 'bg-slate-800 border border-slate-700' : 'bg-slate-100'} p-1 rounded-xl flex`}>
                         <button 
                             onClick={() => setViewMode('table')} 
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${viewMode === 'table' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${viewMode === 'table' ? (isDark ? 'bg-slate-700 shadow text-blue-400' : 'bg-white shadow text-blue-600') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500')}`}
                         >
                             <i className="fas fa-table mr-2"></i> Table View
                         </button>
                         <button 
                             onClick={() => setViewMode('visual')} 
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${viewMode === 'visual' ? 'bg-white shadow text-purple-600' : 'text-slate-500'}`}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${viewMode === 'visual' ? (isDark ? 'bg-slate-700 shadow text-purple-400' : 'bg-white shadow text-purple-600') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500')}`}
                         >
                             <i className="fas fa-project-diagram mr-2"></i> Visual View
                         </button>
@@ -1282,19 +1329,19 @@ const SupervisorEmployees: React.FC = () => {
                     
                     <div className="lg:col-span-1 space-y-4 sticky top-4">
                         {/* Add User Accordion */}
-                        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className={`${isDark ? 'bg-slate-800/90 border-slate-700' : 'bg-white border-slate-200'} rounded-3xl shadow-sm border overflow-hidden`}>
                             <button 
                                 onClick={() => setIsAddFormOpen(!isAddFormOpen)}
-                                className="w-full flex items-center justify-between p-5 hover:bg-slate-50 transition-colors"
+                                className={`w-full flex items-center justify-between p-5 ${isDark ? 'hover:bg-slate-700/50' : 'hover:bg-slate-50'} transition-colors`}
                             >
-                                <div className="flex items-center gap-3 font-bold text-slate-800">
+                                <div className={`flex items-center gap-3 font-bold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
                                     <i className="fas fa-user-plus text-blue-500"></i>
                                     {t('sup.user.add')}
                                 </div>
                                 <i className={`fas fa-chevron-${isAddFormOpen ? 'up' : 'down'} text-slate-400 text-xs`}></i>
                             </button>
                             {isAddFormOpen && (
-                                <div className="p-6 border-t border-slate-50 space-y-5 animate-in fade-in duration-300 bg-slate-50/50">
+                                <div className={`p-6 border-t ${isDark ? 'border-slate-700 bg-slate-800/60' : 'border-slate-50 bg-slate-50/50'} space-y-5 animate-in fade-in duration-300`}>
                                     
                                     {/* Personal Info */}
                                     <div className="space-y-3">
@@ -1384,23 +1431,23 @@ const SupervisorEmployees: React.FC = () => {
                                         </div>
                                     </div>
                                     
-                                    <label className="flex items-center gap-3 p-3 bg-indigo-50/80 border border-indigo-200 rounded-xl cursor-pointer hover:bg-indigo-100/70 transition-colors shadow-xs mt-3">
-                                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${newUserIndividual ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-indigo-300 bg-white'}`}>
+                                    <label className={`flex items-center gap-3 p-3 ${isDark ? 'bg-indigo-950/40 border-indigo-800 hover:bg-indigo-950/60' : 'bg-indigo-50/80 border-indigo-200 hover:bg-indigo-100/70'} border rounded-xl cursor-pointer transition-colors shadow-xs mt-3`}>
+                                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${newUserIndividual ? 'bg-indigo-600 border-indigo-600 text-white' : (isDark ? 'border-indigo-700 bg-slate-800' : 'border-indigo-300 bg-white')}`}>
                                             {newUserIndividual && <i className="fas fa-check text-xs"></i>}
                                         </div>
                                         <input type="checkbox" checked={newUserIndividual} onChange={e => setNewUserIndividual(e.target.checked)} className="hidden" />
                                         <div>
-                                            <span className="text-xs text-indigo-950 font-bold block">{dir === 'rtl' ? 'حساب فردي / مستثنى من إجمالي العدد وجدول التدوير' : 'Individual Account (Excluded from Headcount & Rotation)'}</span>
-                                            <span className="text-[10px] text-indigo-700 block">{dir === 'rtl' ? 'يُستخدم للحسابات الخاصة مثل حاسبة القسطرة أو الأدوات المستقلة' : 'Used for specialized accounts like Cath Lab calculator or standalone tools'}</span>
+                                            <span className={`text-xs font-bold block ${isDark ? 'text-indigo-300' : 'text-indigo-950'}`}>{dir === 'rtl' ? 'حساب فردي / مستثنى من إجمالي العدد وجدول التدوير' : 'Individual Account (Excluded from Headcount & Rotation)'}</span>
+                                            <span className={`text-[10px] block ${isDark ? 'text-indigo-400' : 'text-indigo-700'}`}>{dir === 'rtl' ? 'يُستخدم للحسابات الخاصة مثل حاسبة القسطرة أو الأدوات المستقلة' : 'Used for specialized accounts like Cath Lab calculator or standalone tools'}</span>
                                         </div>
                                     </label>
 
-                                    <label className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors shadow-sm mt-3">
-                                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${newUserHidden ? 'bg-blue-500 border-blue-500 text-white' : 'border-slate-300 bg-slate-100'}`}>
+                                    <label className={`flex items-center gap-3 p-3 ${isDark ? 'bg-slate-700/50 border-slate-600 hover:bg-slate-700' : 'bg-white border-slate-200 hover:bg-slate-50'} border rounded-xl cursor-pointer transition-colors shadow-sm mt-3`}>
+                                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${newUserHidden ? 'bg-blue-500 border-blue-500 text-white' : (isDark ? 'border-slate-600 bg-slate-800' : 'border-slate-300 bg-slate-100')}`}>
                                             {newUserHidden && <i className="fas fa-check text-xs"></i>}
                                         </div>
                                         <input type="checkbox" checked={newUserHidden} onChange={e => setNewUserHidden(e.target.checked)} className="hidden" />
-                                        <span className="text-xs text-slate-600 font-bold">Hide from public lists (Secret Mode)</span>
+                                        <span className={`text-xs font-bold ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>Hide from public lists (Secret Mode)</span>
                                     </label>
 
                                     <button 
@@ -1468,12 +1515,12 @@ const SupervisorEmployees: React.FC = () => {
 
                     {/* User List */}
                     <div className="lg:col-span-2 space-y-4">
-                        <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden">
-                            <div className="p-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-4">
-                                <div className="flex items-center gap-2 flex-1">
+                        <div className={`${isDark ? 'bg-slate-800/90 border-slate-700' : 'bg-white border-gray-200'} rounded-3xl shadow-sm border overflow-hidden`}>
+                            <div className={`p-4 border-b ${isDark ? 'border-slate-700 bg-slate-800' : 'border-gray-100 bg-gray-50'} flex items-center justify-between gap-4 flex-wrap`}>
+                                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
                                     <i className="fas fa-search text-gray-400"></i>
                                     <input 
-                                        className="bg-transparent outline-none text-sm w-full font-bold text-gray-600"
+                                        className={`bg-transparent outline-none text-sm w-full font-bold ${isDark ? 'text-slate-100 placeholder-slate-400' : 'text-gray-600 placeholder-gray-400'}`}
                                         placeholder="Search Users..."
                                         value={searchQuery}
                                         onChange={e => setSearchQuery(e.target.value)}
@@ -1483,13 +1530,13 @@ const SupervisorEmployees: React.FC = () => {
                                     <div className="flex items-center gap-2">
                                         <i className="fas fa-building text-gray-400"></i>
                                         <select 
-                                            className="bg-transparent outline-none text-sm font-bold text-gray-600 cursor-pointer"
+                                            className={`bg-transparent outline-none text-sm font-bold ${isDark ? 'text-slate-200' : 'text-gray-600'} cursor-pointer`}
                                             value={selectedDepartmentFilter}
                                             onChange={e => setSelectedDepartmentFilter(e.target.value)}
                                         >
-                                            <option value="all">All Departments</option>
+                                            <option value="all" className={isDark ? 'bg-slate-800 text-white' : ''}>All Departments</option>
                                             {departments.map(dept => (
-                                                <option key={dept.id} value={dept.id}>{dept.name}</option>
+                                                <option key={dept.id} value={dept.id} className={isDark ? 'bg-slate-800 text-white' : ''}>{dept.name}</option>
                                             ))}
                                         </select>
                                     </div>
@@ -1497,7 +1544,7 @@ const SupervisorEmployees: React.FC = () => {
                                 <div className="flex items-center gap-2">
                                     <i className="fas fa-sort text-gray-400"></i>
                                     <select 
-                                        className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-bold text-gray-600 outline-none focus:ring-2 focus:ring-blue-500/20"
+                                        className={`${isDark ? 'bg-slate-700 border-slate-600 text-slate-200' : 'bg-white border-gray-200 text-gray-600'} border rounded-lg px-3 py-1.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20`}
                                         value={sortBy}
                                         onChange={e => setSortBy(e.target.value as any)}
                                     >
@@ -1509,7 +1556,7 @@ const SupervisorEmployees: React.FC = () => {
                             </div>
                             <div className="overflow-x-auto">
                                 <table className={`w-full ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
-                                    <thead className="bg-gray-50 text-gray-500 font-bold text-xs uppercase border-b border-gray-100">
+                                    <thead className={`${isDark ? 'bg-slate-800/80 text-slate-400 border-slate-700' : 'bg-gray-50 text-gray-500 border-gray-100'} font-bold text-xs uppercase border-b`}>
                                         <tr>
                                             <th className="p-5">{t('role.user')}</th>
                                             <th className="p-5">{t('sup.user.role')}</th>
@@ -1518,18 +1565,18 @@ const SupervisorEmployees: React.FC = () => {
                                             <th className="p-5 text-center">{t('actions')}</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-gray-50 text-sm">
+                                    <tbody className={`${isDark ? 'divide-slate-700/60' : 'divide-gray-50'} divide-y text-sm`}>
                                         {filteredUsers.map(user => (
-                                            <tr key={user.id} className="hover:bg-slate-50 transition-colors group">
+                                            <tr key={user.id} className={`${isDark ? 'hover:bg-slate-700/40' : 'hover:bg-slate-50'} transition-colors group`}>
                                                 <td className="p-4 flex items-center gap-3">
-                                                    <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-xs">
+                                                    <div className={`w-8 h-8 rounded-full ${isDark ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-600'} flex items-center justify-center font-bold text-xs`}>
                                                         {user.name ? user.name.charAt(0) : '?'}
                                                     </div>
                                                     <div>
-                                                        <h4 className="font-bold text-slate-800">{user.name}</h4>
-                                                        <p className="text-sm text-slate-400">{user.email}</p>
+                                                        <h4 className={`font-bold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>{user.name}</h4>
+                                                        <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>{user.email}</p>
                                                         {user.departmentId && (
-                                                            <p className="text-xs text-indigo-500 font-medium mt-0.5">
+                                                            <p className="text-xs text-indigo-400 font-medium mt-0.5">
                                                                 <i className="fas fa-building mr-1"></i>
                                                                 {departments.find(d => d.id === user.departmentId)?.name || 'Unknown Dept'}
                                                             </p>
@@ -1545,10 +1592,15 @@ const SupervisorEmployees: React.FC = () => {
                                                             user.role === 'custody_clerk' ? 'bg-teal-100 text-teal-800 border border-teal-200' :
                                                             user.role === 'doctor' ? 'bg-rose-100 text-rose-700' :
                                                             user.role === 'cath_lab' ? 'bg-amber-100 text-amber-800' :
-                                                            'bg-slate-100 text-slate-700'
+                                                            (isDark ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-700')
                                                         }`}>
                                                             {user.role === 'custody_clerk' ? 'توزيع العهد' : user.role}
                                                         </span>
+                                                        {user.isHidden && (
+                                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-0.5" title="هذا الموظف مخفي من القوائم العامة">
+                                                                <i className="fas fa-eye-slash text-[8px]"></i> مخفي
+                                                            </span>
+                                                        )}
                                                         {(user.isIndividualAccount || user.excludeFromCount || user.role === 'cath_lab') && (
                                                             <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-800 border border-amber-300 flex items-center gap-0.5" title="حساب فردي / مستثنى من العدد والتدوير">
                                                                 <i className="fas fa-calculator text-[8px]"></i> فردي
@@ -1557,13 +1609,13 @@ const SupervisorEmployees: React.FC = () => {
                                                     </div>
                                                 </td>
                                                 <td className="p-4">
-                                                    <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-blue-50 text-blue-600 uppercase border border-blue-100">
+                                                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase border ${isDark ? 'bg-blue-950/50 text-blue-300 border-blue-800' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
                                                         {JOB_CATEGORIES.find(c => c.id === user.jobCategory)?.title || user.jobCategory || 'Technician'}
                                                     </span>
                                                 </td>
                                                 <td className="p-4">
                                                     {user.biometricId ? (
-                                                        <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-100 w-fit">
+                                                        <div className={`flex items-center gap-2 ${isDark ? 'text-emerald-400 bg-emerald-950/40 border-emerald-800' : 'text-emerald-600 bg-emerald-50 border-emerald-100'} px-2 py-1 rounded border w-fit`}>
                                                             <i className="fas fa-link text-xs"></i> 
                                                             <span className="text-[10px] font-bold">LINKED</span>
                                                         </div>
@@ -1680,20 +1732,20 @@ const SupervisorEmployees: React.FC = () => {
                 <div className="space-y-4 max-h-[80vh] overflow-y-auto p-1">
                     
                     {/* Basic Info Section */}
-                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+                    <div className={`${isDark ? 'bg-slate-800/80 border-slate-700' : 'bg-slate-50 border-slate-200'} p-4 rounded-xl border space-y-4`}>
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="text-xs font-bold text-slate-500 block mb-1">الاسم الكامل</label>
+                                <label className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'} block mb-1`}>الاسم الكامل</label>
                                 <input 
-                                    className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-200 outline-none" 
+                                    className={`w-full ${isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-800'} border rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none`} 
                                     value={editForm.name || ''} 
                                     onChange={e => setEditForm({...editForm, name: e.target.value})} 
                                 />
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-slate-500 block mb-1">الصلاحية (Role)</label>
+                                <label className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'} block mb-1`}>الصلاحية (Role)</label>
                                 <select 
-                                    className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-200 outline-none" 
+                                    className={`w-full ${isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-800'} border rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none`} 
                                     value={editForm.role || 'user'} 
                                     onChange={e => setEditForm({...editForm, role: e.target.value})}
                                     disabled={authRole?.toLowerCase() !== UserRole.ADMIN.toLowerCase() && editForm.role?.toLowerCase() === UserRole.ADMIN.toLowerCase()}
@@ -1708,9 +1760,9 @@ const SupervisorEmployees: React.FC = () => {
                                 </select>
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-slate-500 block mb-1">القسم (Department)</label>
+                                <label className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'} block mb-1`}>القسم (Department)</label>
                                 <select 
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
+                                    className={`w-full ${isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'} border rounded-xl p-3 text-sm font-bold`} 
                                     value={editForm.departmentId || ''} 
                                     onChange={e => setEditForm({...editForm, departmentId: e.target.value})}
                                 >
@@ -1720,9 +1772,9 @@ const SupervisorEmployees: React.FC = () => {
                             </div>
                             {editForm.role !== 'supervisor' && editForm.role !== 'manager' && editForm.role !== 'admin' && (
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 block mb-1">المشرف (Supervisor)</label>
+                                    <label className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'} block mb-1`}>المشرف (Supervisor)</label>
                                     <select 
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
+                                        className={`w-full ${isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'} border rounded-xl p-3 text-sm font-bold`} 
                                         value={editForm.supervisorId || ''} 
                                         onChange={e => setEditForm({...editForm, supervisorId: e.target.value})}
                                     >
@@ -1733,9 +1785,9 @@ const SupervisorEmployees: React.FC = () => {
                             )}
                             {editForm.role !== 'manager' && editForm.role !== 'admin' && (
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 block mb-1">المدير (Manager)</label>
+                                    <label className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'} block mb-1`}>المدير (Manager)</label>
                                     <select 
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
+                                        className={`w-full ${isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'} border rounded-xl p-3 text-sm font-bold`} 
                                         value={editForm.managerId || ''} 
                                         onChange={e => setEditForm({...editForm, managerId: e.target.value})}
                                     >
@@ -1745,9 +1797,9 @@ const SupervisorEmployees: React.FC = () => {
                                 </div>
                             )}
                             <div>
-                                <label className="text-xs font-bold text-slate-500 block mb-1">المسمى الوظيفي (Job Category)</label>
+                                <label className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'} block mb-1`}>المسمى الوظيفي (Job Category)</label>
                                 <select 
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold" 
+                                    className={`w-full ${isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'} border rounded-xl p-3 text-sm font-bold`} 
                                     value={editForm.jobCategory || 'technician'} 
                                     onChange={e => setEditForm({...editForm, jobCategory: e.target.value as any})}
                                 >
@@ -1758,19 +1810,19 @@ const SupervisorEmployees: React.FC = () => {
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="text-xs font-bold text-slate-500 block mb-1">البريد الإلكتروني</label>
+                                <label className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'} block mb-1`}>البريد الإلكتروني</label>
                                 <input 
                                     type="email"
-                                    className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-200 outline-none" 
+                                    className={`w-full ${isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-800'} border rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none`} 
                                     value={editForm.email || ''} 
                                     onChange={e => setEditForm({...editForm, email: e.target.value})} 
                                 />
-                                <p className="text-[9px] text-amber-600 mt-1">* تحديث البريد هنا لتصحيح السجلات فقط.</p>
+                                <p className="text-[9px] text-amber-500 mt-1">* تحديث البريد هنا لتصحيح السجلات فقط.</p>
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-slate-500 block mb-1">رقم الهاتف</label>
+                                <label className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'} block mb-1`}>رقم الهاتف</label>
                                 <input 
-                                    className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-200 outline-none" 
+                                    className={`w-full ${isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-800'} border rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none`} 
                                     value={editForm.phone || ''} 
                                     onChange={e => setEditForm({...editForm, phone: e.target.value})} 
                                 />
@@ -2348,6 +2400,7 @@ const SupervisorEmployees: React.FC = () => {
                     onCancel={() => setShowScanner(false)} 
                 />
             )}
+            </div>
         </div>
     );
 };

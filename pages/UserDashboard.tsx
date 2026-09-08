@@ -8,6 +8,8 @@ import { collection, query, where, getDocs, onSnapshot, doc, updateDoc, writeBat
 import { useLanguage, getTranslationKeyForArabic } from '../contexts/LanguageContext';
 import { Schedule, Announcement, SwapRequest, OpenShift, User, AttendanceLog, ActionLog, Penalty } from '../types';
 import Toast from '../components/Toast';
+import ThemeToggle from '../components/ThemeToggle';
+import { useTheme } from '../contexts/ThemeContext';
 import { useAttendanceStatus } from '../hooks/useAttendanceStatus';
 import { useDepartment } from '../contexts/DepartmentContext';
 
@@ -92,8 +94,9 @@ const constructDateTime = (dateStr: string, timeStr: string, defaultTime: string
 const ppRegex = /(?:\(|\[|\{)\s*pp\s*(?:\)|\]|\})|(?:\bPP\b)/i;
 
 const UserDashboard: React.FC = () => {
-  const { t, dir } = useLanguage();
-  const { selectedDepartmentId } = useDepartment();
+  const { t, dir, language, toggleLanguage } = useLanguage();
+  const { isDark } = useTheme();
+  const { selectedDepartmentId, departments } = useDepartment();
   const navigate = useNavigate();
   const currentUserId = auth.currentUser?.uid;
   const shiftStatus = useAttendanceStatus(currentUserId);
@@ -604,153 +607,164 @@ const handleGenerateManualCode = () => {
   // --- ENHANCED HERO STYLING CONFIG ---
   const heroStyles: Record<string, any> = {
     active: {
-      gradient: 'bg-gradient-to-br from-green-600 via-emerald-800 to-slate-900',
-      blob1: 'bg-green-500',
-      blob2: 'bg-emerald-400',
-      accentText: 'text-green-100',
-      glassBorder: 'border-green-400/30',
-      iconBg: 'bg-gradient-to-br from-green-400 to-emerald-600',
-      badge: 'bg-green-500 text-white border-green-400 shadow-lg',
-      glow: 'from-green-500 to-emerald-500',
-      subText: 'text-green-100 opacity-90',
-      button: 'bg-white text-green-700 hover:bg-green-50 shadow-lg shadow-green-900/20',
-      dot: 'bg-green-400',
-      dotShadow: 'shadow-[0_0_15px_#4ade80]'
+      gradient: 'from-emerald-900/80 via-slate-800 to-slate-900',
+      blob1: 'bg-emerald-500/25',
+      blob2: 'bg-teal-400/20',
+      accentText: 'text-emerald-400',
+      glassBorder: 'border-emerald-500/40',
+      iconBg: 'bg-gradient-to-br from-emerald-400 to-teal-600 shadow-emerald-500/30 text-slate-950',
+      badge: 'bg-emerald-500/25 text-emerald-200 border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.3)]',
+      glow: 'from-emerald-500/25 to-teal-500/15',
+      subText: 'text-emerald-200',
+      button: 'bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-500 text-slate-950 font-black shadow-[0_0_25px_rgba(16,185,129,0.4)] hover:scale-105',
+      beacon: 'bg-emerald-400',
+      beaconShadow: 'shadow-[0_0_12px_#34d399]',
+      beaconText: t('dash.onDutyBeacon'),
+      actionText: t('att.punch.checkOut')
     },
     late: {
-      gradient: 'bg-gradient-to-br from-amber-900 via-orange-800 to-slate-900',
-      blob1: 'bg-amber-600',
-      blob2: 'bg-orange-500',
+      gradient: 'from-amber-900/80 via-slate-800 to-slate-900',
+      blob1: 'bg-amber-500/25',
+      blob2: 'bg-orange-500/20',
       accentText: 'text-amber-400',
-      glassBorder: 'border-amber-500/30',
-      iconBg: 'bg-gradient-to-br from-amber-500 to-orange-600',
-      badge: 'bg-amber-500/20 text-amber-200 border-amber-500/30',
-      glow: 'from-amber-500 to-orange-500',
+      glassBorder: 'border-amber-500/40',
+      iconBg: 'bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/30 text-slate-950',
+      badge: 'bg-amber-500/25 text-amber-200 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.3)]',
+      glow: 'from-amber-500/25 to-orange-500/15',
       subText: 'text-amber-200',
-      button: 'bg-amber-500 hover:bg-amber-400 text-white shadow-amber-500/50',
-      dot: 'bg-amber-400',
-      dotShadow: 'shadow-[0_0_15px_#fbbf24]'
+      button: 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-slate-950 font-black shadow-[0_0_25px_rgba(245,158,11,0.4)] hover:scale-105',
+      beacon: 'bg-amber-400',
+      beaconShadow: 'shadow-[0_0_12px_#fbbf24]',
+      beaconText: t('dash.latePunchRequired'),
+      actionText: t('att.punch.checkIn')
     },
     leave: {
-      gradient: 'bg-gradient-to-br from-purple-950 via-fuchsia-900 to-slate-950',
-      blob1: 'bg-purple-500',
-      blob2: 'bg-pink-500',
+      gradient: 'from-purple-900/80 via-slate-800 to-slate-900',
+      blob1: 'bg-purple-500/25',
+      blob2: 'bg-pink-500/20',
       accentText: 'text-purple-400',
-      glassBorder: 'border-purple-500/30',
-      iconBg: 'bg-gradient-to-br from-purple-500 to-pink-500',
-      badge: 'bg-purple-500/20 text-purple-200 border-purple-500/30',
-      glow: 'from-purple-500 to-pink-500',
+      glassBorder: 'border-purple-500/40',
+      iconBg: 'bg-gradient-to-br from-purple-500 to-pink-600 shadow-purple-500/30 text-white',
+      badge: 'bg-purple-500/25 text-purple-200 border-purple-500/50 shadow-[0_0_20px_rgba(168,85,247,0.3)]',
+      glow: 'from-purple-500/25 to-pink-500/15',
       subText: 'text-purple-200',
-      button: 'bg-purple-500 hover:bg-purple-400 text-white shadow-purple-500/50',
-      dot: 'bg-purple-400',
-      dotShadow: 'shadow-[0_0_15px_#c084fc]'
+      button: 'bg-gradient-to-r from-purple-500 to-pink-500 text-white font-black shadow-[0_0_25px_rgba(168,85,247,0.4)] hover:scale-105',
+      beacon: 'bg-purple-400',
+      beaconShadow: 'shadow-[0_0_12px_#c084fc]',
+      beaconText: 'إجازة رسمية',
+      actionText: t('user.tab.requests')
     },
     absent: {
-      gradient: 'bg-gradient-to-br from-rose-950 via-red-950 to-slate-950',
-      blob1: 'bg-rose-700',
-      blob2: 'bg-red-800',
-      accentText: 'text-rose-500',
-      glassBorder: 'border-rose-500/30',
-      iconBg: 'bg-gradient-to-br from-rose-600 to-red-700',
-      badge: 'bg-rose-500/20 text-rose-200 border-rose-500/30',
-      glow: 'from-rose-600 to-red-900',
+      gradient: 'from-rose-900/80 via-slate-800 to-slate-900',
+      blob1: 'bg-rose-600/25',
+      blob2: 'bg-red-700/20',
+      accentText: 'text-rose-400',
+      glassBorder: 'border-rose-500/40',
+      iconBg: 'bg-gradient-to-br from-rose-600 to-red-700 shadow-rose-500/30 text-white',
+      badge: 'bg-rose-500/25 text-rose-200 border-rose-500/50 shadow-[0_0_20px_rgba(244,63,94,0.3)]',
+      glow: 'from-rose-600/25 to-red-600/15',
       subText: 'text-rose-200',
-      button: 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-500/50',
-      dot: 'bg-rose-500',
-      dotShadow: 'shadow-[0_0_15px_#f43f5e]'
+      button: 'bg-gradient-to-r from-rose-600 to-red-600 text-white font-black shadow-[0_0_25px_rgba(244,63,94,0.4)] hover:scale-105',
+      beacon: 'bg-rose-400',
+      beaconShadow: 'shadow-[0_0_12px_#f43f5e]',
+      beaconText: 'تغيب غير مسجل',
+      actionText: t('att.punch.checkIn')
     },
     upcoming: {
-      gradient: 'bg-gradient-to-br from-blue-950 via-indigo-900 to-slate-950',
-      blob1: 'bg-blue-500',
-      blob2: 'bg-indigo-500',
-      accentText: 'text-blue-400',
-      glassBorder: 'border-blue-500/30',
-      iconBg: 'bg-gradient-to-br from-blue-500 to-indigo-600',
-      badge: 'bg-blue-500/20 text-blue-200 border-blue-500/30',
-      glow: 'from-blue-500 to-indigo-500',
-      subText: 'text-blue-200',
-      button: 'bg-blue-500 hover:bg-blue-400 text-white shadow-blue-500/50',
-      dot: 'bg-blue-400',
-      dotShadow: 'shadow-[0_0_15px_#60a5fa]'
+      gradient: 'from-cyan-900/80 via-slate-800 to-slate-900',
+      blob1: 'bg-cyan-500/25',
+      blob2: 'bg-blue-600/20',
+      accentText: 'text-cyan-400',
+      glassBorder: 'border-cyan-500/40',
+      iconBg: 'bg-gradient-to-br from-cyan-400 to-blue-600 shadow-cyan-500/30 text-slate-950',
+      badge: 'bg-cyan-500/25 text-cyan-200 border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.3)]',
+      glow: 'from-cyan-500/25 to-blue-500/15',
+      subText: 'text-cyan-200',
+      button: 'bg-gradient-to-r from-cyan-400 via-sky-500 to-blue-500 text-slate-950 font-black shadow-[0_0_25px_rgba(6,182,212,0.4)] hover:scale-105',
+      beacon: 'bg-cyan-400',
+      beaconShadow: 'shadow-[0_0_12px_#22d3ee]',
+      beaconText: t('dash.upcomingBeacon'),
+      actionText: t('att.punch.checkIn')
     },
     complete: {
-      gradient: 'bg-gradient-to-br from-cyan-950 via-sky-900 to-slate-950',
-      blob1: 'bg-cyan-500',
-      blob2: 'bg-sky-500',
-      accentText: 'text-cyan-400',
-      glassBorder: 'border-cyan-500/30',
-      iconBg: 'bg-gradient-to-br from-cyan-500 to-sky-600',
-      badge: 'bg-cyan-500/20 text-cyan-200 border-cyan-500/30',
-      glow: 'from-cyan-500 to-sky-500',
-      subText: 'text-cyan-200',
-      button: 'bg-cyan-500 hover:bg-cyan-400 text-white shadow-cyan-500/50',
-      dot: 'bg-cyan-400',
-      dotShadow: 'shadow-[0_0_15px_#22d3ee]'
+      gradient: 'from-teal-900/80 via-slate-800 to-slate-900',
+      blob1: 'bg-teal-500/25',
+      blob2: 'bg-emerald-600/20',
+      accentText: 'text-teal-400',
+      glassBorder: 'border-teal-500/40',
+      iconBg: 'bg-gradient-to-br from-teal-400 to-emerald-600 shadow-teal-500/30 text-slate-950',
+      badge: 'bg-teal-500/25 text-teal-200 border-teal-500/50 shadow-[0_0_20px_rgba(20,184,166,0.3)]',
+      glow: 'from-teal-500/25 to-emerald-500/15',
+      subText: 'text-teal-200',
+      button: 'bg-gradient-to-r from-teal-400 to-emerald-500 text-slate-950 font-black shadow-[0_0_25px_rgba(20,184,166,0.4)] hover:scale-105',
+      beacon: 'bg-teal-400',
+      beaconShadow: 'shadow-[0_0_12px_#2dd4bf]',
+      beaconText: 'اكتملت الورديات',
+      actionText: t('dash.punchNow')
     },
     off: {
-      gradient: 'bg-gradient-to-br from-slate-900 via-gray-900 to-black',
-      blob1: 'bg-slate-600',
-      blob2: 'bg-gray-600',
-      accentText: 'text-slate-400',
-      glassBorder: 'border-slate-500/30',
-      iconBg: 'bg-slate-700 text-white/60',
-      badge: 'bg-white/10 border-white/20 text-white/60',
-      glow: 'from-slate-500 to-gray-500',
-      subText: 'text-slate-400',
-      button: 'bg-slate-600 hover:bg-slate-500 text-white shadow-slate-500/50',
-      dot: 'bg-slate-500',
-      dotShadow: 'shadow-[0_0_15px_#94a3b8]'
+      gradient: 'from-slate-800 via-slate-850 to-indigo-950/70',
+      blob1: 'bg-indigo-600/20',
+      blob2: 'bg-slate-600/20',
+      accentText: 'text-slate-300',
+      glassBorder: 'border-slate-700/80',
+      iconBg: 'bg-gradient-to-br from-slate-600 to-slate-700 shadow-slate-900/40 text-white',
+      badge: 'bg-white/15 text-white border-white/20',
+      glow: 'from-indigo-500/20 to-slate-500/15',
+      subText: 'text-slate-300',
+      button: 'bg-white/15 hover:bg-white/25 text-white font-bold border border-white/20 shadow-lg hover:scale-105',
+      beacon: 'bg-slate-400',
+      beaconShadow: 'shadow-[0_0_10px_#94a3b8]',
+      beaconText: t('dash.offDutyBeacon'),
+      actionText: t('dash.punchNow')
     }
   };
 
   const currentStyle = heroStyles[heroInfo.mode] || heroStyles.off;
 
-  const styles = `
-    @keyframes aurora {
-      0% { background-position: 50% 50%, 50% 50%; }
-      50% { background-position: 100% 0%, 0% 100%; }
-      100% { background-position: 50% 50%, 50% 50%; }
-    }
-    .animate-aurora {
-      animation: aurora 20s ease infinite alternate;
-      background-size: 200% 200%;
-    }
-    @keyframes float-icon {
-      0%, 100% { transform: translateY(0) rotate(0deg); }
-      50% { transform: translateY(-10px) rotate(5deg); }
-    }
-    .animate-float-icon {
-      animation: float-icon 6s ease-in-out infinite;
-    }
-    .glass-card {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-    }
-  `;
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return t('greeting.morning');
+    if (hour < 18) return t('greeting.afternoon');
+    return t('greeting.evening');
+  };
+
+  const currentUser = allUsers.find(u => u.uid === currentUserId || u.id === currentUserId);
+  const currentDepartment = departments?.find(d => d.id === currentUser?.departmentId || d.id === selectedDepartmentId);
+  const honorific = currentUser?.gender === 'male' ? (dir === 'rtl' ? 'السيد / ' : 'Mr. ') : currentUser?.gender === 'female' ? (dir === 'rtl' ? 'السيدة / ' : 'Ms. ') : '';
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans" dir={dir}>
-        <style>{styles}</style>
+    <div className={`w-full min-h-screen font-sans relative overflow-x-hidden transition-colors duration-300 ${
+        isDark 
+            ? 'bg-slate-900 text-slate-100 selection:bg-cyan-500/30' 
+            : 'bg-slate-100 text-slate-800 selection:bg-blue-500/20'
+    }`} dir={dir}>
         
+        {/* Ambient Top Aurora Glow */}
+        <div className={`pointer-events-none fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-[450px] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] blur-3xl z-0 transition-opacity duration-500 ${
+            isDark 
+                ? 'from-blue-700/20 via-cyan-700/10 to-transparent' 
+                : 'from-blue-200/40 via-indigo-100/30 to-transparent'
+        }`} />
+
         {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
-        {/* Pending Penalties Modal */}
+        {/* --- PENDING PENALTIES MODAL --- */}
         {pendingPenalties.length > 0 && (
-            <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in-up">
-                    <div className="bg-red-600 p-4 text-white text-center">
-                        <i className="fas fa-exclamation-triangle text-3xl mb-2"></i>
-                        <h2 className="text-xl font-bold">{t('user.dashboard.penalties.title')}</h2>
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+                <div className={`border rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in-up transition-colors ${
+                    isDark ? 'bg-slate-900 border-red-500/40' : 'bg-white border-red-300'
+                }`}>
+                    <div className="bg-gradient-to-r from-red-600 to-rose-700 p-5 text-white text-center shadow-lg">
+                        <i className="fas fa-exclamation-triangle text-3xl mb-2 animate-bounce"></i>
+                        <h2 className="text-xl font-black">{t('user.dashboard.penalties.title')}</h2>
                     </div>
-                    <div className="p-6 max-h-[70vh] overflow-y-auto">
+                    <div className="p-6 max-h-[70vh] overflow-y-auto custom-scrollbar-dark space-y-4">
                         {pendingPenalties.map(p => (
-                            <div key={p.id} className="bg-red-50 border border-red-100 p-4 rounded-xl mb-4">
-                                <div className="mb-4">
-                                    <p className="text-sm text-gray-500 mb-1">{t('user.dashboard.penalty.type')}</p>
-                                    <p className="font-bold text-red-700">{
+                            <div key={p.id} className="bg-white/5 border border-red-500/20 p-4 rounded-2xl">
+                                <div className="mb-3">
+                                    <p className="text-xs text-white/50 mb-1 font-bold">{t('user.dashboard.penalty.type')}</p>
+                                    <p className="font-black text-rose-400 text-base">{
                                         p.penaltyType === '1st Warning' ? t('penalty.1stWarning') :
                                         p.penaltyType === '2nd Warning' ? t('penalty.2ndWarning') :
                                         p.penaltyType === 'Final Warning' ? t('penalty.finalWarning') :
@@ -759,15 +773,15 @@ const handleGenerateManualCode = () => {
                                         p.penaltyType === 'Dismissal' ? t('penalty.dismissal') : p.penaltyType
                                     }</p>
                                 </div>
-                                <div className="mb-4">
-                                    <p className="text-sm text-gray-500 mb-1">{t('user.dashboard.penalty.description')}</p>
-                                    <p className="font-medium">{getTranslationKeyForArabic(p.description) ? t(getTranslationKeyForArabic(p.description)!) : p.description}</p>
+                                <div className="mb-3">
+                                    <p className="text-xs text-white/50 mb-1 font-bold">{t('user.dashboard.penalty.description')}</p>
+                                    <p className="font-medium text-sm text-slate-200">{getTranslationKeyForArabic(p.description) ? t(getTranslationKeyForArabic(p.description)!) : p.description}</p>
                                 </div>
                                 
                                 {selectedPenaltyAction?.id === p.id ? (
-                                    <div className="mt-4 bg-white p-3 rounded-lg border border-red-200">
+                                    <div className="mt-4 bg-slate-950 p-3 rounded-xl border border-red-500/30">
                                         <textarea 
-                                            className="w-full p-2 border border-gray-300 rounded-lg mb-2 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none" 
+                                            className="w-full p-2.5 bg-slate-900 border border-white/10 rounded-xl mb-3 text-sm text-white focus:ring-2 focus:ring-red-500 outline-none" 
                                             placeholder={t('user.dashboard.penalty.reason.placeholder')} 
                                             value={rejectionReason} 
                                             onChange={(e) => setRejectionReason(e.target.value)} 
@@ -775,14 +789,14 @@ const handleGenerateManualCode = () => {
                                         />
                                         <div className="flex gap-2">
                                             <button 
-                                                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors" 
+                                                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors shadow-lg cursor-pointer" 
                                                 onClick={() => handlePenaltyAction(p.id, 'rejected')}
                                                 disabled={!rejectionReason.trim()}
                                             >
                                                 {t('user.dashboard.penalty.reject.confirm')}
                                             </button>
                                             <button 
-                                                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-bold hover:bg-gray-300 transition-colors" 
+                                                className="px-4 py-2.5 bg-white/10 text-white rounded-xl font-bold hover:bg-white/20 transition-colors cursor-pointer" 
                                                 onClick={() => {
                                                     setSelectedPenaltyAction(null);
                                                     setRejectionReason('');
@@ -795,13 +809,13 @@ const handleGenerateManualCode = () => {
                                 ) : (
                                     <div className="flex gap-3 mt-4">
                                         <button 
-                                            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2" 
+                                            className="flex-1 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg cursor-pointer" 
                                             onClick={() => handlePenaltyAction(p.id, 'accepted')}
                                         >
                                             <i className="fas fa-check"></i> {t('user.dashboard.penalty.accept')}
                                         </button>
                                         <button 
-                                            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors flex items-center justify-center gap-2" 
+                                            className="flex-1 px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg cursor-pointer" 
                                             onClick={() => setSelectedPenaltyAction(p)}
                                         >
                                             <i className="fas fa-times"></i> {t('user.dashboard.penalty.reject')}
@@ -815,65 +829,61 @@ const handleGenerateManualCode = () => {
             </div>
         )}
 
-        {/* Announcements Banner */}
-     {!announcementsLoading && showAnnouncePopup && announcements.length > 0 && (
+        {/* --- ANNOUNCEMENTS POPUP MODAL --- */}
+        {!announcementsLoading && showAnnouncePopup && announcements.length > 0 && (
             <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
-                {/* خلفية معتمة قابلة للنقر للإغلاق */}
                 <div 
-                    className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity"
+                    className="absolute inset-0 bg-slate-950/80 backdrop-blur-xl transition-opacity"
                     onClick={() => setShowAnnouncePopup(false)}
                 ></div>
                 
-                {/* محتوى النافذة المنبثقة */}
-                <div className="relative bg-white rounded-[35px] shadow-2xl w-full max-w-md overflow-hidden animate-fade-in-up border border-white/20">
-                    
-                    {/* Header: تدرج لوني جذاب */}
+                <div className={`relative border rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-fade-in-up transition-colors ${
+                    isDark ? 'bg-slate-900 border-white/15' : 'bg-white border-slate-200 text-slate-800'
+                }`}>
                     <div className="bg-gradient-to-br from-indigo-600 via-blue-700 to-slate-900 p-6 text-white relative">
-                        <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-lg shadow-inner">
-                                <i className="fas fa-bell text-xl animate-ring"></i>
+                        <div className="flex items-center gap-3.5">
+                            <div className="w-12 h-12 bg-white/15 rounded-2xl flex items-center justify-center backdrop-blur-md shadow-inner">
+                                <i className="fas fa-bullhorn text-xl text-cyan-300"></i>
                             </div>
                             <div>
-                                <h3 className="text-xl font-black tracking-tight leading-none mb-1">تعميمات إدارية</h3>
-                                <p className="text-[10px] text-blue-200 uppercase font-bold tracking-widest opacity-70">Active Announcements</p>
+                                <h3 className="text-lg font-black tracking-tight leading-none mb-1">تعميمات إدارية هامة</h3>
+                                <p className="text-[10px] text-blue-200 uppercase font-mono font-bold opacity-75">Active Bulletins ({announcements.length})</p>
                             </div>
                         </div>
-                        {/* زر إغلاق علوي */}
                         <button 
                             onClick={() => setShowAnnouncePopup(false)}
-                            className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-full bg-black/20 hover:bg-white hover:text-slate-900 transition-all"
+                            className="absolute top-6 right-6 rtl:right-auto rtl:left-6 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer"
                         >
-                            <i className="fas fa-times text-sm"></i>
+                            <i className="fas fa-times text-xs"></i>
                         </button>
                     </div>
 
-                    {/* قائمة التعميمات مع سكرول داخلي إذا كثرت */}
-                    <div className="max-h-[400px] overflow-y-auto p-6 space-y-4 custom-scrollbar">
+                    <div className="max-h-[380px] overflow-y-auto p-5 space-y-3.5 custom-scrollbar-dark">
                         {announcements.map((ann, i) => (
-                            <div key={i} className="group bg-slate-50 p-5 rounded-[24px] border border-slate-100 hover:border-blue-200 transition-all duration-300">
+                            <div key={i} className={`p-4 rounded-2xl border transition-all ${
+                                isDark ? 'bg-white/5 border-white/10 hover:border-cyan-500/40 text-white' : 'bg-slate-50 border-slate-200 hover:border-blue-400 text-slate-800'
+                            }`}>
                                 <div className="flex justify-between items-start mb-2">
-                                    <span className={`text-[9px] font-black px-3 py-1 rounded-full text-white uppercase tracking-tighter ${
+                                    <span className={`text-[9px] font-black px-2.5 py-0.5 rounded-full text-white uppercase tracking-wider ${
                                         ann.priority === 'critical' ? 'bg-red-500 animate-pulse' : 'bg-blue-600'
                                     }`}>
                                         {ann.priority === 'critical' ? 'عاجل جداً' : 'تعميم'}
                                     </span>
-                                    <span className="text-[10px] text-slate-400 font-bold bg-white px-2 py-1 rounded-lg shadow-sm">
+                                    <span className={`text-[10px] font-mono ${isDark ? 'text-white/50' : 'text-slate-400'}`}>
                                         <i className="far fa-clock mr-1"></i>
                                         {ann.createdAt?.toDate ? ann.createdAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
                                     </span>
                                 </div>
-                                <h4 className="font-bold text-slate-800 text-md mb-2 group-hover:text-blue-700 transition-colors">{ann.title}</h4>
-                                <p className="text-sm text-slate-600 leading-relaxed font-medium">{ann.content}</p>
+                                <h4 className={`font-bold text-sm mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>{ann.title}</h4>
+                                <p className={`text-xs leading-relaxed font-normal ${isDark ? 'text-white/70' : 'text-slate-600'}`}>{ann.content}</p>
                             </div>
                         ))}
                     </div>
 
-                    {/* زر التأكيد السفلي */}
-                    <div className="p-6 bg-slate-50/50 border-t border-slate-100 text-center">
+                    <div className={`p-4 border-t text-center ${isDark ? 'bg-slate-950/60 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
                         <button 
                             onClick={async () => {
                                 setShowAnnouncePopup(false);
-                                // Update seenBy for all announcements shown
                                 try {
                                     const batch = writeBatch(db);
                                     announcements.forEach(ann => {
@@ -888,337 +898,631 @@ const handleGenerateManualCode = () => {
                                     console.error("Failed to update seenBy", e);
                                 }
                             }}
-                            className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold text-sm shadow-[0_10px_20px_rgba(0,0,0,0.1)] hover:shadow-[0_15px_25px_rgba(0,0,0,0.2)] active:scale-95 transition-all"
+                            className="w-full py-3.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 rounded-2xl font-black text-xs shadow-lg transition-all cursor-pointer"
                         >
-                            حسناً، تم الاطلاع
+                            حسناً، تم الاطلاع والمتابعة
                         </button>
-                        <p className="mt-3 text-[10px] text-slate-400 font-medium italic">
-                            ملاحظة: التعميم يختفي تلقائياً بعد مرور 24 ساعة على نشره
-                        </p>
                     </div>
                 </div>
             </div>
         )}
-        {/* --- MAGICAL HERO SECTION --- */}
-        <div className="relative overflow-hidden mb-12 rounded-b-[50px] shadow-2xl transition-all duration-1000 min-h-[480px] flex items-center -mx-4 -mt-4">
-            
-            {/* Dynamic Animated Background */}
-            <div className={`absolute inset-0 transition-colors duration-1000 animate-aurora ${currentStyle.gradient}`}>
-                {/* Floating Blobs */}
-                <div className={`absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full mix-blend-screen filter blur-[100px] opacity-30 animate-pulse-slow ${currentStyle.blob1}`}></div>
-                <div className={`absolute bottom-[-10%] right-[-10%] w-[400px] h-[400px] rounded-full mix-blend-screen filter blur-[100px] opacity-20 animate-pulse-slow delay-1000 ${currentStyle.blob2}`}></div>
-                
-                {/* Grain Texture Overlay */}
-                <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 mix-blend-overlay"></div>
-            </div>
 
-            <div className="max-w-7xl mx-auto px-6 w-full relative z-10 grid lg:grid-cols-2 gap-16 items-center pt-12 pb-16">
+        {/* --- STICKY EXECUTIVE TOP APP BAR --- */}
+        <header className={`sticky top-0 z-40 backdrop-blur-2xl transition-colors duration-300 px-3 sm:px-6 py-2.5 sm:py-3 ${
+            isDark 
+                ? 'bg-slate-900/90 border-b border-slate-800 text-white' 
+                : 'bg-white/95 border-b border-slate-200 text-slate-800 shadow-xs'
+        }`}>
+            <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
                 
-                {/* Left Column: Greeting & Info */}
-                <div className={`space-y-8 ${dir === 'rtl' ? 'lg:text-right' : 'lg:text-left'} text-center lg:text-left`}>
-                    
-                    <div className="flex items-center gap-4 justify-center lg:justify-start">
-                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 border border-white/10 backdrop-blur-md shadow-lg group hover:bg-white/20 transition-all cursor-default">
-                            <span className={`w-2.5 h-2.5 rounded-full ${currentStyle.dot} animate-pulse ${currentStyle.dotShadow}`}></span>
-                            <span className="text-[11px] font-bold text-white tracking-widest uppercase group-hover:tracking-[0.2em] transition-all">System Online</span>
+                {/* Executive Portal Header & Live Status */}
+                <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-cyan-500/20 border border-white/20 shrink-0">
+                        <i className="fas fa-hospital-user text-sm sm:text-base"></i>
+                    </div>
+                    <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                            <span className={`text-xs sm:text-sm font-black tracking-tight truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                {t('dash.portalTitle')}
+                            </span>
+                            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold border ${currentStyle.badge}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${currentStyle.beacon} ${currentStyle.beaconShadow}`} />
+                                <span>{currentStyle.beaconText}</span>
+                            </span>
                         </div>
-                        <button 
-                            onClick={() => setRefreshTrigger(prev => prev + 1)}
-                            className="bg-white/10 hover:bg-white/20 text-white rounded-full w-9 h-9 flex items-center justify-center backdrop-blur-md transition-all border border-white/10 hover:rotate-180 duration-500"
-                            title="تحديث البيانات"
+                        <p className={`text-[10px] sm:text-[11px] font-medium truncate ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                            {t('app.name')}
+                        </p>
+                    </div>
+                </div>
+
+                {/* Quick Action Toolbar */}
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                    
+                    {/* Active Announcements Bell */}
+                    {announcements.length > 0 && (
+                        <button
+                            onClick={() => setShowAnnouncePopup(true)}
+                            className={`relative w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center transition-all cursor-pointer shadow-sm ${
+                                isDark 
+                                    ? 'bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300' 
+                                    : 'bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-700'
+                            }`}
+                            title="عرض التعميمات"
                         >
-                            <i className="fas fa-sync-alt text-xs"></i>
+                            <i className="fas fa-bell text-xs sm:text-sm animate-pulse"></i>
+                            <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-black flex items-center justify-center border-2 border-slate-900 shadow-md">
+                                {announcements.length}
+                            </span>
+                        </button>
+                    )}
+
+                    {/* Location Code Button */}
+                    <button
+                        onClick={handleGenerateManualCode}
+                        disabled={isGenerating}
+                        className={`w-9 h-9 sm:w-auto sm:px-3.5 sm:h-10 rounded-2xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm text-xs font-bold ${
+                            isDark 
+                                ? 'bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-300' 
+                                : 'bg-cyan-50 hover:bg-cyan-100 border border-cyan-300 text-cyan-800'
+                        }`}
+                        title={t('dash.locationCode')}
+                    >
+                        {isGenerating ? (
+                            <i className="fas fa-spinner fa-spin text-xs"></i>
+                        ) : (
+                            <i className="fas fa-qrcode text-xs sm:text-sm"></i>
+                        )}
+                        <span className="hidden sm:inline">{t('dash.locationCode')}</span>
+                    </button>
+
+                    {/* WhatsApp Shortcut */}
+                    <a
+                        href="https://chat.whatsapp.com/HO07MVE2Y1c9d9pSFBa8ly" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className={`w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center transition-all cursor-pointer shadow-sm ${
+                            isDark 
+                                ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300' 
+                                : 'bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-700'
+                        }`}
+                        title="مجموعة واتساب"
+                    >
+                        <i className="fab fa-whatsapp text-sm sm:text-base"></i>
+                    </a>
+
+                    {/* IHMS External */}
+                    <a 
+                        href="http://192.168.0.8" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className={`w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center transition-all cursor-pointer shadow-sm ${
+                            isDark 
+                                ? 'bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/40 text-blue-300' 
+                                : 'bg-blue-50 hover:bg-blue-100 border border-blue-300 text-blue-700'
+                        }`}
+                        title="IHMS Portal"
+                    >
+                        <i className="fas fa-desktop text-xs sm:text-sm"></i>
+                    </a>
+
+                    {/* Refresh Trigger */}
+                    <button 
+                        onClick={() => setRefreshTrigger(prev => prev + 1)}
+                        className={`w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center transition-all cursor-pointer active:rotate-180 duration-500 shadow-sm ${
+                            isDark 
+                                ? 'bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white' 
+                                : 'bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 hover:text-slate-900'
+                        }`}
+                        title="تحديث البيانات"
+                    >
+                        <i className="fas fa-sync-alt text-xs"></i>
+                    </button>
+
+                    {/* Theme Switcher */}
+                    <ThemeToggle />
+
+                    {/* Language Switcher */}
+                    <button
+                        onClick={toggleLanguage}
+                        className={`w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center transition-all cursor-pointer text-xs font-black shadow-sm ${
+                            isDark 
+                                ? 'bg-slate-800 hover:bg-slate-750 border border-slate-700 text-cyan-300' 
+                                : 'bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800'
+                        }`}
+                        title="English / عربي"
+                    >
+                        {language === 'ar' ? 'EN' : 'عربي'}
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        {/* --- MAIN PAGE WRAPPER --- */}
+        <main className="w-full max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 pt-3 sm:pt-4 pb-28 relative z-10 space-y-4 sm:space-y-6">
+            
+            {/* 0. PROMINENT EMPLOYEE IDENTITY SHOWCASE CARD */}
+            <section className={`rounded-3xl border p-4 sm:p-6 shadow-xl relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors duration-300 ${
+                isDark 
+                    ? 'bg-gradient-to-r from-slate-800/95 via-slate-850 to-indigo-950/80 border-slate-700/80 text-white' 
+                    : 'bg-gradient-to-r from-white via-slate-50 to-indigo-50/70 border-slate-200/90 text-slate-800 shadow-md'
+            }`}>
+                <div className={`absolute top-0 right-0 w-72 h-72 rounded-full blur-3xl pointer-events-none ${isDark ? 'bg-cyan-500/10' : 'bg-cyan-500/5'}`}></div>
+                <div className="flex items-center gap-3.5 sm:gap-5 relative z-10 min-w-0">
+                    <div className="relative shrink-0">
+                        <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-2xl sm:rounded-3xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-2xl sm:text-3xl shadow-xl border border-white/20">
+                            {currentUserName.charAt(0)}
+                        </div>
+                        <span className={`absolute -bottom-1 -right-1 rtl:-right-auto rtl:-left-1 w-4 h-4 sm:w-5 sm:h-5 rounded-full border-2 sm:border-3 ${isDark ? 'border-slate-850' : 'border-white'} ${currentStyle.beacon} ${currentStyle.beaconShadow}`} />
+                    </div>
+
+                    <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <span className={`text-xs sm:text-sm font-black uppercase tracking-wide ${isDark ? 'text-cyan-400' : 'text-blue-600'}`}>
+                                {getGreeting()}
+                            </span>
+                            <span className={`text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold border ${
+                                isDark ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30' : 'bg-blue-50 text-blue-700 border-blue-200'
+                            }`}>
+                                {t(`role.${currentUserRole}`) || currentUserRole}
+                            </span>
+                            {currentDepartment?.name && (
+                                <span className={`text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1.5 border ${
+                                    isDark ? 'bg-slate-700/80 text-slate-300 border-slate-600/50' : 'bg-slate-100 text-slate-700 border-slate-300'
+                                }`}>
+                                    <i className={`fas fa-building text-[9px] ${isDark ? 'text-cyan-400' : 'text-blue-600'}`}></i>
+                                    <span>{currentDepartment.name}</span>
+                                </span>
+                            )}
+                        </div>
+                        <h1 className={`text-2xl sm:text-3xl md:text-4xl font-black tracking-tight leading-tight drop-shadow-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                            {honorific}{currentUserName}
+                        </h1>
+                    </div>
+                </div>
+
+                {/* Quick Live Clock / Date pill */}
+                <div className={`relative z-10 flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-1.5 pt-2 sm:pt-0 border-t sm:border-t-0 w-full sm:w-auto ${
+                    isDark ? 'border-slate-700/50' : 'border-slate-200'
+                }`}>
+                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-mono shadow-inner ${
+                        isDark ? 'bg-slate-900/80 border-slate-700/80 text-cyan-300' : 'bg-white border-slate-300 text-blue-700 shadow-xs'
+                    }`}>
+                        <i className={`far fa-clock ${isDark ? 'text-cyan-400' : 'text-blue-600'}`}></i>
+                        <span>{new Date().toLocaleTimeString(dir === 'rtl' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                    <span className={`text-[11px] font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {new Date().toLocaleDateString(dir === 'rtl' ? 'ar-EG' : 'en-US', { weekday: 'long', day: 'numeric', month: 'short' })}
+                    </span>
+                </div>
+            </section>
+
+            {/* 1. COCKPIT HERO STATUS CARD (MOBILE-OPTIMIZED) */}
+            <section className={`relative rounded-[2rem] p-5 sm:p-7 md:p-8 border overflow-hidden shadow-2xl transition-all duration-700 ${
+                isDark 
+                    ? 'bg-slate-850/90 backdrop-blur-2xl border-slate-700/80 text-white' 
+                    : 'bg-white backdrop-blur-2xl border-slate-200 text-slate-800 shadow-lg'
+            }`}>
+                
+                {/* Dynamic Aura Gradient Mesh Behind Card */}
+                <div className={`absolute inset-0 bg-gradient-to-br ${currentStyle.gradient} ${isDark ? 'opacity-90' : 'opacity-25'} pointer-events-none transition-colors duration-1000`}></div>
+                <div className={`absolute -top-24 -left-24 w-72 h-72 rounded-full blur-3xl pointer-events-none ${currentStyle.blob1}`}></div>
+                <div className={`absolute -bottom-24 -right-24 w-72 h-72 rounded-full blur-3xl pointer-events-none ${currentStyle.blob2}`}></div>
+
+                <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                    
+                    {/* Left Details Block */}
+                    <div className="flex-1 min-w-0 space-y-3">
+                        
+                        {/* Live Status Beacon Pill */}
+                        <div className="flex flex-wrap items-center gap-2.5">
+                            <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border backdrop-blur-md ${currentStyle.badge}`}>
+                                <span className={`w-2 h-2 rounded-full ${currentStyle.beacon} ${currentStyle.beaconShadow} animate-pulse`} />
+                                <span>{currentStyle.beaconText}</span>
+                            </span>
+
+                            {hasAttendanceOverride && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                    <i className="fas fa-shield-alt text-[9px]"></i>
+                                    <span>استثناء نشط</span>
+                                </span>
+                            )}
+                        </div>
+
+                        {/* Duty Main Title & Subtitle */}
+                        <div>
+                            <h2 className={`text-2xl sm:text-3xl md:text-4xl font-black tracking-tight leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                {heroInfo.title}
+                            </h2>
+                            <p className={`text-xs sm:text-sm font-medium mt-1 tracking-wide ${isDark ? currentStyle.subText : 'text-slate-600 font-semibold'}`}>
+                                {heroInfo.subtitle || (heroInfo.mode === 'active' ? 'دوامك جاري وموثق داخل النظام' : 'تأكد من تسجيل الحضور في موعد الوردية')}
+                            </p>
+                        </div>
+
+                        {/* Location & Department Tag */}
+                        <div className={`flex flex-wrap items-center gap-2 text-xs pt-1 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                            <div className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border backdrop-blur-md ${
+                                isDark ? 'bg-slate-900/60 border-slate-700/80 text-white/90' : 'bg-slate-100 border-slate-300 text-slate-800'
+                            }`}>
+                                <i className={`fas fa-map-marker-alt text-xs ${isDark ? 'text-cyan-400' : 'text-blue-600'}`}></i>
+                                <span className="font-bold">{heroInfo.location || 'المستشفى العام'}</span>
+                            </div>
+                            <div className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border backdrop-blur-md font-mono text-[11px] ${
+                                isDark ? 'bg-slate-900/60 border-slate-700/80 text-white/70' : 'bg-slate-100 border-slate-300 text-slate-600'
+                            }`}>
+                                <i className="far fa-clock opacity-60"></i>
+                                <span>{new Date().toLocaleDateString(dir === 'rtl' ? 'ar-EG' : 'en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Right Action: Direct Smart Punch CTA Button */}
+                    <div className={`w-full md:w-auto flex md:flex-col items-center justify-between md:justify-center gap-3 pt-2 md:pt-0 border-t md:border-t-0 shrink-0 ${
+                        isDark ? 'border-white/10' : 'border-slate-200'
+                    }`}>
+                        <button
+                            onClick={() => navigate('/attendance-punch')}
+                            className={`w-full md:w-56 py-3.5 px-6 rounded-2xl flex items-center justify-center gap-3 transition-all duration-300 cursor-pointer ${currentStyle.button}`}
+                        >
+                            <div className="w-8 h-8 rounded-xl bg-black/15 flex items-center justify-center text-lg shrink-0">
+                                <i className="fas fa-fingerprint"></i>
+                            </div>
+                            <div className="flex flex-col text-right rtl:text-right ltr:text-left">
+                                <span className="text-xs sm:text-sm font-black tracking-tight leading-tight">
+                                    {currentStyle.actionText}
+                                </span>
+                                <span className="text-[9px] opacity-80 uppercase tracking-widest font-mono">
+                                    Smart Biometric
+                                </span>
+                            </div>
+                            <i className="fas fa-arrow-left rtl:rotate-0 rotate-180 text-xs mr-auto rtl:mr-auto rtl:ml-0 ltr:ml-auto ltr:mr-0 opacity-80"></i>
                         </button>
                     </div>
 
-                    <div>
-                        <h2 className={`text-xl font-medium mb-2 tracking-wide ${currentStyle.subText}`}>{t('user.hero.welcome')}</h2>
-                        <h1 className="text-6xl lg:text-7xl font-black text-white leading-[0.9] drop-shadow-2xl tracking-tight">
-                            {(() => {
-                                const currentUser = allUsers.find(u => u.uid === currentUserId);
-                                const title = currentUser?.gender === 'male' ? 'MR. ' : currentUser?.gender === 'female' ? 'MS. ' : '';
-                                return `${title}${currentUserName}`;
-                            })()}
-                            <span className={`text-transparent bg-clip-text bg-gradient-to-tr from-white to-white/50`}>.</span>
-                        </h1>
+                </div>
+            </section>
+
+            {/* 2. LIVE QUICK STATS METRIC CAPSULES (4-COL RESPONSIVE) */}
+            <section className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5">
+                
+                {/* Metric 1: Today Punches */}
+                <div 
+                    onClick={() => navigate('/attendance-punch')}
+                    className={`p-3.5 sm:p-4 rounded-2xl border transition-all cursor-pointer flex items-center gap-3 group shadow-md ${
+                        isDark 
+                            ? 'border-slate-700/80 hover:border-emerald-500/50 bg-slate-800/90 hover:bg-slate-750 text-white' 
+                            : 'border-slate-200 hover:border-emerald-500 bg-white hover:bg-slate-50 text-slate-800 hover:shadow-lg'
+                    }`}
+                >
+                    <div className={`w-10 h-10 rounded-2xl border flex items-center justify-center text-lg group-hover:scale-110 transition-transform shrink-0 shadow-inner ${
+                        isDark ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                    }`}>
+                        <i className="fas fa-fingerprint"></i>
                     </div>
-
-                    <div className={`flex flex-wrap items-center gap-4 ${dir === 'rtl' ? 'justify-center md:justify-start' : 'justify-center md:justify-start'}`}>
-                        <div className={`glass-card px-6 py-3 rounded-2xl flex items-center gap-4 transition-all hover:scale-105 cursor-default hover:bg-white/10 ${currentStyle.glassBorder}`}>
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-lg ${currentStyle.iconBg}`}>
-                                <i className="fas fa-id-badge"></i>
-                            </div>
-                            <div className="text-left">
-                                <p className="text-[10px] text-white/50 font-bold uppercase tracking-wider mb-0.5">Role</p>
-                                <p className="text-base font-bold text-white capitalize">{t(`role.${currentUserRole}`)}</p>
-                            </div>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                            <a 
-                                href="http://192.168.0.8" 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="w-12 h-12 rounded-2xl bg-white/10 hover:bg-white text-white hover:text-blue-600 flex items-center justify-center transition-all backdrop-blur-md border border-white/10 shadow-lg group tooltip-container relative"
-                                title="Open IHMS"
-                            >
-                                <i className="fas fa-desktop text-lg group-hover:scale-110 transition-transform"></i>
-                            </a>
-                            <a 
-                                href="https://chat.whatsapp.com/HO07MVE2Y1c9d9pSFBa8ly" 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="w-12 h-12 rounded-2xl bg-[#25D366]/20 hover:bg-[#25D366] text-[#25D366] hover:text-white flex items-center justify-center transition-all backdrop-blur-md border border-[#25D366]/30 shadow-lg group"
-                                title="WhatsApp Group"
-                            >
-                                <i className="fab fa-whatsapp text-xl group-hover:scale-110 transition-transform"></i>
-                            </a>
-                            <button 
-                                onClick={handleGenerateManualCode}
-                                disabled={isGenerating}
-                                className={`h-12 px-6 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-sm shadow-lg transition-all flex items-center gap-3 border border-white/10 backdrop-blur-md group`}
-                            >
-                                {isGenerating ? (
-                                    <i className="fas fa-spinner fa-spin"></i>
-                                ) : (
-                                    <i className="fas fa-shield-check text-lg group-hover:rotate-12 transition-transform"></i>
-                                )}
-                                <span>{generatedCode ? t('update') : t('dash.locationCode')}</span>
-                            </button>
-                        </div>
+                    <div className="min-w-0">
+                        <p className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('dash.punchesToday')}</p>
+                        <p className={`text-xs sm:text-sm font-black truncate font-mono mt-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                            {todayLogs.length > 0 ? `${todayLogs.length} ${todayLogs.length === 1 ? t('dash.singlePunch') : t('dash.pluralPunches')}` : t('dash.noPunchesYet')}
+                        </p>
                     </div>
                 </div>
 
-                {/* Right Column: The "Glass Card" Status Widget */}
-                <div className="flex justify-center lg:justify-end perspective-1000">
-                    <div className="relative group w-full max-w-md">
-                        {/* Glow behind card */}
-                        <div className={`absolute inset-0 bg-gradient-to-r blur-3xl opacity-30 transition-colors duration-1000 rounded-[40px] transform scale-105 group-hover:opacity-50 ${currentStyle.glow}`}></div>
+                {/* Metric 2: On Shift Staff */}
+                <div 
+                    onClick={() => setIsShiftWidgetOpen(true)}
+                    className={`p-3.5 sm:p-4 rounded-2xl border transition-all cursor-pointer flex items-center gap-3 group shadow-md ${
+                        isDark 
+                            ? 'border-slate-700/80 hover:border-cyan-500/50 bg-slate-800/90 hover:bg-slate-750 text-white' 
+                            : 'border-slate-200 hover:border-cyan-500 bg-white hover:bg-slate-50 text-slate-800 hover:shadow-lg'
+                    }`}
+                >
+                    <div className={`w-10 h-10 rounded-2xl border flex items-center justify-center text-lg group-hover:scale-110 transition-transform shrink-0 shadow-inner ${
+                        isDark ? 'bg-cyan-500/20 border-cyan-500/30 text-cyan-400' : 'bg-cyan-50 border-cyan-200 text-cyan-600'
+                    }`}>
+                        <i className="fas fa-user-clock"></i>
+                    </div>
+                    <div className="min-w-0">
+                        <p className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('dash.activeStaff')}</p>
+                        <p className={`text-xs sm:text-sm font-black truncate font-mono mt-0.5 ${isDark ? 'text-cyan-300' : 'text-cyan-700'}`}>
+                            {onShiftNow.length} {t('dash.staffOnline')}
+                        </p>
+                    </div>
+                </div>
 
-                        <div className={`glass-card w-full p-8 rounded-[40px] relative z-10 transition-all duration-500 transform group-hover:translate-y-[-5px] shadow-2xl backdrop-blur-2xl bg-white/5 ${currentStyle.glassBorder}`}>
-                            
-                            {/* Top Row: Icon & Status Label */}
-                            <div className="flex justify-between items-start mb-10">
-                                <div className={`w-20 h-20 rounded-3xl flex items-center justify-center text-4xl shadow-2xl animate-float-icon ring-4 ring-white/10 ${currentStyle.iconBg}`}>
-                                    {heroInfo.mode === 'active' ? <i className="fas fa-bolt"></i> : 
-                                     heroInfo.mode === 'late' ? <i className="fas fa-exclamation-triangle"></i> :
-                                     heroInfo.mode === 'leave' ? <i className="fas fa-umbrella-beach"></i> :
-                                     heroInfo.mode === 'absent' ? <i className="fas fa-user-times"></i> :
-                                     heroInfo.mode === 'upcoming' ? <i className="fas fa-hourglass-half"></i> :
-                                     <i className="fas fa-moon"></i>}
-                                </div>
-                                <div className="text-right">
-                                    <span className={`inline-block px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest border shadow-lg backdrop-blur-md ${currentStyle.badge}`}>
-                                        {heroInfo.mode === 'active' ? 'On Duty' : heroInfo.mode}
-                                    </span>
-                                </div>
+                {/* Metric 3: Shift Market */}
+                <div 
+                    onClick={() => navigate('/user/market')}
+                    className={`p-3.5 sm:p-4 rounded-2xl border transition-all cursor-pointer flex items-center gap-3 group shadow-md ${
+                        isDark 
+                            ? 'border-slate-700/80 hover:border-amber-500/50 bg-slate-800/90 hover:bg-slate-750 text-white' 
+                            : 'border-slate-200 hover:border-amber-500 bg-white hover:bg-slate-50 text-slate-800 hover:shadow-lg'
+                    }`}
+                >
+                    <div className={`w-10 h-10 rounded-2xl border flex items-center justify-center text-lg group-hover:scale-110 transition-transform shrink-0 shadow-inner ${
+                        isDark ? 'bg-amber-500/20 border-amber-500/30 text-amber-400' : 'bg-amber-50 border-amber-200 text-amber-600'
+                    }`}>
+                        <i className="fas fa-store"></i>
+                    </div>
+                    <div className="min-w-0">
+                        <p className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('dash.marketShifts')}</p>
+                        <p className={`text-xs sm:text-sm font-black truncate font-mono mt-0.5 ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>
+                            {openShiftsCount} {t('dash.openAvailable')}
+                        </p>
+                    </div>
+                </div>
+
+                {/* Metric 4: Incoming Requests */}
+                <div 
+                    onClick={() => navigate('/user/incoming')}
+                    className={`p-3.5 sm:p-4 rounded-2xl border transition-all cursor-pointer flex items-center gap-3 group shadow-md ${
+                        isDark 
+                            ? 'border-slate-700/80 hover:border-rose-500/50 bg-slate-800/90 hover:bg-slate-750 text-white' 
+                            : 'border-slate-200 hover:border-rose-500 bg-white hover:bg-slate-50 text-slate-800 hover:shadow-lg'
+                    }`}
+                >
+                    <div className={`w-10 h-10 rounded-2xl border flex items-center justify-center text-lg group-hover:scale-110 transition-transform shrink-0 shadow-inner ${
+                        isDark ? 'bg-rose-500/20 border-rose-500/30 text-rose-400' : 'bg-rose-50 border-rose-200 text-rose-600'
+                    }`}>
+                        <i className="fas fa-inbox"></i>
+                    </div>
+                    <div className="min-w-0">
+                        <p className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('dash.incomingReqs')}</p>
+                        <p className={`text-xs sm:text-sm font-black truncate font-mono mt-0.5 ${isDark ? 'text-rose-300' : 'text-rose-700'}`}>
+                            {incomingCount} {t('dash.pendingAction')}
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            {/* 3. APP LAUNCHPAD (BENTO GRID OF MODULES) */}
+            <section className="pt-2">
+                <div className="flex items-center justify-between mb-4 px-1">
+                    <h3 className={`text-sm sm:text-base font-black uppercase tracking-wider flex items-center gap-2 ${
+                        isDark ? 'text-white/90' : 'text-slate-800'
+                    }`}>
+                        <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_10px_#22d3ee]"></span>
+                        <span>{t('dash.portalTitle')}</span>
+                    </h3>
+                    <span className={`text-xs font-mono font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {menuItems.length} {t('dash.availableServices')}
+                    </span>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5 animate-fade-in-up">
+                    {menuItems.map((item) => (
+                        <button
+                            key={item.id}
+                            onClick={() => navigate(item.path)}
+                            className={`group relative rounded-3xl p-4 sm:p-5 border transition-all duration-300 flex flex-col items-center justify-center text-center h-44 sm:h-48 overflow-hidden cursor-pointer select-none active:scale-[0.97]
+                                ${isDark 
+                                    ? 'bg-slate-800/90 hover:bg-slate-750 border-slate-700/80 hover:border-cyan-500/50 shadow-lg hover:shadow-[0_15px_35px_rgba(0,0,0,0.4)]' 
+                                    : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-blue-400 shadow-sm hover:shadow-xl'
+                                }
+                                ${item.id === 'attendance' ? (isDark ? 'ring-2 ring-emerald-500/40 bg-slate-800' : 'ring-2 ring-emerald-500/40 bg-emerald-50/30') : ''}
+                            `}
+                        >
+                            {/* Ambient gradient glow on hover */}
+                            <div className={`absolute inset-0 bg-gradient-to-br ${item.gradient} opacity-0 group-hover:opacity-15 transition-opacity duration-500 pointer-events-none`} />
+
+                            {/* Badge in top corner */}
+                            {item.badge ? (
+                                <span className="absolute top-3 right-3 rtl:right-auto rtl:left-3 px-2.5 py-0.5 bg-rose-600 text-white text-[11px] font-black rounded-full border border-rose-400 shadow-md animate-bounce z-20">
+                                    {item.badge}
+                                </span>
+                            ) : (item as any).badgeText ? (
+                                <span className="absolute top-3 right-3 rtl:right-auto rtl:left-3 px-2 py-0.5 bg-emerald-500/20 text-emerald-300 text-[10px] font-bold rounded-full border border-emerald-500/30 z-20">
+                                    {(item as any).badgeText}
+                                </span>
+                            ) : null}
+
+                            {/* Center Icon - BIGGER AND CENTERED IN THE BOX */}
+                            <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-2xl sm:rounded-3xl flex items-center justify-center text-3xl sm:text-4xl shadow-xl transition-all duration-300 group-hover:scale-110 group-hover:rotate-2 bg-gradient-to-br ${item.gradient} text-white shrink-0 mb-3 relative z-10`}>
+                                <i className={`fas ${item.icon}`}></i>
                             </div>
 
-                            {/* Middle: Big Title */}
-                            <div className="mb-8">
-                                <h3 className="text-4xl lg:text-5xl font-black text-white leading-[0.9] mb-2 tracking-tight">{heroInfo.title}</h3>
-                                <p className={`text-sm font-bold uppercase tracking-[0.15em] opacity-90 ${currentStyle.subText}`}>
-                                    {heroInfo.subtitle}
+                            {/* Center Title & Subtitle */}
+                            <div className="relative z-10 w-full flex flex-col items-center text-center px-1">
+                                <h4 className={`font-black text-sm sm:text-base leading-snug text-center transition-colors ${
+                                    isDark ? 'text-white group-hover:text-cyan-200' : 'text-slate-800 group-hover:text-blue-600'
+                                }`}>
+                                    {item.title}
+                                </h4>
+                                <p className={`text-[11px] sm:text-xs mt-1 font-medium text-center line-clamp-1 transition-colors ${
+                                    isDark ? 'text-slate-300/80 group-hover:text-white' : 'text-slate-500 group-hover:text-slate-800'
+                                }`}>
+                                    {item.subtitle}
                                 </p>
                             </div>
-
-                            {/* Bottom: Location & Action */}
-                            <div className="flex items-center justify-between pt-6 border-t border-white/10">
-                                <div className="flex items-center gap-3 text-white/80 bg-white/5 px-4 py-2 rounded-xl border border-white/5">
-                                    <i className="fas fa-map-marker-alt text-lg text-white"></i>
-                                    <span className="text-xs font-bold tracking-wide">{heroInfo.location || 'Unknown'}</span>
-                                </div>
-                                
-                                {heroInfo.mode === 'active' || heroInfo.mode === 'late' ? (
-                                    <button onClick={() => navigate('/attendance-punch')} className={`w-14 h-14 rounded-full flex items-center justify-center hover:scale-110 transition-transform animate-pulse group-hover:animate-none ${currentStyle.button}`}>
-                                        <i className="fas fa-fingerprint text-2xl"></i>
-                                    </button>
-                                ) : (
-                                    <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center border border-white/10">
-                                        <i className="fas fa-check text-white/40"></i>
-                                    </div>
-                                )}
-                            </div>
-
-                        </div>
-                    </div>
+                        </button>
+                    ))}
                 </div>
+            </section>
 
-            </div>
-        </div>
+        </main>
 
-        {/* --- MAIN MENU GRID --- */}
-        <div className="max-w-5xl mx-auto px-4 -mt-16 pb-12 relative z-20">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 animate-fade-in-up">
-                {menuItems.map((item) => (
-                    <button
-                        key={item.id}
-                        onClick={() => navigate(item.path)}
-                        className={`group bg-white rounded-[24px] p-5 shadow-lg shadow-slate-200/50 border border-slate-100 flex flex-col items-start justify-between text-right relative overflow-hidden transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 h-36 z-10`}
-                    >
-                        {/* Gradient Mesh bg on hover */}
-                        <div className={`absolute inset-0 bg-gradient-to-br ${item.gradient} opacity-0 group-hover:opacity-10 transition-opacity duration-500`}></div>
-                        
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl shadow-inner mb-3 transition-transform group-hover:scale-110 group-hover:rotate-6 bg-gradient-to-br ${item.gradient} text-white`}>
-                            <i className={`fas ${item.icon}`}></i>
-                        </div>
-                        
-                        <div className="relative z-10 w-full">
-                            <h3 className="font-bold text-lg text-slate-800 leading-tight group-hover:text-blue-900 transition-colors">{item.title}</h3>
-                            <p className="text-[10px] text-slate-400 mt-1 font-medium group-hover:text-slate-600">{item.subtitle}</p>
-                        </div>
-
-                        {item.badge ? (
-                            <span className="absolute top-4 right-4 w-6 h-6 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white shadow-md animate-bounce">
-                                {item.badge}
-                            </span>
-                        ) : null}
-                    </button>
-                ))}
-            </div>
-        </div>
-
- {/* Floating On Shift Widget */}
-            <div className={`fixed bottom-6 left-6 z-40 transition-all duration-300 ${onShiftNow.length > 0 || isShiftWidgetOpen ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'}`}>
-                <div className={`bg-white/95 backdrop-blur-md shadow-2xl border border-slate-200 transition-all duration-300 overflow-hidden ${isShiftWidgetOpen ? 'rounded-3xl w-80' : 'rounded-full w-auto hover:scale-105'}`}>
-                    
-                    <div 
-                        onClick={() => setIsShiftWidgetOpen(!isShiftWidgetOpen)}
-                        className={`cursor-pointer flex items-center justify-between p-3 ${isShiftWidgetOpen ? 'bg-slate-50 border-b border-slate-100' : 'bg-slate-900 text-white px-5 py-3'}`}
-                    >
-                        <div className="flex items-center gap-2">
-                            <span className="relative flex h-2.5 w-2.5">
-                            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isShiftWidgetOpen ? 'bg-cyan-500' : 'bg-emerald-400'}`}></span>
-                            <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isShiftWidgetOpen ? 'bg-cyan-600' : 'bg-emerald-500'}`}></span>
-                            </span>
-                            <h4 className={`font-black text-sm uppercase tracking-wide ${isShiftWidgetOpen ? 'text-slate-800' : 'text-white'}`}>{t('dash.onShift')}</h4>
-                        </div>
-                        
-                        {isShiftWidgetOpen ? (
-                            <i className="fas fa-chevron-down text-slate-400 text-xs"></i>
-                        ) : (
-                            <span className="ml-3 text-xs font-bold bg-white/20 px-2 py-0.5 rounded-full">{onShiftNow.length}</span>
-                        )}
+        {/* --- 4. FLOATING / SLIDING "WHO'S ON SHIFT" WIDGET --- */}
+        {/* Placed opposite to the sidebar: in RTL (sidebar on right) -> place on LEFT; in LTR (sidebar on left) -> place on RIGHT */}
+        <div className={`fixed bottom-5 ${dir === 'rtl' ? 'left-4 sm:left-6' : 'right-4 sm:right-6'} z-[9990] transition-all duration-300 ${onShiftNow.length > 0 || isShiftWidgetOpen ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'}`}>
+            <div className={`backdrop-blur-2xl transition-all duration-300 overflow-hidden ${
+                isDark 
+                    ? 'bg-slate-900/95 shadow-[0_20px_50px_rgba(0,0,0,0.85)] border border-white/15' 
+                    : 'bg-white/95 shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-slate-300'
+            } ${isShiftWidgetOpen ? 'rounded-3xl w-[calc(100vw-32px)] sm:w-84' : 'rounded-full hover:scale-105'}`}>
+                
+                {/* Header Bar / Capsule Toggle */}
+                <div 
+                    onClick={() => setIsShiftWidgetOpen(!isShiftWidgetOpen)}
+                    className={`cursor-pointer flex items-center justify-between select-none ${
+                        isShiftWidgetOpen 
+                            ? (isDark ? 'p-3.5 bg-slate-950/80 border-b border-white/10' : 'p-3.5 bg-slate-100 border-b border-slate-200') 
+                            : (isDark ? 'px-4 py-2.5 bg-slate-900 border border-white/20 text-white shadow-xl' : 'px-4 py-2.5 bg-white border border-slate-300 text-slate-800 shadow-xl')
+                    }`}
+                >
+                    <div className="flex items-center gap-2.5">
+                        <span className="relative flex h-2.5 w-2.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-400"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
+                        </span>
+                        <h4 className={`font-black text-xs sm:text-sm uppercase tracking-wider ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                            {t('dash.onShift')}
+                        </h4>
                     </div>
                     
-                    {isShiftWidgetOpen && (
-                        <div className="flex flex-col">
-                            {/* Filter Toggle */}
-                            <div className="flex p-2 bg-slate-50 border-b border-slate-100 gap-1">
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); setShiftFilterMode('present'); }} 
-                                    className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${shiftFilterMode === 'present' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
-                                >
-                                    <i className="fas fa-check-circle mr-1"></i> {t('dash.filterActive')}
-                                </button>
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); setShiftFilterMode('all'); }} 
-                                    className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${shiftFilterMode === 'all' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
-                                >
-                                    <i className="fas fa-list mr-1"></i> {t('dash.filterAll')}
-                                </button>
-                            </div>
+                    {isShiftWidgetOpen ? (
+                        <i className={`fas fa-chevron-down text-xs ${isDark ? 'text-white/50' : 'text-slate-400'}`}></i>
+                    ) : (
+                        <span className="ml-2.5 rtl:ml-0 rtl:mr-2.5 text-xs font-mono font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                            {onShiftNow.length}
+                        </span>
+                    )}
+                </div>
+                
+                {/* Expanded Drawer Content */}
+                {isShiftWidgetOpen && (
+                    <div className="flex flex-col">
+                        
+                        {/* Filter Toggle */}
+                        <div className={`flex p-2 border-b gap-1.5 ${isDark ? 'bg-slate-950/50 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setShiftFilterMode('present'); }} 
+                                className={`flex-1 py-1.5 text-[10px] font-bold rounded-xl transition-all cursor-pointer ${
+                                    shiftFilterMode === 'present' 
+                                        ? 'bg-emerald-500 text-slate-950 font-black shadow-md' 
+                                        : (isDark ? 'text-white/60 hover:text-white hover:bg-white/5' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60')
+                                }`}
+                            >
+                                <i className="fas fa-check-circle mr-1"></i> {t('dash.filterActive')}
+                            </button>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setShiftFilterMode('all'); }} 
+                                className={`flex-1 py-1.5 text-[10px] font-bold rounded-xl transition-all cursor-pointer ${
+                                    shiftFilterMode === 'all' 
+                                        ? 'bg-cyan-500 text-slate-950 font-black shadow-md' 
+                                        : (isDark ? 'text-white/60 hover:text-white hover:bg-white/5' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60')
+                                }`}
+                            >
+                                <i className="fas fa-list mr-1"></i> {t('dash.filterAll')}
+                            </button>
+                        </div>
 
-                            <div className="space-y-1 max-h-[300px] overflow-y-auto custom-scrollbar-dark p-2">
-                                {onShiftNow.length === 0 ? (
-                                    <div className="text-center py-4 text-xs text-slate-400">{t('dash.noActiveStaff')}</div>
-                                ) : (
-                                    onShiftNow.map((p, i) => (
-                                        <div key={i} className={`flex items-center justify-between p-2 rounded-xl transition-colors ${p.role === 'doctor' ? 'bg-cyan-50 border border-cyan-100' : 'hover:bg-slate-50'}`}>
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex items-center gap-1">
-                                                    {p.role !== 'doctor' && (
-                                                    <div
-                                                        className={`w-2 h-2 rounded-full mr-1 ${
-                                                        p.isPresent ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
-                                                        }`}
-                                                    ></div>
-                                                    )}
-
-                                                    <span className={`font-bold text-xs truncate max-w-[100px] ${p.role === 'doctor' ? 'text-cyan-900' : 'text-slate-700'}`}>
-                                                        {p.name}
+                        {/* Staff List */}
+                        <div className="space-y-1.5 max-h-[300px] overflow-y-auto custom-scrollbar-dark p-2.5">
+                            {onShiftNow.length === 0 ? (
+                                <div className={`text-center py-6 text-xs ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
+                                    <i className="far fa-user-slash text-xl mb-2 block opacity-40"></i>
+                                    {t('dash.noActiveStaff')}
+                                </div>
+                            ) : (
+                                onShiftNow.map((p, i) => (
+                                    <div key={i} className={`flex items-center justify-between p-2.5 rounded-2xl transition-colors border ${
+                                        p.role === 'doctor' 
+                                            ? (isDark ? 'bg-cyan-950/30 border-cyan-500/30' : 'bg-cyan-50 border-cyan-200') 
+                                            : (isDark ? 'bg-white/5 border-white/5 hover:bg-white/10' : 'bg-slate-50 border-slate-200 hover:bg-slate-100')
+                                    }`}>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-1.5">
+                                                {p.role !== 'doctor' && (
+                                                    <div className={`w-2 h-2 rounded-full shrink-0 ${p.isPresent ? 'bg-emerald-400 shadow-[0_0_6px_#34d399] animate-pulse' : (isDark ? 'bg-white/30' : 'bg-slate-300')}`}></div>
+                                                )}
+                                                <span className={`font-bold text-xs truncate max-w-[130px] ${
+                                                    p.role === 'doctor' 
+                                                        ? (isDark ? 'text-cyan-200' : 'text-cyan-800') 
+                                                        : (isDark ? 'text-white' : 'text-slate-900')
+                                                }`}>
+                                                    {p.name}
+                                                </span>
+                                                {p.role === 'doctor' && <i className="fas fa-user-md text-[10px] text-cyan-400 shrink-0"></i>}
+                                                {p.isPP && (
+                                                    <span className="shrink-0 text-[8px] bg-amber-400 text-black px-1 rounded font-black border border-amber-600 shadow-sm" title="Portable & Procedure">
+                                                        PP
                                                     </span>
-                                                    {p.role === 'doctor' && <i className="fas fa-user-md text-[10px] text-cyan-500 shrink-0"></i>}
-                                                    {p.isPP && (
-                                                        <span className="shrink-0 text-[9px] bg-yellow-400 text-black px-1 rounded font-black border border-yellow-600 shadow-sm" title="Portable & Procedure">
-                                                            PP
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <span className="text-[10px] text-slate-400 block truncate max-w-[150px] pl-3">{p.location}</span>
+                                                )}
                                             </div>
-                                            <div className="flex flex-col items-end gap-1 pl-2">
-                                                <div className="text-[9px] bg-slate-100 px-2 py-1 rounded text-slate-500 font-mono whitespace-nowrap">
-                                                    {p.time}
-                                                </div>
-                                                {/* VISIBLE STATUS INDICATOR */}
+                                            <span className={`text-[10px] block truncate max-w-[150px] pl-3 rtl:pl-0 rtl:pr-3 mt-0.5 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>{p.location}</span>
+                                        </div>
+
+                                        <div className="flex flex-col items-end gap-1 shrink-0">
+                                            <span className={`text-[9px] px-2 py-0.5 rounded-lg font-mono ${isDark ? 'bg-black/40 text-white/70' : 'bg-slate-200 text-slate-700'}`}>
+                                                {p.time}
+                                            </span>
+                                            <div className="flex items-center gap-1">
                                                 {p.role !== 'doctor' && (
                                                     p.isPresent ? (
-                                                        <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
-                                                        <i className="fas fa-check-circle text-[8px]"></i> {t('status.in')}
+                                                        <span className="text-[8px] font-bold text-emerald-300 bg-emerald-500/20 px-1.5 py-0.5 rounded-md border border-emerald-500/30 flex items-center gap-1">
+                                                            <i className="fas fa-check text-[7px]"></i> {t('status.in')}
                                                         </span>
                                                     ) : (
-                                                        <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
-                                                        {t('status.notyet')}
+                                                        <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-md border ${
+                                                            isDark ? 'text-white/40 bg-white/5 border-white/10' : 'text-slate-500 bg-slate-100 border-slate-300'
+                                                        }`}>
+                                                            {t('status.notyet')}
                                                         </span>
                                                     )
-                                                    )}
+                                                )}
                                                 {p.phone && (
                                                     <a 
                                                         href={`tel:${p.phone}`}
-                                                        className="ml-1 w-5 h-5 flex items-center justify-center rounded-full bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors shadow-sm"
+                                                        className="w-5 h-5 flex items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/40 border border-emerald-500/30 transition-colors cursor-pointer"
                                                         title={t('dash.call')}
                                                     >
-                                                        <i className="fas fa-phone text-[10px]"></i>
+                                                        <i className="fas fa-phone text-[9px]"></i>
                                                     </a>
                                                 )}
                                             </div>
                                         </div>
-                                    ))
-                                )}
-                            </div>
+                                    </div>
+                                ))
+                            )}
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
+        </div>
 
-{/* --- هذا الجزء يوضع في نهاية الملف قبل إغلاق آخر div --- */}
+        {/* --- 5. LOCATION CODE GENERATED MODAL --- */}
         {generatedCode && (
             <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-300">
-                {/* خلفية معتمة تغطي الشاشة بالكامل */}
                 <div 
-                    className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl"
+                    className={`absolute inset-0 backdrop-blur-2xl ${isDark ? 'bg-slate-950/90' : 'bg-slate-900/60'}`}
                     onClick={() => setGeneratedCode(null)}
                 ></div>
 
-                {/* صندوق الكود العائم - عناصر تحت بعض للجوال */}
-                <div className="relative w-full max-w-[320px] bg-slate-900 border border-cyan-500/40 rounded-[2.5rem] p-8 flex flex-col items-center shadow-[0_0_50px_rgba(6,182,212,0.2)] animate-in zoom-in-95 duration-200">
+                <div className={`relative w-full max-w-[340px] border rounded-[2.5rem] p-7 flex flex-col items-center animate-in zoom-in-95 duration-200 ${
+                    isDark 
+                        ? 'bg-slate-900 border-cyan-500/40 shadow-[0_0_60px_rgba(6,182,212,0.25)]' 
+                        : 'bg-white border-slate-300 shadow-2xl'
+                }`}>
                     
-                    {/* أيقونة علوية */}
-                    <div className="w-20 h-20 rounded-3xl bg-cyan-500/20 flex items-center justify-center mb-6 shadow-inner border border-cyan-500/30">
-                        <i className="fas fa-qrcode text-4xl text-cyan-400 animate-pulse"></i>
+                    <div className={`w-18 h-18 rounded-3xl flex items-center justify-center mb-5 shadow-inner border ${
+                        isDark ? 'bg-cyan-500/15 border-cyan-500/30' : 'bg-blue-50 border-blue-200'
+                    }`}>
+                        <i className={`fas fa-qrcode text-4xl animate-pulse ${isDark ? 'text-cyan-400' : 'text-blue-600'}`}></i>
                     </div>
 
-                    <h3 className="text-white font-black text-xl mb-2 tracking-wide">{t('user.code')}</h3>
-                    <p className="text-slate-400 text-xs text-center mb-6 font-medium leading-relaxed">
-                        أظهر هذا الكود للمشرف لتأكيد تواجدك في الموقع
+                    <h3 className={`font-black text-xl mb-1.5 tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{t('user.code')}</h3>
+                    <p className={`text-xs text-center mb-5 font-medium leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                        أظهر هذا الكود للمشرف لتأكيد تواجدك الجغرافي بالقسم
                     </p>
 
-                    {/* الكود نفسه */}
-                    <div className="w-full bg-black/50 rounded-2xl p-4 border border-cyan-500/20 flex items-center justify-center gap-3 mb-6 group cursor-pointer relative overflow-hidden" 
-                         onClick={() => { navigator.clipboard.writeText(generatedCode); setToast({msg: 'تم النسخ', type: 'success'}) }}>
-                        
+                    <div 
+                        className={`w-full rounded-2xl p-4 border flex items-center justify-between gap-2 mb-5 group cursor-pointer relative overflow-hidden ${
+                            isDark ? 'bg-black/60 border-cyan-500/30' : 'bg-slate-100 border-slate-300'
+                        }`} 
+                        onClick={() => { 
+                            navigator.clipboard.writeText(generatedCode); 
+                            setToast({msg: 'تم نسخ الكود بنجاح', type: 'success'}); 
+                        }}
+                    >
                         <div className="absolute inset-0 bg-cyan-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                        
-                        <code className="text-cyan-300 font-mono font-bold text-lg tracking-wider break-all text-center line-clamp-1">
+                        <code className={`font-mono font-bold text-base tracking-wider break-all line-clamp-1 ${isDark ? 'text-cyan-300' : 'text-blue-700'}`}>
                             {generatedCode}
                         </code>
-                        <i className="far fa-copy text-slate-500 group-hover:text-cyan-400 transition-colors"></i>
+                        <i className={`far fa-copy text-sm shrink-0 ${isDark ? 'text-white/50 group-hover:text-cyan-400' : 'text-slate-500 group-hover:text-blue-600'}`}></i>
                     </div>
 
                     <button 
                         onClick={() => setGeneratedCode(null)}
-                        className="w-full py-4 rounded-2xl bg-slate-800 text-white font-bold text-sm hover:bg-slate-700 transition-all border border-slate-700 shadow-lg"
+                        className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-xs shadow-lg transition-all cursor-pointer"
                     >
                         {t('close')}
                     </button>

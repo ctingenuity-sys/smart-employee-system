@@ -9,6 +9,7 @@ import Loading from '../../components/Loading';
 import Modal from '../../components/Modal';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDepartment } from '../../contexts/DepartmentContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import { PrintHeader, PrintFooter } from '../../components/PrintLayout';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
@@ -197,6 +198,7 @@ interface DetailedMonthData {
 
 const SupervisorRotation: React.FC = () => {
     const { t, dir } = useLanguage();
+    const { isDark } = useTheme();
     const navigate = useNavigate();
     const { selectedDepartmentId, departments } = useDepartment();
     const [loading, setLoading] = useState(true);
@@ -917,7 +919,7 @@ const SupervisorRotation: React.FC = () => {
     if (loading) return <Loading />;
 
     return (
-        <div className="min-h-screen bg-slate-50 pb-20 font-sans" dir={dir}>
+        <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'} pb-20 font-sans print:bg-white print:text-black`} dir={dir}>
             
             <PrintHeader title={`Staff Rotation: ${viewType === 'general' ? 'General' : 'Friday Shifts'}`} subtitle={`Rotation Matrix (${startMonth} -> ${endMonth})`} themeColor={viewType === 'friday' ? 'teal' : 'slate'} />
 
@@ -926,12 +928,12 @@ const SupervisorRotation: React.FC = () => {
                 {/* Header Area */}
                 <div className="flex flex-col lg:flex-row justify-between items-center mb-6 gap-4 print:hidden">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => navigate('/supervisor')} className="w-11 h-11 rounded-2xl bg-white shadow-sm flex items-center justify-center text-slate-400 hover:text-slate-800 transition-all border border-slate-200 hover:border-slate-400 cursor-pointer">
+                        <button onClick={() => navigate('/supervisor')} className={`w-11 h-11 rounded-2xl shadow-sm flex items-center justify-center transition-all border cursor-pointer ${isDark ? 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700' : 'bg-white border-slate-200 text-slate-400 hover:text-slate-800 hover:border-slate-400'}`}>
                             <i className="fas fa-arrow-left rtl:rotate-180"></i>
                         </button>
                         <div>
                             <div className="flex items-center gap-2">
-                                <h1 className="text-2xl font-black text-slate-900 tracking-tight">{t('nav.rotation')}</h1>
+                                <h1 className={`text-2xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{t('nav.rotation')}</h1>
                                 <button
                                     onClick={() => {
                                         const defaultDuty = availableDuties.find(d => d.toLowerCase().includes('port')) || availableDuties[0] || 'PORTABLE';
@@ -944,21 +946,21 @@ const SupervisorRotation: React.FC = () => {
                                     <span>{dir === 'rtl' ? '🎯 مين عليه الدور؟' : '🎯 Turn Assistant'}</span>
                                 </button>
                             </div>
-                            <p className="text-xs text-slate-500 font-bold opacity-80">{t('rot.subtitle')}</p>
+                            <p className={`text-xs font-bold opacity-80 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('rot.subtitle')}</p>
                         </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-3 bg-white p-2.5 rounded-[2rem] shadow-sm border border-slate-200 w-full lg:w-auto">
-                        <div className="flex bg-slate-100 p-1 rounded-xl">
+                    <div className={`flex flex-wrap items-center gap-3 p-2.5 rounded-[2rem] shadow-sm border w-full lg:w-auto ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                        <div className={`flex p-1 rounded-xl ${isDark ? 'bg-slate-800/80' : 'bg-slate-100'}`}>
                              <button 
                                 onClick={() => setViewType('general')}
-                                className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${viewType === 'general' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                                className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${viewType === 'general' ? (isDark ? 'bg-slate-700 text-indigo-300 shadow-sm' : 'bg-white text-indigo-600 shadow-sm') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-400 hover:text-slate-600')}`}
                              >
                                 <i className="fas fa-th-large"></i> {t('rot.filter.general')}
                              </button>
                              <button 
                                 onClick={() => setViewType('friday')}
-                                className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${viewType === 'friday' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                                className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${viewType === 'friday' ? (isDark ? 'bg-slate-700 text-teal-300 shadow-sm' : 'bg-white text-teal-600 shadow-sm') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-400 hover:text-slate-600')}`}
                              >
                                 <i className="fas fa-calendar-day"></i> {t('rot.filter.friday')}
                              </button>
@@ -967,19 +969,19 @@ const SupervisorRotation: React.FC = () => {
                         <div className="relative flex-1 lg:flex-none">
                             <i className="fas fa-search absolute top-2.5 left-3 text-slate-400 text-xs"></i>
                             <input 
-                                className="pl-9 pr-3 py-1.5 bg-slate-50 rounded-xl text-xs font-bold border-none outline-none focus:ring-2 focus:ring-indigo-100 w-full lg:w-36 transition-all"
+                                className={`pl-9 pr-3 py-1.5 rounded-xl text-xs font-bold border-none outline-none focus:ring-2 focus:ring-indigo-100 w-full lg:w-36 transition-all ${isDark ? 'bg-slate-800 text-slate-100 placeholder-slate-500' : 'bg-slate-50 text-slate-800'}`}
                                 placeholder={t('search')}
                                 value={searchQuery}
                                 onChange={e => setSearchQuery(e.target.value)}
                             />
                         </div>
 
-                        <div className="h-6 w-px bg-slate-200 hidden lg:block"></div>
+                        <div className={`h-6 w-px hidden lg:block ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`}></div>
 
                         {/* Flexible Month Range Controls */}
                         <div className="flex flex-wrap items-center gap-2">
                             <select 
-                                className="bg-slate-50 border border-slate-200 rounded-xl py-1.5 px-3 text-xs font-bold text-slate-700 cursor-pointer focus:ring-2 focus:ring-indigo-100 outline-none"
+                                className={`border rounded-xl py-1.5 px-3 text-xs font-bold cursor-pointer focus:ring-2 focus:ring-indigo-100 outline-none ${isDark ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
                                 value={preset}
                                 onChange={e => handlePresetChange(e.target.value)}
                             >
@@ -992,11 +994,11 @@ const SupervisorRotation: React.FC = () => {
                                 <option value="custom">{dir === 'rtl' ? 'نطاق مخصص...' : 'Custom Range...'}</option>
                             </select>
 
-                            <div className="flex items-center gap-1.5 bg-slate-50 p-1 border border-slate-200 rounded-xl">
+                            <div className={`flex items-center gap-1.5 p-1 border rounded-xl ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
                                 <span className="text-[10px] text-slate-400 font-bold px-1">{dir === 'rtl' ? 'من' : 'From'}</span>
                                 <input 
                                     type="month" 
-                                    className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                                    className={`border rounded-lg px-2 py-1 text-xs font-bold outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-700 border-slate-600 text-slate-100' : 'bg-white border-slate-200 text-slate-700'}`}
                                     value={startMonth}
                                     onChange={e => {
                                         setStartMonth(e.target.value);
@@ -1006,7 +1008,7 @@ const SupervisorRotation: React.FC = () => {
                                 <span className="text-[10px] text-slate-400 font-bold px-1">{dir === 'rtl' ? 'إلى' : 'To'}</span>
                                 <input 
                                     type="month" 
-                                    className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                                    className={`border rounded-lg px-2 py-1 text-xs font-bold outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-700 border-slate-600 text-slate-100' : 'bg-white border-slate-200 text-slate-700'}`}
                                     value={endMonth}
                                     onChange={e => {
                                         setEndMonth(e.target.value);
@@ -1015,24 +1017,24 @@ const SupervisorRotation: React.FC = () => {
                                 />
                             </div>
 
-                            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                            <div className={`flex items-center gap-1 p-1 rounded-xl ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
                                 <button 
                                     onClick={() => handleShiftRange(-1)} 
-                                    className="w-7 h-7 bg-white rounded-lg flex items-center justify-center text-slate-600 hover:text-indigo-600 shadow-sm text-xs font-bold cursor-pointer transition-colors"
+                                    className={`w-7 h-7 rounded-lg flex items-center justify-center shadow-sm text-xs font-bold cursor-pointer transition-colors ${isDark ? 'bg-slate-700 text-slate-200 hover:text-indigo-400' : 'bg-white text-slate-600 hover:text-indigo-600'}`}
                                     title={dir === 'rtl' ? 'إلى الشهر السابق' : 'Shift month back'}
                                 >
                                     <i className="fas fa-chevron-right rtl:rotate-180"></i>
                                 </button>
                                 <button 
                                     onClick={handleResetToCurrent} 
-                                    className="px-2 h-7 bg-white rounded-lg flex items-center justify-center text-[10px] font-black text-indigo-700 shadow-sm hover:bg-indigo-50 cursor-pointer transition-colors"
+                                    className={`px-2 h-7 rounded-lg flex items-center justify-center text-[10px] font-black shadow-sm cursor-pointer transition-colors ${isDark ? 'bg-slate-700 text-indigo-300 hover:bg-slate-600' : 'bg-white text-indigo-700 hover:bg-indigo-50'}`}
                                     title={dir === 'rtl' ? 'الرجوع للفترة الحالية' : 'Reset to current'}
                                 >
                                     {dir === 'rtl' ? 'الآن' : 'Now'}
                                 </button>
                                 <button 
                                     onClick={() => handleShiftRange(1)} 
-                                    className="w-7 h-7 bg-white rounded-lg flex items-center justify-center text-slate-600 hover:text-indigo-600 shadow-sm text-xs font-bold cursor-pointer transition-colors"
+                                    className={`w-7 h-7 rounded-lg flex items-center justify-center shadow-sm text-xs font-bold cursor-pointer transition-colors ${isDark ? 'bg-slate-700 text-slate-200 hover:text-indigo-400' : 'bg-white text-slate-600 hover:text-indigo-600'}`}
                                     title={dir === 'rtl' ? 'إلى الشهر التالي' : 'Shift month forward'}
                                 >
                                     <i className="fas fa-chevron-left rtl:rotate-180"></i>
@@ -1053,14 +1055,14 @@ const SupervisorRotation: React.FC = () => {
 
                             <button 
                                 onClick={() => setInlineReorderMode(prev => !prev)}
-                                className={`px-2.5 h-8 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer shadow-xs ${inlineReorderMode ? 'bg-amber-500 text-slate-950 font-black ring-2 ring-amber-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+                                className={`px-2.5 h-8 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer shadow-xs ${inlineReorderMode ? 'bg-amber-500 text-slate-950 font-black ring-2 ring-amber-300' : (isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700')}`}
                                 title={dir === 'rtl' ? 'تفعيل أزرار الترتيب السريع مباشرة في كل صف' : 'Toggle inline reorder buttons in table'}
                             >
                                 <i className="fas fa-arrows-alt-v text-xs"></i>
                                 <span className="hidden sm:inline">{dir === 'rtl' ? 'أزرار الترتيب' : 'Quick Order'}</span>
                             </button>
 
-                            <button onClick={() => window.print()} className="bg-slate-900 text-white w-8 h-8 rounded-xl flex items-center justify-center hover:bg-black transition-all shadow-md cursor-pointer" title={dir === 'rtl' ? 'طباعة الجدول' : 'Print Table'}>
+                            <button onClick={() => window.print()} className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-md cursor-pointer ${isDark ? 'bg-slate-800 text-slate-200 hover:bg-slate-700' : 'bg-slate-900 text-white hover:bg-black'}`} title={dir === 'rtl' ? 'طباعة الجدول' : 'Print Table'}>
                                 <i className="fas fa-print text-xs"></i>
                             </button>
                         </div>
@@ -1068,7 +1070,7 @@ const SupervisorRotation: React.FC = () => {
                 </div>
 
                 {/* Legend & Interactive Duty Click Area */}
-                <div className="flex flex-wrap items-center justify-between gap-4 mb-5 print:hidden bg-white/70 backdrop-blur-sm p-4 rounded-2xl border border-slate-200">
+                <div className={`flex flex-wrap items-center justify-between gap-4 mb-5 print:hidden p-4 rounded-2xl border ${isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-white/70 backdrop-blur-sm border-slate-200'}`}>
                     <div className="flex flex-wrap items-center gap-3">
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
                             <i className="fas fa-hand-pointer text-indigo-500"></i>
@@ -1108,7 +1110,7 @@ const SupervisorRotation: React.FC = () => {
                                     </button>
                                     <button 
                                         onClick={() => handleSelectAndHighlightDuty('Night Shift')} 
-                                        className={`flex items-center gap-1.5 text-[10px] font-black px-3 py-1.5 rounded-lg shadow-sm cursor-pointer transition-all hover:scale-105 ${highlightDuty?.toLowerCase().includes('night') ? 'bg-slate-900 text-amber-300 ring-2 ring-amber-400 ring-offset-1 scale-105 shadow-md' : 'bg-slate-900 hover:bg-black text-white'}`}
+                                        className={`flex items-center gap-1.5 text-[10px] font-black px-3 py-1.5 rounded-lg shadow-sm cursor-pointer transition-all hover:scale-105 ${highlightDuty?.toLowerCase().includes('night') ? 'bg-slate-900 text-amber-300 ring-2 ring-amber-400 ring-offset-1 scale-105 shadow-md' : (isDark ? 'bg-slate-800 hover:bg-slate-700 text-amber-300' : 'bg-slate-900 hover:bg-black text-white')}`}
                                         title={dir === 'rtl' ? 'اضغط لتمييز النوبات الليلية ومعرفة من عليه الدور' : 'Click to highlight Night Shift'}
                                     >
                                         <span>NIGHT</span>
@@ -1142,10 +1144,10 @@ const SupervisorRotation: React.FC = () => {
                     </div>
 
                     {highlightDuty && (
-                        <div className="flex flex-wrap items-center gap-2.5 bg-gradient-to-r from-amber-50 via-amber-100/60 to-amber-50 border border-amber-300 px-3.5 py-1.5 rounded-xl shadow-xs">
-                            <span className="text-xs font-black text-amber-900 flex items-center gap-1.5">
+                        <div className={`flex flex-wrap items-center gap-2.5 border px-3.5 py-1.5 rounded-xl shadow-xs ${isDark ? 'bg-amber-950/40 border-amber-500/50' : 'bg-gradient-to-r from-amber-50 via-amber-100/60 to-amber-50 border-amber-300'}`}>
+                            <span className={`text-xs font-black flex items-center gap-1.5 ${isDark ? 'text-amber-300' : 'text-amber-900'}`}>
                                 <span className="inline-block w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
-                                {dir === 'rtl' ? 'المهمة النشطة:' : 'Active Duty:'} <strong className="text-indigo-900 underline">{highlightDuty}</strong>
+                                {dir === 'rtl' ? 'المهمة النشطة:' : 'Active Duty:'} <strong className={`underline ${isDark ? 'text-amber-200' : 'text-indigo-900'}`}>{highlightDuty}</strong>
                             </span>
 
                             {dutyAnalysis?.topCandidate && (
@@ -1168,7 +1170,7 @@ const SupervisorRotation: React.FC = () => {
                                         setHighlightDuty(null);
                                         setSelectedDuty(null);
                                     }}
-                                    className="text-[10px] bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-2 py-0.5 rounded-md cursor-pointer transition-all"
+                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md cursor-pointer transition-all ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'}`}
                                     title={dir === 'rtl' ? 'إلغاء التمييز' : 'Clear highlight'}
                                 >
                                     <i className="fas fa-times"></i>
@@ -1179,89 +1181,89 @@ const SupervisorRotation: React.FC = () => {
                 </div>
 
                 {/* STAFF CATEGORY TABS (Unified Technical Pool + Other Groups) */}
-                <div className="flex flex-wrap items-center gap-1.5 mb-4 p-1.5 bg-slate-100/80 rounded-2xl border border-slate-200 print:hidden overflow-x-auto">
+                <div className={`flex flex-wrap items-center gap-1.5 mb-4 p-1.5 rounded-2xl border print:hidden overflow-x-auto ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-100/80 border-slate-200'}`}>
                     <span className="text-[10px] font-bold text-slate-400 px-2 flex items-center gap-1">
                         <i className="fas fa-filter"></i>
                         {dir === 'rtl' ? 'عرض الكادر:' : 'Show Staff:'}
                     </span>
                     <button
                         onClick={() => setStaffCategoryFilter('all')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${staffCategoryFilter === 'all' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${staffCategoryFilter === 'all' ? (isDark ? 'bg-slate-800 text-indigo-300 shadow-sm' : 'bg-white text-indigo-700 shadow-sm') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900')}`}
                     >
                         <i className="fas fa-users text-[10px]"></i>
                         <span>{t('rot.cat.all')}</span>
-                        <span className="text-[10px] bg-slate-200/80 text-slate-700 px-1.5 py-0.2 rounded-full font-bold">{users.length}</span>
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-200/80 text-slate-700'}`}>{users.length}</span>
                     </button>
                     <button
                         onClick={() => setStaffCategoryFilter('tech_pool')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${staffCategoryFilter === 'tech_pool' ? 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-300' : 'text-slate-600 hover:text-slate-900'}`}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${staffCategoryFilter === 'tech_pool' ? (isDark ? 'bg-blue-950/80 text-blue-300 shadow-sm ring-1 ring-blue-500' : 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-300') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900')}`}
                     >
-                        <i className="fas fa-cogs text-[10px] text-blue-600"></i>
+                        <i className="fas fa-cogs text-[10px] text-blue-500"></i>
                         <span>{t('rot.cat.techPool')}</span>
-                        <span className="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded-full font-bold">
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${isDark ? 'bg-blue-900/60 text-blue-200' : 'bg-blue-100 text-blue-800'}`}>
                             {users.filter(u => getStaffGroup(u.jobCategory) === 'tech_pool').length}
                         </span>
                     </button>
                     <button
                         onClick={() => setStaffCategoryFilter('doctor')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${staffCategoryFilter === 'doctor' ? 'bg-white text-rose-700 shadow-sm ring-1 ring-rose-300' : 'text-slate-600 hover:text-slate-900'}`}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${staffCategoryFilter === 'doctor' ? (isDark ? 'bg-rose-950/80 text-rose-300 shadow-sm ring-1 ring-rose-500' : 'bg-white text-rose-700 shadow-sm ring-1 ring-rose-300') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900')}`}
                     >
-                        <i className="fas fa-user-md text-[10px] text-rose-600"></i>
+                        <i className="fas fa-user-md text-[10px] text-rose-500"></i>
                         <span>{t('rot.cat.doctors')}</span>
-                        <span className="text-[10px] bg-rose-100 text-rose-800 px-1.5 py-0.2 rounded-full font-bold">
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${isDark ? 'bg-rose-900/60 text-rose-200' : 'bg-rose-100 text-rose-800'}`}>
                             {users.filter(u => getStaffGroup(u.jobCategory) === 'doctor').length}
                         </span>
                     </button>
                     <button
                         onClick={() => setStaffCategoryFilter('usg')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${staffCategoryFilter === 'usg' ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-indigo-300' : 'text-slate-600 hover:text-slate-900'}`}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${staffCategoryFilter === 'usg' ? (isDark ? 'bg-indigo-950/80 text-indigo-300 shadow-sm ring-1 ring-indigo-500' : 'bg-white text-indigo-700 shadow-sm ring-1 ring-indigo-300') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900')}`}
                     >
-                        <i className="fas fa-wave-square text-[10px] text-indigo-600"></i>
+                        <i className="fas fa-wave-square text-[10px] text-indigo-500"></i>
                         <span>{t('rot.cat.usg')}</span>
-                        <span className="text-[10px] bg-indigo-100 text-indigo-800 px-1.5 py-0.2 rounded-full font-bold">
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${isDark ? 'bg-indigo-900/60 text-indigo-200' : 'bg-indigo-100 text-indigo-800'}`}>
                             {users.filter(u => getStaffGroup(u.jobCategory) === 'usg').length}
                         </span>
                     </button>
                     <button
                         onClick={() => setStaffCategoryFilter('nurse')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${staffCategoryFilter === 'nurse' ? 'bg-white text-purple-700 shadow-sm ring-1 ring-purple-300' : 'text-slate-600 hover:text-slate-900'}`}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${staffCategoryFilter === 'nurse' ? (isDark ? 'bg-purple-950/80 text-purple-300 shadow-sm ring-1 ring-purple-500' : 'bg-white text-purple-700 shadow-sm ring-1 ring-purple-300') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900')}`}
                     >
-                        <i className="fas fa-user-nurse text-[10px] text-purple-600"></i>
+                        <i className="fas fa-user-nurse text-[10px] text-purple-500"></i>
                         <span>{t('rot.cat.nursing')}</span>
-                        <span className="text-[10px] bg-purple-100 text-purple-800 px-1.5 py-0.2 rounded-full font-bold">
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${isDark ? 'bg-purple-900/60 text-purple-200' : 'bg-purple-100 text-purple-800'}`}>
                             {users.filter(u => getStaffGroup(u.jobCategory) === 'nurse').length}
                         </span>
                     </button>
                     <button
                         onClick={() => setStaffCategoryFilter('reception')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${staffCategoryFilter === 'reception' ? 'bg-white text-teal-700 shadow-sm ring-1 ring-teal-300' : 'text-slate-600 hover:text-slate-900'}`}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${staffCategoryFilter === 'reception' ? (isDark ? 'bg-teal-950/80 text-teal-300 shadow-sm ring-1 ring-teal-500' : 'bg-white text-teal-700 shadow-sm ring-1 ring-teal-300') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900')}`}
                     >
-                        <i className="fas fa-concierge-bell text-[10px] text-teal-600"></i>
+                        <i className="fas fa-concierge-bell text-[10px] text-teal-500"></i>
                         <span>{t('rot.cat.reception')}</span>
-                        <span className="text-[10px] bg-teal-100 text-teal-800 px-1.5 py-0.2 rounded-full font-bold">
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${isDark ? 'bg-teal-900/60 text-teal-200' : 'bg-teal-100 text-teal-800'}`}>
                             {users.filter(u => getStaffGroup(u.jobCategory) === 'reception').length}
                         </span>
                     </button>
                     <button
                         onClick={() => setStaffCategoryFilter('worker')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${staffCategoryFilter === 'worker' ? 'bg-white text-slate-800 shadow-sm ring-1 ring-slate-400' : 'text-slate-600 hover:text-slate-900'}`}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${staffCategoryFilter === 'worker' ? (isDark ? 'bg-slate-800 text-slate-100 shadow-sm ring-1 ring-slate-600' : 'bg-white text-slate-800 shadow-sm ring-1 ring-slate-400') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900')}`}
                     >
-                        <i className="fas fa-hands-helping text-[10px] text-slate-600"></i>
+                        <i className="fas fa-hands-helping text-[10px] text-slate-400"></i>
                         <span>{t('rot.cat.workers')}</span>
-                        <span className="text-[10px] bg-slate-200 text-slate-800 px-1.5 py-0.2 rounded-full font-bold">
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-800'}`}>
                             {users.filter(u => getStaffGroup(u.jobCategory) === 'worker').length}
                         </span>
                     </button>
                 </div>
 
                 {/* MAIN TABLE */}
-                <div className="bg-white rounded-[2rem] shadow-2xl shadow-slate-200/50 border border-slate-200 overflow-hidden print:shadow-none print:border-2 print:border-black print:rounded-none">
+                <div className={`rounded-[2rem] border overflow-hidden print:shadow-none print:border-2 print:border-black print:rounded-none ${isDark ? 'bg-slate-900 border-slate-800 shadow-2xl shadow-slate-950/50' : 'bg-white border-slate-200 shadow-2xl shadow-slate-200/50'}`}>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse min-w-[900px]">
                             <thead>
-                                <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-100 print:bg-slate-200 print:text-black">
+                                <tr className={`font-bold uppercase border-b print:bg-slate-200 print:text-black ${isDark ? 'bg-slate-800/90 text-slate-300 border-slate-700' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
                                     {/* Sticky Employee Header */}
-                                    <th className={`p-5 min-w-[260px] ${dir === 'rtl' ? 'sticky right-0 shadow-[-6px_0_12px_rgba(0,0,0,0.06)]' : 'sticky left-0 shadow-[6px_0_12px_rgba(0,0,0,0.06)]'} bg-slate-50 z-30 print:bg-slate-200 print:border-black print:shadow-none border-b border-slate-100`}>
+                                    <th className={`p-5 min-w-[260px] ${dir === 'rtl' ? 'sticky right-0 shadow-[-6px_0_12px_rgba(0,0,0,0.06)]' : 'sticky left-0 shadow-[6px_0_12px_rgba(0,0,0,0.06)]'} z-30 print:bg-slate-200 print:border-black print:shadow-none border-b ${isDark ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
                                         <div className="flex items-center gap-2">
                                             <i className="fas fa-id-card text-slate-400"></i>
                                             <span className="tracking-widest text-[11px]">{t('rot.staff')}</span>
@@ -1276,7 +1278,7 @@ const SupervisorRotation: React.FC = () => {
                                         const isFuture = m > currMonth;
 
                                         return (
-                                            <th key={m} className={`p-4 text-center border-b border-slate-100 min-w-[135px] ${isCurrent ? 'bg-indigo-50/70 border-b-2 border-b-indigo-500' : ''}`}>
+                                            <th key={m} className={`p-4 text-center border-b min-w-[135px] ${isDark ? 'border-slate-800' : 'border-slate-100'} ${isCurrent ? (isDark ? 'bg-indigo-950/60 border-b-2 border-b-indigo-500' : 'bg-indigo-50/70 border-b-2 border-b-indigo-500') : ''}`}>
                                                 <div className="flex flex-col items-center">
                                                     <div className="flex items-center gap-1">
                                                         <span className="text-[10px] opacity-60 font-bold">{y}</span>
@@ -1291,7 +1293,7 @@ const SupervisorRotation: React.FC = () => {
                                                             </span>
                                                         )}
                                                     </div>
-                                                    <span className={`text-sm font-black ${isCurrent ? 'text-indigo-700' : isFuture ? 'text-teal-700' : 'text-slate-800'}`}>
+                                                    <span className={`text-sm font-black ${isCurrent ? (isDark ? 'text-indigo-300' : 'text-indigo-700') : isFuture ? (isDark ? 'text-teal-300' : 'text-teal-700') : (isDark ? 'text-slate-200' : 'text-slate-800')}`}>
                                                         {monthName}
                                                     </span>
                                                 </div>
@@ -1299,16 +1301,16 @@ const SupervisorRotation: React.FC = () => {
                                         );
                                     })}
                                     {viewType === 'general' && (
-                                        <th className="p-6 text-center min-w-[150px] bg-slate-100/50 print:hidden">
+                                        <th className={`p-6 text-center min-w-[150px] print:hidden ${isDark ? 'bg-slate-800/80 text-purple-300' : 'bg-slate-100/50 text-purple-700'}`}>
                                             <div className="flex flex-col items-center">
                                                 <i className="fas fa-magic text-purple-500 mb-1"></i>
-                                                <span className="text-[11px] font-black text-purple-700 tracking-tight">{t('rot.suggest')}</span>
+                                                <span className={`text-[11px] font-black tracking-tight ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>{t('rot.suggest')}</span>
                                             </div>
                                         </th>
                                     )}
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-50">
+                            <tbody className={`divide-y ${isDark ? 'divide-slate-800' : 'divide-slate-50'}`}>
                                 {filteredAndSortedUsers.map((user, index) => {
                                     // Group by operational rotation pool (e.g. Technicians & Specialists together)
                                     const prevUser = filteredAndSortedUsers[index - 1];
@@ -1329,7 +1331,7 @@ const SupervisorRotation: React.FC = () => {
                                                         <div className={`w-6 h-6 rounded-full bg-white/40 flex items-center justify-center text-xs shadow-sm`}>
                                                             <i className={`fas ${groupConfig.icon}`}></i>
                                                         </div>
-                                                        <span className="text-xs font-black uppercase tracking-wide">
+                                                        <span className="text-xs font-black uppercase tracking-wide text-white">
                                                             {t(groupConfig.labelKey) || groupConfig.fallbackLabel}
                                                         </span>
                                                     </div>
@@ -1347,18 +1349,18 @@ const SupervisorRotation: React.FC = () => {
                                                 onDragStart={(e) => handleRowDragStart(e, user.id)}
                                                 onDragOver={(e) => handleRowDragOver(e, user.id)}
                                                 onDrop={(e) => handleRowDrop(e, user.id, filteredAndSortedUsers)}
-                                                className={`transition-all group print:break-inside-avoid ${dragOverUserId === user.id ? 'border-t-4 border-indigo-600 bg-indigo-50/80' : ''} ${draggedUserId === user.id ? 'opacity-40' : ''} ${isTopCandidate ? 'bg-amber-50/80 ring-2 ring-amber-400 z-10' : isLastCandidate ? 'bg-indigo-50/50' : 'hover:bg-indigo-50/40'}`}
+                                                className={`transition-all group print:break-inside-avoid ${dragOverUserId === user.id ? 'border-t-4 border-indigo-600 bg-indigo-50/80' : ''} ${draggedUserId === user.id ? 'opacity-40' : ''} ${isTopCandidate ? (isDark ? 'bg-amber-950/40 ring-2 ring-amber-400 z-10' : 'bg-amber-50/80 ring-2 ring-amber-400 z-10') : isLastCandidate ? (isDark ? 'bg-indigo-950/40' : 'bg-indigo-50/50') : (isDark ? 'hover:bg-slate-800/40' : 'hover:bg-indigo-50/40')}`}
                                             >
                                             {/* Employee Sticky Column - Illuminates when candidate */}
-                                            <td className={`p-3 border-r border-slate-100 ${dir === 'rtl' ? 'sticky right-0 shadow-[-6px_0_12px_rgba(0,0,0,0.06)]' : 'sticky left-0 shadow-[6px_0_12px_rgba(0,0,0,0.06)]'} ${isTopCandidate ? 'bg-gradient-to-r from-amber-100 via-amber-50 to-amber-100/80 border-amber-300 ring-2 ring-amber-400' : isLastCandidate ? 'bg-indigo-50/90' : 'bg-white group-hover:bg-indigo-50/70'} z-20 print:border-black print:text-black print:shadow-none transition-all duration-300`}>
+                                            <td className={`p-3 border-r ${isDark ? 'border-slate-800' : 'border-slate-100'} ${dir === 'rtl' ? 'sticky right-0 shadow-[-6px_0_12px_rgba(0,0,0,0.2)]' : 'sticky left-0 shadow-[6px_0_12px_rgba(0,0,0,0.2)]'} ${isDark ? (isTopCandidate ? 'bg-gradient-to-r from-amber-950 via-amber-900/60 to-amber-950 border-amber-500 ring-2 ring-amber-400 text-white' : isLastCandidate ? 'bg-indigo-950/90 text-slate-200' : 'bg-slate-900 group-hover:bg-slate-800/90 text-slate-100') : (isTopCandidate ? 'bg-gradient-to-r from-amber-100 via-amber-50 to-amber-100/80 border-amber-300 ring-2 ring-amber-400' : isLastCandidate ? 'bg-indigo-50/90' : 'bg-white group-hover:bg-indigo-50/70')} z-20 print:border-black print:text-black print:shadow-none transition-all duration-300`}>
                                                 <div className="flex items-center gap-2.5">
                                                     {/* Drag Handle & Order Index */}
                                                     <div 
-                                                        className="flex flex-col items-center justify-center text-slate-400 hover:text-slate-700 cursor-grab active:cursor-grabbing p-1 rounded hover:bg-slate-100 print:hidden select-none"
+                                                        className={`flex flex-col items-center justify-center cursor-grab active:cursor-grabbing p-1 rounded print:hidden select-none ${isDark ? 'text-slate-500 hover:text-slate-300 hover:bg-slate-800' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`}
                                                         title={dir === 'rtl' ? 'اسحب لإعادة ترتيب الموظف' : 'Drag to reorder'}
                                                     >
                                                         <i className="fas fa-grip-vertical text-xs"></i>
-                                                        <span className="text-[9px] font-mono font-bold text-slate-400 mt-0.5">#{filteredAndSortedUsers.findIndex(u => u.id === user.id) + 1}</span>
+                                                        <span className="text-[9px] font-mono font-bold opacity-60 mt-0.5">#{filteredAndSortedUsers.findIndex(u => u.id === user.id) + 1}</span>
                                                     </div>
 
                                                     <div className={`w-9 h-9 rounded-2xl flex items-center justify-center font-black text-sm shadow-sm transition-transform group-hover:scale-105 relative ${isTopCandidate ? 'bg-amber-500 text-white ring-4 ring-amber-300 animate-pulse' : roleBadge.color.split(' ')[0]}`}>
@@ -1370,7 +1372,7 @@ const SupervisorRotation: React.FC = () => {
                                                     </div>
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-center gap-1.5 flex-wrap">
-                                                            <h4 className={`font-black text-sm leading-tight truncate ${isTopCandidate ? 'text-amber-950 font-black text-base' : 'text-slate-900'}`}>{user.name}</h4>
+                                                            <h4 className={`font-black text-sm leading-tight truncate ${isDark ? (isTopCandidate ? 'text-amber-300 font-black text-base' : 'text-slate-100') : (isTopCandidate ? 'text-amber-950 font-black text-base' : 'text-slate-900')}`}>{user.name}</h4>
                                                             {isTopCandidate && (
                                                                 <span className="bg-amber-500 text-slate-950 text-[9px] font-black px-2 py-0.5 rounded-full shadow-xs flex items-center gap-1 animate-bounce">
                                                                     <i className="fas fa-star text-slate-950"></i>
@@ -1378,7 +1380,7 @@ const SupervisorRotation: React.FC = () => {
                                                                 </span>
                                                             )}
                                                             {isLastCandidate && !isTopCandidate && (
-                                                                <span className="bg-slate-200 text-slate-800 text-[8px] font-bold px-1.5 py-0.2 rounded">
+                                                                <span className={`text-[8px] font-bold px-1.5 py-0.2 rounded ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-800'}`}>
                                                                     {dir === 'rtl' ? 'آخر من استلم' : 'Last Assigned'}
                                                                 </span>
                                                             )}
@@ -1388,7 +1390,7 @@ const SupervisorRotation: React.FC = () => {
                                                                 {dir === 'rtl' ? roleBadge.ar : roleBadge.en}
                                                             </span>
                                                             {isTopCandidate && highlightDuty && (
-                                                                <span className="text-[10px] font-bold text-amber-800">
+                                                                <span className={`text-[10px] font-bold ${isDark ? 'text-amber-300' : 'text-amber-800'}`}>
                                                                     {dutyAnalysis?.topCandidate?.monthsSinceLast === 999 
                                                                         ? (dir === 'rtl' ? 'لم يستلم في السجل' : 'Never in range')
                                                                         : (dir === 'rtl' ? `منذ ${dutyAnalysis?.topCandidate?.monthsSinceLast} شهر` : `${dutyAnalysis?.topCandidate?.monthsSinceLast}m ago`)}
@@ -1397,11 +1399,11 @@ const SupervisorRotation: React.FC = () => {
                                                         </div>
 
                                                         {/* Quick Reorder Controls on Row */}
-                                                        <div className={`mt-1.5 pt-1 border-t border-slate-100 flex items-center gap-1 print:hidden ${inlineReorderMode ? 'flex' : 'hidden group-hover:flex'}`}>
+                                                        <div className={`mt-1.5 pt-1 border-t flex items-center gap-1 print:hidden ${isDark ? 'border-slate-800' : 'border-slate-100'} ${inlineReorderMode ? 'flex' : 'hidden group-hover:flex'}`}>
                                                             <button
                                                                 type="button"
                                                                 onClick={(e) => { e.stopPropagation(); moveUserInOrder(user.id, 'top', filteredAndSortedUsers); }}
-                                                                className="px-1.5 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[9px] font-black cursor-pointer transition-colors"
+                                                                className={`px-1.5 py-0.5 rounded text-[9px] font-black cursor-pointer transition-colors ${isDark ? 'bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700'}`}
                                                                 title={dir === 'rtl' ? 'نقل للأعلى تماماً (البداية)' : 'Move to Top'}
                                                             >
                                                                 <i className="fas fa-angle-double-up text-[9px]"></i>
@@ -1410,7 +1412,7 @@ const SupervisorRotation: React.FC = () => {
                                                             <button
                                                                 type="button"
                                                                 onClick={(e) => { e.stopPropagation(); moveUserInOrder(user.id, 'up', filteredAndSortedUsers); }}
-                                                                className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[9px] font-bold cursor-pointer transition-colors"
+                                                                className={`px-1.5 py-0.5 rounded text-[9px] font-bold cursor-pointer transition-colors ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
                                                                 title={dir === 'rtl' ? 'تحريك صف لأعلى' : 'Move Up'}
                                                             >
                                                                 <i className="fas fa-arrow-up text-[9px]"></i>
@@ -1418,7 +1420,7 @@ const SupervisorRotation: React.FC = () => {
                                                             <button
                                                                 type="button"
                                                                 onClick={(e) => { e.stopPropagation(); moveUserInOrder(user.id, 'middle', filteredAndSortedUsers); }}
-                                                                className="px-1.5 py-0.5 rounded bg-purple-50 hover:bg-purple-100 text-purple-700 text-[9px] font-black cursor-pointer transition-colors"
+                                                                className={`px-1.5 py-0.5 rounded text-[9px] font-black cursor-pointer transition-colors ${isDark ? 'bg-purple-950/80 hover:bg-purple-900 text-purple-300' : 'bg-purple-50 hover:bg-purple-100 text-purple-700'}`}
                                                                 title={dir === 'rtl' ? 'نقل مباشرة إلى منتصف الجدول' : 'Move to Middle'}
                                                             >
                                                                 <i className="fas fa-arrows-alt-v text-[9px]"></i>
@@ -1427,7 +1429,7 @@ const SupervisorRotation: React.FC = () => {
                                                             <button
                                                                 type="button"
                                                                 onClick={(e) => { e.stopPropagation(); moveUserInOrder(user.id, 'down', filteredAndSortedUsers); }}
-                                                                className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[9px] font-bold cursor-pointer transition-colors"
+                                                                className={`px-1.5 py-0.5 rounded text-[9px] font-bold cursor-pointer transition-colors ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
                                                                 title={dir === 'rtl' ? 'تحريك صف لأسفل' : 'Move Down'}
                                                             >
                                                                 <i className="fas fa-arrow-down text-[9px]"></i>
@@ -1435,7 +1437,7 @@ const SupervisorRotation: React.FC = () => {
                                                             <button
                                                                 type="button"
                                                                 onClick={(e) => { e.stopPropagation(); moveUserInOrder(user.id, 'bottom', filteredAndSortedUsers); }}
-                                                                className="px-1.5 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[9px] font-black cursor-pointer transition-colors"
+                                                                className={`px-1.5 py-0.5 rounded text-[9px] font-black cursor-pointer transition-colors ${isDark ? 'bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700'}`}
                                                                 title={dir === 'rtl' ? 'نقل للأسفل تماماً (النهاية)' : 'Move to Bottom'}
                                                             >
                                                                 <i className="fas fa-angle-double-down text-[9px]"></i>
@@ -1505,13 +1507,13 @@ const SupervisorRotation: React.FC = () => {
 
                                             {/* Smart Suggestion Column (General Only) */}
                                             {viewType === 'general' && (
-                                                <td className="p-3 text-center align-middle bg-slate-50/30 print:hidden">
+                                                <td className={`p-3 text-center align-middle print:hidden ${isDark ? 'bg-slate-900/40' : 'bg-slate-50/30'}`}>
                                                     {(() => {
                                                         const suggestion = getNextMonthSuggestion(user.id);
-                                                        if (!suggestion) return <span className="text-slate-300">...</span>;
+                                                        if (!suggestion) return <span className="text-slate-500">...</span>;
                                                         const isStay = suggestion === t('rot.suggest.stay');
                                                         return (
-                                                            <div className={`inline-flex flex-col px-3 py-1.5 rounded-xl font-black text-[10px] border shadow-sm ${isStay ? 'bg-white text-slate-400 border-slate-100' : 'bg-purple-50 text-purple-700 border-purple-100 animate-pulse-slow'}`}>
+                                                            <div className={`inline-flex flex-col px-3 py-1.5 rounded-xl font-black text-[10px] border shadow-sm ${isStay ? (isDark ? 'bg-slate-800 text-slate-400 border-slate-700' : 'bg-white text-slate-400 border-slate-100') : (isDark ? 'bg-purple-950/60 text-purple-300 border-purple-800' : 'bg-purple-50 text-purple-700 border-purple-100 animate-pulse-slow')}`}>{/* */}
                                                                 <span className="uppercase opacity-60 text-[8px] mb-0.5">{isStay ? 'Insight' : t('rot.suggest.move')}</span>
                                                                 {suggestion}
                                                             </div>
@@ -1590,7 +1592,7 @@ const SupervisorRotation: React.FC = () => {
 
                         {/* Top Recommendation Highlight Card */}
                         {dutyAnalysis?.topCandidate ? (
-                            <div className="bg-gradient-to-br from-amber-500/10 via-orange-500/5 to-amber-500/10 border-2 border-amber-400/40 rounded-3xl p-5 shadow-lg relative overflow-hidden">
+                            <div className={`border-2 rounded-3xl p-5 shadow-lg relative overflow-hidden ${isDark ? 'bg-gradient-to-br from-amber-950/40 via-orange-950/20 to-amber-950/40 border-amber-500/40' : 'bg-gradient-to-br from-amber-500/10 via-orange-500/5 to-amber-500/10 border-amber-400/40'}`}>
                                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                                     <div className="flex items-center gap-4">
                                         <div className="w-14 h-14 rounded-2xl bg-amber-500 text-white flex items-center justify-center text-2xl font-black shadow-lg shadow-amber-500/30">
@@ -1601,14 +1603,14 @@ const SupervisorRotation: React.FC = () => {
                                                 <span className="bg-amber-500 text-white text-[10px] font-black uppercase px-2 py-0.5 rounded-md">
                                                     {dir === 'rtl' ? '👑 المرشح الأول للدور' : '👑 Top Next-in-Turn Candidate'}
                                                 </span>
-                                                <span className="text-xs text-slate-500 font-bold">
+                                                <span className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                                                     {dir === 'rtl' 
                                                         ? (ROLE_BADGES[dutyAnalysis.topCandidate.user.jobCategory || 'technician']?.ar || 'فني أشعة') 
                                                         : (ROLE_BADGES[dutyAnalysis.topCandidate.user.jobCategory || 'technician']?.en || 'Technician')}
                                                 </span>
                                             </div>
-                                            <h3 className="text-xl font-black text-slate-900">{dutyAnalysis.topCandidate.user.name}</h3>
-                                            <p className="text-xs font-bold text-slate-600 mt-1 flex items-center gap-2">
+                                            <h3 className={`text-xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{dutyAnalysis.topCandidate.user.name}</h3>
+                                            <p className={`text-xs font-bold mt-1 flex items-center gap-2 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
                                                 <span>
                                                     {dutyAnalysis.topCandidate.monthsSinceLast === 999 
                                                         ? (dir === 'rtl' ? '⚠️ لم يستلم هذه المهمة طوال الفترة المسجلة' : '⚠️ Never assigned during this period')
@@ -1620,10 +1622,10 @@ const SupervisorRotation: React.FC = () => {
                                     </div>
 
                                     {dutyAnalysis.lastAssignedCandidate && (
-                                        <div className="bg-white/80 p-3 rounded-2xl border border-slate-200 text-xs">
+                                        <div className={`p-3 rounded-2xl border text-xs ${isDark ? 'bg-slate-800/90 border-slate-700 text-slate-200' : 'bg-white/80 border-slate-200'}`}>
                                             <span className="block text-[10px] font-bold text-slate-400 uppercase">{dir === 'rtl' ? 'آخر موظف استلمها:' : 'Last Person Assigned:'}</span>
-                                            <span className="font-black text-slate-800">{dutyAnalysis.lastAssignedCandidate.user.name}</span>
-                                            <span className="block text-[10px] text-slate-500 font-bold">
+                                            <span className={`font-black ${isDark ? 'text-white' : 'text-slate-800'}`}>{dutyAnalysis.lastAssignedCandidate.user.name}</span>
+                                            <span className={`block text-[10px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                                                 {dir === 'rtl' ? `في شهر: ${dutyAnalysis.lastAssignedCandidate.lastMonth}` : `In month: ${dutyAnalysis.lastAssignedCandidate.lastMonth}`}
                                             </span>
                                         </div>
@@ -1631,31 +1633,31 @@ const SupervisorRotation: React.FC = () => {
                                 </div>
                             </div>
                         ) : (
-                            <div className="p-4 bg-slate-50 rounded-2xl text-center text-slate-400 text-sm font-bold">
+                            <div className={`p-4 rounded-2xl text-center text-sm font-bold ${isDark ? 'bg-slate-800/60 text-slate-400' : 'bg-slate-50 text-slate-400'}`}>
                                 {dir === 'rtl' ? 'لم يتم العثور على بيانات لهذه المهمة' : 'No rotation data found for this duty'}
                             </div>
                         )}
 
                         {/* Tabs & Job Category Filter */}
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
-                            <div className="flex bg-slate-100 p-1 rounded-xl">
+                        <div className={`flex flex-wrap items-center justify-between gap-3 border-b pb-3 ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
+                            <div className={`flex p-1 rounded-xl ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
                                 <button
                                     onClick={() => setInspectorTab('turn')}
-                                    className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${inspectorTab === 'turn' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                    className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${inspectorTab === 'turn' ? (isDark ? 'bg-slate-700 text-indigo-300 shadow-sm' : 'bg-white text-indigo-600 shadow-sm') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700')}`}
                                 >
                                     <i className="fas fa-list-ol"></i>
                                     <span>{dir === 'rtl' ? 'قائمة ترتيب الدور' : 'Turn Order Ranking'}</span>
                                 </button>
                                 <button
                                     onClick={() => setInspectorTab('timeline')}
-                                    className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${inspectorTab === 'timeline' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                    className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${inspectorTab === 'timeline' ? (isDark ? 'bg-slate-700 text-indigo-300 shadow-sm' : 'bg-white text-indigo-600 shadow-sm') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700')}`}
                                 >
                                     <i className="fas fa-history"></i>
                                     <span>{dir === 'rtl' ? 'السجل الزمني الشهري' : 'Monthly History'}</span>
                                 </button>
                                 <button
                                     onClick={() => setInspectorTab('stats')}
-                                    className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${inspectorTab === 'stats' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                    className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${inspectorTab === 'stats' ? (isDark ? 'bg-slate-700 text-indigo-300 shadow-sm' : 'bg-white text-indigo-600 shadow-sm') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700')}`}
                                 >
                                     <i className="fas fa-chart-pie"></i>
                                     <span>{dir === 'rtl' ? 'إحصائيات التوزيع' : 'Fairness Stats'}</span>
@@ -1668,7 +1670,7 @@ const SupervisorRotation: React.FC = () => {
                                 <select
                                     value={dutyCategoryFilter}
                                     onChange={e => setDutyCategoryFilter(e.target.value)}
-                                    className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1 text-xs font-bold text-slate-700 cursor-pointer outline-none focus:ring-2 focus:ring-indigo-100"
+                                    className={`border rounded-xl px-2.5 py-1 text-xs font-bold cursor-pointer outline-none focus:ring-2 focus:ring-indigo-100 ${isDark ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
                                 >
                                     <option value="all">{t('rot.cat.all')}</option>
                                     <option value="tech_pool">{t('rot.cat.techPool')}</option>
@@ -1685,9 +1687,9 @@ const SupervisorRotation: React.FC = () => {
 
                         {/* Tab Content */}
                         {inspectorTab === 'turn' && dutyAnalysis && (
-                            <div className="overflow-x-auto max-h-96 border border-slate-200 rounded-2xl">
+                            <div className={`overflow-x-auto max-h-96 border rounded-2xl ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
                                 <table className="w-full text-left rtl:text-right border-collapse">
-                                    <thead className="bg-slate-50 text-slate-500 text-[10px] font-black uppercase tracking-wider sticky top-0 z-10 border-b border-slate-200">
+                                    <thead className={`text-[10px] font-black uppercase tracking-wider sticky top-0 z-10 border-b ${isDark ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
                                         <tr>
                                             <th className="p-3 text-center w-12">#</th>
                                             <th className="p-3">{dir === 'rtl' ? 'الموظف والفئة' : 'Employee & Role'}</th>
@@ -1696,7 +1698,7 @@ const SupervisorRotation: React.FC = () => {
                                             <th className="p-3 text-center">{dir === 'rtl' ? 'إجمالي المرات' : 'Total Shifts'}</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-100 text-xs">
+                                    <tbody className={`divide-y text-xs ${isDark ? 'divide-slate-800' : 'divide-slate-100'}`}>
                                         {dutyAnalysis.staffTurnList.map((item, idx) => {
                                             const isTop = idx === 0;
                                             const never = item.monthsSinceLast === 999;
@@ -1704,46 +1706,46 @@ const SupervisorRotation: React.FC = () => {
                                             const itemBadge = ROLE_BADGES[item.user.jobCategory || 'technician'] || ROLE_BADGES['other'];
 
                                             return (
-                                                <tr key={item.user.id} className={`hover:bg-slate-50 transition-colors ${isTop ? 'bg-amber-50/60 font-bold' : ''}`}>
+                                                <tr key={item.user.id} className={`transition-colors ${isTop ? (isDark ? 'bg-amber-950/40 font-bold' : 'bg-amber-50/60 font-bold') : (isDark ? 'hover:bg-slate-800/60' : 'hover:bg-slate-50')}`}>
                                                     <td className="p-3 text-center font-black text-slate-400">
                                                         {isTop ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
                                                     </td>
                                                     <td className="p-3">
-                                                        <div className="font-bold text-slate-900">{item.user.name}</div>
+                                                        <div className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{item.user.name}</div>
                                                         <span className={`text-[10px] font-semibold px-2 py-0.2 rounded-md border ${itemBadge.color}`}>
                                                             {dir === 'rtl' ? itemBadge.ar : itemBadge.en}
                                                         </span>
                                                     </td>
                                                     <td className="p-3 text-center">
                                                         {never ? (
-                                                            <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full">
-                                                                <i className="fas fa-star text-emerald-600"></i>
+                                                            <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full ${isDark ? 'bg-emerald-950/80 text-emerald-300' : 'bg-emerald-100 text-emerald-800'}`}>
+                                                                <i className="fas fa-star text-emerald-500"></i>
                                                                 {dir === 'rtl' ? 'أولوية قصوى (لم يستلم)' : 'Top Priority (Never)'}
                                                             </span>
                                                         ) : item.monthsSinceLast >= 3 ? (
-                                                            <span className="inline-flex items-center gap-1 bg-teal-100 text-teal-800 text-[10px] font-black px-2 py-0.5 rounded-full">
+                                                            <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full ${isDark ? 'bg-teal-950/80 text-teal-300' : 'bg-teal-100 text-teal-800'}`}>
                                                                 <i className="fas fa-check-circle"></i>
                                                                 {dir === 'rtl' ? `عليه الدور (منذ ${item.monthsSinceLast} شهر)` : `In Turn (${item.monthsSinceLast}m ago)`}
                                                             </span>
                                                         ) : recent ? (
-                                                            <span className="inline-flex items-center gap-1 bg-rose-100 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-full">
+                                                            <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full ${isDark ? 'bg-rose-950/80 text-rose-300' : 'bg-rose-100 text-rose-800'}`}>
                                                                 <i className="fas fa-times-circle"></i>
                                                                 {dir === 'rtl' ? 'استلم حديثاً' : 'Recently Assigned'}
                                                             </span>
                                                         ) : (
-                                                            <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                                            <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
                                                                 {dir === 'rtl' ? `منذ ${item.monthsSinceLast} شهر` : `${item.monthsSinceLast}m ago`}
                                                             </span>
                                                         )}
                                                     </td>
-                                                    <td className="p-3 text-center font-bold text-slate-700">
+                                                    <td className="p-3 text-center font-bold">
                                                         {item.lastMonth ? (
-                                                            <span className="bg-slate-100 px-2 py-0.5 rounded text-[11px]">{item.lastMonth}</span>
+                                                            <span className={`px-2 py-0.5 rounded text-[11px] ${isDark ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>{item.lastMonth}</span>
                                                         ) : (
-                                                            <span className="text-slate-300">-</span>
+                                                            <span className="text-slate-500">-</span>
                                                         )}
                                                     </td>
-                                                    <td className="p-3 text-center font-black text-slate-800">
+                                                    <td className={`p-3 text-center font-black ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
                                                         {item.totalAssigned}
                                                     </td>
                                                 </tr>
@@ -1763,22 +1765,22 @@ const SupervisorRotation: React.FC = () => {
                                     const isCurr = m === getCurrentMonthStr();
 
                                     return (
-                                        <div key={m} className={`p-3.5 rounded-2xl border transition-all ${isCurr ? 'bg-indigo-50/60 border-indigo-200 shadow-sm' : 'bg-slate-50/70 border-slate-200'}`}>
+                                        <div key={m} className={`p-3.5 rounded-2xl border transition-all ${isCurr ? (isDark ? 'bg-indigo-950/60 border-indigo-700 shadow-sm' : 'bg-indigo-50/60 border-indigo-200 shadow-sm') : (isDark ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50/70 border-slate-200')}`}>
                                             <div className="flex justify-between items-center mb-2">
-                                                <span className={`text-xs font-black ${isCurr ? 'text-indigo-700' : 'text-slate-800'}`}>{monthLabel}</span>
-                                                <span className="text-[10px] font-bold text-slate-400 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                                                <span className={`text-xs font-black ${isCurr ? (isDark ? 'text-indigo-300' : 'text-indigo-700') : (isDark ? 'text-slate-200' : 'text-slate-800')}`}>{monthLabel}</span>
+                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${isDark ? 'text-slate-300 bg-slate-800 border-slate-700' : 'text-slate-400 bg-white border-slate-200'}`}>
                                                     {assignees.length} {dir === 'rtl' ? 'موظف' : 'Staff'}
                                                 </span>
                                             </div>
 
                                             {assignees.length === 0 ? (
-                                                <p className="text-xs text-slate-400 italic text-center py-2">{dir === 'rtl' ? 'لا يوجد تكليف مسجل' : 'No recorded assignment'}</p>
+                                                <p className="text-xs text-slate-500 italic text-center py-2">{dir === 'rtl' ? 'لا يوجد تكليف مسجل' : 'No recorded assignment'}</p>
                                             ) : (
                                                 <div className="space-y-1.5">
                                                     {assignees.map((a, i) => (
-                                                        <div key={i} className="flex items-center justify-between bg-white px-2.5 py-1 rounded-xl border border-slate-100 text-xs shadow-2xs">
-                                                            <span className="font-bold text-slate-800">{a.user.name}</span>
-                                                            <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                                                        <div key={i} className={`flex items-center justify-between px-2.5 py-1 rounded-xl border text-xs shadow-2xs ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
+                                                            <span className={`font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{a.user.name}</span>
+                                                            <span className={`text-[10px] font-black px-1.5 py-0.5 rounded ${isDark ? 'text-indigo-300 bg-indigo-950' : 'text-indigo-600 bg-indigo-50'}`}>
                                                                 {a.note}
                                                             </span>
                                                         </div>
@@ -1794,23 +1796,23 @@ const SupervisorRotation: React.FC = () => {
                         {inspectorTab === 'stats' && dutyAnalysis && (
                             <div className="space-y-4">
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
-                                        <span className="block text-2xl font-black text-slate-900">{dutyAnalysis.totalAssignmentsInPeriod}</span>
-                                        <span className="text-[10px] font-bold text-slate-500 uppercase">{dir === 'rtl' ? 'إجمالي التكليفات' : 'Total Assignments'}</span>
+                                    <div className={`p-4 rounded-2xl border text-center ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                                        <span className={`block text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{dutyAnalysis.totalAssignmentsInPeriod}</span>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase">{dir === 'rtl' ? 'إجمالي التكليفات' : 'Total Assignments'}</span>
                                     </div>
-                                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
-                                        <span className="block text-2xl font-black text-indigo-600">{dutyAnalysis.staffTurnList.filter(s => s.totalAssigned > 0).length}</span>
-                                        <span className="text-[10px] font-bold text-slate-500 uppercase">{dir === 'rtl' ? 'موظفين شاركوا' : 'Staff Participated'}</span>
+                                    <div className={`p-4 rounded-2xl border text-center ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                                        <span className="block text-2xl font-black text-indigo-400">{dutyAnalysis.staffTurnList.filter(s => s.totalAssigned > 0).length}</span>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase">{dir === 'rtl' ? 'موظفين شاركوا' : 'Staff Participated'}</span>
                                     </div>
-                                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
-                                        <span className="block text-2xl font-black text-emerald-600">{dutyAnalysis.staffTurnList.filter(s => s.totalAssigned === 0).length}</span>
-                                        <span className="text-[10px] font-bold text-slate-500 uppercase">{dir === 'rtl' ? 'لم يشاركوا بعد' : 'Not Yet Assigned'}</span>
+                                    <div className={`p-4 rounded-2xl border text-center ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                                        <span className="block text-2xl font-black text-emerald-400">{dutyAnalysis.staffTurnList.filter(s => s.totalAssigned === 0).length}</span>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase">{dir === 'rtl' ? 'لم يشاركوا بعد' : 'Not Yet Assigned'}</span>
                                     </div>
-                                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
-                                        <span className="block text-2xl font-black text-amber-600">
+                                    <div className={`p-4 rounded-2xl border text-center ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                                        <span className="block text-2xl font-black text-amber-400">
                                             {dutyAnalysis.staffTurnList.length > 0 ? (dutyAnalysis.totalAssignmentsInPeriod / dutyAnalysis.staffTurnList.length).toFixed(1) : 0}
                                         </span>
-                                        <span className="text-[10px] font-bold text-slate-500 uppercase">{dir === 'rtl' ? 'المعدل لكل موظف' : 'Avg / Staff'}</span>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase">{dir === 'rtl' ? 'المعدل لكل موظف' : 'Avg / Staff'}</span>
                                     </div>
                                 </div>
                             </div>
@@ -1825,15 +1827,15 @@ const SupervisorRotation: React.FC = () => {
                     title={
                         <div className="flex items-center gap-2">
                             <i className="fas fa-sort-amount-down text-indigo-600"></i>
-                            <span>{dir === 'rtl' ? 'إعادة ترتيب الموظفين في الجدول' : 'Reorder Staff in Table'}</span>
+                            <span className={isDark ? 'text-white' : 'text-slate-900'}>{dir === 'rtl' ? 'إعادة ترتيب الموظفين في الجدول' : 'Reorder Staff in Table'}</span>
                         </div>
                     }
                     maxWidth="max-w-3xl"
                 >
                     <div className="space-y-5">
                         {/* Action Presets */}
-                        <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-50 rounded-2xl border border-slate-200">
-                            <span className="text-xs font-bold text-slate-600">
+                        <div className={`flex flex-wrap items-center justify-between gap-2 p-3 rounded-2xl border ${isDark ? 'bg-slate-800/80 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                            <span className={`text-xs font-bold ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
                                 <i className="fas fa-magic text-indigo-500 mr-1.5"></i>
                                 {dir === 'rtl' ? 'ترتيب سريع تلقائي:' : 'Quick Presets:'}
                             </span>
@@ -1841,25 +1843,25 @@ const SupervisorRotation: React.FC = () => {
                                 <button
                                     type="button"
                                     onClick={() => sortStaffAlphabetically(filteredAndSortedUsers)}
-                                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 shadow-xs cursor-pointer flex items-center gap-1.5"
+                                    className={`px-3 py-1.5 text-xs font-bold rounded-xl border shadow-xs cursor-pointer flex items-center gap-1.5 ${isDark ? 'bg-slate-700 hover:bg-slate-600 text-slate-200 border-slate-600' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'}`}
                                 >
-                                    <i className="fas fa-sort-alpha-down text-indigo-600"></i>
+                                    <i className="fas fa-sort-alpha-down text-indigo-400"></i>
                                     <span>{dir === 'rtl' ? 'أبجدياً (أ-ي)' : 'Alphabetical (A-Z)'}</span>
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => sortStaffByRoles(filteredAndSortedUsers)}
-                                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 shadow-xs cursor-pointer flex items-center gap-1.5"
+                                    className={`px-3 py-1.5 text-xs font-bold rounded-xl border shadow-xs cursor-pointer flex items-center gap-1.5 ${isDark ? 'bg-slate-700 hover:bg-slate-600 text-slate-200 border-slate-600' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'}`}
                                 >
-                                    <i className="fas fa-users-cog text-purple-600"></i>
+                                    <i className="fas fa-users-cog text-purple-400"></i>
                                     <span>{dir === 'rtl' ? 'حسب الفئات والوظائف' : 'By Job Categories'}</span>
                                 </button>
                                 <button
                                     type="button"
                                     onClick={resetStaffOrder}
-                                    className="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-600 text-xs font-bold rounded-xl border border-rose-200 shadow-xs cursor-pointer flex items-center gap-1.5"
+                                    className={`px-3 py-1.5 text-xs font-bold rounded-xl border shadow-xs cursor-pointer flex items-center gap-1.5 ${isDark ? 'bg-slate-700 hover:bg-rose-950/40 text-rose-300 border-rose-800' : 'bg-white hover:bg-rose-50 text-rose-600 border-rose-200'}`}
                                 >
-                                    <i className="fas fa-undo text-rose-500"></i>
+                                    <i className="fas fa-undo text-rose-400"></i>
                                     <span>{dir === 'rtl' ? 'إعادة ضبط الترتيب الأصلي' : 'Reset Default'}</span>
                                 </button>
                             </div>
@@ -1879,25 +1881,25 @@ const SupervisorRotation: React.FC = () => {
                                         onDragStart={(e) => handleRowDragStart(e, u.id)}
                                         onDragOver={(e) => handleRowDragOver(e, u.id)}
                                         onDrop={(e) => handleRowDrop(e, u.id, filteredAndSortedUsers)}
-                                        className={`flex items-center justify-between gap-3 p-3 rounded-2xl border transition-all ${dragOverUserId === u.id ? 'border-t-4 border-indigo-600 bg-indigo-50/80 shadow-md' : 'border-slate-200 bg-white hover:border-indigo-300 hover:shadow-xs'} ${draggedUserId === u.id ? 'opacity-40' : ''}`}
+                                        className={`flex items-center justify-between gap-3 p-3 rounded-2xl border transition-all ${dragOverUserId === u.id ? 'border-t-4 border-indigo-600 bg-indigo-50/80 shadow-md' : (isDark ? 'border-slate-800 bg-slate-800/80 hover:border-slate-700 hover:bg-slate-800' : 'border-slate-200 bg-white hover:border-indigo-300 hover:shadow-xs')} ${draggedUserId === u.id ? 'opacity-40' : ''}`}
                                     >
                                         <div className="flex items-center gap-3 min-w-0">
                                             {/* Drag handle */}
                                             <div 
-                                                className="cursor-grab active:cursor-grabbing p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 flex items-center justify-center"
+                                                className={`cursor-grab active:cursor-grabbing p-1.5 rounded-lg flex items-center justify-center ${isDark ? 'text-slate-500 hover:text-slate-300 hover:bg-slate-700' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`}
                                                 title={dir === 'rtl' ? 'اسحب للترتيب' : 'Drag to reorder'}
                                             >
-                                                <i className="fas fa-grip-vertical text-slate-400"></i>
+                                                <i className="fas fa-grip-vertical"></i>
                                             </div>
 
                                             {/* Position Number */}
-                                            <span className="w-7 h-7 rounded-xl bg-slate-100 text-slate-700 font-mono font-black text-xs flex items-center justify-center border border-slate-200">
+                                            <span className={`w-7 h-7 rounded-xl font-mono font-black text-xs flex items-center justify-center border ${isDark ? 'bg-slate-700 border-slate-600 text-slate-200' : 'bg-slate-100 border-slate-200 text-slate-700'}`}>
                                                 #{index + 1}
                                             </span>
 
                                             {/* Staff details */}
                                             <div className="min-w-0">
-                                                <h5 className="font-black text-sm text-slate-900 truncate">{u.name}</h5>
+                                                <h5 className={`font-black text-sm truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{u.name}</h5>
                                                 <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border inline-block mt-0.5 ${roleBadge.color}`}>
                                                     {dir === 'rtl' ? roleBadge.ar : roleBadge.en}
                                                 </span>
@@ -1910,7 +1912,7 @@ const SupervisorRotation: React.FC = () => {
                                                 type="button"
                                                 disabled={isFirst}
                                                 onClick={() => moveUserInOrder(u.id, 'top', filteredAndSortedUsers)}
-                                                className={`p-2 rounded-xl text-xs font-bold transition-colors ${isFirst ? 'text-slate-300 cursor-not-allowed' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 cursor-pointer'}`}
+                                                className={`p-2 rounded-xl text-xs font-bold transition-colors ${isFirst ? 'opacity-30 cursor-not-allowed' : (isDark ? 'bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 cursor-pointer' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 cursor-pointer')}`}
                                                 title={dir === 'rtl' ? 'نقل إلى الأول تماماً (الأعلى)' : 'Move to Top'}
                                             >
                                                 <i className="fas fa-angle-double-up"></i>
@@ -1919,7 +1921,7 @@ const SupervisorRotation: React.FC = () => {
                                                 type="button"
                                                 disabled={isFirst}
                                                 onClick={() => moveUserInOrder(u.id, 'up', filteredAndSortedUsers)}
-                                                className={`p-2 rounded-xl text-xs font-bold transition-colors ${isFirst ? 'text-slate-300 cursor-not-allowed' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer'}`}
+                                                className={`p-2 rounded-xl text-xs font-bold transition-colors ${isFirst ? 'opacity-30 cursor-not-allowed' : (isDark ? 'bg-slate-700 hover:bg-slate-600 text-slate-200 cursor-pointer' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer')}`}
                                                 title={dir === 'rtl' ? 'تحريك لأعلى' : 'Move Up'}
                                             >
                                                 <i className="fas fa-arrow-up"></i>
@@ -1927,7 +1929,7 @@ const SupervisorRotation: React.FC = () => {
                                             <button
                                                 type="button"
                                                 onClick={() => moveUserInOrder(u.id, 'middle', filteredAndSortedUsers)}
-                                                className="px-2.5 py-2 rounded-xl text-xs font-black bg-purple-50 hover:bg-purple-100 text-purple-700 transition-colors cursor-pointer flex items-center gap-1"
+                                                className={`px-2.5 py-2 rounded-xl text-xs font-black transition-colors cursor-pointer flex items-center gap-1 ${isDark ? 'bg-purple-950/80 hover:bg-purple-900 text-purple-300' : 'bg-purple-50 hover:bg-purple-100 text-purple-700'}`}
                                                 title={dir === 'rtl' ? 'نقل إلى منتصف القائمة' : 'Move to Middle'}
                                             >
                                                 <i className="fas fa-arrows-alt-v text-xs"></i>
@@ -1937,7 +1939,7 @@ const SupervisorRotation: React.FC = () => {
                                                 type="button"
                                                 disabled={isLast}
                                                 onClick={() => moveUserInOrder(u.id, 'down', filteredAndSortedUsers)}
-                                                className={`p-2 rounded-xl text-xs font-bold transition-colors ${isLast ? 'text-slate-300 cursor-not-allowed' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer'}`}
+                                                className={`p-2 rounded-xl text-xs font-bold transition-colors ${isLast ? 'opacity-30 cursor-not-allowed' : (isDark ? 'bg-slate-700 hover:bg-slate-600 text-slate-200 cursor-pointer' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer')}`}
                                                 title={dir === 'rtl' ? 'تحريك لأسفل' : 'Move Down'}
                                             >
                                                 <i className="fas fa-arrow-down"></i>
@@ -1946,7 +1948,7 @@ const SupervisorRotation: React.FC = () => {
                                                 type="button"
                                                 disabled={isLast}
                                                 onClick={() => moveUserInOrder(u.id, 'bottom', filteredAndSortedUsers)}
-                                                className={`p-2 rounded-xl text-xs font-bold transition-colors ${isLast ? 'text-slate-300 cursor-not-allowed' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 cursor-pointer'}`}
+                                                className={`p-2 rounded-xl text-xs font-bold transition-colors ${isLast ? 'opacity-30 cursor-not-allowed' : (isDark ? 'bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 cursor-pointer' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 cursor-pointer')}`}
                                                 title={dir === 'rtl' ? 'نقل إلى الأخير تماماً (الأسفل)' : 'Move to Bottom'}
                                             >
                                                 <i className="fas fa-angle-double-down"></i>
@@ -1958,15 +1960,15 @@ const SupervisorRotation: React.FC = () => {
                         </div>
 
                         {/* Footer */}
-                        <div className="flex justify-between items-center pt-3 border-t border-slate-200">
-                            <span className="text-xs text-slate-500 font-medium">
+                        <div className={`flex justify-between items-center pt-3 border-t ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
+                            <span className="text-xs text-slate-400 font-medium">
                                 <i className="fas fa-check-circle text-emerald-500 mr-1"></i>
                                 {dir === 'rtl' ? 'يتم حفظ الترتيب تلقائياً وتطبيقه على الجدول مباشرة' : 'Order saves automatically and updates the table instantly'}
                             </span>
                             <button
                                 type="button"
                                 onClick={() => setIsReorderModalOpen(false)}
-                                className="px-5 py-2 rounded-xl bg-slate-900 text-white font-bold text-sm hover:bg-slate-800 cursor-pointer"
+                                className={`px-5 py-2 rounded-xl font-bold text-sm cursor-pointer ${isDark ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
                             >
                                 {dir === 'rtl' ? 'تم وحفظ' : 'Done'}
                             </button>
@@ -1975,7 +1977,7 @@ const SupervisorRotation: React.FC = () => {
                 </Modal>
                 
                 {/* Info Card */}
-                <div className="mt-10 bg-gradient-to-br from-slate-900 to-slate-800 p-8 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden print:hidden">
+                <div className={`mt-10 p-8 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden print:hidden ${isDark ? 'bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 border border-slate-800' : 'bg-gradient-to-br from-slate-900 to-slate-800'}`}>
                     <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500 opacity-10 rounded-full blur-[80px] -mr-32 -mt-32"></div>
                     <div className="flex flex-col md:flex-row justify-between items-center gap-8 relative z-10">
                         <div className="max-w-xl">

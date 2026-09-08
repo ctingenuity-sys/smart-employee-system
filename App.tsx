@@ -9,6 +9,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import ReloadPrompt from './components/ReloadPrompt';
 import { UserRole } from './types';
 import { LanguageProvider } from './contexts/LanguageContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { DepartmentProvider } from './contexts/DepartmentContext';
 import Layout from './components/Layout';
@@ -234,13 +235,15 @@ const AppRoutes: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <LanguageProvider>
-      <AuthProvider>
-        <DepartmentProvider>
-          <AppRoutes />
-        </DepartmentProvider>
-      </AuthProvider>
-    </LanguageProvider>
+    <ThemeProvider>
+      <LanguageProvider>
+        <AuthProvider>
+          <DepartmentProvider>
+            <AppRoutes />
+          </DepartmentProvider>
+        </AuthProvider>
+      </LanguageProvider>
+    </ThemeProvider>
   );
 };
 

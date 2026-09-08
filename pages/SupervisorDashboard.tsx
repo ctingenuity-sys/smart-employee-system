@@ -10,6 +10,7 @@ import { isOperationalStaff, getOperationalStaffList } from '../utils/staffUtils
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { PrintHeader } from '../components/PrintLayout';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
@@ -70,6 +71,7 @@ const ppRegex = /(?:\(|\[|\{)\s*pp\s*(?:\)|\]|\})|(?:\bPP\b)/i;
 
 const SupervisorDashboard: React.FC = () => {
   const { t, dir } = useLanguage();
+  const { isDark } = useTheme();
   const navigate = useNavigate();
   const { role: authRole, permissions } = useAuth();
   const { departments, selectedDepartmentId, setSelectedDepartmentId } = useDepartment();
@@ -802,38 +804,44 @@ const SupervisorDashboard: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-100 via-slate-50 to-slate-100/80 font-sans pb-24 text-slate-800" dir={dir}>
+    <div className={`min-h-screen font-sans pb-24 transition-colors duration-300 ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-gradient-to-b from-slate-100 via-slate-50 to-slate-100/80 text-slate-800'}`} dir={dir}>
         
         {toast && <Toast message={toast.msg} type={toast.type} duration={toast.duration} onClose={() => setToast(null)} />}
 
         {/* 1. Header & Quick Action Hub */}
-        <header className="bg-white/85 backdrop-blur-md shadow-xs border-b border-slate-200/80 py-5 px-4 md:px-10 mb-8 sticky top-0 z-30 transition-all">
+        <header className={`backdrop-blur-md shadow-xs border-b py-5 px-4 md:px-10 mb-8 sticky top-0 z-30 transition-all ${
+            isDark ? 'bg-slate-900/90 border-slate-800 text-slate-100' : 'bg-white/85 border-slate-200/80 text-slate-800'
+        }`}>
             <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
                 <div className="flex items-center gap-4">
-                    <div className="w-13 h-13 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-700 to-blue-600 text-white flex items-center justify-center text-2xl shadow-lg shadow-indigo-200/60 ring-4 ring-indigo-50">
+                    <div className="w-13 h-13 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-700 to-blue-600 text-white flex items-center justify-center text-2xl shadow-lg shadow-indigo-200/60 ring-4 ring-indigo-50/10">
                         <i className="fas fa-th-large"></i>
                     </div>
                     <div>
                         <div className="flex items-center gap-2.5 flex-wrap">
-                            <h1 className="text-2xl md:text-3xl font-black text-slate-800 tracking-tight">
+                            <h1 className={`text-2xl md:text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-800'}`}>
                                 {t('nav.dashboard')}
                             </h1>
-                            <span className="text-xs bg-emerald-50 text-emerald-700 font-bold px-3 py-1 rounded-full border border-emerald-200 inline-flex items-center gap-1.5 shadow-2xs">
+                            <span className={`text-xs font-bold px-3 py-1 rounded-full border inline-flex items-center gap-1.5 shadow-2xs ${
+                                isDark ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800/60' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            }`}>
                                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                                 {t('system_active') || 'النظام متصل ونشط'}
                             </span>
                         </div>
-                        <p className="text-slate-500 text-xs md:text-sm mt-0.5 font-medium flex items-center gap-2">
-                            <span>{t('welcome')}, <strong className="text-slate-800">{currentAdminName}</strong></span>
-                            <span className="text-slate-300">•</span>
-                            <span className="text-indigo-600 font-semibold">{authRole === UserRole.ADMIN ? (dir === 'rtl' ? 'مدير النظام العام' : 'System Administrator') : (dir === 'rtl' ? 'مشرف القسم' : 'Department Supervisor')}</span>
+                        <p className={`text-xs md:text-sm mt-0.5 font-medium flex items-center gap-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                            <span>{t('welcome')}, <strong className={isDark ? 'text-white' : 'text-slate-800'}>{currentAdminName}</strong></span>
+                            <span className={isDark ? 'text-slate-600' : 'text-slate-300'}>•</span>
+                            <span className={isDark ? 'text-indigo-400 font-semibold' : 'text-indigo-600 font-semibold'}>{authRole === UserRole.ADMIN ? (dir === 'rtl' ? 'مدير النظام العام' : 'System Administrator') : (dir === 'rtl' ? 'مشرف القسم' : 'Department Supervisor')}</span>
                         </p>
                     </div>
                 </div>
                 
                 <div className="flex items-center gap-2.5 flex-wrap">
                     {/* Live Calendar Date Pill */}
-                    <div className="px-3.5 py-2 bg-slate-100/90 rounded-2xl border border-slate-200 text-xs font-bold text-slate-700 flex items-center gap-2 shadow-2xs">
+                    <div className={`px-3.5 py-2 rounded-2xl border text-xs font-bold flex items-center gap-2 shadow-2xs ${
+                        isDark ? 'bg-slate-800/90 border-slate-700 text-slate-200' : 'bg-slate-100/90 border-slate-200 text-slate-700'
+                    }`}>
                         <i className="fas fa-calendar-alt text-indigo-500"></i>
                         <span>{new Date().toLocaleDateString(dir === 'rtl' ? 'ar-EG' : 'en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span>
                     </div>
@@ -841,25 +849,31 @@ const SupervisorDashboard: React.FC = () => {
                     {/* Quick Jump Buttons */}
                     <button 
                         onClick={() => navigate('/supervisor/rotation')}
-                        className="px-3.5 py-2 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200/80 rounded-2xl transition-all text-xs font-bold flex items-center gap-1.5 shadow-2xs hover:scale-105"
+                        className={`px-3.5 py-2 rounded-2xl transition-all text-xs font-bold flex items-center gap-1.5 shadow-2xs hover:scale-105 border ${
+                            isDark ? 'bg-teal-950/60 border-teal-800/80 text-teal-300 hover:bg-teal-900/80' : 'bg-teal-50 border-teal-200/80 text-teal-700 hover:bg-teal-100'
+                        }`}
                         title="الانتقال السريع إلى جدول التدوير"
                     >
-                        <i className="fas fa-sync-alt text-teal-600"></i>
+                        <i className="fas fa-sync-alt text-teal-500"></i>
                         <span>{t('nav.rotation')}</span>
                     </button>
 
                     <button 
                         onClick={() => navigate('/supervisor/attendance')}
-                        className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-2xl transition-all text-xs font-bold flex items-center gap-1.5 shadow-2xs hover:scale-105"
+                        className={`px-3.5 py-2 rounded-2xl transition-all text-xs font-bold flex items-center gap-1.5 shadow-2xs hover:scale-105 border ${
+                            isDark ? 'bg-indigo-950/60 border-indigo-800/80 text-indigo-300 hover:bg-indigo-900/80' : 'bg-indigo-50 border-indigo-200/80 text-indigo-700 hover:bg-indigo-100'
+                        }`}
                         title="المحلل الذكي للحضور والغياب"
                     >
-                        <i className="fas fa-chart-pie text-indigo-600"></i>
+                        <i className="fas fa-chart-pie text-indigo-400"></i>
                         <span>{dir === 'rtl' ? 'المحلل الذكي' : 'Analyzer'}</span>
                     </button>
 
                     <button 
                         onClick={() => setRefreshTrigger(prev => prev + 1)}
-                        className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 rounded-2xl transition-all text-xs border border-slate-200 shadow-2xs"
+                        className={`p-2.5 rounded-2xl transition-all text-xs border shadow-2xs ${
+                            isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 border-slate-200'
+                        }`}
                         title={t('refresh') || 'تحديث البيانات'}
                     >
                         <i className="fas fa-redo-alt"></i>
@@ -872,30 +886,38 @@ const SupervisorDashboard: React.FC = () => {
             
             {/* 1.5. Interactive Department Switcher Banner (Admin Only) or Department Badge (Supervisor) */}
             {isAdmin ? (
-                <section aria-label="Department Switcher" className="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-200/90 relative overflow-hidden">
+                <section aria-label="Department Switcher" className={`rounded-3xl p-5 md:p-6 shadow-sm border relative overflow-hidden transition-colors ${
+                    isDark ? 'bg-slate-900/90 border-slate-800 text-slate-100' : 'bg-white border-slate-200/90 text-slate-800'
+                }`}>
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                         <div className="flex items-start sm:items-center gap-3.5">
-                            <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 text-xl shrink-0 shadow-2xs">
+                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl shrink-0 shadow-2xs border ${
+                                isDark ? 'bg-indigo-950/60 border-indigo-800/80 text-indigo-400' : 'bg-indigo-50 border-indigo-100 text-indigo-600'
+                            }`}>
                                 <i className="fas fa-hospital-user"></i>
                             </div>
                             <div>
                                 <div className="flex items-center gap-2 flex-wrap">
-                                    <h2 className="text-base md:text-lg font-black text-slate-800 tracking-tight">
+                                    <h2 className={`text-base md:text-lg font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-800'}`}>
                                         {dir === 'rtl' ? 'تصفية بيانات اللوحة حسب القسم (خاص بالإدارة)' : 'Dashboard Department Filter (Admin Only)'}
                                     </h2>
                                     {activeDepartment ? (
-                                        <span className="text-[11px] bg-indigo-100/80 text-indigo-800 font-bold px-3 py-0.5 rounded-full border border-indigo-200 inline-flex items-center gap-1.5 shadow-2xs">
-                                            <i className="fas fa-check-circle text-indigo-600"></i>
+                                        <span className={`text-[11px] font-bold px-3 py-0.5 rounded-full border inline-flex items-center gap-1.5 shadow-2xs ${
+                                            isDark ? 'bg-indigo-950/80 text-indigo-300 border-indigo-800' : 'bg-indigo-100/80 text-indigo-800 border-indigo-200'
+                                        }`}>
+                                            <i className="fas fa-check-circle text-indigo-500"></i>
                                             <span>{activeDepartment.name}</span>
                                         </span>
                                     ) : (
-                                        <span className="text-[11px] bg-slate-100 text-slate-700 font-bold px-3 py-0.5 rounded-full border border-slate-200 inline-flex items-center gap-1.5 shadow-2xs">
-                                            <i className="fas fa-globe text-slate-500"></i>
+                                        <span className={`text-[11px] font-bold px-3 py-0.5 rounded-full border inline-flex items-center gap-1.5 shadow-2xs ${
+                                            isDark ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200'
+                                        }`}>
+                                            <i className="fas fa-globe text-slate-400"></i>
                                             <span>{dir === 'rtl' ? 'جميع الأقسام (عرض عام)' : 'All Departments (Global)'}</span>
                                         </span>
                                     )}
                                 </div>
-                                <p className="text-xs text-slate-500 mt-1 font-medium flex items-center gap-1.5">
+                                <p className={`text-xs mt-1 font-medium flex items-center gap-1.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                                     {activeDepartment ? (
                                         <span>{dir === 'rtl' ? `يتم الآن عرض موظفي ومناوبات وسجلات قسم "${activeDepartment.name}" فقط بدقة تامة.` : `Viewing data, staff & requests strictly for ${activeDepartment.name}.`}</span>
                                     ) : (
@@ -914,7 +936,9 @@ const SupervisorDashboard: React.FC = () => {
                                         const val = e.target.value;
                                         setSelectedDepartmentId(val === '' ? null : val);
                                     }}
-                                    className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-2xl py-2.5 px-4 text-xs md:text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all shadow-2xs cursor-pointer"
+                                    className={`w-full border rounded-2xl py-2.5 px-4 text-xs md:text-sm font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all shadow-2xs cursor-pointer ${
+                                        isDark ? 'bg-slate-800 hover:bg-slate-750 border-slate-700 text-slate-100' : 'bg-slate-50 hover:bg-slate-100 border-slate-300 text-slate-800'
+                                    }`}
                                 >
                                     <option value="">{dir === 'rtl' ? '🌐 جميع الأقسام (All Departments)' : '🌐 All Departments'}</option>
                                     {departments.map(dept => (
@@ -928,7 +952,9 @@ const SupervisorDashboard: React.FC = () => {
                             {selectedDepartmentId && (
                                 <button
                                     onClick={() => setSelectedDepartmentId(null)}
-                                    className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs"
+                                    className={`px-3 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs border ${
+                                        isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'
+                                    }`}
                                     title={dir === 'rtl' ? 'إلغاء التصفية وعرض الكل' : 'Clear filter'}
                                 >
                                     <i className="fas fa-times"></i>
@@ -940,13 +966,15 @@ const SupervisorDashboard: React.FC = () => {
 
                     {/* Quick Department Chips */}
                     {departments.length > 0 && (
-                        <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+                        <div className={`mt-4 pt-3.5 border-t flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin ${
+                            isDark ? 'border-slate-800' : 'border-slate-100'
+                        }`}>
                             <button
                                 onClick={() => setSelectedDepartmentId(null)}
                                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
                                     !selectedDepartmentId
                                         ? 'bg-indigo-600 text-white shadow-xs'
-                                        : 'bg-slate-100 hover:bg-slate-200/80 text-slate-700'
+                                        : (isDark ? 'bg-slate-800 hover:bg-slate-750 text-slate-300' : 'bg-slate-100 hover:bg-slate-200/80 text-slate-700')
                                 }`}
                             >
                                 <i className="fas fa-layer-group text-[11px]"></i>
@@ -961,7 +989,7 @@ const SupervisorDashboard: React.FC = () => {
                                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
                                             isSelected
                                                 ? 'bg-indigo-600 text-white shadow-xs'
-                                                : 'bg-slate-100 hover:bg-slate-200/80 text-slate-700'
+                                                : (isDark ? 'bg-slate-800 hover:bg-slate-750 text-slate-300' : 'bg-slate-100 hover:bg-slate-200/80 text-slate-700')
                                         }`}
                                     >
                                         <i className="fas fa-clinic-medical text-[11px]"></i>
@@ -975,21 +1003,27 @@ const SupervisorDashboard: React.FC = () => {
             ) : (
                 /* Supervisor / Manager Fixed Department Badge */
                 activeDepartment && (
-                    <div className="bg-white/90 backdrop-blur-md rounded-2xl p-4 px-5 border border-slate-200 flex items-center justify-between shadow-2xs">
+                    <div className={`backdrop-blur-md rounded-2xl p-4 px-5 border flex items-center justify-between shadow-2xs ${
+                        isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-white/90 border-slate-200'
+                    }`}>
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 text-lg shadow-2xs">
+                            <div className={`w-10 h-10 rounded-xl border flex items-center justify-center text-lg shadow-2xs ${
+                                isDark ? 'bg-indigo-950/60 border-indigo-800/80 text-indigo-400' : 'bg-indigo-50 border-indigo-100 text-indigo-600'
+                            }`}>
                                 <i className="fas fa-hospital-user"></i>
                             </div>
                             <div>
-                                <h3 className="text-sm font-bold text-slate-800">
+                                <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>
                                     {dir === 'rtl' ? `لوحة تحكم: ${activeDepartment.name}` : `Dashboard: ${activeDepartment.name}`}
                                 </h3>
-                                <p className="text-xs text-slate-500 font-medium">
+                                <p className={`text-xs font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                                     {dir === 'rtl' ? 'يتم عرض البيانات والموظفين والمناوبات الخاصة بقسمك فقط' : 'Viewing data strictly assigned to your department'}
                                 </p>
                             </div>
                         </div>
-                        <span className="text-xs bg-indigo-50 text-indigo-700 font-bold px-3 py-1 rounded-full border border-indigo-200 shadow-2xs">
+                        <span className={`text-xs font-bold px-3 py-1 rounded-full border shadow-2xs ${
+                            isDark ? 'bg-indigo-950/80 text-indigo-300 border-indigo-800' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                        }`}>
                             {activeDepartment.name}
                         </span>
                     </div>
@@ -1110,7 +1144,9 @@ const SupervisorDashboard: React.FC = () => {
             </section>
 
             {/* 3. Search & Interactive Category Filter Bar */}
-            <section aria-label="Tool Filter" className="bg-white rounded-3xl p-4 md:p-6 shadow-sm border border-slate-200/80 flex flex-col md:flex-row items-center justify-between gap-4">
+            <section aria-label="Tool Filter" className={`rounded-3xl p-4 md:p-6 shadow-sm border flex flex-col md:flex-row items-center justify-between gap-4 transition-colors ${
+                isDark ? 'bg-slate-900/90 border-slate-800 text-slate-100' : 'bg-white border-slate-200/80 text-slate-800'
+            }`}>
                 {/* Category Pills */}
                 <div className="flex items-center gap-2 overflow-x-auto w-full md:w-auto pb-1 md:pb-0 custom-scrollbar">
                     {categories.map(cat => (
@@ -1119,14 +1155,16 @@ const SupervisorDashboard: React.FC = () => {
                             onClick={() => setSelectedCategory(cat.id as any)}
                             className={`px-4 py-2 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 whitespace-nowrap ${
                                 selectedCategory === cat.id 
-                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 ring-2 ring-indigo-600/20' 
-                                    : 'bg-slate-100/80 text-slate-600 hover:bg-slate-200/70'
+                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20 ring-2 ring-indigo-600/30' 
+                                    : (isDark ? 'bg-slate-800/80 text-slate-300 hover:bg-slate-750' : 'bg-slate-100/80 text-slate-600 hover:bg-slate-200/70')
                             }`}
                         >
                             <i className={`fas ${cat.icon} text-xs`}></i>
                             <span>{cat.label}</span>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                                selectedCategory === cat.id ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                                selectedCategory === cat.id 
+                                    ? 'bg-white/20 text-white' 
+                                    : (isDark ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-700')
                             }`}>
                                 {cat.count}
                             </span>
@@ -1136,13 +1174,17 @@ const SupervisorDashboard: React.FC = () => {
 
                 {/* Fast Search Input */}
                 <div className="relative w-full md:w-72">
-                    <i className="fas fa-search absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                    <i className={`fas fa-search absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}></i>
                     <input 
                         type="text"
                         placeholder={dir === 'rtl' ? 'ابحث في الشاشات والأدوات...' : 'Search tools & modules...'}
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200/90 rounded-2xl pl-10 pr-4 rtl:pl-4 rtl:pr-10 py-2.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all placeholder:text-slate-400"
+                        className={`w-full border rounded-2xl pl-10 pr-4 rtl:pl-4 rtl:pr-10 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/40 transition-all ${
+                            isDark 
+                                ? 'bg-slate-800/90 border-slate-700 text-slate-100 placeholder:text-slate-500 focus:bg-slate-800' 
+                                : 'bg-slate-50 border-slate-200/90 text-slate-700 placeholder:text-slate-400 focus:bg-white'
+                        }`}
                     />
                     {searchQuery && (
                         <button 
@@ -1162,7 +1204,11 @@ const SupervisorDashboard: React.FC = () => {
                         <button
                             key={item.id}
                             onClick={() => navigate(item.path)}
-                            className="bg-white p-5 rounded-3xl shadow-xs border border-slate-200/90 flex flex-col justify-between transition-all hover:shadow-lg hover:-translate-y-1.5 group relative overflow-hidden text-left rtl:text-right"
+                            className={`p-5 rounded-3xl shadow-xs border flex flex-col justify-between transition-all hover:shadow-lg hover:-translate-y-1.5 group relative overflow-hidden text-left rtl:text-right ${
+                                isDark 
+                                    ? 'bg-slate-900/90 border-slate-800 hover:border-slate-700 text-slate-100' 
+                                    : 'bg-white border-slate-200/90 hover:border-indigo-200 text-slate-800'
+                            }`}
                         >
                             {/* Ambient gradient top accent line */}
                             <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${item.gradient} opacity-90 group-hover:h-2 transition-all`}></div>
@@ -1177,21 +1223,33 @@ const SupervisorDashboard: React.FC = () => {
                                             {item.badge}
                                         </span>
                                     ) : (
-                                        <span className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:text-indigo-600 group-hover:bg-indigo-50 transition-colors">
+                                        <span className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                                            isDark 
+                                                ? 'bg-slate-800 text-slate-400 group-hover:text-indigo-400 group-hover:bg-slate-750' 
+                                                : 'bg-slate-50 text-slate-300 group-hover:text-indigo-600 group-hover:bg-indigo-50'
+                                        }`}>
                                             <i className="fas fa-arrow-right rtl:rotate-180 text-xs"></i>
                                         </span>
                                     )}
                                 </div>
 
-                                <h3 className="font-black text-slate-800 text-base group-hover:text-indigo-600 transition-colors">
+                                <h3 className={`font-black text-base transition-colors ${
+                                    isDark ? 'text-slate-100 group-hover:text-indigo-400' : 'text-slate-800 group-hover:text-indigo-600'
+                                }`}>
                                     {item.title}
                                 </h3>
-                                <p className="text-xs text-slate-500 font-medium mt-1 leading-relaxed">
+                                <p className={`text-xs font-medium mt-1 leading-relaxed ${
+                                    isDark ? 'text-slate-400' : 'text-slate-500'
+                                }`}>
                                     {item.subtitle}
                                 </p>
                             </div>
 
-                            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-400 group-hover:text-indigo-500 transition-colors">
+                            <div className={`mt-4 pt-3 border-t flex items-center justify-between text-[11px] font-bold transition-colors ${
+                                isDark 
+                                    ? 'border-slate-800 text-slate-400 group-hover:text-indigo-400' 
+                                    : 'border-slate-100 text-slate-400 group-hover:text-indigo-500'
+                            }`}>
                                 <span>{dir === 'rtl' ? 'فتح الأداة' : 'Open module'}</span>
                                 <i className="fas fa-chevron-left rtl:rotate-180 text-[10px]"></i>
                             </div>
@@ -1200,14 +1258,20 @@ const SupervisorDashboard: React.FC = () => {
                 </div>
 
                 {filteredNavItems.length === 0 && (
-                    <div className="text-center py-16 bg-white rounded-3xl border border-dashed border-slate-200">
-                        <div className="w-14 h-14 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-400 text-xl">
+                    <div className={`text-center py-16 rounded-3xl border border-dashed transition-colors ${
+                        isDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'
+                    }`}>
+                        <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-3 text-xl ${
+                            isDark ? 'bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-400'
+                        }`}>
                             <i className="fas fa-search"></i>
                         </div>
-                        <p className="text-sm font-bold text-slate-600">{dir === 'rtl' ? 'لم يتم العثور على شاشات مطابقة' : 'No modules match your search'}</p>
+                        <p className={`text-sm font-bold ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{dir === 'rtl' ? 'لم يتم العثور على شاشات مطابقة' : 'No modules match your search'}</p>
                         <button 
                             onClick={() => { setSearchQuery(''); setSelectedCategory('all'); }}
-                            className="mt-3 px-4 py-1.5 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors"
+                            className={`mt-3 px-4 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                                isDark ? 'bg-indigo-950/80 text-indigo-400 hover:bg-indigo-900/80 border border-indigo-800/60' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+                            }`}
                         >
                             {dir === 'rtl' ? 'إعادة ضبط الفلاتر' : 'Reset filters'}
                         </button>
@@ -1272,13 +1336,17 @@ const SupervisorDashboard: React.FC = () => {
             {logbookItems.length > 0 && (
                 <section aria-label="Department Logbooks">
                     <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-lg md:text-xl font-black text-slate-800 flex items-center gap-2.5">
-                            <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center text-sm">
+                        <h3 className={`text-lg md:text-xl font-black flex items-center gap-2.5 ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                            <span className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm ${
+                                isDark ? 'bg-indigo-950/80 text-indigo-400 border border-indigo-800/60' : 'bg-indigo-100 text-indigo-600'
+                            }`}>
                                 <i className="fas fa-book-medical"></i>
                             </span>
                             {dir === 'rtl' ? 'سجلات غرف الأشعة والفحوصات (Logbooks)' : 'Department Modality Logbooks'}
                         </h3>
-                        <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+                        <span className={`text-xs font-bold px-3 py-1 rounded-full ${
+                            isDark ? 'text-slate-400 bg-slate-800 border border-slate-700' : 'text-slate-500 bg-slate-100'
+                        }`}>
                             {dir === 'rtl' ? 'تسجيل ومراجعة الحالات' : 'Procedure Registries'}
                         </span>
                     </div>
@@ -1288,20 +1356,28 @@ const SupervisorDashboard: React.FC = () => {
                             <button 
                                 key={item.id}
                                 onClick={() => navigate(item.path)}
-                                className="bg-white p-5 rounded-3xl shadow-xs border border-slate-200/90 flex flex-col items-center justify-center text-center gap-3 transition-all hover:shadow-lg hover:-translate-y-1.5 group relative overflow-hidden"
+                                className={`p-5 rounded-3xl shadow-xs border flex flex-col items-center justify-center text-center gap-3 transition-all hover:shadow-lg hover:-translate-y-1.5 group relative overflow-hidden ${
+                                    isDark ? 'bg-slate-900/90 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-200/90 hover:border-indigo-200'
+                                }`}
                             >
                                 <div className={`w-14 h-14 bg-gradient-to-tr ${item.gradient} rounded-2xl flex items-center justify-center text-white text-2xl shadow-md group-hover:scale-110 transition-transform`}>
                                     <i className={`fas ${item.icon}`}></i>
                                 </div>
                                 <div>
-                                    <h4 className="font-bold text-slate-800 text-sm group-hover:text-indigo-600 transition-colors">
+                                    <h4 className={`font-bold text-sm transition-colors ${
+                                        isDark ? 'text-slate-100 group-hover:text-indigo-400' : 'text-slate-800 group-hover:text-indigo-600'
+                                    }`}>
                                         {item.title}
                                     </h4>
-                                    <p className="text-[11px] text-slate-400 font-medium mt-0.5 line-clamp-1">
+                                    <p className={`text-[11px] font-medium mt-0.5 line-clamp-1 ${
+                                        isDark ? 'text-slate-400' : 'text-slate-400'
+                                    }`}>
                                         {item.subtitle}
                                     </p>
                                 </div>
-                                <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full transition-colors ${
+                                    isDark ? 'text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 group-hover:bg-indigo-600 group-hover:text-white' : 'text-indigo-600 bg-indigo-50 group-hover:bg-indigo-600 group-hover:text-white'
+                                }`}>
                                     {dir === 'rtl' ? 'فتح السجل' : 'Open Logbook'}
                                 </span>
                             </button>
@@ -1313,27 +1389,37 @@ const SupervisorDashboard: React.FC = () => {
             {/* 7. Quick Action Hub & Live Activity Stream (2-Column) */}
             <section aria-label="Operations and Feed" className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Quick Action Center */}
-                <div className="lg:col-span-2 bg-white rounded-3xl shadow-xs border border-slate-200/90 p-6 md:p-8 flex flex-col justify-between">
+                <div className={`lg:col-span-2 rounded-3xl shadow-xs border p-6 md:p-8 flex flex-col justify-between transition-colors ${
+                    isDark ? 'bg-slate-900/90 border-slate-800 text-slate-100' : 'bg-white border-slate-200/90 text-slate-800'
+                }`}>
                     <div>
                         <div className="flex items-center justify-between mb-6">
-                            <h3 className="text-xl font-black text-slate-800 flex items-center gap-2.5">
-                                <span className="w-9 h-9 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center text-base">
+                            <h3 className={`text-xl font-black flex items-center gap-2.5 ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                                <span className={`w-9 h-9 rounded-xl flex items-center justify-center text-base ${
+                                    isDark ? 'bg-amber-950/60 text-amber-400 border border-amber-800/60' : 'bg-amber-100 text-amber-600'
+                                }`}>
                                     <i className="fas fa-bolt"></i>
                                 </span>
                                 {dir === 'rtl' ? 'مركز التقدير والإجراءات الفورية' : 'Quick Action & Recognition Center'}
                             </h3>
-                            <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">
+                            <span className={`text-xs font-bold px-3 py-1 rounded-full ${
+                                isDark ? 'text-slate-400 bg-slate-800 border border-slate-700' : 'text-slate-400 bg-slate-100'
+                            }`}>
                                 {dir === 'rtl' ? 'إجراءات المشرف' : 'Supervisor Direct Actions'}
                             </span>
                         </div>
 
                         <div className="space-y-4">
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">
+                                <label className={`text-xs font-bold uppercase tracking-wider mb-2 block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                                     {dir === 'rtl' ? 'اختر الموظف المستهدف:' : 'Select Employee:'}
                                 </label>
                                 <select 
-                                    className="w-full bg-slate-50 border border-slate-200/90 rounded-2xl p-3.5 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all cursor-pointer"
+                                    className={`w-full border rounded-2xl p-3.5 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all cursor-pointer ${
+                                        isDark 
+                                            ? 'bg-slate-800 border-slate-700 text-slate-100' 
+                                            : 'bg-slate-50 border-slate-200/90 text-slate-700 focus:bg-white'
+                                    }`}
                                     value={selectedEmpForAction}
                                     onChange={e => setSelectedEmpForAction(e.target.value)}
                                 >
@@ -1350,25 +1436,35 @@ const SupervisorDashboard: React.FC = () => {
                                 <button 
                                     disabled={!selectedEmpForAction}
                                     onClick={() => setFeedbackModal({isOpen: true, type: 'kudos', userId: selectedEmpForAction})}
-                                    className="p-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-2xl font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2.5 shadow-2xs hover:scale-[1.02]"
+                                    className={`p-4 rounded-2xl font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2.5 shadow-2xs hover:scale-[1.02] border ${
+                                        isDark 
+                                            ? 'bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 border-emerald-800/60' 
+                                            : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                                    }`}
                                 >
-                                    <i className="fas fa-heart text-emerald-600 text-lg"></i>
+                                    <i className="fas fa-heart text-emerald-500 text-lg"></i>
                                     <span>{dir === 'rtl' ? 'إرسال شكر وتقدير (Kudos)' : 'Send Kudos / Appreciation'}</span>
                                 </button>
 
                                 <button 
                                     disabled={!selectedEmpForAction}
                                     onClick={() => setFeedbackModal({isOpen: true, type: 'flag', userId: selectedEmpForAction})}
-                                    className="p-4 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-2xl font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2.5 shadow-2xs hover:scale-[1.02]"
+                                    className={`p-4 rounded-2xl font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2.5 shadow-2xs hover:scale-[1.02] border ${
+                                        isDark 
+                                            ? 'bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border-rose-800/60' 
+                                            : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                                    }`}
                                 >
-                                    <i className="fas fa-flag text-rose-600 text-lg"></i>
+                                    <i className="fas fa-flag text-rose-500 text-lg"></i>
                                     <span>{dir === 'rtl' ? 'تسجيل ملاحظة / مخالفة' : 'Flag Issue / Violation'}</span>
                                 </button>
                             </div>
                         </div>
                     </div>
 
-                    <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400 font-medium">
+                    <div className={`mt-6 pt-4 border-t flex items-center justify-between text-xs font-medium ${
+                        isDark ? 'border-slate-800 text-slate-500' : 'border-slate-100 text-slate-400'
+                    }`}>
                         <span>{dir === 'rtl' ? '💡 التقدير والملاحظات تظهر فوراً في ملف الموظف وسجل الأداء' : '💡 Feedback is immediately recorded on the staff profile & scorecard'}</span>
                     </div>
                 </div>
@@ -1465,34 +1561,46 @@ const SupervisorDashboard: React.FC = () => {
 
             {/* 8. Expiry & Regulatory Compliance Alerts Panel */}
             {alerts.length > 0 && (
-                <section aria-label="Compliance Alerts" className="bg-white rounded-3xl shadow-xs border border-slate-200/90 p-6 md:p-8">
+                <section aria-label="Compliance Alerts" className={`rounded-3xl shadow-xs border p-6 md:p-8 transition-colors ${
+                    isDark ? 'bg-slate-900/90 border-slate-800 text-slate-100' : 'bg-white border-slate-200/90 text-slate-800'
+                }`}>
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-                        <h3 className="text-xl font-black text-slate-800 flex items-center gap-2.5">
-                            <span className="w-9 h-9 rounded-xl bg-red-100 text-red-600 flex items-center justify-center text-base">
+                        <h3 className={`text-xl font-black flex items-center gap-2.5 ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                            <span className={`w-9 h-9 rounded-xl flex items-center justify-center text-base ${
+                                isDark ? 'bg-rose-950/60 text-rose-400 border border-rose-800/60' : 'bg-red-100 text-red-600'
+                            }`}>
                                 <i className="fas fa-exclamation-triangle"></i>
                             </span>
                             {dir === 'rtl' ? 'تنبيهات الصلاحيات والتراخيص' : 'Expiry & Regulatory Alerts'}
-                            <span className="bg-red-100 text-red-700 text-xs font-black px-2.5 py-0.5 rounded-full">
+                            <span className={`text-xs font-black px-2.5 py-0.5 rounded-full ${
+                                isDark ? 'bg-rose-950/80 text-rose-300 border border-rose-800/60' : 'bg-red-100 text-red-700'
+                            }`}>
                                 {alerts.length}
                             </span>
                         </h3>
 
-                        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs font-bold self-start sm:self-auto">
+                        <div className={`flex items-center gap-1.5 p-1 rounded-xl text-xs font-bold self-start sm:self-auto border ${
+                            isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'
+                        }`}>
                             <button 
                                 onClick={() => setAlertFilter('all')}
-                                className={`px-3 py-1 rounded-lg transition-all ${alertFilter === 'all' ? 'bg-white text-slate-800 shadow-2xs' : 'text-slate-500'}`}
+                                className={`px-3 py-1 rounded-lg transition-all ${
+                                    alertFilter === 'all' 
+                                        ? (isDark ? 'bg-slate-700 text-white shadow-2xs' : 'bg-white text-slate-800 shadow-2xs') 
+                                        : (isDark ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-800')
+                                }`}
                             >
                                 {dir === 'rtl' ? 'الكل' : 'All'} ({alerts.length})
                             </button>
                             <button 
                                 onClick={() => setAlertFilter('danger')}
-                                className={`px-3 py-1 rounded-lg transition-all ${alertFilter === 'danger' ? 'bg-red-500 text-white shadow-2xs' : 'text-red-600'}`}
+                                className={`px-3 py-1 rounded-lg transition-all ${alertFilter === 'danger' ? 'bg-red-500 text-white shadow-2xs' : (isDark ? 'text-rose-400' : 'text-red-600')}`}
                             >
                                 {dir === 'rtl' ? 'منتهي الصلاحية 🔴' : 'Expired'}
                             </button>
                             <button 
                                 onClick={() => setAlertFilter('warning')}
-                                className={`px-3 py-1 rounded-lg transition-all ${alertFilter === 'warning' ? 'bg-amber-500 text-white shadow-2xs' : 'text-amber-700'}`}
+                                className={`px-3 py-1 rounded-lg transition-all ${alertFilter === 'warning' ? 'bg-amber-500 text-white shadow-2xs' : (isDark ? 'text-amber-400' : 'text-amber-700')}`}
                             >
                                 {dir === 'rtl' ? 'قريب الانتهاء 🟡' : 'Near Expiry'}
                             </button>
@@ -1506,27 +1614,43 @@ const SupervisorDashboard: React.FC = () => {
                                 onClick={() => navigate(alert.link)} 
                                 className={`cursor-pointer p-4 rounded-2xl border transition-all hover:scale-[1.02] flex items-start gap-3.5 ${
                                     alert.type === 'danger' 
-                                        ? 'bg-red-50/70 border-red-200/80 hover:bg-red-100/70' 
-                                        : 'bg-amber-50/70 border-amber-200/80 hover:bg-amber-100/70'
+                                        ? (isDark ? 'bg-rose-950/30 border-rose-900/50 hover:bg-rose-950/50' : 'bg-red-50/70 border-red-200/80 hover:bg-red-100/70') 
+                                        : (isDark ? 'bg-amber-950/30 border-amber-900/50 hover:bg-amber-950/50' : 'bg-amber-50/70 border-amber-200/80 hover:bg-amber-100/70')
                                 }`}
                             >
                                 <div className={`w-11 h-11 rounded-2xl flex items-center justify-center text-lg shrink-0 ${
-                                    alert.type === 'danger' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'
+                                    alert.type === 'danger' 
+                                        ? (isDark ? 'bg-rose-900/60 text-rose-300' : 'bg-red-100 text-red-600') 
+                                        : (isDark ? 'bg-amber-900/60 text-amber-300' : 'bg-amber-100 text-amber-600')
                                 }`}>
                                     <i className={`fas ${alert.icon}`}></i>
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <h4 className={`font-black text-sm truncate ${alert.type === 'danger' ? 'text-red-900' : 'text-amber-900'}`}>
+                                    <h4 className={`font-black text-sm truncate ${
+                                        alert.type === 'danger' 
+                                            ? (isDark ? 'text-rose-200' : 'text-red-900') 
+                                            : (isDark ? 'text-amber-200' : 'text-amber-900')
+                                    }`}>
                                         {alert.title}
                                     </h4>
-                                    <p className={`text-xs font-semibold truncate ${alert.type === 'danger' ? 'text-red-700' : 'text-amber-700'}`}>
+                                    <p className={`text-xs font-semibold truncate ${
+                                        alert.type === 'danger' 
+                                            ? (isDark ? 'text-rose-300/80' : 'text-red-700') 
+                                            : (isDark ? 'text-amber-300/80' : 'text-amber-700')
+                                    }`}>
                                         {alert.subtitle}
                                     </p>
-                                    <div className="flex items-center justify-between mt-2 pt-1 border-t border-slate-200/40">
-                                        <span className={`text-[10px] font-mono font-bold ${alert.type === 'danger' ? 'text-red-600' : 'text-amber-600'}`}>
+                                    <div className={`flex items-center justify-between mt-2 pt-1 border-t ${
+                                        isDark ? 'border-white/10' : 'border-slate-200/40'
+                                    }`}>
+                                        <span className={`text-[10px] font-mono font-bold ${
+                                            alert.type === 'danger' 
+                                                ? (isDark ? 'text-rose-400' : 'text-red-600') 
+                                                : (isDark ? 'text-amber-400' : 'text-amber-600')
+                                        }`}>
                                             {alert.type === 'danger' ? (dir === 'rtl' ? 'انتهى في:' : 'Expired:') : (dir === 'rtl' ? 'ينتهي في:' : 'Expires:')} {alert.date}
                                         </span>
-                                        <span className="text-[10px] font-bold underline text-slate-500">
+                                        <span className={`text-[10px] font-bold underline ${isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800'}`}>
                                             {dir === 'rtl' ? 'معالجة' : 'Resolve'} →
                                         </span>
                                     </div>
@@ -1540,27 +1664,36 @@ const SupervisorDashboard: React.FC = () => {
         </main>
 
         {/* 9. Floating On Shift Monitor Capsule */}
-        <div className={`fixed bottom-6 left-6 z-40 transition-all duration-300 ${onShiftNow.length > 0 || isShiftWidgetOpen ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'}`}>
-            <div className={`bg-white/95 backdrop-blur-md shadow-2xl border border-slate-200 transition-all duration-300 overflow-hidden ${isShiftWidgetOpen ? 'rounded-3xl w-84' : 'rounded-full w-auto hover:scale-105'}`}>
+        {/* Placed opposite to the sidebar: in RTL (sidebar on right) -> place on LEFT; in LTR (sidebar on left) -> place on RIGHT */}
+        <div className={`fixed bottom-5 ${dir === 'rtl' ? 'left-4 sm:left-6' : 'right-4 sm:right-6'} z-[9990] transition-all duration-300 ${onShiftNow.length > 0 || isShiftWidgetOpen ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'}`}>
+            <div className={`backdrop-blur-2xl transition-all duration-300 overflow-hidden ${
+                isDark 
+                    ? 'bg-slate-900/95 shadow-[0_20px_50px_rgba(0,0,0,0.85)] border border-slate-700/80' 
+                    : 'bg-white/95 shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-slate-300'
+            } ${isShiftWidgetOpen ? 'rounded-3xl w-[calc(100vw-32px)] sm:w-84' : 'rounded-full hover:scale-105'}`}>
                 
                 <div 
                     onClick={() => setIsShiftWidgetOpen(!isShiftWidgetOpen)}
-                    className={`cursor-pointer flex items-center justify-between p-3.5 ${isShiftWidgetOpen ? 'bg-slate-50 border-b border-slate-100' : 'bg-slate-900 text-white px-5 py-3.5'}`}
+                    className={`cursor-pointer flex items-center justify-between select-none ${
+                        isShiftWidgetOpen 
+                            ? (isDark ? 'p-3.5 bg-slate-950/80 border-b border-white/10' : 'p-3.5 bg-slate-100 border-b border-slate-200') 
+                            : (isDark ? 'px-4 py-2.5 bg-slate-900 border border-slate-700 text-white shadow-xl' : 'px-4 py-2.5 bg-slate-900 text-white shadow-xl')
+                    }`}
                 >
                     <div className="flex items-center gap-2.5">
-                        <span className="relative flex h-3 w-3">
-                            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isShiftWidgetOpen ? 'bg-cyan-500' : 'bg-emerald-400'}`}></span>
-                            <span className={`relative inline-flex rounded-full h-3 w-3 ${isShiftWidgetOpen ? 'bg-cyan-600' : 'bg-emerald-500'}`}></span>
+                        <span className="relative flex h-2.5 w-2.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-400"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
                         </span>
-                        <h4 className={`font-black text-xs uppercase tracking-wider ${isShiftWidgetOpen ? 'text-slate-800' : 'text-white'}`}>
+                        <h4 className={`font-black text-xs sm:text-sm uppercase tracking-wider ${isDark ? 'text-white' : (isShiftWidgetOpen ? 'text-slate-900' : 'text-white')}`}>
                             {t('dash.onShift') || 'المناوبون الآن'}
                         </h4>
                     </div>
                     
                     {isShiftWidgetOpen ? (
-                        <i className="fas fa-chevron-down text-slate-400 text-xs"></i>
+                        <i className={`fas fa-chevron-down text-xs ${isDark ? 'text-white/50' : 'text-slate-400'}`}></i>
                     ) : (
-                        <span className="ml-3 text-xs font-bold bg-white/20 px-2.5 py-0.5 rounded-full">
+                        <span className="ml-2.5 rtl:ml-0 rtl:mr-2.5 text-xs font-mono font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
                             {onShiftNow.length}
                         </span>
                     )}
@@ -1569,36 +1702,52 @@ const SupervisorDashboard: React.FC = () => {
                 {isShiftWidgetOpen && (
                     <div className="flex flex-col">
                         {/* Filter Toggle */}
-                        <div className="flex p-2 bg-slate-50 border-b border-slate-100 gap-1.5">
+                        <div className={`flex p-2 border-b gap-1.5 ${isDark ? 'bg-slate-950/50 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
                             <button 
                                 onClick={(e) => { e.stopPropagation(); setShiftFilterMode('present'); }} 
-                                className={`flex-1 py-1.5 text-[10px] font-bold rounded-xl transition-all ${shiftFilterMode === 'present' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
+                                className={`flex-1 py-1.5 text-[10px] font-bold rounded-xl transition-all cursor-pointer ${
+                                    shiftFilterMode === 'present' 
+                                        ? 'bg-emerald-500 text-slate-950 font-black shadow-md' 
+                                        : (isDark ? 'text-white/60 hover:text-white hover:bg-white/5' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60')
+                                }`}
                             >
                                 <i className="fas fa-check-circle mr-1"></i> {t('dash.filterActive') || 'الحاضرون الآن'}
                             </button>
                             <button 
                                 onClick={(e) => { e.stopPropagation(); setShiftFilterMode('all'); }} 
-                                className={`flex-1 py-1.5 text-[10px] font-bold rounded-xl transition-all ${shiftFilterMode === 'all' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
+                                className={`flex-1 py-1.5 text-[10px] font-bold rounded-xl transition-all cursor-pointer ${
+                                    shiftFilterMode === 'all' 
+                                        ? 'bg-cyan-500 text-slate-950 font-black shadow-md' 
+                                        : (isDark ? 'text-white/60 hover:text-white hover:bg-white/5' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60')
+                                }`}
                             >
                                 <i className="fas fa-list mr-1"></i> {t('dash.filterAll') || 'كل المجدولين'}
                             </button>
                         </div>
 
-                        <div className="space-y-1.5 max-h-[300px] overflow-y-auto custom-scrollbar-dark p-2">
+                        <div className="space-y-1.5 max-h-[300px] overflow-y-auto custom-scrollbar-dark p-2.5">
                             {onShiftNow.length === 0 ? (
-                                <div className="text-center py-6 text-xs text-slate-400 font-bold">
+                                <div className={`text-center py-6 text-xs font-bold ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
                                     {t('dash.noActiveStaff') || 'لا يوجد موظفون في هذا الفلتر حالياً'}
                                 </div>
                             ) : (
                                 onShiftNow.map((p, i) => (
-                                    <div key={i} className={`flex items-center justify-between p-2.5 rounded-2xl transition-colors ${p.role === 'doctor' ? 'bg-cyan-50 border border-cyan-100' : 'hover:bg-slate-50'}`}>
+                                    <div key={i} className={`flex items-center justify-between p-2.5 rounded-2xl transition-colors border ${
+                                        p.role === 'doctor' 
+                                            ? (isDark ? 'bg-cyan-950/30 border-cyan-500/30' : 'bg-cyan-50 border-cyan-200') 
+                                            : (isDark ? 'bg-white/5 border-white/5 hover:bg-white/10' : 'bg-slate-50 border-slate-200 hover:bg-slate-100')
+                                    }`}>
                                         <div className="min-w-0 flex-1">
                                             <div className="flex items-center gap-1.5">
                                                 {p.role !== 'doctor' && (
-                                                    <div className={`w-2 h-2 rounded-full shrink-0 ${p.isPresent ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
+                                                    <div className={`w-2 h-2 rounded-full shrink-0 ${p.isPresent ? 'bg-emerald-500 shadow-[0_0_6px_#10b981] animate-pulse' : (isDark ? 'bg-white/30' : 'bg-slate-300')}`}></div>
                                                 )}
 
-                                                <span className={`font-bold text-xs truncate max-w-[110px] ${p.role === 'doctor' ? 'text-cyan-900' : 'text-slate-700'}`}>
+                                                <span className={`font-bold text-xs truncate max-w-[130px] ${
+                                                    p.role === 'doctor' 
+                                                        ? (isDark ? 'text-cyan-200' : 'text-cyan-800') 
+                                                        : (isDark ? 'text-white' : 'text-slate-800')
+                                                }`}>
                                                     {p.name}
                                                 </span>
                                                 {p.role === 'doctor' && <i className="fas fa-user-md text-[10px] text-cyan-500 shrink-0"></i>}
@@ -1608,10 +1757,12 @@ const SupervisorDashboard: React.FC = () => {
                                                     </span>
                                                 )}
                                             </div>
-                                            <span className="text-[10px] text-slate-400 block truncate max-w-[150px] pl-3.5">{p.location}</span>
+                                            <span className={`text-[10px] block truncate max-w-[150px] pl-3.5 rtl:pl-0 rtl:pr-3.5 mt-0.5 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>{p.location}</span>
                                         </div>
-                                        <div className="flex flex-col items-end gap-1 pl-2">
-                                            <div className="text-[9px] bg-slate-100 px-2 py-0.5 rounded text-slate-600 font-mono whitespace-nowrap">
+                                        <div className="flex flex-col items-end gap-1 shrink-0 pl-2 rtl:pl-0 rtl:pr-2">
+                                            <div className={`text-[9px] px-2 py-0.5 rounded font-mono whitespace-nowrap ${
+                                                isDark ? 'bg-black/40 text-slate-300' : 'bg-slate-200/70 text-slate-700'
+                                            }`}>
                                                 {p.time}
                                             </div>
                                             <div className="flex items-center gap-1">
@@ -1620,7 +1771,9 @@ const SupervisorDashboard: React.FC = () => {
                                                         <i className="fas fa-check-circle text-[8px]"></i> {t('status.in') || 'حاضر'}
                                                     </span>
                                                 ) : (
-                                                    <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                                                        isDark ? 'text-white/40 bg-white/5 border-white/10' : 'text-slate-400 bg-slate-50 border-slate-100'
+                                                    }`}>
                                                         {t('status.notyet') || 'لم يحضر'}
                                                     </span>
                                                 )}
@@ -1651,9 +1804,15 @@ const SupervisorDashboard: React.FC = () => {
             title={feedbackModal.type === 'kudos' ? (dir === 'rtl' ? 'إرسال شكر وتقدير للموظف' : 'Send Appreciation') : (dir === 'rtl' ? 'تسجيل ملاحظة / مخالفة' : 'Issue Flag')}
         >
             <div className="space-y-4">
-                <div className={`p-4 rounded-2xl border ${feedbackModal.type === 'kudos' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'}`}>
+                <div className={`p-4 rounded-2xl border ${
+                    feedbackModal.type === 'kudos' 
+                        ? (isDark ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300' : 'bg-emerald-50 border-emerald-100 text-emerald-800') 
+                        : (isDark ? 'bg-rose-950/40 border-rose-800/60 text-rose-300' : 'bg-red-50 border-red-100 text-red-800')
+                }`}>
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl bg-white shadow-xs">
+                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-xl shadow-xs ${
+                            isDark ? 'bg-slate-800 border border-slate-700' : 'bg-white'
+                        }`}>
                             {feedbackModal.type === 'kudos' ? '🎉' : '⚠️'}
                         </div>
                         <div>
@@ -1664,9 +1823,11 @@ const SupervisorDashboard: React.FC = () => {
                 </div>
 
                 <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-1.5">{dir === 'rtl' ? 'التصنيف' : 'Category'}</label>
+                    <label className={`block text-xs font-bold mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>{dir === 'rtl' ? 'التصنيف' : 'Category'}</label>
                     <select 
-                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-100"
+                        className={`w-full border rounded-2xl p-3.5 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/30 ${
+                            isDark ? 'bg-slate-800 border-slate-700 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-800'
+                        }`}
                         value={feedbackForm.category}
                         onChange={e => setFeedbackForm({...feedbackForm, category: e.target.value})}
                     >
@@ -1688,9 +1849,11 @@ const SupervisorDashboard: React.FC = () => {
                 </div>
 
                 <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-1.5">{dir === 'rtl' ? 'تفاصيل الملاحظة / الرسالة' : 'Message / Details'}</label>
+                    <label className={`block text-xs font-bold mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>{dir === 'rtl' ? 'تفاصيل الملاحظة / الرسالة' : 'Message / Details'}</label>
                     <textarea 
-                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-sm outline-none min-h-[100px] focus:ring-2 focus:ring-indigo-100"
+                        className={`w-full border rounded-2xl p-3.5 text-sm outline-none min-h-[100px] focus:ring-2 focus:ring-indigo-500/30 ${
+                            isDark ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500' : 'bg-slate-50 border-slate-200 text-slate-800 placeholder:text-slate-400'
+                        }`}
                         placeholder={dir === 'rtl' ? 'اكتب التفاصيل والملاحظات هنا...' : 'Write details here...'}
                         value={feedbackForm.message}
                         onChange={e => setFeedbackForm({...feedbackForm, message: e.target.value})}
@@ -1699,7 +1862,7 @@ const SupervisorDashboard: React.FC = () => {
 
                 <button 
                     onClick={handleSubmitFeedback}
-                    className={`w-full py-3.5 rounded-2xl font-bold text-white shadow-lg transition-all hover:scale-[1.02] ${feedbackModal.type === 'kudos' ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200' : 'bg-red-600 hover:bg-red-700 shadow-red-200'}`}
+                    className={`w-full py-3.5 rounded-2xl font-bold text-white shadow-lg transition-all hover:scale-[1.02] cursor-pointer ${feedbackModal.type === 'kudos' ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20' : 'bg-red-600 hover:bg-red-700 shadow-red-500/20'}`}
                 >
                     {dir === 'rtl' ? 'حفظ وإرسال الإجراء' : 'Submit Feedback'}
                 </button>

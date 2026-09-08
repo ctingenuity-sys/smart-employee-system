@@ -12,6 +12,7 @@ import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, Timestamp, quer
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useDepartment } from '../contexts/DepartmentContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { UserRole } from '../types';
 import { useFilteredUsers } from '../hooks/useFilteredUsers';
 import { isValidStaffName } from '../utils/staffUtils';
@@ -49,6 +50,7 @@ const POINTS_PER_MONTH = 120;
 const Reports: React.FC = () => {
     // --- State ---
     const { t, dir } = useLanguage();
+    const { isDark } = useTheme();
     const { role: authRole, user: currentUser, userName } = useAuth();
     const { departments, selectedDepartmentId: contextDeptId, setSelectedDepartmentId } = useDepartment();
     const isAdmin = authRole === UserRole.ADMIN || String(authRole).toLowerCase() === 'admin' || localStorage.getItem('role') === 'admin';
@@ -1363,7 +1365,7 @@ const Reports: React.FC = () => {
         : `${filterYear}-${filterMonth.padStart(2, '0')}`;
 
     return (
-        <div className="min-h-screen bg-slate-50 font-sans pb-12 print:bg-white print:p-0 print:pb-0" dir={dir}>
+        <div className={`min-h-screen font-sans pb-12 print:bg-white print:p-0 print:pb-0 ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'}`} dir={dir}>
             
             <PrintHeader 
                 title={t('rep.title')} 
@@ -1372,7 +1374,7 @@ const Reports: React.FC = () => {
             />
 
             {/* Header (Hidden in Print) */}
-            <div className="bg-slate-900 text-white pt-8 pb-16 px-6 print:hidden">
+            <div className={`text-white pt-8 pb-16 px-6 print:hidden ${isDark ? 'bg-slate-900 border-b border-slate-800' : 'bg-slate-900'}`}>
                 <div className="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-4">
                     <div>
                         <h1 className="text-3xl font-black tracking-tight">{t('rep.title')}</h1>
@@ -1397,7 +1399,7 @@ const Reports: React.FC = () => {
                         )}
                         <button 
                             onClick={handlePrint} 
-                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 rounded-xl font-bold transition-all flex items-center gap-2 text-sm border border-slate-700"
+                            className={`px-4 py-2.5 rounded-xl font-bold transition-all flex items-center gap-2 text-sm border ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'}`}
                         >
                             <i className="fas fa-print"></i> {t('print')}
                         </button>
@@ -1426,22 +1428,30 @@ const Reports: React.FC = () => {
                 )}
 
                 {/* Main Filters Bar */}
-                <div className="bg-white rounded-3xl shadow-lg p-5 mb-8 border border-slate-100 print:hidden space-y-4">
+                <div className={`rounded-3xl shadow-lg p-5 mb-8 border print:hidden space-y-4 ${isDark ? 'bg-slate-900 border-slate-800 shadow-slate-950/40' : 'bg-white border-slate-100'}`}>
                     
                     {/* Top Row: Main Tabs & Date Mode */}
                     <div className="flex flex-wrap gap-4 items-center justify-between">
                         {/* Tab Switcher */}
-                        <div className="flex bg-slate-100 p-1.5 rounded-2xl">
+                        <div className={`flex p-1.5 rounded-2xl ${isDark ? 'bg-slate-800/80' : 'bg-slate-100'}`}>
                             <button 
                                 onClick={() => setActiveTab('attendance')} 
-                                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${activeTab === 'attendance' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
+                                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
+                                    activeTab === 'attendance' 
+                                        ? (isDark ? 'bg-slate-700 shadow-sm text-blue-400' : 'bg-white shadow-sm text-blue-600') 
+                                        : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800')
+                                }`}
                             >
                                 <i className="fas fa-user-check"></i>
                                 {t('nav.reports') || 'التقارير والمراجعة'}
                             </button>
                             <button 
                                 onClick={() => setActiveTab('productivity')} 
-                                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${activeTab === 'productivity' ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500 hover:text-slate-800'}`}
+                                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
+                                    activeTab === 'productivity' 
+                                        ? (isDark ? 'bg-slate-700 shadow-sm text-emerald-400' : 'bg-white shadow-sm text-emerald-600') 
+                                        : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800')
+                                }`}
                             >
                                 <i className="fas fa-procedures"></i>
                                 Completed Exams
@@ -1449,10 +1459,14 @@ const Reports: React.FC = () => {
                         </div>
 
                         {/* Date Mode Switcher */}
-                        <div className="flex bg-slate-100 p-1.5 rounded-2xl">
+                        <div className={`flex p-1.5 rounded-2xl ${isDark ? 'bg-slate-800/80' : 'bg-slate-100'}`}>
                             <button 
                                 onClick={() => setDateMode('month')} 
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${dateMode === 'month' ? 'bg-white shadow-sm text-blue-600 font-black' : 'text-slate-500 hover:text-slate-800'}`}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                    dateMode === 'month' 
+                                        ? (isDark ? 'bg-slate-700 shadow-sm text-blue-400 font-black' : 'bg-white shadow-sm text-blue-600 font-black') 
+                                        : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800')
+                                }`}
                             >
                                 <i className="fas fa-calendar-alt text-xs"></i>
                                 {t('rep.filter.byMonth') || 'بالشهر'}
@@ -1464,7 +1478,11 @@ const Reports: React.FC = () => {
                                         applyDateShortcut('this_month');
                                     }
                                 }} 
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${dateMode === 'custom' ? 'bg-white shadow-sm text-indigo-600 font-black' : 'text-slate-500 hover:text-slate-800'}`}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                    dateMode === 'custom' 
+                                        ? (isDark ? 'bg-slate-700 shadow-sm text-indigo-400 font-black' : 'bg-white shadow-sm text-indigo-600 font-black') 
+                                        : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800')
+                                }`}
                             >
                                 <i className="fas fa-calendar-week text-xs"></i>
                                 {t('rep.filter.customPeriod') || 'فترة مخصصة (من - إلى)'}
@@ -1473,13 +1491,17 @@ const Reports: React.FC = () => {
                     </div>
 
                     {/* Middle Row: Primary Filter Selectors */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end pt-2 border-t border-slate-100">
+                    <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end pt-2 border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
                         {/* Department Filter (Global) */}
                         <div>
                             <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('rep.filter.dept') || 'القسم'}</label>
                             {isAdmin ? (
                                 <select 
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-blue-200 px-3 py-2 text-sm cursor-pointer"
+                                    className={`w-full border rounded-xl font-bold px-3 py-2 text-sm cursor-pointer ${
+                                        isDark 
+                                            ? 'bg-slate-800 border-slate-700 text-slate-100 focus:ring-2 focus:ring-blue-500' 
+                                            : 'bg-slate-50 border-slate-200 text-slate-700 focus:ring-2 focus:ring-blue-200'
+                                    }`}
                                     value={selectedDept || ''}
                                     onChange={e => setSelectedDept(e.target.value || null)}
                                 >
@@ -1487,11 +1509,13 @@ const Reports: React.FC = () => {
                                     {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                                 </select>
                             ) : (
-                                <div className="w-full bg-slate-100/90 border border-slate-200/90 rounded-xl font-bold text-slate-700 px-3 py-2 text-sm flex items-center justify-between">
+                                <div className={`w-full border rounded-xl font-bold px-3 py-2 text-sm flex items-center justify-between ${
+                                    isDark ? 'bg-slate-800/90 border-slate-700 text-slate-200' : 'bg-slate-100/90 border-slate-200/90 text-slate-700'
+                                }`}>
                                     <span className="truncate">
                                         {departments.find(d => d.id === (selectedDept || contextDeptId))?.name || (currentUser as any)?.departmentName || (dir === 'rtl' ? 'قسمك المخصص' : 'Your Department')}
                                     </span>
-                                    <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-md font-bold shrink-0">
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold shrink-0 ${isDark ? 'bg-blue-950 text-blue-300 border border-blue-800' : 'bg-blue-100 text-blue-700'}`}>
                                         {dir === 'rtl' ? 'قسمك المباشر' : 'Assigned Dept'}
                                     </span>
                                 </div>
@@ -1504,13 +1528,17 @@ const Reports: React.FC = () => {
                                 <div className="flex justify-between items-center mb-1.5">
                                     <label className="block text-xs font-bold text-slate-400">{t('rep.filter.emp')}</label>
                                     {filterEmp && (
-                                        <button onClick={() => setFilterEmp('')} className="text-[11px] font-bold text-blue-600 hover:underline">
+                                        <button onClick={() => setFilterEmp('')} className="text-[11px] font-bold text-blue-400 hover:underline">
                                             {t('rep.action.showAllEmployees') || 'عرض الكل'}
                                         </button>
                                     )}
                                 </div>
                                 <select 
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-blue-200 px-3 py-2 text-sm" 
+                                    className={`w-full border rounded-xl font-bold px-3 py-2 text-sm ${
+                                        isDark 
+                                            ? 'bg-slate-800 border-slate-700 text-slate-100 focus:ring-2 focus:ring-blue-500' 
+                                            : 'bg-slate-50 border-slate-200 text-slate-700 focus:ring-2 focus:ring-blue-200'
+                                    }`}
                                     value={filterEmp} 
                                     onChange={e => setFilterEmp(e.target.value)}
                                 >
@@ -1525,7 +1553,11 @@ const Reports: React.FC = () => {
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('rep.filter.searchProd') || 'بحث في الحالات (اسم / ملف)'}</label>
                                 <input 
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-emerald-200 px-3 py-2 text-sm" 
+                                    className={`w-full border rounded-xl font-bold px-3 py-2 text-sm ${
+                                        isDark 
+                                            ? 'bg-slate-800 border-slate-700 text-slate-100 focus:ring-2 focus:ring-emerald-500' 
+                                            : 'bg-slate-50 border-slate-200 text-slate-700 focus:ring-2 focus:ring-emerald-200'
+                                    }`}
                                     placeholder={t('rep.filter.prodPlaceholder') || 'رقم الملف أو الاسم...'}
                                     value={prodSearch} 
                                     onChange={e => setProdSearch(e.target.value)}
@@ -1539,7 +1571,11 @@ const Reports: React.FC = () => {
                                 <div>
                                     <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('month')}</label>
                                     <select 
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 px-3 py-2 text-sm" 
+                                        className={`w-full border rounded-xl font-bold px-3 py-2 text-sm ${
+                                            isDark 
+                                                ? 'bg-slate-800 border-slate-700 text-slate-100' 
+                                                : 'bg-slate-50 border-slate-200 text-slate-700'
+                                        }`}
                                         value={filterMonth} 
                                         onChange={e => { setFilterMonth(e.target.value); setFilterFromDate(''); setFilterToDate(''); }}
                                     >
@@ -1550,7 +1586,11 @@ const Reports: React.FC = () => {
                                 <div>
                                     <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('year')}</label>
                                     <select 
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 px-3 py-2 text-sm" 
+                                        className={`w-full border rounded-xl font-bold px-3 py-2 text-sm ${
+                                            isDark 
+                                                ? 'bg-slate-800 border-slate-700 text-slate-100' 
+                                                : 'bg-slate-50 border-slate-200 text-slate-700'
+                                        }`}
                                         value={filterYear} 
                                         onChange={e => { setFilterYear(e.target.value); setFilterFromDate(''); setFilterToDate(''); }}
                                     >
@@ -1564,7 +1604,11 @@ const Reports: React.FC = () => {
                                     <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('rep.filter.fromDate') || 'من تاريخ (From)'}</label>
                                     <input 
                                         type="date" 
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 px-3 py-2 text-sm" 
+                                        className={`w-full border rounded-xl font-bold px-3 py-2 text-sm ${
+                                            isDark 
+                                                ? 'bg-slate-800 border-slate-700 text-slate-100' 
+                                                : 'bg-slate-50 border-slate-200 text-slate-700'
+                                        }`}
                                         value={filterFromDate} 
                                         onChange={e => setFilterFromDate(e.target.value)} 
                                     />
@@ -1574,7 +1618,11 @@ const Reports: React.FC = () => {
                                     <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('rep.filter.toDate') || 'إلى تاريخ (To)'}</label>
                                     <input 
                                         type="date" 
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 px-3 py-2 text-sm" 
+                                        className={`w-full border rounded-xl font-bold px-3 py-2 text-sm ${
+                                            isDark 
+                                                ? 'bg-slate-800 border-slate-700 text-slate-100' 
+                                                : 'bg-slate-50 border-slate-200 text-slate-700'
+                                        }`}
                                         value={filterToDate} 
                                         onChange={e => setFilterToDate(e.target.value)} 
                                     />
@@ -1585,29 +1633,45 @@ const Reports: React.FC = () => {
 
                     {/* Date Shortcuts (When in Custom Range Mode) */}
                     {dateMode === 'custom' && (
-                        <div className="flex flex-wrap gap-2 pt-2 items-center bg-slate-50 p-3 rounded-2xl border border-slate-100 text-xs">
+                        <div className={`flex flex-wrap gap-2 pt-2 items-center p-3 rounded-2xl border text-xs ${
+                            isDark ? 'bg-slate-800/60 border-slate-700/60' : 'bg-slate-50 border-slate-100'
+                        }`}>
                             <span className="font-bold text-slate-400 flex items-center gap-1">
                                 <i className="fas fa-bolt text-amber-500"></i> {t('rep.filter.shortcutsTitle') || 'اختصارات الفترة:'}
                             </span>
-                            <button onClick={() => applyDateShortcut('today')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
+                            <button onClick={() => applyDateShortcut('today')} className={`px-2.5 py-1 rounded-lg font-bold border shadow-2xs transition-colors ${
+                                isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                            }`}>
                                 {t('rep.filter.today') || 'اليوم'}
                             </button>
-                            <button onClick={() => applyDateShortcut('this_week')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
+                            <button onClick={() => applyDateShortcut('this_week')} className={`px-2.5 py-1 rounded-lg font-bold border shadow-2xs transition-colors ${
+                                isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                            }`}>
                                 {t('rep.filter.last7Days') || 'آخر 7 أيام'}
                             </button>
-                            <button onClick={() => applyDateShortcut('this_month')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
+                            <button onClick={() => applyDateShortcut('this_month')} className={`px-2.5 py-1 rounded-lg font-bold border shadow-2xs transition-colors ${
+                                isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                            }`}>
                                 {t('rep.filter.thisMonth') || 'هذا الشهر'}
                             </button>
-                            <button onClick={() => applyDateShortcut('last_month')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
+                            <button onClick={() => applyDateShortcut('last_month')} className={`px-2.5 py-1 rounded-lg font-bold border shadow-2xs transition-colors ${
+                                isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                            }`}>
                                 {t('rep.filter.lastMonth') || 'الشهر السابق'}
                             </button>
-                            <button onClick={() => applyDateShortcut('last_30_days')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
+                            <button onClick={() => applyDateShortcut('last_30_days')} className={`px-2.5 py-1 rounded-lg font-bold border shadow-2xs transition-colors ${
+                                isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                            }`}>
                                 {t('rep.filter.last30Days') || 'آخر 30 يوم'}
                             </button>
-                            <button onClick={() => applyDateShortcut('this_quarter')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
+                            <button onClick={() => applyDateShortcut('this_quarter')} className={`px-2.5 py-1 rounded-lg font-bold border shadow-2xs transition-colors ${
+                                isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                            }`}>
                                 {t('rep.filter.thisQuarter') || 'هذا الربع'}
                             </button>
-                            <button onClick={() => applyDateShortcut('this_year')} className="px-2.5 py-1 bg-white hover:bg-slate-100 rounded-lg font-bold text-slate-700 border border-slate-200 shadow-2xs transition-colors">
+                            <button onClick={() => applyDateShortcut('this_year')} className={`px-2.5 py-1 rounded-lg font-bold border shadow-2xs transition-colors ${
+                                isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                            }`}>
                                 {t('rep.filter.thisYear') || 'كامل السنة'}
                             </button>
                             <button 
@@ -1616,7 +1680,9 @@ const Reports: React.FC = () => {
                                     setFilterToDate('');
                                     setDateMode('month');
                                 }} 
-                                className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-bold border border-red-200 transition-colors ml-auto"
+                                className={`px-2.5 py-1 rounded-lg font-bold border transition-colors ml-auto ${
+                                    isDark ? 'bg-red-950/40 hover:bg-red-900/50 text-red-400 border-red-800/60' : 'bg-red-50 hover:bg-red-100 text-red-600 border-red-200'
+                                }`}
                             >
                                 <i className="fas fa-undo text-[10px] mr-1"></i> {t('rep.filter.reset') || 'إعادة ضبط'}
                             </button>
@@ -1629,21 +1695,23 @@ const Reports: React.FC = () => {
                         
                         {/* 1. Productivity Chart */}
                         {productivityChartData.length > 0 && (
-                            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 print:break-inside-avoid">
-                                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <div className={`rounded-3xl shadow-sm border p-6 print:break-inside-avoid ${
+                                isDark ? 'bg-slate-900 border-slate-800 shadow-slate-950/40' : 'bg-white border-slate-200'
+                            }`}>
+                                <h3 className={`font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
                                     <i className="fas fa-chart-bar text-emerald-500"></i> أداء الموظفين (عدد الحالات)
                                 </h3>
                                 <div className="space-y-3">
                                     {productivityChartData.map((item, index) => (
                                         <div key={index} className="flex items-center gap-4">
-                                            <div className="w-32 text-xs font-bold text-slate-600 truncate text-right">{item.name}</div>
-                                            <div className="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden">
+                                            <div className={`w-32 text-xs font-bold truncate text-right ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{item.name}</div>
+                                            <div className={`flex-1 h-3 rounded-full overflow-hidden ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
                                                 <div 
                                                     className="h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full" 
                                                     style={{ width: `${item.percentage}%` }}
                                                 ></div>
                                             </div>
-                                            <div className="w-10 text-xs font-black text-slate-800 text-left">{item.count}</div>
+                                            <div className={`w-10 text-xs font-black text-left ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>{item.count}</div>
                                         </div>
                                     ))}
                                 </div>
@@ -1651,12 +1719,18 @@ const Reports: React.FC = () => {
                         )}
 
                         {/* 2. Productivity Table */}
-                        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none animate-fade-in">
-                            <div className="p-6 bg-slate-50 border-b border-slate-200 print:bg-white print:border-slate-800 flex justify-between items-center">
-                                <h3 className="font-bold text-lg text-slate-800 uppercase tracking-wide">
+                        <div className={`rounded-3xl shadow-sm border overflow-hidden print:border-2 print:border-slate-800 print:shadow-none animate-fade-in ${
+                            isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                        }`}>
+                            <div className={`p-6 border-b print:bg-white print:border-slate-800 flex justify-between items-center ${
+                                isDark ? 'bg-slate-850 bg-slate-800/80 border-slate-700/80' : 'bg-slate-50 border-slate-200'
+                            }`}>
+                                <h3 className={`font-bold text-lg uppercase tracking-wide ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
                                     <i className="fas fa-check-circle text-emerald-500 mr-2"></i> سجل الفحوصات المنجزة
                                 </h3>
-                                <span className="text-xs bg-white border px-2 py-1 rounded shadow-sm text-slate-500 font-bold">
+                                <span className={`text-xs border px-2 py-1 rounded shadow-sm font-bold ${
+                                    isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-500'
+                                }`}>
                                     {isProductivityLoading ? 'Syncing...' : `${filteredProductivity.length} Records`}
                                 </span>
                             </div>
@@ -1664,7 +1738,9 @@ const Reports: React.FC = () => {
                                 <div className="p-10"><Loading /></div>
                             ) : (
                                 <table className="w-full text-sm text-left">
-                                    <thead className="bg-white text-slate-500 font-bold text-xs uppercase border-b border-slate-100 print:border-slate-800 print:text-black">
+                                    <thead className={`font-bold text-xs uppercase border-b print:border-slate-800 print:text-black ${
+                                        isDark ? 'bg-slate-800/50 text-slate-400 border-slate-800' : 'bg-white text-slate-500 border-slate-100'
+                                    }`}>
                                         <tr>
                                             <th className="p-4 w-10 text-center">#</th>
                                             <th className="p-4">التاريخ والوقت</th>
@@ -1675,31 +1751,37 @@ const Reports: React.FC = () => {
                                             <th className="p-4 print:hidden text-center">إجراءات</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-50 print:divide-slate-300">
+                                    <tbody className={`divide-y print:divide-slate-300 ${isDark ? 'divide-slate-800/70' : 'divide-slate-50'}`}>
                                         {filteredProductivity.length === 0 ? (
                                             <tr><td colSpan={7} className="p-8 text-center text-slate-400">No completed exams found for this period.</td></tr>
                                         ) : (
                                             filteredProductivity.map((data, i) => (
-                                                <tr key={i} className="hover:bg-slate-50 print:break-inside-avoid animate-fade-in">
-                                                    <td className="p-4 text-center font-black text-slate-300 print:text-black">{i + 1}</td>
-                                                    <td className="p-4 font-mono text-xs text-slate-500 print:text-black">
-                                                        {data.date} <span className="text-slate-400">|</span> {data.time}
+                                                <tr key={i} className={`transition-colors print:break-inside-avoid animate-fade-in ${isDark ? 'hover:bg-slate-800/60' : 'hover:bg-slate-50'}`}>
+                                                    <td className={`p-4 text-center font-black print:text-black ${isDark ? 'text-slate-600' : 'text-slate-300'}`}>{i + 1}</td>
+                                                    <td className="p-4 font-mono text-xs text-slate-400 print:text-black">
+                                                        {data.date} <span className="text-slate-500">|</span> {data.time}
                                                     </td>
-                                                    <td className="p-4 font-bold text-slate-800 print:text-black">{data.patientName}</td>
-                                                    <td className="p-4 font-mono text-slate-600 print:text-black">{data.fileNumber}</td>
+                                                    <td className={`p-4 font-bold print:text-black ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>{data.patientName}</td>
+                                                    <td className={`p-4 font-mono print:text-black ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{data.fileNumber}</td>
                                                     <td className="p-4">
-                                                        <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded text-xs font-bold border border-slate-200 print:border-black print:bg-transparent print:text-black">
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold border print:border-black print:bg-transparent print:text-black ${
+                                                            isDark ? 'bg-slate-800 text-slate-200 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200'
+                                                        }`}>
                                                             {data.examType}
                                                         </span>
                                                         {data.notes && <p className="text-[10px] text-slate-400 mt-1 max-w-[200px] truncate">{data.notes}</p>}
                                                     </td>
-                                                    <td className="p-4 font-bold text-emerald-700 print:text-black">
+                                                    <td className="p-4 font-bold text-emerald-500 print:text-black">
                                                         {data.performedByName || 'Unknown'}
                                                     </td>
                                                     <td className="p-4 print:hidden text-center">
                                                         <button 
                                                             onClick={() => openFollowUpModal(data)}
-                                                            className="text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 p-2 rounded-lg transition-colors"
+                                                            className={`p-2 rounded-lg transition-colors ${
+                                                                isDark 
+                                                                    ? 'text-blue-400 hover:text-blue-300 bg-blue-950/60 hover:bg-blue-900/60 border border-blue-800/50' 
+                                                                    : 'text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100'
+                                                            }`}
                                                             title="جدولة موعد متابعة / إعادة"
                                                         >
                                                             <i className="fas fa-calendar-plus"></i>
@@ -1717,83 +1799,129 @@ const Reports: React.FC = () => {
                     <div className="space-y-6">
 
                         {/* Secondary Action Toolbar: Category Pills & Specific Filter & Search */}
-                        <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 space-y-4 print:hidden">
+                        <div className={`rounded-3xl p-5 shadow-sm border space-y-4 print:hidden ${
+                            isDark ? 'bg-slate-900 border-slate-800 shadow-slate-950/40' : 'bg-white border-slate-200'
+                        }`}>
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 {/* Action Category Filters (Including "الإجراءات فقط بدون الغياب والإجازات") */}
                                 <div className="flex flex-wrap gap-2 items-center">
                                     <button 
                                         onClick={() => setActionFilterCategory('all')} 
-                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'all' ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
+                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                            actionFilterCategory === 'all' 
+                                                ? (isDark ? 'bg-slate-700 text-white border-slate-600 shadow-sm' : 'bg-slate-900 text-white border-slate-900 shadow-sm') 
+                                                : (isDark ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100')
+                                        }`}
                                     >
                                         <i className="fas fa-list-ul"></i>
                                         {t('rep.cat.all') || 'الكل'}
-                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'all' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                                            actionFilterCategory === 'all' 
+                                                ? (isDark ? 'bg-slate-600 text-white' : 'bg-slate-700 text-white') 
+                                                : (isDark ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-700')
+                                        }`}>
                                             {actionCounts.total}
                                         </span>
                                     </button>
 
                                     <button 
                                         onClick={() => setActionFilterCategory('actions_only')} 
-                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'actions_only' ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-500/20' : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'}`}
+                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                            actionFilterCategory === 'actions_only' 
+                                                ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-500/20' 
+                                                : (isDark ? 'bg-blue-950/60 text-blue-300 border-blue-800/80 hover:bg-blue-900/60' : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100')
+                                        }`}
                                     >
                                         <i className="fas fa-bolt text-amber-300"></i>
                                         {t('rep.cat.actionsOnly') || 'الإجراءات فقط (بدون الغياب والإجازات)'}
-                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'actions_only' ? 'bg-blue-800 text-white' : 'bg-blue-200 text-blue-800'}`}>
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                                            actionFilterCategory === 'actions_only' ? 'bg-blue-800 text-white' : (isDark ? 'bg-blue-900 text-blue-200' : 'bg-blue-200 text-blue-800')
+                                        }`}>
                                             {actionCounts.actionsOnly}
                                         </span>
                                     </button>
 
                                     <button 
                                         onClick={() => setActionFilterCategory('penalties_only')} 
-                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'penalties_only' ? 'bg-red-600 text-white border-red-600 shadow-md shadow-red-500/20' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'}`}
+                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                            actionFilterCategory === 'penalties_only' 
+                                                ? 'bg-red-600 text-white border-red-600 shadow-md shadow-red-500/20' 
+                                                : (isDark ? 'bg-red-950/60 text-red-300 border-red-800/80 hover:bg-red-900/60' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100')
+                                        }`}
                                     >
                                         <i className="fas fa-gavel"></i>
                                         {t('rep.cat.penaltiesOnly') || 'المخالفات والجزاءات'}
-                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'penalties_only' ? 'bg-red-800 text-white' : 'bg-red-200 text-red-800'}`}>
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                                            actionFilterCategory === 'penalties_only' ? 'bg-red-800 text-white' : (isDark ? 'bg-red-900 text-red-200' : 'bg-red-200 text-red-800')
+                                        }`}>
                                             {actionCounts.penalties}
                                         </span>
                                     </button>
 
                                     <button 
                                         onClick={() => setActionFilterCategory('absences_only')} 
-                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'absences_only' ? 'bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-500/20' : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'}`}
+                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                            actionFilterCategory === 'absences_only' 
+                                                ? 'bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-500/20' 
+                                                : (isDark ? 'bg-rose-950/60 text-rose-300 border-rose-800/80 hover:bg-rose-900/60' : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100')
+                                        }`}
                                     >
                                         <i className="fas fa-user-times"></i>
                                         {t('rep.cat.absencesOnly') || 'الغياب فقط'}
-                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'absences_only' ? 'bg-rose-800 text-white' : 'bg-rose-200 text-rose-800'}`}>
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                                            actionFilterCategory === 'absences_only' ? 'bg-rose-800 text-white' : (isDark ? 'bg-rose-900 text-rose-200' : 'bg-rose-200 text-rose-800')
+                                        }`}>
                                             {actionCounts.absences}
                                         </span>
                                     </button>
 
                                     <button 
                                         onClick={() => setActionFilterCategory('leaves_only')} 
-                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'leaves_only' ? 'bg-orange-600 text-white border-orange-600 shadow-md shadow-orange-500/20' : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100'}`}
+                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                            actionFilterCategory === 'leaves_only' 
+                                                ? 'bg-orange-600 text-white border-orange-600 shadow-md shadow-orange-500/20' 
+                                                : (isDark ? 'bg-orange-950/60 text-orange-300 border-orange-800/80 hover:bg-orange-900/60' : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100')
+                                        }`}
                                     >
                                         <i className="fas fa-umbrella-beach"></i>
                                         {t('rep.cat.leavesOnly') || 'الإجازات فقط'}
-                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'leaves_only' ? 'bg-orange-800 text-white' : 'bg-orange-200 text-orange-800'}`}>
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                                            actionFilterCategory === 'leaves_only' ? 'bg-orange-800 text-white' : (isDark ? 'bg-orange-900 text-orange-200' : 'bg-orange-200 text-orange-800')
+                                        }`}>
                                             {actionCounts.leaves}
                                         </span>
                                     </button>
 
                                     <button 
                                         onClick={() => setActionFilterCategory('late_only')} 
-                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'late_only' ? 'bg-amber-600 text-white border-amber-600 shadow-md shadow-amber-500/20' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'}`}
+                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                            actionFilterCategory === 'late_only' 
+                                                ? 'bg-amber-600 text-white border-amber-600 shadow-md shadow-amber-500/20' 
+                                                : (isDark ? 'bg-amber-950/60 text-amber-300 border-amber-800/80 hover:bg-amber-900/60' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100')
+                                        }`}
                                     >
                                         <i className="fas fa-clock"></i>
                                         {t('rep.cat.lateOnly') || 'التأخيرات'}
-                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'late_only' ? 'bg-amber-800 text-white' : 'bg-amber-200 text-amber-800'}`}>
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                                            actionFilterCategory === 'late_only' ? 'bg-amber-800 text-white' : (isDark ? 'bg-amber-900 text-amber-200' : 'bg-amber-200 text-amber-800')
+                                        }`}>
                                             {actionCounts.lates}
                                         </span>
                                     </button>
 
                                     <button 
                                         onClick={() => setActionFilterCategory('positives_only')} 
-                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${actionFilterCategory === 'positives_only' ? 'bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'}`}
+                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                            actionFilterCategory === 'positives_only' 
+                                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-500/20' 
+                                                : (isDark ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/80 hover:bg-emerald-900/60' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100')
+                                        }`}
                                     >
                                         <i className="fas fa-star"></i>
                                         {t('rep.cat.positivesOnly') || 'المكافآت والتقديرات'}
-                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${actionFilterCategory === 'positives_only' ? 'bg-emerald-800 text-white' : 'bg-emerald-200 text-emerald-800'}`}>
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                                            actionFilterCategory === 'positives_only' ? 'bg-emerald-800 text-white' : (isDark ? 'bg-emerald-900 text-emerald-200' : 'bg-emerald-200 text-emerald-800')
+                                        }`}>
                                             {actionCounts.positives}
                                         </span>
                                     </button>
@@ -1801,16 +1929,24 @@ const Reports: React.FC = () => {
 
                                 {/* View Mode Switcher (Overview vs Actions Log Table) */}
                                 {!filterEmp && (
-                                    <div className="flex bg-slate-100 p-1 rounded-xl">
+                                    <div className={`flex p-1 rounded-xl ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
                                         <button 
                                             onClick={() => setMainViewTab('overview')} 
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${mainViewTab === 'overview' ? 'bg-white shadow text-slate-900 font-black' : 'text-slate-500'}`}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                                                mainViewTab === 'overview' 
+                                                    ? (isDark ? 'bg-slate-700 shadow text-slate-100 font-black' : 'bg-white shadow text-slate-900 font-black') 
+                                                    : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500')
+                                            }`}
                                         >
                                             <i className="fas fa-chart-pie"></i> {t('rep.view.overview') || 'لوحة التقييم'}
                                         </button>
                                         <button 
                                             onClick={() => setMainViewTab('actions_table')} 
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${mainViewTab === 'actions_table' ? 'bg-white shadow text-blue-600 font-black' : 'text-slate-500'}`}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                                                mainViewTab === 'actions_table' 
+                                                    ? (isDark ? 'bg-slate-700 shadow text-blue-400 font-black' : 'bg-white shadow text-blue-600 font-black') 
+                                                    : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500')
+                                            }`}
                                         >
                                             <i className="fas fa-table"></i> {t('rep.view.actionsTable') || 'سجل الإجراءات التفصيلي'}
                                         </button>
@@ -1819,7 +1955,7 @@ const Reports: React.FC = () => {
                             </div>
 
                             {/* Search & Specific Action Type Bar */}
-                            <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-slate-100">
+                            <div className={`flex flex-wrap items-center gap-3 pt-3 border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
                                 {/* Search input */}
                                 <div className="flex-1 min-w-[240px] relative">
                                     <i className="fas fa-search absolute right-3 top-3 text-slate-400 text-xs"></i>
@@ -1828,7 +1964,11 @@ const Reports: React.FC = () => {
                                         placeholder={t('rep.searchPlaceholder') || 'بحث بالرقم المرجعي (REF #)، اسم الموظف، الوصف أو النوع...'} 
                                         value={actionSearchQuery} 
                                         onChange={e => setActionSearchQuery(e.target.value)} 
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-9 pl-3 py-2 text-xs font-bold focus:ring-2 focus:ring-blue-200 outline-none"
+                                        className={`w-full border rounded-xl pr-9 pl-3 py-2 text-xs font-bold outline-none ${
+                                            isDark 
+                                                ? 'bg-slate-800 border-slate-700 text-slate-100 focus:ring-2 focus:ring-blue-500' 
+                                                : 'bg-slate-50 border-slate-200 text-slate-800 focus:ring-2 focus:ring-blue-200'
+                                        }`}
                                     />
                                     {actionSearchQuery && (
                                         <button onClick={() => setActionSearchQuery('')} className="absolute left-3 top-2.5 text-xs text-slate-400 hover:text-slate-600">
@@ -1840,7 +1980,11 @@ const Reports: React.FC = () => {
                                 {/* Specific Type Filter */}
                                 <div className="w-full sm:w-[220px]">
                                     <select 
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 px-3 py-2 outline-none focus:ring-2 focus:ring-blue-200"
+                                        className={`w-full border rounded-xl text-xs font-bold px-3 py-2 outline-none ${
+                                            isDark 
+                                                ? 'bg-slate-800 border-slate-700 text-slate-100 focus:ring-2 focus:ring-blue-500' 
+                                                : 'bg-slate-50 border-slate-200 text-slate-700 focus:ring-2 focus:ring-blue-200'
+                                        }`}
                                         value={actionSpecificType}
                                         onChange={e => setActionSpecificType(e.target.value)}
                                     >
@@ -1865,7 +2009,9 @@ const Reports: React.FC = () => {
                                 </div>
 
                                 {/* Include Lateness Toggle */}
-                                <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
+                                <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${
+                                    isDark ? 'bg-slate-800/80 border-slate-700 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-600'
+                                }`}>
                                     <input 
                                         type="checkbox" 
                                         id="includeLateness" 
@@ -1873,13 +2019,15 @@ const Reports: React.FC = () => {
                                         onChange={e => setIncludeLateness(e.target.checked)}
                                         className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                                     />
-                                    <label htmlFor="includeLateness" className="text-xs font-bold text-slate-600 cursor-pointer select-none">
+                                    <label htmlFor="includeLateness" className="text-xs font-bold cursor-pointer select-none">
                                         {t('rep.toggle.includeLateness') || 'احتساب التأخير'}
                                     </label>
                                 </div>
 
                                 {/* Include Auto Absence Toggle */}
-                                <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
+                                <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${
+                                    isDark ? 'bg-slate-800/80 border-slate-700 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-600'
+                                }`}>
                                     <input 
                                         type="checkbox" 
                                         id="includeAutoAbsence" 
@@ -1887,7 +2035,7 @@ const Reports: React.FC = () => {
                                         onChange={e => setIncludeAutoAbsence(e.target.checked)}
                                         className="w-4 h-4 text-rose-600 rounded focus:ring-rose-500"
                                     />
-                                    <label htmlFor="includeAutoAbsence" className="text-xs font-bold text-slate-600 cursor-pointer select-none">
+                                    <label htmlFor="includeAutoAbsence" className="text-xs font-bold cursor-pointer select-none">
                                         {t('rep.toggle.includeAutoAbsence') || 'تضمين الغياب التلقائي (البصمة)'}
                                     </label>
                                 </div>
@@ -1895,9 +2043,13 @@ const Reports: React.FC = () => {
                                 {/* Export CSV Button */}
                                 <button 
                                     onClick={exportActionsToCSV}
-                                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs"
+                                    className={`border px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs ${
+                                        isDark 
+                                            ? 'bg-emerald-950/50 hover:bg-emerald-900/60 text-emerald-300 border-emerald-800/80' 
+                                            : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                                    }`}
                                 >
-                                    <i className="fas fa-file-excel text-emerald-600"></i>
+                                    <i className="fas fa-file-excel text-emerald-500"></i>
                                     {t('rep.exportCSV') || 'تصدير CSV'}
                                 </button>
                             </div>
@@ -1909,24 +2061,32 @@ const Reports: React.FC = () => {
                             {/* Left Column: Staff Evaluation Card or Summary List */}
                             <div className="space-y-6">
                                 {filterEmp && evaluation ? (
-                                    <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 text-center relative overflow-hidden print:border-2 print:border-slate-800">
+                                    <div className={`rounded-3xl p-6 shadow-sm border text-center relative overflow-hidden print:border-2 print:border-slate-800 ${
+                                        isDark ? 'bg-slate-900 border-slate-800 shadow-slate-950/40' : 'bg-white border-slate-200'
+                                    }`}>
                                         <button 
                                             onClick={() => setFilterEmp('')} 
-                                            className="absolute top-4 left-4 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl transition-all print:hidden"
+                                            className={`absolute top-4 left-4 text-xs font-bold px-3 py-1.5 rounded-xl transition-all print:hidden ${
+                                                isDark 
+                                                    ? 'text-blue-400 bg-blue-950/70 hover:bg-blue-900/70 border border-blue-800/60' 
+                                                    : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
+                                            }`}
                                         >
                                             <i className="fas fa-users mr-1"></i> {t('rep.action.showAllEmployees') || 'كل الموظفين'}
                                         </button>
 
-                                        <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-2xl font-black text-slate-700 mx-auto mb-3 shadow-inner">
+                                        <div className={`w-20 h-20 rounded-full flex items-center justify-center text-2xl font-black mx-auto mb-3 shadow-inner ${
+                                            isDark ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'
+                                        }`}>
                                             {evaluation.employee.name.charAt(0)}
                                         </div>
-                                        <h3 className="font-bold text-xl text-slate-800">{evaluation.employee.name}</h3>
+                                        <h3 className={`font-bold text-xl ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>{evaluation.employee.name}</h3>
                                         <p className="text-xs font-bold text-slate-400 mt-0.5">{evaluation.employee.email}</p>
 
                                         {/* Score Gauge */}
                                         <div className="relative w-32 h-32 mx-auto my-6 flex items-center justify-center">
                                             <svg className="w-full h-full transform -rotate-90">
-                                                <circle cx="64" cy="64" r={radius} stroke="#f1f5f9" strokeWidth="10" fill="transparent" />
+                                                <circle cx="64" cy="64" r={radius} stroke={isDark ? '#334155' : '#f1f5f9'} strokeWidth="10" fill="transparent" />
                                                 <circle 
                                                     cx="64" cy="64" r={radius} 
                                                     stroke={evaluation.percentage >= 85 ? '#10b981' : evaluation.percentage >= 70 ? '#3b82f6' : evaluation.percentage >= 50 ? '#f97316' : '#ef4444'} 
@@ -1938,67 +2098,73 @@ const Reports: React.FC = () => {
                                                 />
                                             </svg>
                                             <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                                <span className="text-2xl font-black text-slate-800">{evaluation.percentage}%</span>
+                                                <span className={`text-2xl font-black ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>{evaluation.percentage}%</span>
                                                 <span className="text-[10px] font-bold text-slate-400 uppercase">{evaluation.grade}</span>
                                             </div>
                                         </div>
 
                                         {/* Evaluation Breakdown */}
                                         <div className="grid grid-cols-2 gap-2.5 text-right">
-                                            <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-                                                <span className="text-[11px] font-bold text-slate-400 block">{t('rep.eval.unjustifiedAbsence') || 'غياب بدون إذن'}</span>
-                                                <span className="text-sm font-black text-red-600">
+                                            <div className={`p-2.5 rounded-2xl border ${isDark ? 'bg-slate-800/70 border-slate-700/70' : 'bg-slate-50 border-slate-100'}`}>
+                                                <span className={`text-[11px] font-bold block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('rep.eval.unjustifiedAbsence') || 'غياب بدون إذن'}</span>
+                                                <span className="text-sm font-black text-red-500">
                                                     {evaluation.stats.unjustifiedAbsences} <span className="text-xs font-bold text-slate-400">{t('rep.eval.daysUnit') || 'يوم'}</span>
                                                 </span>
                                             </div>
-                                            <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-                                                <span className="text-[11px] font-bold text-slate-400 block">{t('rep.eval.lates') || 'تأخيرات'}</span>
-                                                <span className="text-sm font-black text-amber-600">
+                                            <div className={`p-2.5 rounded-2xl border ${isDark ? 'bg-slate-800/70 border-slate-700/70' : 'bg-slate-50 border-slate-100'}`}>
+                                                <span className={`text-[11px] font-bold block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('rep.eval.lates') || 'تأخيرات'}</span>
+                                                <span className="text-sm font-black text-amber-500">
                                                     {evaluation.stats.lates} <span className="text-xs font-bold text-slate-400">{t('rep.eval.timesUnit') || 'مرات'}</span>
                                                 </span>
                                             </div>
-                                            <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-                                                <span className="text-[11px] font-bold text-slate-400 block">{t('rep.eval.violations') || 'مخالفات / جزاءات'}</span>
-                                                <span className="text-sm font-black text-rose-600">
+                                            <div className={`p-2.5 rounded-2xl border ${isDark ? 'bg-slate-800/70 border-slate-700/70' : 'bg-slate-50 border-slate-100'}`}>
+                                                <span className={`text-[11px] font-bold block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('rep.eval.violations') || 'مخالفات / جزاءات'}</span>
+                                                <span className="text-sm font-black text-rose-500">
                                                     {evaluation.stats.violations} <span className="text-xs font-bold text-slate-400">{t('rep.eval.actionUnit') || 'إجراء'}</span>
                                                 </span>
                                             </div>
-                                            <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-                                                <span className="text-[11px] font-bold text-slate-400 block">{t('rep.eval.positives') || 'إيجابيات / مكافآت'}</span>
-                                                <span className="text-sm font-black text-emerald-600">
+                                            <div className={`p-2.5 rounded-2xl border ${isDark ? 'bg-slate-800/70 border-slate-700/70' : 'bg-slate-50 border-slate-100'}`}>
+                                                <span className={`text-[11px] font-bold block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('rep.eval.positives') || 'إيجابيات / مكافآت'}</span>
+                                                <span className="text-sm font-black text-emerald-500">
                                                     {evaluation.stats.positives} <span className="text-xs font-bold text-slate-400">{t('rep.eval.pointsUnit') || 'نقاط'}</span>
                                                 </span>
                                             </div>
-                                            <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-                                                <span className="text-[11px] font-bold text-slate-400 block">{t('rep.eval.annualLeaves') || 'إجازات سنوية'}</span>
-                                                <span className="text-sm font-black text-purple-600">
+                                            <div className={`p-2.5 rounded-2xl border ${isDark ? 'bg-slate-800/70 border-slate-700/70' : 'bg-slate-50 border-slate-100'}`}>
+                                                <span className={`text-[11px] font-bold block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('rep.eval.annualLeaves') || 'إجازات سنوية'}</span>
+                                                <span className="text-sm font-black text-purple-400">
                                                     {evaluation.stats.annualLeaveDays} <span className="text-xs font-bold text-slate-400">{t('rep.eval.daysUnit') || 'يوم'}</span>
                                                 </span>
                                             </div>
-                                            <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-                                                <span className="text-[11px] font-bold text-slate-400 block">{t('rep.eval.sickLeaves') || 'إجازات مرضية'}</span>
-                                                <span className="text-sm font-black text-blue-600">
+                                            <div className={`p-2.5 rounded-2xl border ${isDark ? 'bg-slate-800/70 border-slate-700/70' : 'bg-slate-50 border-slate-100'}`}>
+                                                <span className={`text-[11px] font-bold block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('rep.eval.sickLeaves') || 'إجازات مرضية'}</span>
+                                                <span className="text-sm font-black text-blue-400">
                                                     {evaluation.stats.sickLeaves} <span className="text-xs font-bold text-slate-400">{t('rep.eval.daysUnit') || 'يوم'}</span>
                                                 </span>
                                             </div>
                                         </div>
 
                                         {/* Total Deductions Bar */}
-                                        <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center px-1">
-                                            <span className="text-xs font-bold text-slate-500">{t('rep.ranking.totalDeductionPoints') || 'إجمالي نقاط الخصم:'}</span>
-                                            <span className="text-sm font-black text-red-600 bg-red-50 px-2.5 py-0.5 rounded-lg border border-red-100">
+                                        <div className={`mt-4 pt-3 border-t flex justify-between items-center px-1 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+                                            <span className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('rep.ranking.totalDeductionPoints') || 'إجمالي نقاط الخصم:'}</span>
+                                            <span className={`text-sm font-black px-2.5 py-0.5 rounded-lg border ${
+                                                isDark ? 'bg-red-950/60 border-red-800/80 text-red-300' : 'bg-red-50 border-red-100 text-red-600'
+                                            }`}>
                                                 -{evaluation.totalDeductions}
                                             </span>
                                         </div>
 
                                         {evaluation.nextLeaveDate && (
-                                            <div className="mt-3 bg-blue-50 border border-blue-100 rounded-xl p-2.5 flex items-center gap-2.5 text-right">
-                                                <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                                            <div className={`mt-3 border rounded-xl p-2.5 flex items-center gap-2.5 text-right ${
+                                                isDark ? 'bg-blue-950/40 border-blue-900/60' : 'bg-blue-50 border-blue-100'
+                                            }`}>
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                                                    isDark ? 'bg-blue-900/80 text-blue-300' : 'bg-blue-100 text-blue-600'
+                                                }`}>
                                                     <i className="fas fa-plane-departure text-xs"></i>
                                                 </div>
                                                 <div className="flex-1">
-                                                    <div className="text-[10px] font-bold text-blue-400">{t('rep.ranking.nextLeaveEntitlement') || 'استحقاق الإجازة القادمة'}</div>
-                                                    <div className="text-xs font-black text-blue-700">
+                                                    <div className={`text-[10px] font-bold ${isDark ? 'text-blue-300' : 'text-blue-400'}`}>{t('rep.ranking.nextLeaveEntitlement') || 'استحقاق الإجازة القادمة'}</div>
+                                                    <div className={`text-xs font-black ${isDark ? 'text-blue-200' : 'text-blue-700'}`}>
                                                         {evaluation.nextLeaveDate.toLocaleDateString('en-GB')}
                                                     </div>
                                                 </div>
@@ -2016,41 +2182,61 @@ const Reports: React.FC = () => {
                                                 setIsSingleDay(true);
                                                 setIsFormOpen(true);
                                             }}
-                                            className="w-full mt-4 bg-slate-900 hover:bg-slate-800 text-white py-2.5 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition active:scale-95 print:hidden"
+                                            className="w-full mt-4 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition active:scale-95 print:hidden"
                                         >
-                                            <i className="fas fa-plus-circle text-blue-400"></i>
+                                            <i className="fas fa-plus-circle text-blue-200"></i>
                                             {t('rep.action.addForThisEmp') || 'تسجيل مخالفة أو إجراء لهذا الموظف'}
                                         </button>
                                     </div>
                                 ) : (
                                     /* Staff Ranking Overview Table */
-                                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                                        <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-                                            <h4 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                                    <div className={`rounded-3xl shadow-sm border overflow-hidden ${
+                                        isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                                    }`}>
+                                        <div className={`p-4 border-b flex justify-between items-center ${
+                                            isDark ? 'bg-slate-800/80 border-slate-700/80' : 'bg-slate-50 border-slate-100'
+                                        }`}>
+                                            <h4 className={`font-bold text-sm flex items-center gap-2 ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
                                                 <i className="fas fa-award text-amber-500"></i> {t('rep.ranking.title') || 'ترتيب وتقييم الموظفين'}
                                             </h4>
-                                            <span className="text-xs font-bold bg-white px-2 py-0.5 rounded-full border text-slate-500">
+                                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                                                isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-500'
+                                            }`}>
                                                 {allEvaluations.length}
                                             </span>
                                         </div>
-                                        <div className="max-h-[480px] overflow-y-auto divide-y divide-slate-50 custom-scrollbar">
+                                        <div className={`max-h-[480px] overflow-y-auto divide-y custom-scrollbar ${
+                                            isDark ? 'divide-slate-800/70' : 'divide-slate-50'
+                                        }`}>
                                             {allEvaluations.map((ev, i) => (
                                                 <div 
                                                     key={ev.employee.id} 
                                                     onClick={() => setFilterEmp(ev.employee.id)}
-                                                    className={`p-3.5 hover:bg-blue-50/50 cursor-pointer transition-colors flex items-center justify-between ${filterEmp === ev.employee.id ? 'bg-blue-50 border-r-4 border-blue-600' : ''}`}
+                                                    className={`p-3.5 cursor-pointer transition-colors flex items-center justify-between ${
+                                                        filterEmp === ev.employee.id 
+                                                            ? (isDark ? 'bg-blue-950/60 border-r-4 border-blue-500' : 'bg-blue-50 border-r-4 border-blue-600') 
+                                                            : (isDark ? 'hover:bg-slate-800/60' : 'hover:bg-blue-50/50')
+                                                    }`}
                                                 >
                                                     <div className="flex items-center gap-3">
                                                         <span className="w-6 text-center text-xs font-bold text-slate-400">#{i + 1}</span>
                                                         <div>
-                                                            <div className="font-bold text-xs text-slate-800">{ev.employee.name}</div>
+                                                            <div className={`font-bold text-xs ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{ev.employee.name}</div>
                                                             <div className="text-[10px] text-slate-400 flex gap-2 mt-0.5">
                                                                 <span>{t('rep.ranking.deductionLabel') || 'خصم:'} -{ev.totalDeductions}</span>
                                                             </div>
                                                         </div>
                                                     </div>
                                                     <div className="text-left">
-                                                        <span className={`px-2 py-0.5 rounded-full text-xs font-black ${ev.percentage >= 85 ? 'bg-emerald-50 text-emerald-600' : ev.percentage >= 70 ? 'bg-blue-50 text-blue-600' : ev.percentage >= 50 ? 'bg-orange-50 text-orange-600' : 'bg-red-50 text-red-600'}`}>
+                                                        <span className={`px-2 py-0.5 rounded-full text-xs font-black ${
+                                                            ev.percentage >= 85 
+                                                                ? (isDark ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/60' : 'bg-emerald-50 text-emerald-600') 
+                                                                : ev.percentage >= 70 
+                                                                ? (isDark ? 'bg-blue-950/60 text-blue-300 border border-blue-800/60' : 'bg-blue-50 text-blue-600') 
+                                                                : ev.percentage >= 50 
+                                                                ? (isDark ? 'bg-orange-950/60 text-orange-300 border border-orange-800/60' : 'bg-orange-50 text-orange-600') 
+                                                                : (isDark ? 'bg-red-950/60 text-red-300 border border-red-800/60' : 'bg-red-50 text-red-600')
+                                                        }`}>
                                                             {ev.percentage}%
                                                         </span>
                                                     </div>
@@ -2068,28 +2254,32 @@ const Reports: React.FC = () => {
                                         {/* Top Summary Cards */}
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                             {/* Best Performer */}
-                                            <div className="bg-white p-5 rounded-3xl shadow-sm border border-emerald-100 relative overflow-hidden">
-                                                <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-bl-full -mr-4 -mt-4 opacity-50"></div>
+                                            <div className={`p-5 rounded-3xl shadow-sm border relative overflow-hidden ${
+                                                isDark ? 'bg-slate-900 border-emerald-900/60' : 'bg-white border-emerald-100'
+                                            }`}>
+                                                <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-bl-full -mr-4 -mt-4"></div>
                                                 <div className="relative z-10">
-                                                    <div className="text-xs font-bold text-emerald-600 uppercase mb-1">{t('rep.ranking.best') || 'الأفضل أداءً'}</div>
-                                                    <div className="text-xl font-black text-slate-800 truncate">
+                                                    <div className="text-xs font-bold text-emerald-500 uppercase mb-1">{t('rep.ranking.best') || 'الأفضل أداءً'}</div>
+                                                    <div className={`text-xl font-black truncate ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
                                                         {chartEvaluations[0]?.employee.name || '-'}
                                                     </div>
-                                                    <div className="text-xs font-bold text-emerald-500 mt-1">
+                                                    <div className="text-xs font-bold text-emerald-400 mt-1">
                                                         {chartEvaluations[0]?.percentage}% - {chartEvaluations[0]?.grade}
                                                     </div>
                                                 </div>
                                             </div>
 
                                             {/* Needs Improvement */}
-                                            <div className="bg-white p-5 rounded-3xl shadow-sm border border-red-100 relative overflow-hidden">
-                                                <div className="absolute top-0 right-0 w-24 h-24 bg-red-50 rounded-bl-full -mr-4 -mt-4 opacity-50"></div>
+                                            <div className={`p-5 rounded-3xl shadow-sm border relative overflow-hidden ${
+                                                isDark ? 'bg-slate-900 border-red-900/60' : 'bg-white border-red-100'
+                                            }`}>
+                                                <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/10 rounded-bl-full -mr-4 -mt-4"></div>
                                                 <div className="relative z-10">
-                                                    <div className="text-xs font-bold text-red-600 uppercase mb-1">{t('rep.ranking.needsImp') || 'يحتاج تحسين'} ({needsImprovementList.length})</div>
+                                                    <div className="text-xs font-bold text-red-500 uppercase mb-1">{t('rep.ranking.needsImp') || 'يحتاج تحسين'} ({needsImprovementList.length})</div>
                                                     {needsImprovementList.length === 0 ? (
                                                         <div className="text-slate-400 text-xs italic mt-1">{t('rep.ranking.noNeedsImp') || 'لا يوجد موظفين بحاجة لتحسين'}</div>
                                                     ) : (
-                                                        <div className="text-sm font-black text-slate-800 truncate">
+                                                        <div className={`text-sm font-black truncate ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
                                                             {needsImprovementList[0]?.employee.name} ({needsImprovementList[0]?.percentage}%)
                                                         </div>
                                                     )}
@@ -2097,11 +2287,13 @@ const Reports: React.FC = () => {
                                             </div>
 
                                             {/* Average */}
-                                            <div className="bg-white p-5 rounded-3xl shadow-sm border border-blue-100 relative overflow-hidden">
-                                                <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-bl-full -mr-4 -mt-4 opacity-50"></div>
+                                            <div className={`p-5 rounded-3xl shadow-sm border relative overflow-hidden ${
+                                                isDark ? 'bg-slate-900 border-blue-900/60' : 'bg-white border-blue-100'
+                                            }`}>
+                                                <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-bl-full -mr-4 -mt-4"></div>
                                                 <div className="relative z-10">
-                                                    <div className="text-xs font-bold text-blue-600 uppercase mb-1">{t('rep.ranking.avgPerf') || 'متوسط الأداء'}</div>
-                                                    <div className="text-2xl font-black text-slate-800">
+                                                    <div className="text-xs font-bold text-blue-500 uppercase mb-1">{t('rep.ranking.avgPerf') || 'متوسط الأداء'}</div>
+                                                    <div className={`text-2xl font-black ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
                                                         {Math.round(chartEvaluations.reduce((acc, curr) => acc + curr.percentage, 0) / (chartEvaluations.length || 1))}%
                                                     </div>
                                                     <div className="text-xs font-bold text-blue-400 mt-0.5">
@@ -2112,15 +2304,21 @@ const Reports: React.FC = () => {
                                         </div>
 
                                         {/* Chart */}
-                                        <div className="bg-white rounded-3xl shadow-sm border border-gray-200 p-6">
+                                        <div className={`rounded-3xl shadow-sm border p-6 ${
+                                            isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-200'
+                                        }`}>
                                             <div className="flex justify-between items-center mb-6">
-                                                <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                                                <h3 className={`font-bold text-lg flex items-center gap-2 ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
                                                     <i className="fas fa-chart-bar text-blue-500"></i>
                                                     {t('rep.ranking.perfAnalysis') || 'تحليل الأداء العام للموظفين'}
                                                 </h3>
                                                 <button 
                                                     onClick={() => setMainViewTab('actions_table')} 
-                                                    className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl transition-all"
+                                                    className={`text-xs font-bold px-3 py-1.5 rounded-xl transition-all ${
+                                                        isDark 
+                                                            ? 'text-blue-400 hover:text-blue-300 bg-blue-950/60 hover:bg-blue-900/60 border border-blue-800/50' 
+                                                            : 'text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100'
+                                                    }`}
                                                 >
                                                     <i className="fas fa-table mr-1"></i> {t('rep.ranking.exploreTable') || 'استعراض سجل الإجراءات التفصيلي'} ({filteredActions.length})
                                                 </button>
@@ -2128,19 +2326,25 @@ const Reports: React.FC = () => {
                                             <div className="h-[360px] w-full" dir="ltr">
                                                 <ResponsiveContainer width="100%" height="100%">
                                                     <BarChart data={chartEvaluations} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
-                                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? '#334155' : '#f1f5f9'} />
                                                         <XAxis 
                                                             dataKey="employee.name" 
                                                             angle={-45} 
                                                             textAnchor="end" 
                                                             interval={0} 
                                                             height={80} 
-                                                            tick={{ fontSize: 10, fill: '#64748b' }}
+                                                            tick={{ fontSize: 10, fill: isDark ? '#94a3b8' : '#64748b' }}
                                                         />
-                                                        <YAxis tick={{ fontSize: 12, fill: '#64748b' }} domain={[0, 100]} />
+                                                        <YAxis tick={{ fontSize: 12, fill: isDark ? '#94a3b8' : '#64748b' }} domain={[0, 100]} />
                                                         <Tooltip 
-                                                            cursor={{ fill: '#f8fafc' }}
-                                                            contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
+                                                            cursor={{ fill: isDark ? 'rgba(51, 65, 85, 0.3)' : '#f8fafc' }}
+                                                            contentStyle={{ 
+                                                                borderRadius: '12px', 
+                                                                border: isDark ? '1px solid #334155' : 'none', 
+                                                                backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                                                                color: isDark ? '#f8fafc' : '#0f172a',
+                                                                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)' 
+                                                            }}
                                                         />
                                                         <Bar dataKey="percentage" radius={[4, 4, 0, 0]} barSize={40}>
                                                             {chartEvaluations.map((entry, index) => (
@@ -2156,15 +2360,21 @@ const Reports: React.FC = () => {
 
                                 {/* Actions & Procedures Log Table (Shown when tab is actions_table OR an employee is selected OR during print) */}
                                 {(mainViewTab === 'actions_table' || filterEmp || true) && (
-                                    <div className={`bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-2 print:border-slate-800 print:shadow-none print:rounded-lg ${(!filterEmp && mainViewTab === 'overview') ? 'print:block' : ''}`}>
-                                        <div className="p-5 border-b border-slate-100 flex flex-wrap justify-between items-center bg-slate-50/70 print:bg-white print:border-b-2 print:border-slate-800 gap-3">
+                                    <div className={`rounded-3xl shadow-sm border overflow-hidden print:border-2 print:border-slate-800 print:shadow-none print:rounded-lg ${
+                                        isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                                    } ${(!filterEmp && mainViewTab === 'overview') ? 'print:block' : ''}`}>
+                                        <div className={`p-5 border-b flex flex-wrap justify-between items-center print:bg-white print:border-b-2 print:border-slate-800 gap-3 ${
+                                            isDark ? 'bg-slate-800/80 border-slate-700/80' : 'bg-slate-50/70 border-slate-100'
+                                        }`}>
                                             <div className="flex items-center gap-3">
-                                                <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
+                                                <h3 className={`font-bold text-base flex items-center gap-2 ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
                                                     <i className="fas fa-history text-blue-500 print:hidden"></i> 
                                                     {filterEmp ? `${t('rep.log') || 'سجل الإجراءات'} - ${employees.find(e => e.id === filterEmp)?.name}` : (t('rep.ranking.actionsReviewAll') || 'سجل الإجراءات والمراجعة (جميع الموظفين)')}
                                                 </h3>
                                                 {actionFilterCategory !== 'all' && (
-                                                    <span className="text-[11px] font-bold bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full">
+                                                    <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                                                        isDark ? 'bg-blue-950/70 text-blue-300 border border-blue-800/60' : 'bg-blue-100 text-blue-800'
+                                                    }`}>
                                                         {actionFilterCategory === 'actions_only' && `⚡ ${t('rep.cat.actionsOnly') || 'الإجراءات فقط'}`}
                                                         {actionFilterCategory === 'penalties_only' && `⚖️ ${t('rep.cat.penaltiesOnly') || 'المخالفات والجزاءات'}`}
                                                         {actionFilterCategory === 'absences_only' && `🚫 ${t('rep.cat.absencesOnly') || 'الغياب فقط'}`}
@@ -2191,13 +2401,19 @@ const Reports: React.FC = () => {
                                                     <i className="fas fa-plus-circle"></i>
                                                     {t('rep.action.btnLog') || 'تسجيل إجراء / مخالفة'}
                                                 </button>
-                                                <span className="text-xs font-bold bg-white px-3 py-1.5 rounded-xl border text-slate-600 shadow-2xs">
+                                                <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border shadow-2xs ${
+                                                    isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-600'
+                                                }`}>
                                                     {filteredActions.length} {t('rep.action.recordsCount') || 'سجل'}
                                                 </span>
                                                 {filterEmp && (
                                                     <button 
                                                         onClick={() => setFilterEmp('')}
-                                                        className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-white hover:bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-200 transition-colors print:hidden"
+                                                        className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition-colors print:hidden ${
+                                                            isDark 
+                                                                ? 'text-blue-400 hover:text-blue-300 bg-slate-800 hover:bg-slate-750 border-slate-700' 
+                                                                : 'text-blue-600 hover:text-blue-800 bg-white hover:bg-blue-50 border-blue-200'
+                                                        }`}
                                                     >
                                                         {t('rep.action.showAllEmployees') || 'عرض كل الموظفين'}
                                                     </button>
@@ -2207,7 +2423,9 @@ const Reports: React.FC = () => {
 
                                         <div className="overflow-x-auto">
                                             <table className={`w-full text-sm ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
-                                                <thead className="bg-slate-50 text-slate-500 font-bold text-xs uppercase print:bg-white print:text-black print:border-b-2 print:border-slate-800">
+                                                <thead className={`font-bold text-xs uppercase print:bg-white print:text-black print:border-b-2 print:border-slate-800 ${
+                                                    isDark ? 'bg-slate-800/50 text-slate-400 border-b border-slate-800' : 'bg-slate-50 text-slate-500'
+                                                }`}>
                                                     <tr>
                                                         <th className="p-4">{t('rep.filter.emp')}</th>
                                                         <th className="p-4">{t('req.type')}</th>
@@ -2216,7 +2434,9 @@ const Reports: React.FC = () => {
                                                         <th className="p-4 print:hidden">{t('actions')}</th>
                                                     </tr>
                                                 </thead>
-                                                <tbody className="divide-y divide-slate-100 print:divide-slate-300">
+                                                <tbody className={`divide-y print:divide-slate-300 ${
+                                                    isDark ? 'divide-slate-800/70' : 'divide-slate-100'
+                                                }`}>
                                                     {filteredActions.length === 0 ? (
                                                         <tr>
                                                             <td colSpan={5} className="p-12 text-center text-slate-400">
@@ -2228,10 +2448,12 @@ const Reports: React.FC = () => {
                                                         const weight = ACTION_WEIGHTS[act.type];
                                                         const isPositive = weight < 0;
                                                         return (
-                                                            <tr key={act.id} className="hover:bg-slate-50/70 transition-colors group print:hover:bg-transparent">
-                                                                <td className="p-4 border-r print:border-slate-300">
-                                                                    <div className="font-bold text-slate-800">{getEmpName(act.employeeId, act)}</div>
-                                                                    <div className="text-xs text-slate-500 print:text-slate-600 mt-0.5">{act.description}</div>
+                                                            <tr key={act.id} className={`transition-colors group print:hover:bg-transparent ${
+                                                                isDark ? 'hover:bg-slate-800/60' : 'hover:bg-slate-50/70'
+                                                            }`}>
+                                                                <td className={`p-4 border-r print:border-slate-300 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+                                                                    <div className={`font-bold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>{getEmpName(act.employeeId, act)}</div>
+                                                                    <div className={`text-xs mt-0.5 print:text-slate-600 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{act.description}</div>
                                                                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5 print:hidden">
                                                                         {act.id && (
                                                                             <button 
@@ -2242,7 +2464,11 @@ const Reports: React.FC = () => {
                                                                                     navigator.clipboard.writeText(refCode);
                                                                                     setActionSearchQuery(refCode);
                                                                                 }}
-                                                                                className="inline-flex items-center gap-1 text-[10px] font-mono font-black text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 px-1.5 py-0.5 rounded shadow-2xs transition-colors cursor-pointer" 
+                                                                                className={`inline-flex items-center gap-1 text-[10px] font-mono font-black px-1.5 py-0.5 rounded shadow-2xs transition-colors cursor-pointer ${
+                                                                                    isDark 
+                                                                                        ? 'text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700' 
+                                                                                        : 'text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300'
+                                                                                }`} 
                                                                                 title="اضغط لنسخ الرقم المرجعي والفلترة به"
                                                                             >
                                                                                 <i className="fas fa-hashtag text-[9px] text-slate-400"></i>
@@ -2250,7 +2476,11 @@ const Reports: React.FC = () => {
                                                                             </button>
                                                                         )}
                                                                         {act.hours && (
-                                                                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded">
+                                                                            <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded ${
+                                                                                isDark 
+                                                                                    ? 'text-sky-300 bg-sky-950/60 border border-sky-800/60' 
+                                                                                    : 'text-sky-700 bg-sky-50 border border-sky-200'
+                                                                            }`}>
                                                                                 <i className="fas fa-clock text-[10px]"></i>
                                                                                 {act.hours} ساعة {act.timeFrom && act.timeTo ? `(${act.timeFrom} - ${act.timeTo})` : ''}
                                                                             </span>
@@ -2259,7 +2489,11 @@ const Reports: React.FC = () => {
                                                                             <Link 
                                                                                 to="/supervisor/penalties"
                                                                                 onClick={(e) => e.stopPropagation()}
-                                                                                className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 border border-red-200 px-2 py-0.5 rounded transition-all shadow-2xs cursor-pointer group/link"
+                                                                                className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded transition-all shadow-2xs cursor-pointer group/link ${
+                                                                                    isDark 
+                                                                                        ? 'text-red-300 hover:text-red-200 bg-red-950/60 hover:bg-red-900/60 border border-red-800/60' 
+                                                                                        : 'text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 border border-red-200'
+                                                                                }`}
                                                                                 title="انقر للانتقال إلى صفحة الجزاءات الرسمية"
                                                                             >
                                                                                 <i className="fas fa-gavel text-[10px] text-red-500 group-hover/link:scale-110 transition-transform"></i>
@@ -2269,30 +2503,32 @@ const Reports: React.FC = () => {
                                                                         )}
                                                                     </div>
                                                                 </td>
-                                                                <td className="p-4 border-r print:border-slate-300">
+                                                                <td className={`p-4 border-r print:border-slate-300 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
                                                                     <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border inline-block ${
-                                                                        act.type === 'violation' ? 'bg-red-50 text-red-700 border-red-200' :
-                                                                        act.type === 'conduct_violation' ? 'bg-rose-50 text-rose-800 border-rose-300' :
-                                                                        act.type === 'neglect' ? 'bg-red-50 text-red-700 border-red-200' :
-                                                                        act.type === 'verbal_warning' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                                                        act.type === 'late' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                                                        act.type === 'early_leave' ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                                                                        act.type === 'permitted_late' ? 'bg-yellow-50 text-yellow-800 border-yellow-200' :
-                                                                        act.type === 'hourly_permission' ? 'bg-sky-50 text-sky-700 border-sky-200' :
-                                                                        act.type === 'positive' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                                                        act.type === 'overtime' ? 'bg-teal-50 text-teal-700 border-teal-200' :
-                                                                        act.type === 'mission' ? 'bg-purple-50 text-purple-700 border-purple-200' :
-                                                                        act.type === 'training' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
-                                                                        act.type === 'unjustified_absence' ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                                                                        act.type === 'justified_absence' ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                                                                        act.type === 'sick_leave' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
-                                                                        act.type === 'annual_leave' ? 'bg-purple-50 text-purple-700 border-purple-200' :
-                                                                        'bg-slate-100 text-slate-700 border-slate-200'
+                                                                        act.type === 'violation' ? (isDark ? 'bg-red-950/60 text-red-300 border-red-800/60' : 'bg-red-50 text-red-700 border-red-200') :
+                                                                        act.type === 'conduct_violation' ? (isDark ? 'bg-rose-950/60 text-rose-300 border-rose-800/60' : 'bg-rose-50 text-rose-800 border-rose-300') :
+                                                                        act.type === 'neglect' ? (isDark ? 'bg-red-950/60 text-red-300 border-red-800/60' : 'bg-red-50 text-red-700 border-red-200') :
+                                                                        act.type === 'verbal_warning' ? (isDark ? 'bg-amber-950/60 text-amber-300 border-amber-800/60' : 'bg-amber-50 text-amber-700 border-amber-200') :
+                                                                        act.type === 'late' ? (isDark ? 'bg-amber-950/60 text-amber-300 border-amber-800/60' : 'bg-amber-50 text-amber-700 border-amber-200') :
+                                                                        act.type === 'early_leave' ? (isDark ? 'bg-orange-950/60 text-orange-300 border-orange-800/60' : 'bg-orange-50 text-orange-700 border-orange-200') :
+                                                                        act.type === 'permitted_late' ? (isDark ? 'bg-yellow-950/60 text-yellow-300 border-yellow-800/60' : 'bg-yellow-50 text-yellow-800 border-yellow-200') :
+                                                                        act.type === 'hourly_permission' ? (isDark ? 'bg-sky-950/60 text-sky-300 border-sky-800/60' : 'bg-sky-50 text-sky-700 border-sky-200') :
+                                                                        act.type === 'positive' ? (isDark ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60' : 'bg-emerald-50 text-emerald-700 border-emerald-200') :
+                                                                        act.type === 'overtime' ? (isDark ? 'bg-teal-950/60 text-teal-300 border-teal-800/60' : 'bg-teal-50 text-teal-700 border-teal-200') :
+                                                                        act.type === 'mission' ? (isDark ? 'bg-purple-950/60 text-purple-300 border-purple-800/60' : 'bg-purple-50 text-purple-700 border-purple-200') :
+                                                                        act.type === 'training' ? (isDark ? 'bg-indigo-950/60 text-indigo-300 border-indigo-800/60' : 'bg-indigo-50 text-indigo-700 border-indigo-200') :
+                                                                        act.type === 'unjustified_absence' ? (isDark ? 'bg-rose-950/60 text-rose-300 border-rose-800/60' : 'bg-rose-50 text-rose-700 border-rose-200') :
+                                                                        act.type === 'justified_absence' ? (isDark ? 'bg-orange-950/60 text-orange-300 border-orange-800/60' : 'bg-orange-50 text-orange-700 border-orange-200') :
+                                                                        act.type === 'sick_leave' ? (isDark ? 'bg-cyan-950/60 text-cyan-300 border-cyan-800/60' : 'bg-cyan-50 text-cyan-700 border-cyan-200') :
+                                                                        act.type === 'annual_leave' ? (isDark ? 'bg-purple-950/60 text-purple-300 border-purple-800/60' : 'bg-purple-50 text-purple-700 border-purple-200') :
+                                                                        (isDark ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200')
                                                                     } print:border-none print:bg-transparent print:text-black print:p-0`}>
                                                                         {t(`action.${act.type}`) || act.type}
                                                                     </span>
                                                                 </td>
-                                                                <td className="p-4 text-xs font-mono text-slate-600 border-r print:border-slate-300">
+                                                                <td className={`p-4 text-xs font-mono border-r print:border-slate-300 ${
+                                                                    isDark ? 'text-slate-300 border-slate-800' : 'text-slate-600 border-slate-100'
+                                                                }`}>
                                                                     <div className="font-bold">{safeDate(act.fromDate)}</div>
                                                                     {safeDate(act.fromDate) !== safeDate(act.toDate) && (
                                                                         <div className="text-[11px] text-slate-400 mt-0.5">
@@ -2301,11 +2537,15 @@ const Reports: React.FC = () => {
                                                                         </div>
                                                                     )}
                                                                 </td>
-                                                                <td className="p-4 font-bold border-r print:border-slate-300">
+                                                                <td className={`p-4 font-bold border-r print:border-slate-300 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
                                                                     {isPositive ? (
-                                                                        <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 text-xs font-black">+{Math.abs(weight)}</span>
+                                                                        <span className={`px-2 py-0.5 rounded border text-xs font-black ${
+                                                                            isDark ? 'text-emerald-300 bg-emerald-950/60 border-emerald-800/60' : 'text-emerald-600 bg-emerald-50 border-emerald-100'
+                                                                        }`}>+{Math.abs(weight)}</span>
                                                                     ) : weight > 0 ? (
-                                                                        <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-100 text-xs font-black">-{weight}</span>
+                                                                        <span className={`px-2 py-0.5 rounded border text-xs font-black ${
+                                                                            isDark ? 'text-red-300 bg-red-950/60 border-red-800/60' : 'text-red-600 bg-red-50 border-red-100'
+                                                                        }`}>-{weight}</span>
                                                                     ) : (
                                                                         <span className="text-slate-400 text-xs">0</span>
                                                                     )}
@@ -2313,8 +2553,26 @@ const Reports: React.FC = () => {
                                                                 <td className="p-4 print:hidden">
                                                                     {!act.id.startsWith('auto-') && (
                                                                         <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                            <button onClick={() => handleEdit(act)} className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 flex items-center justify-center"><i className="fas fa-pen text-xs"></i></button>
-                                                                            <button onClick={() => handleDelete(act.id)} className="w-7 h-7 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center"><i className="fas fa-trash text-xs"></i></button>
+                                                                            <button 
+                                                                                onClick={() => handleEdit(act)} 
+                                                                                className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+                                                                                    isDark 
+                                                                                        ? 'bg-blue-950/60 text-blue-400 hover:bg-blue-900/80 border border-blue-800/50' 
+                                                                                        : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                                                                                }`}
+                                                                            >
+                                                                                <i className="fas fa-pen text-xs"></i>
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => handleDelete(act.id)} 
+                                                                                className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+                                                                                    isDark 
+                                                                                        ? 'bg-red-950/60 text-red-400 hover:bg-red-900/80 border border-red-800/50' 
+                                                                                        : 'bg-red-50 text-red-600 hover:bg-red-100'
+                                                                                }`}
+                                                                            >
+                                                                                <i className="fas fa-trash text-xs"></i>
+                                                                            </button>
                                                                         </div>
                                                                     )}
                                                                 </td>
@@ -2346,23 +2604,27 @@ const Reports: React.FC = () => {
                 <div className="space-y-4 text-right" dir={dir}>
                     {/* Selected Employee Display or Select Dropdown */}
                     <div>
-                        <label className="text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                        <label className={`text-xs font-bold mb-1.5 flex items-center justify-between ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                             <span>{t('rep.action.targetEmp') || 'الموظف المعني'} <span className="text-red-500">*</span></span>
                             {formData.employeeId && (
-                                <span className="text-[11px] font-normal text-blue-600">
+                                <span className={`text-[11px] font-normal ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
                                     {employees.find(u => u.id === formData.employeeId)?.role || 'موظف'}
                                 </span>
                             )}
                         </label>
                         <select 
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
+                            className={`w-full rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 transition border ${
+                                isDark 
+                                    ? 'bg-slate-800 border-slate-700 text-slate-100 focus:bg-slate-750' 
+                                    : 'bg-slate-50 border-slate-200 text-slate-800 focus:bg-white'
+                            }`}
                             value={formData.employeeId}
                             onChange={e => setFormData({...formData, employeeId: e.target.value})}
                             disabled={!!filterEmp && !editingId} 
                         >
-                            <option value="">{t('rep.action.selectEmp') || '-- اختر الموظف --'}</option>
+                            <option value="" className={isDark ? 'bg-slate-800 text-slate-300' : 'bg-white text-slate-700'}>{t('rep.action.selectEmp') || '-- اختر الموظف --'}</option>
                             {employees.map(u => (
-                                <option key={u.id} value={u.id}>
+                                <option key={u.id} value={u.id} className={isDark ? 'bg-slate-800 text-slate-200' : 'bg-white text-slate-800'}>
                                     {u.name || u.email} {u.phone ? `(${u.phone})` : ''}
                                 </option>
                             ))}
@@ -2372,12 +2634,12 @@ const Reports: React.FC = () => {
                     {/* Action Category Tabs */}
                     <div>
                         <div className="flex items-center justify-between mb-2">
-                            <label className="text-xs font-bold text-slate-700">
+                            <label className={`text-xs font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                                 {t('rep.action.actionTypeLabel') || 'نوع الإجراء / المخالفة'} <span className="text-red-500">*</span>
                             </label>
                             <span className="text-[11px] text-slate-400">{t('rep.action.selectCatAndType') || 'اختر التصنيف ونوع الإجراء'}</span>
                         </div>
-                        <div className="flex flex-wrap gap-1 p-1 bg-slate-100 rounded-xl text-xs font-bold mb-2.5">
+                        <div className={`flex flex-wrap gap-1 p-1 rounded-xl text-xs font-bold mb-2.5 ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
                             {[
                                 { id: 'all', label: t('rep.action.catAll') || 'الكل' },
                                 { id: 'disciplinary', label: t('rep.action.catDisciplinary') || 'المخالفات والانضباط' },
@@ -2391,8 +2653,8 @@ const Reports: React.FC = () => {
                                     onClick={() => setActionCategoryTab(cat.id as any)}
                                     className={`px-3 py-1.5 rounded-lg transition-all ${
                                         actionCategoryTab === cat.id 
-                                            ? 'bg-white text-blue-700 shadow-xs font-black' 
-                                            : 'text-slate-600 hover:text-slate-900'
+                                            ? (isDark ? 'bg-slate-700 text-blue-300 shadow-xs font-black' : 'bg-white text-blue-700 shadow-xs font-black') 
+                                            : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900')
                                     }`}
                                 >
                                     {cat.label}
@@ -2401,7 +2663,9 @@ const Reports: React.FC = () => {
                         </div>
 
                         {/* Action Types Visual Grid */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-h-[220px] overflow-y-auto p-1 border border-slate-100 rounded-xl bg-slate-50/50">
+                        <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 max-h-[220px] overflow-y-auto p-1 border rounded-xl ${
+                            isDark ? 'border-slate-800 bg-slate-800/40' : 'border-slate-100 bg-slate-50/50'
+                        }`}>
                             {[
                                 // Disciplinary
                                 { id: 'violation', category: 'disciplinary', label: t('action.violation') || 'مخالفة إدارية', points: -10, icon: 'fa-ban', color: 'border-red-500 bg-red-50 text-red-700' },
@@ -2438,15 +2702,17 @@ const Reports: React.FC = () => {
                                         className={`p-2 rounded-xl border text-center transition-all flex flex-col items-center justify-center gap-1 relative ${
                                             isSelected 
                                                 ? `${item.color} font-black ring-2 ring-blue-500 shadow-sm scale-[1.02]` 
-                                                : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                                                : (isDark 
+                                                    ? 'border-slate-700 bg-slate-800 hover:bg-slate-750 text-slate-300' 
+                                                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700')
                                         }`}
                                     >
                                         <i className={`fas ${item.icon} text-sm ${isSelected ? '' : 'text-slate-400'}`}></i>
                                         <span className="text-[11px] leading-tight font-bold">{item.label}</span>
                                         <span className={`text-[10px] font-black px-1.5 py-0.2 rounded ${
-                                            item.points > 0 ? 'bg-emerald-100 text-emerald-800' :
-                                            item.points < 0 ? 'bg-red-100 text-red-800' :
-                                            'bg-slate-100 text-slate-600'
+                                            item.points > 0 ? (isDark ? 'bg-emerald-950/70 text-emerald-300 border border-emerald-800/60' : 'bg-emerald-100 text-emerald-800') :
+                                            item.points < 0 ? (isDark ? 'bg-red-950/70 text-red-300 border border-red-800/60' : 'bg-red-100 text-red-800') :
+                                            (isDark ? 'bg-slate-700 text-slate-300' : 'bg-slate-100 text-slate-600')
                                         }`}>
                                             {item.points > 0 ? `+${item.points}` : item.points} {t('rep.action.pointsUnit') || 'نقطة'}
                                         </span>
@@ -2458,18 +2724,20 @@ const Reports: React.FC = () => {
 
                     {/* Hourly Permission & Time Controls (Shown when action involves hours/time) */}
                     {['hourly_permission', 'early_leave', 'late', 'permitted_late', 'overtime'].includes(formData.type) && (
-                        <div className="p-3 bg-sky-50/70 border border-sky-200 rounded-xl space-y-2.5">
+                        <div className={`p-3 rounded-xl space-y-2.5 border ${
+                            isDark ? 'bg-sky-950/40 border-sky-900/60' : 'bg-sky-50/70 border-sky-200'
+                        }`}>
                             <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-sky-900 flex items-center gap-1.5">
-                                    <i className="fas fa-clock text-sky-600"></i>
+                                <span className={`text-xs font-bold flex items-center gap-1.5 ${isDark ? 'text-sky-300' : 'text-sky-900'}`}>
+                                    <i className="fas fa-clock text-sky-500"></i>
                                     {t('rep.action.permissionTimeDetails') || 'تفاصيل ساعات الإذن / الوقت المستغرق'}
                                 </span>
-                                <span className="text-[11px] text-sky-700 font-medium">{t('rep.action.permissionTimeDesc') || 'مخصص للإذن الساعي والمواعيد'}</span>
+                                <span className={`text-[11px] font-medium ${isDark ? 'text-sky-400' : 'text-sky-700'}`}>{t('rep.action.permissionTimeDesc') || 'مخصص للإذن الساعي والمواعيد'}</span>
                             </div>
 
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                 <div>
-                                    <label className="text-[11px] font-bold text-slate-700 mb-1 block">{t('rep.action.hoursCount') || 'عدد الساعات'}</label>
+                                    <label className={`text-[11px] font-bold mb-1 block ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{t('rep.action.hoursCount') || 'عدد الساعات'}</label>
                                     <input 
                                         type="number"
                                         step="0.5"
@@ -2478,32 +2746,44 @@ const Reports: React.FC = () => {
                                         placeholder={t('rep.action.hoursPlaceholder') || 'مثلاً: 2'}
                                         value={formData.hours}
                                         onChange={e => setFormData({ ...formData, hours: e.target.value })}
-                                        className="w-full bg-white border border-sky-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-400"
+                                        className={`w-full rounded-lg px-2.5 py-1.5 text-xs font-bold outline-none focus:ring-2 focus:ring-sky-400 border ${
+                                            isDark 
+                                                ? 'bg-slate-800 border-sky-800/60 text-slate-100 placeholder-slate-500' 
+                                                : 'bg-white border-sky-200 text-slate-800'
+                                        }`}
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-[11px] font-bold text-slate-700 mb-1 block">{t('rep.action.timeFrom') || 'من الساعة'}</label>
+                                    <label className={`text-[11px] font-bold mb-1 block ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{t('rep.action.timeFrom') || 'من الساعة'}</label>
                                     <input 
                                         type="time"
                                         value={formData.timeFrom}
                                         onChange={e => setFormData({ ...formData, timeFrom: e.target.value })}
-                                        className="w-full bg-white border border-sky-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-400"
+                                        className={`w-full rounded-lg px-2.5 py-1.5 text-xs font-bold outline-none focus:ring-2 focus:ring-sky-400 border ${
+                                            isDark 
+                                                ? 'bg-slate-800 border-sky-800/60 text-slate-100' 
+                                                : 'bg-white border-sky-200 text-slate-800'
+                                        }`}
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-[11px] font-bold text-slate-700 mb-1 block">{t('rep.action.timeTo') || 'إلى الساعة'}</label>
+                                    <label className={`text-[11px] font-bold mb-1 block ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{t('rep.action.timeTo') || 'إلى الساعة'}</label>
                                     <input 
                                         type="time"
                                         value={formData.timeTo}
                                         onChange={e => setFormData({ ...formData, timeTo: e.target.value })}
-                                        className="w-full bg-white border border-sky-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-400"
+                                        className={`w-full rounded-lg px-2.5 py-1.5 text-xs font-bold outline-none focus:ring-2 focus:ring-sky-400 border ${
+                                            isDark 
+                                                ? 'bg-slate-800 border-sky-800/60 text-slate-100' 
+                                                : 'bg-white border-sky-200 text-slate-800'
+                                        }`}
                                     />
                                 </div>
                             </div>
 
                             {/* Quick Hours Presets */}
                             <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                                <span className="text-[10px] font-bold text-sky-800">{t('rep.action.quickChoice') || 'اختيار سريع:'}</span>
+                                <span className={`text-[10px] font-bold ${isDark ? 'text-sky-300' : 'text-sky-800'}`}>{t('rep.action.quickChoice') || 'اختيار سريع:'}</span>
                                 {['0.5', '1', '1.5', '2', '3', '4'].map(h => (
                                     <button
                                         key={h}
@@ -2512,7 +2792,9 @@ const Reports: React.FC = () => {
                                         className={`px-2 py-0.5 rounded text-[11px] font-bold border transition ${
                                             formData.hours === h 
                                                 ? 'bg-sky-600 text-white border-sky-600' 
-                                                : 'bg-white text-sky-700 border-sky-200 hover:bg-sky-100'
+                                                : (isDark 
+                                                    ? 'bg-slate-800 text-sky-300 border-sky-900 hover:bg-slate-700' 
+                                                    : 'bg-white text-sky-700 border-sky-200 hover:bg-sky-100')
                                         }`}
                                     >
                                         {h} {t('rep.action.hoursUnit') || 'ساعة'}
@@ -2523,7 +2805,7 @@ const Reports: React.FC = () => {
                     )}
 
                     {/* Single Day vs Date Range Toggle */}
-                    <div className="bg-slate-100 p-1.5 rounded-xl flex items-center gap-1 text-xs font-bold">
+                    <div className={`p-1.5 rounded-xl flex items-center gap-1 text-xs font-bold ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
                         <button
                             type="button"
                             onClick={() => {
@@ -2531,7 +2813,9 @@ const Reports: React.FC = () => {
                                 setFormData(prev => ({ ...prev, toDate: prev.fromDate }));
                             }}
                             className={`flex-1 py-1.5 rounded-lg transition-all text-center flex items-center justify-center gap-1.5 ${
-                                isSingleDay ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                                isSingleDay 
+                                    ? (isDark ? 'bg-slate-700 text-blue-300 shadow-sm' : 'bg-white text-blue-700 shadow-sm') 
+                                    : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800')
                             }`}
                         >
                             <i className="fas fa-calendar-day"></i>
@@ -2541,7 +2825,9 @@ const Reports: React.FC = () => {
                             type="button"
                             onClick={() => setIsSingleDay(false)}
                             className={`flex-1 py-1.5 rounded-lg transition-all text-center flex items-center justify-center gap-1.5 ${
-                                !isSingleDay ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                                !isSingleDay 
+                                    ? (isDark ? 'bg-slate-700 text-blue-300 shadow-sm' : 'bg-white text-blue-700 shadow-sm') 
+                                    : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800')
                             }`}
                         >
                             <i className="fas fa-calendar-week"></i>
@@ -2552,12 +2838,16 @@ const Reports: React.FC = () => {
                     {/* Date Pickers */}
                     {isSingleDay ? (
                         <div>
-                            <label className="text-xs font-bold text-slate-700 mb-1 block">
+                            <label className={`text-xs font-bold mb-1 block ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                                 {t('rep.action.dateLabel') || 'تاريخ الإجراء / المخالفة'} <span className="text-red-500">*</span>
                             </label>
                             <input 
                                 type="date" 
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                                className={`w-full rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 border ${
+                                    isDark 
+                                        ? 'bg-slate-800 border-slate-700 text-slate-100 focus:bg-slate-750' 
+                                        : 'bg-slate-50 border-slate-200 text-slate-800 focus:bg-white'
+                                }`}
                                 value={formData.fromDate} 
                                 onChange={e => setFormData({ ...formData, fromDate: e.target.value, toDate: e.target.value })} 
                             />
@@ -2565,19 +2855,27 @@ const Reports: React.FC = () => {
                     ) : (
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="text-xs font-bold text-slate-700 mb-1 block">{t('from')} <span className="text-red-500">*</span></label>
+                                <label className={`text-xs font-bold mb-1 block ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{t('from')} <span className="text-red-500">*</span></label>
                                 <input 
                                     type="date" 
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                                    className={`w-full rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 border ${
+                                        isDark 
+                                            ? 'bg-slate-800 border-slate-700 text-slate-100 focus:bg-slate-750' 
+                                            : 'bg-slate-50 border-slate-200 text-slate-800 focus:bg-white'
+                                    }`}
                                     value={formData.fromDate} 
                                     onChange={e => setFormData({ ...formData, fromDate: e.target.value })} 
                                 />
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-slate-700 mb-1 block">{t('to')} <span className="text-red-500">*</span></label>
+                                <label className={`text-xs font-bold mb-1 block ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{t('to')} <span className="text-red-500">*</span></label>
                                 <input 
                                     type="date" 
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                                    className={`w-full rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 border ${
+                                        isDark 
+                                            ? 'bg-slate-800 border-slate-700 text-slate-100 focus:bg-slate-750' 
+                                            : 'bg-slate-50 border-slate-200 text-slate-800 focus:bg-white'
+                                    }`}
                                     value={formData.toDate} 
                                     onChange={e => setFormData({ ...formData, toDate: e.target.value })} 
                                 />
@@ -2586,7 +2884,11 @@ const Reports: React.FC = () => {
                     )}
 
                     {/* Send as Penalty Section (Direct Toggle Inside Form) */}
-                    <div className="p-3.5 bg-gradient-to-r from-red-50/80 to-amber-50/80 border border-red-200 rounded-xl transition-all">
+                    <div className={`p-3.5 rounded-xl transition-all border ${
+                        isDark 
+                            ? 'bg-red-950/30 border-red-900/60' 
+                            : 'bg-gradient-to-r from-red-50/80 to-amber-50/80 border-red-200'
+                    }`}>
                         <label className="flex items-center gap-3 cursor-pointer select-none">
                             <input 
                                 type="checkbox"
@@ -2595,11 +2897,11 @@ const Reports: React.FC = () => {
                                 className="w-5 h-5 text-red-600 rounded border-red-300 focus:ring-red-500"
                             />
                             <div>
-                                <div className="text-xs font-black text-red-900 flex items-center gap-1.5">
-                                    <i className="fas fa-gavel text-red-600"></i>
+                                <div className={`text-xs font-black flex items-center gap-1.5 ${isDark ? 'text-red-300' : 'text-red-900'}`}>
+                                    <i className="fas fa-gavel text-red-500"></i>
                                     {t('rep.action.sendPenaltyTitle') || 'إرسال هذا الإجراء كجزاء رسمي بصفحة الجزاءات مباشرة'}
                                 </div>
-                                <div className="text-[11px] text-slate-600 font-medium">
+                                <div className={`text-[11px] font-medium ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
                                     {t('rep.action.sendPenaltyDesc') || 'عند تفعيل هذا الخيار سيتم تسجيل المخالفة وإصدار وثيقة جزاء رسمي للموظف للاطلاع والتوقيع'}
                                 </div>
                             </div>
@@ -2607,13 +2909,17 @@ const Reports: React.FC = () => {
 
                         {/* Additional Penalty Options if checked */}
                         {formData.sendPenalty && (
-                            <div className="mt-3 pt-3 border-t border-red-200/70 space-y-2.5">
+                            <div className={`mt-3 pt-3 border-t space-y-2.5 ${isDark ? 'border-red-900/60' : 'border-red-200/70'}`}>
                                 <div>
-                                    <label className="text-[11px] font-bold text-red-900 mb-1 block">{t('rep.action.penaltyTypeLabel') || 'نوع الجزاء الرسمي'}</label>
+                                    <label className={`text-[11px] font-bold mb-1 block ${isDark ? 'text-red-300' : 'text-red-900'}`}>{t('rep.action.penaltyTypeLabel') || 'نوع الجزاء الرسمي'}</label>
                                     <select 
                                         value={formData.penaltyType}
                                         onChange={e => setFormData({ ...formData, penaltyType: e.target.value as any })}
-                                        className="w-full bg-white border border-red-200 rounded-lg p-2 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-red-400"
+                                        className={`w-full rounded-lg p-2 text-xs font-bold outline-none focus:ring-2 focus:ring-red-400 border ${
+                                            isDark 
+                                                ? 'bg-slate-800 border-red-900/60 text-slate-100' 
+                                                : 'bg-white border-red-200 text-slate-800'
+                                        }`}
                                     >
                                         <option value="1st Warning">{t('rep.action.penaltyWarn1') || 'إنذار أول (1st Warning)'}</option>
                                         <option value="2nd Warning">{t('rep.action.penaltyWarn2') || 'إنذار ثانٍ (2nd Warning)'}</option>
@@ -2626,7 +2932,7 @@ const Reports: React.FC = () => {
 
                                 {formData.penaltyType === 'Deduction' && (
                                     <div>
-                                        <label className="text-[11px] font-bold text-red-900 mb-1 block">{t('rep.action.deductionDaysLabel') || 'عدد أيام الخصم من الراتب'}</label>
+                                        <label className={`text-[11px] font-bold mb-1 block ${isDark ? 'text-red-300' : 'text-red-900'}`}>{t('rep.action.deductionDaysLabel') || 'عدد أيام الخصم من الراتب'}</label>
                                         <input 
                                             type="number"
                                             min="0.25"
@@ -2634,7 +2940,11 @@ const Reports: React.FC = () => {
                                             placeholder={t('rep.action.deductionDaysPlaceholder') || 'مثلاً: 1 يوم أو 0.5'}
                                             value={formData.deductionDays}
                                             onChange={e => setFormData({ ...formData, deductionDays: e.target.value })}
-                                            className="w-full bg-white border border-red-200 rounded-lg p-2 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-red-400"
+                                            className={`w-full rounded-lg p-2 text-xs font-bold outline-none focus:ring-2 focus:ring-red-400 border ${
+                                                isDark 
+                                                    ? 'bg-slate-800 border-red-900/60 text-slate-100 placeholder-slate-500' 
+                                                    : 'bg-white border-red-200 text-slate-800'
+                                            }`}
                                         />
                                     </div>
                                 )}
@@ -2642,32 +2952,44 @@ const Reports: React.FC = () => {
                                 {formData.penaltyType === 'Suspension' && (
                                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                         <div>
-                                            <label className="text-[11px] font-bold text-red-900 mb-1 block">{t('rep.action.suspensionDaysLabel') || 'أيام الإيقاف'}</label>
+                                            <label className={`text-[11px] font-bold mb-1 block ${isDark ? 'text-red-300' : 'text-red-900'}`}>{t('rep.action.suspensionDaysLabel') || 'أيام الإيقاف'}</label>
                                             <input 
                                                 type="number"
                                                 min="1"
                                                 placeholder={t('rep.action.suspensionDaysPlaceholder') || 'مثلاً: 3'}
                                                 value={formData.suspensionDays}
                                                 onChange={e => setFormData({ ...formData, suspensionDays: e.target.value })}
-                                                className="w-full bg-white border border-red-200 rounded-lg p-2 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-red-400"
+                                                className={`w-full rounded-lg p-2 text-xs font-bold outline-none focus:ring-2 focus:ring-red-400 border ${
+                                                    isDark 
+                                                        ? 'bg-slate-800 border-red-900/60 text-slate-100 placeholder-slate-500' 
+                                                        : 'bg-white border-red-200 text-slate-800'
+                                                }`}
                                             />
                                         </div>
                                         <div>
-                                            <label className="text-[11px] font-bold text-red-900 mb-1 block">{t('rep.action.suspensionFrom') || 'من تاريخ'}</label>
+                                            <label className={`text-[11px] font-bold mb-1 block ${isDark ? 'text-red-300' : 'text-red-900'}`}>{t('rep.action.suspensionFrom') || 'من تاريخ'}</label>
                                             <input 
                                                 type="date"
                                                 value={formData.suspensionFrom || formData.fromDate}
                                                 onChange={e => setFormData({ ...formData, suspensionFrom: e.target.value })}
-                                                className="w-full bg-white border border-red-200 rounded-lg p-2 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-red-400"
+                                                className={`w-full rounded-lg p-2 text-xs font-bold outline-none focus:ring-2 focus:ring-red-400 border ${
+                                                    isDark 
+                                                        ? 'bg-slate-800 border-red-900/60 text-slate-100' 
+                                                        : 'bg-white border-red-200 text-slate-800'
+                                                }`}
                                             />
                                         </div>
                                         <div>
-                                            <label className="text-[11px] font-bold text-red-900 mb-1 block">{t('rep.action.suspensionTo') || 'إلى تاريخ'}</label>
+                                            <label className={`text-[11px] font-bold mb-1 block ${isDark ? 'text-red-300' : 'text-red-900'}`}>{t('rep.action.suspensionTo') || 'إلى تاريخ'}</label>
                                             <input 
                                                 type="date"
                                                 value={formData.suspensionTo || formData.toDate}
                                                 onChange={e => setFormData({ ...formData, suspensionTo: e.target.value })}
-                                                className="w-full bg-white border border-red-200 rounded-lg p-2 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-red-400"
+                                                className={`w-full rounded-lg p-2 text-xs font-bold outline-none focus:ring-2 focus:ring-red-400 border ${
+                                                    isDark 
+                                                        ? 'bg-slate-800 border-red-900/60 text-slate-100' 
+                                                        : 'bg-white border-red-200 text-slate-800'
+                                                }`}
                                             />
                                         </div>
                                     </div>
@@ -2678,7 +3000,7 @@ const Reports: React.FC = () => {
 
                     {/* Quick Preset Reason Chips */}
                     <div>
-                        <label className="text-xs font-bold text-slate-700 mb-1.5 block">
+                        <label className={`text-xs font-bold mb-1.5 block ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                             {t('rep.action.presetsTitle') || 'أسباب وملاحظات شائعة (انقر للاختيار السريع):'}
                         </label>
                         <div className="flex flex-wrap gap-1.5">
@@ -2705,7 +3027,11 @@ const Reports: React.FC = () => {
                                             ...prev,
                                             description: prev.description ? `${prev.description} - ${presetText}` : presetText
                                         }))}
-                                        className="text-[11px] bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 px-2.5 py-1 rounded-lg border border-slate-200 transition font-medium"
+                                        className={`text-[11px] px-2.5 py-1 rounded-lg border transition font-medium ${
+                                            isDark 
+                                                ? 'bg-slate-800 hover:bg-slate-700 hover:text-blue-300 text-slate-300 border-slate-700' 
+                                                : 'bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 border-slate-200'
+                                        }`}
                                     >
                                         + {presetText}
                                     </button>
@@ -2716,11 +3042,15 @@ const Reports: React.FC = () => {
 
                     {/* Notes Textarea */}
                     <div>
-                        <label className="text-xs font-bold text-slate-700 mb-1 block">
+                        <label className={`text-xs font-bold mb-1 block ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                             {t('notes')} {t('rep.action.notesDetail') || 'والبيان التفصيلي'}
                         </label>
                         <textarea 
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-sm min-h-[75px] transition"
+                            className={`w-full rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500 text-sm min-h-[75px] transition border ${
+                                isDark 
+                                    ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500 focus:bg-slate-750' 
+                                    : 'bg-slate-50 border-slate-200 text-slate-800 focus:bg-white'
+                            }`}
                             placeholder={t('rep.action.notesPlaceholder') || 'اكتب تفاصيل الإجراء أو الملاحظات هنا...'}
                             value={formData.description}
                             onChange={e => setFormData({ ...formData, description: e.target.value })}
@@ -2732,7 +3062,7 @@ const Reports: React.FC = () => {
                         type="button"
                         onClick={handleSubmit} 
                         disabled={isSubmittingAction || !formData.employeeId}
-                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white py-3.5 rounded-xl font-bold shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2 active:scale-98 cursor-pointer disabled:cursor-not-allowed"
+                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-400 text-white py-3.5 rounded-xl font-bold shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2 active:scale-98 cursor-pointer disabled:cursor-not-allowed"
                     >
                         {isSubmittingAction ? (
                             <>
@@ -2757,26 +3087,30 @@ const Reports: React.FC = () => {
                     title={t('rep.action.promptTitle') || 'تأكيد إرسال جزاء رسمي للموظف'}
                 >
                     <div className="space-y-4 text-right" dir={dir}>
-                        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
+                        <div className={`p-4 rounded-2xl flex items-start gap-3 border ${
+                            isDark ? 'bg-amber-950/30 border-amber-900/60' : 'bg-amber-50 border-amber-200'
+                        }`}>
                             <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm text-lg">
                                 <i className="fas fa-gavel"></i>
                             </div>
                             <div>
-                                <h4 className="font-black text-sm text-amber-900">
+                                <h4 className={`font-black text-sm ${isDark ? 'text-amber-300' : 'text-amber-900'}`}>
                                     {t('rep.action.promptQuestion') || 'هل ترغب في إرسال هذا الإجراء كجزاء رسمي في صفحة الجزاءات للموظف؟'}
                                 </h4>
-                                <p className="text-xs text-amber-700 mt-1 leading-relaxed">
-                                    {t('rep.action.promptEmpLabel') || 'الموظف:'} <strong className="font-bold text-amber-950">{penaltyPromptModal.employeeName}</strong> | {t('rep.action.promptActionLabel') || 'الإجراء:'} <strong className="font-bold text-amber-950">{penaltyPromptModal.actionTitle}</strong>
+                                <p className={`text-xs mt-1 leading-relaxed ${isDark ? 'text-amber-400' : 'text-amber-700'}`}>
+                                    {t('rep.action.promptEmpLabel') || 'الموظف:'} <strong className={`font-bold ${isDark ? 'text-amber-200' : 'text-amber-950'}`}>{penaltyPromptModal.employeeName}</strong> | {t('rep.action.promptActionLabel') || 'الإجراء:'} <strong className={`font-bold ${isDark ? 'text-amber-200' : 'text-amber-950'}`}>{penaltyPromptModal.actionTitle}</strong>
                                 </p>
-                                <p className="text-[11px] text-amber-600 mt-0.5">
+                                <p className={`text-[11px] mt-0.5 ${isDark ? 'text-amber-400/80' : 'text-amber-600'}`}>
                                     {t('rep.action.promptDateLabel') || 'بتاريخ:'} {penaltyPromptModal.date} {penaltyPromptModal.description ? `(${penaltyPromptModal.description})` : ''}
                                 </p>
                             </div>
                         </div>
 
                         {/* Penalty Type Configuration in Prompt */}
-                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
-                            <label className="text-xs font-bold text-slate-800 block">
+                        <div className={`p-3 rounded-xl space-y-2.5 border ${
+                            isDark ? 'bg-slate-800/80 border-slate-750' : 'bg-slate-50 border-slate-200'
+                        }`}>
+                            <label className={`text-xs font-bold block ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
                                 {t('rep.action.promptSelectPenaltyType') || 'حدد نوع الجزاء الرسمي في حال الإرسال:'}
                             </label>
                             <select 
@@ -2785,7 +3119,9 @@ const Reports: React.FC = () => {
                                     ...penaltyPromptModal,
                                     penaltyType: e.target.value as any
                                 })}
-                                className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
+                                className={`w-full rounded-lg p-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 border ${
+                                    isDark ? 'bg-slate-800 border-slate-700 text-slate-100' : 'bg-white border-slate-300 text-slate-800'
+                                }`}
                             >
                                 <option value="1st Warning">{t('rep.action.penaltyWarn1') || 'إنذار أول (1st Warning)'}</option>
                                 <option value="2nd Warning">{t('rep.action.penaltyWarn2') || 'إنذار ثانٍ (2nd Warning)'}</option>
@@ -2797,7 +3133,7 @@ const Reports: React.FC = () => {
 
                             {penaltyPromptModal.penaltyType === 'Deduction' && (
                                 <div>
-                                    <label className="text-[11px] font-bold text-red-800 mb-1 block">{t('rep.action.promptDeductionDays') || 'عدد أيام الخصم:'}</label>
+                                    <label className={`text-[11px] font-bold mb-1 block ${isDark ? 'text-red-300' : 'text-red-800'}`}>{t('rep.action.promptDeductionDays') || 'عدد أيام الخصم:'}</label>
                                     <input 
                                         type="number"
                                         min="0.25"
@@ -2805,7 +3141,9 @@ const Reports: React.FC = () => {
                                         placeholder={t('rep.action.deductionDaysPlaceholder') || 'مثلاً: 1'}
                                         value={penaltyPromptModal.deductionDays}
                                         onChange={e => setPenaltyPromptModal({ ...penaltyPromptModal, deductionDays: e.target.value })}
-                                        className="w-full bg-white border border-red-200 rounded-lg p-2 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-red-400"
+                                        className={`w-full rounded-lg p-2 text-xs font-bold outline-none focus:ring-2 focus:ring-red-400 border ${
+                                            isDark ? 'bg-slate-800 border-red-900/60 text-slate-100' : 'bg-white border-red-200 text-slate-800'
+                                        }`}
                                     />
                                 </div>
                             )}
@@ -2813,32 +3151,38 @@ const Reports: React.FC = () => {
                             {penaltyPromptModal.penaltyType === 'Suspension' && (
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                     <div>
-                                        <label className="text-[11px] font-bold text-red-800 mb-1 block">{t('rep.action.promptSuspensionDays') || 'أيام الإيقاف:'}</label>
+                                        <label className={`text-[11px] font-bold mb-1 block ${isDark ? 'text-red-300' : 'text-red-800'}`}>{t('rep.action.promptSuspensionDays') || 'أيام الإيقاف:'}</label>
                                         <input 
                                             type="number"
                                             min="1"
                                             placeholder={t('rep.action.suspensionDaysPlaceholder') || 'مثلاً: 3'}
                                             value={penaltyPromptModal.suspensionDays}
                                             onChange={e => setPenaltyPromptModal({ ...penaltyPromptModal, suspensionDays: e.target.value })}
-                                            className="w-full bg-white border border-red-200 rounded-lg p-2 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-red-400"
+                                            className={`w-full rounded-lg p-2 text-xs font-bold outline-none focus:ring-2 focus:ring-red-400 border ${
+                                                isDark ? 'bg-slate-800 border-red-900/60 text-slate-100' : 'bg-white border-red-200 text-slate-800'
+                                            }`}
                                         />
                                     </div>
                                     <div>
-                                        <label className="text-[11px] font-bold text-red-800 mb-1 block">{t('rep.action.promptFrom') || 'من:'}</label>
+                                        <label className={`text-[11px] font-bold mb-1 block ${isDark ? 'text-red-300' : 'text-red-800'}`}>{t('rep.action.promptFrom') || 'من:'}</label>
                                         <input 
                                             type="date"
                                             value={penaltyPromptModal.suspensionFrom}
                                             onChange={e => setPenaltyPromptModal({ ...penaltyPromptModal, suspensionFrom: e.target.value })}
-                                            className="w-full bg-white border border-red-200 rounded-lg p-2 text-xs font-bold text-slate-800 outline-none"
+                                            className={`w-full rounded-lg p-2 text-xs font-bold outline-none border ${
+                                                isDark ? 'bg-slate-800 border-slate-700 text-slate-100' : 'bg-white border-red-200 text-slate-800'
+                                            }`}
                                         />
                                     </div>
                                     <div>
-                                        <label className="text-[11px] font-bold text-red-800 mb-1 block">{t('rep.action.promptTo') || 'إلى:'}</label>
+                                        <label className={`text-[11px] font-bold mb-1 block ${isDark ? 'text-red-300' : 'text-red-800'}`}>{t('rep.action.promptTo') || 'إلى:'}</label>
                                         <input 
                                             type="date"
                                             value={penaltyPromptModal.suspensionTo}
                                             onChange={e => setPenaltyPromptModal({ ...penaltyPromptModal, suspensionTo: e.target.value })}
-                                            className="w-full bg-white border border-red-200 rounded-lg p-2 text-xs font-bold text-slate-800 outline-none"
+                                            className={`w-full rounded-lg p-2 text-xs font-bold outline-none border ${
+                                                isDark ? 'bg-slate-800 border-slate-700 text-slate-100' : 'bg-white border-red-200 text-slate-800'
+                                            }`}
                                         />
                                     </div>
                                 </div>
@@ -2868,7 +3212,11 @@ const Reports: React.FC = () => {
                                 type="button"
                                 disabled={isSubmittingAction}
                                 onClick={() => executeSaveActionAndPenalty(false)}
-                                className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold border border-slate-200 transition flex items-center justify-center gap-2 cursor-pointer"
+                                className={`w-full py-3 px-4 rounded-xl font-bold border transition flex items-center justify-center gap-2 cursor-pointer ${
+                                    isDark 
+                                        ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' 
+                                        : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200'
+                                }`}
                             >
                                 <i className="fas fa-file-alt"></i>
                                 {t('rep.action.btnLogOnly') || 'لا، تسجيل الإجراء في التقرير فقط بدون جزاء'}
@@ -2877,7 +3225,7 @@ const Reports: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setPenaltyPromptModal(null)}
-                                className="w-full py-2 text-xs font-bold text-slate-400 hover:text-slate-600 transition"
+                                className="w-full py-2 text-xs font-bold text-slate-400 hover:text-slate-300 transition"
                             >
                                 {t('rep.action.btnCancel') || 'تراجع وإلغاء'}
                             </button>
@@ -2889,34 +3237,42 @@ const Reports: React.FC = () => {
             {/* Modal for Booking Appointment from Reports */}
             <Modal isOpen={isFollowUpModalOpen} onClose={() => setIsFollowUpModalOpen(false)} title="جدولة موعد متابعة / إعادة">
                 <div className="space-y-4">
-                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-blue-900">
+                    <div className={`p-4 rounded-xl border ${
+                        isDark ? 'bg-blue-950/40 border-blue-900/60 text-blue-200' : 'bg-blue-50 border-blue-100 text-blue-900'
+                    }`}>
                         <div className="flex justify-between items-start">
                             <div>
                                 <p className="text-xs font-bold uppercase opacity-70">المريض</p>
-                                <h4 className="font-bold text-lg">{selectedPatientForAppt?.patientName}</h4>
+                                <h4 className={`font-bold text-lg ${isDark ? 'text-blue-100' : 'text-blue-950'}`}>{selectedPatientForAppt?.patientName}</h4>
                             </div>
                             <div className="text-right">
                                 <p className="text-xs font-bold uppercase opacity-70">الفحص السابق</p>
-                                <span className="bg-white px-2 py-0.5 rounded text-sm font-bold shadow-sm">{selectedPatientForAppt?.examType}</span>
+                                <span className={`px-2 py-0.5 rounded text-sm font-bold shadow-sm ${
+                                    isDark ? 'bg-slate-800 text-blue-300' : 'bg-white text-blue-800'
+                                }`}>{selectedPatientForAppt?.examType}</span>
                             </div>
                         </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1">تاريخ الموعد الجديد</label>
+                            <label className={`block text-xs font-bold mb-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>تاريخ الموعد الجديد</label>
                             <input 
                                 type="date" 
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold"
+                                className={`w-full rounded-xl p-3 font-bold border outline-none focus:ring-2 focus:ring-blue-500 ${
+                                    isDark ? 'bg-slate-800 border-slate-700 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                }`}
                                 value={newApptDate}
                                 onChange={e => setNewApptDate(e.target.value)}
                             />
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1">الوقت</label>
+                            <label className={`block text-xs font-bold mb-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>الوقت</label>
                             <input 
                                 type="time" 
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold"
+                                className={`w-full rounded-xl p-3 font-bold border outline-none focus:ring-2 focus:ring-blue-500 ${
+                                    isDark ? 'bg-slate-800 border-slate-700 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                }`}
                                 value={newApptTime}
                                 onChange={e => setNewApptTime(e.target.value)}
                             />
@@ -2924,9 +3280,11 @@ const Reports: React.FC = () => {
                     </div>
 
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">ملاحظات / سبب الموعد</label>
+                        <label className={`block text-xs font-bold mb-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>ملاحظات / سبب الموعد</label>
                         <textarea 
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-medium min-h-[80px]"
+                            className={`w-full rounded-xl p-3 font-medium min-h-[80px] border outline-none focus:ring-2 focus:ring-blue-500 ${
+                                isDark ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-800'
+                            }`}
                             value={newApptNote}
                             onChange={e => setNewApptNote(e.target.value)}
                             placeholder="مثلاً: إعادة الفحص لعدم وضوح الصورة، أو متابعة دورية..."
@@ -2935,7 +3293,7 @@ const Reports: React.FC = () => {
 
                     <button 
                         onClick={handleSaveAppointment}
-                        className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition-all"
+                        className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition-all cursor-pointer"
                     >
                         تأكيد الحجز
                     </button>

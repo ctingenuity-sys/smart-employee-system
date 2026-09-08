@@ -3,6 +3,7 @@ import { db, auth } from '../firebase';
 import { appointmentsDb } from '../firebaseAppointments';
 import { collection, query, where, getDocs, addDoc, doc, getDoc, setDoc, updateDoc, Timestamp } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useTheme } from '../contexts/ThemeContext';
 import Modal from '../components/Modal';
 import Toast from '../components/Toast';
 import Loading from '../components/Loading';
@@ -28,6 +29,7 @@ const DEFAULT_SETTINGS: any = {
 
 const DepartmentBookings: React.FC = () => {
     const { t, dir } = useLanguage();
+    const { isDark } = useTheme();
     const [selectedModality, setSelectedModality] = useState('MRI');
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [slots, setSlots] = useState<string[]>([]);
@@ -215,26 +217,26 @@ const DepartmentBookings: React.FC = () => {
     };
 
     return (
-        <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+        <div className={`p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 ${isDark ? 'dark-theme text-slate-100' : 'text-slate-800'}`}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
             
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                 <div>
-                    <h1 className="text-3xl font-black text-slate-800 tracking-tight">
-                        <i className="fas fa-calendar-check text-blue-600 mr-3"></i>
+                    <h1 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                        <i className="fas fa-calendar-check text-blue-500 mr-3"></i>
                         Department Bookings
                     </h1>
-                    <p className="text-slate-500 font-medium mt-1">View availability and book appointments for all departments.</p>
+                    <p className={`font-medium mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>View availability and book appointments for all departments.</p>
                 </div>
                 
                 {/* Date Picker */}
-                <div className="bg-white p-2 rounded-xl shadow-sm border border-slate-200">
+                <div className={`p-2 rounded-xl shadow-sm border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
                     <input 
                         type="date" 
                         value={selectedDate} 
                         onChange={(e) => setSelectedDate(e.target.value)}
-                        className="bg-transparent border-none outline-none text-slate-700 font-bold text-lg"
+                        className={`bg-transparent border-none outline-none font-bold text-lg ${isDark ? 'text-slate-100 [color-scheme:dark]' : 'text-slate-700'}`}
                     />
                 </div>
             </div>
@@ -249,7 +251,9 @@ const DepartmentBookings: React.FC = () => {
                             relative px-6 py-3 rounded-2xl font-bold text-sm transition-all duration-300 shadow-sm border
                             ${selectedModality === mod.id 
                                 ? `${mod.color.replace('text-', 'bg-').replace('bg-', 'text-white ')} border-transparent shadow-lg transform -translate-y-1` 
-                                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                                : isDark 
+                                    ? 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800 hover:border-slate-700'
+                                    : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
                             }
                         `}
                     >
@@ -262,7 +266,7 @@ const DepartmentBookings: React.FC = () => {
             </div>
 
             {/* Slots Grid */}
-            <div className="bg-white rounded-3xl shadow-xl border border-slate-100 p-8 min-h-[400px]">
+            <div className={`rounded-3xl shadow-xl border p-8 min-h-[400px] ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
                 {loading ? (
                     <div className="h-full flex items-center justify-center py-20">
                         <Loading />
@@ -270,17 +274,17 @@ const DepartmentBookings: React.FC = () => {
                 ) : (
                     <>
                         <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-xl font-bold text-slate-700">
-                                Available Slots for <span className="text-blue-600">{selectedModality}</span> on {selectedDate}
+                            <h2 className={`text-xl font-bold ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>
+                                Available Slots for <span className="text-blue-500">{selectedModality}</span> on {selectedDate}
                             </h2>
                             <div className="flex gap-4 text-sm font-bold">
                                 <div className="flex items-center gap-2">
                                     <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
-                                    <span className="text-slate-500">Available</span>
+                                    <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Available</span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <div className="w-3 h-3 rounded-full bg-rose-500"></div>
-                                    <span className="text-slate-500">Booked</span>
+                                    <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Booked</span>
                                 </div>
                             </div>
                         </div>
@@ -297,20 +301,24 @@ const DepartmentBookings: React.FC = () => {
                                             className={`
                                                 relative group p-4 rounded-2xl border-2 transition-all duration-300 flex flex-col items-center justify-center gap-2
                                                 ${isBooked 
-                                                    ? 'bg-rose-50 border-rose-100 cursor-not-allowed opacity-60' 
-                                                    : 'bg-emerald-50 border-emerald-100 hover:bg-emerald-100 hover:border-emerald-300 hover:shadow-md cursor-pointer hover:-translate-y-1'
+                                                    ? isDark
+                                                        ? 'bg-rose-950/30 border-rose-900/40 text-rose-300 cursor-not-allowed opacity-60'
+                                                        : 'bg-rose-50 border-rose-100 cursor-not-allowed opacity-60' 
+                                                    : isDark
+                                                        ? 'bg-emerald-950/30 border-emerald-800/50 hover:bg-emerald-900/40 hover:border-emerald-500 hover:shadow-md cursor-pointer hover:-translate-y-1'
+                                                        : 'bg-emerald-50 border-emerald-100 hover:bg-emerald-100 hover:border-emerald-300 hover:shadow-md cursor-pointer hover:-translate-y-1'
                                                 }
                                             `}
                                         >
-                                            <i className={`fas fa-clock text-xl ${isBooked ? 'text-rose-400' : 'text-emerald-500'}`}></i>
-                                            <span className={`text-lg font-black ${isBooked ? 'text-rose-400' : 'text-emerald-700'}`}>
+                                            <i className={`fas fa-clock text-xl ${isBooked ? (isDark ? 'text-rose-400' : 'text-rose-400') : (isDark ? 'text-emerald-400' : 'text-emerald-500')}`}></i>
+                                            <span className={`text-lg font-black ${isBooked ? (isDark ? 'text-rose-300' : 'text-rose-400') : (isDark ? 'text-emerald-300' : 'text-emerald-700')}`}>
                                                 {slot}
                                             </span>
                                             {isBooked && bookedAppointments[slot] && (
-                                                <div className="text-[9px] font-bold text-rose-800 mt-1 text-center truncate w-full px-1 border-t border-rose-200 mt-2 pt-1">
+                                                <div className={`text-[9px] font-bold mt-1 text-center truncate w-full px-1 border-t mt-2 pt-1 ${isDark ? 'text-rose-300 border-rose-900/60' : 'text-rose-800 border-rose-200'}`}>
                                                     <div className="truncate">{bookedAppointments[slot].patientName}</div>
                                                     <div className="truncate">{bookedAppointments[slot].fileNumber}</div>
-                                                    <div className="truncate text-rose-600 italic">{bookedAppointments[slot].examType}</div>
+                                                    <div className={`truncate italic ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>{bookedAppointments[slot].examType}</div>
                                                 </div>
                                             )}
                                             {isBooked && !bookedAppointments[slot] && (
@@ -322,11 +330,11 @@ const DepartmentBookings: React.FC = () => {
                             </div>
                         ) : (
                             <div className="text-center py-20">
-                                <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                    <i className="fas fa-calendar-times text-3xl text-slate-400"></i>
+                                <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 ${isDark ? 'bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-400'}`}>
+                                    <i className="fas fa-calendar-times text-3xl"></i>
                                 </div>
-                                <h3 className="text-lg font-bold text-slate-600">No slots defined for this day/modality.</h3>
-                                <p className="text-slate-400 mt-2">Please check the schedule settings or select another date.</p>
+                                <h3 className={`text-lg font-bold ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>No slots defined for this day/modality.</h3>
+                                <p className={`mt-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Please check the schedule settings or select another date.</p>
                             </div>
                         )}
                     </>
@@ -339,12 +347,12 @@ const DepartmentBookings: React.FC = () => {
                     
                     {/* Pending Patients Selection */}
                     {pendingPatients.length > 0 && (
-                        <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 mb-2">
-                            <label className="text-xs font-bold text-amber-700 uppercase mb-2 block flex items-center gap-2">
+                        <div className={`p-3 rounded-xl border mb-2 ${isDark ? 'bg-amber-950/40 border-amber-800/60 text-amber-200' : 'bg-amber-50 border-amber-200'}`}>
+                            <label className={`text-xs font-bold uppercase mb-2 block flex items-center gap-2 ${isDark ? 'text-amber-400' : 'text-amber-700'}`}>
                                 <i className="fas fa-clock"></i> Select from Waiting List ({pendingPatients.length})
                             </label>
                             <select 
-                                className="w-full bg-white border border-amber-300 rounded-lg p-2 font-bold text-slate-700 focus:ring-2 focus:ring-amber-500 outline-none text-sm"
+                                className={`w-full border rounded-lg p-2 font-bold focus:ring-2 focus:ring-amber-500 outline-none text-sm ${isDark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-amber-300 text-slate-700'}`}
                                 onChange={(e) => {
                                     const p = pendingPatients.find(p => p.id === e.target.value);
                                     if (p) {
@@ -373,21 +381,21 @@ const DepartmentBookings: React.FC = () => {
                         </div>
                     )}
 
-                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-center gap-4">
-                        <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-xl font-bold">
+                    <div className={`p-4 rounded-xl border flex items-center gap-4 ${isDark ? 'bg-blue-950/40 border-blue-900/60' : 'bg-blue-50 border-blue-100'}`}>
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold ${isDark ? 'bg-blue-900/80 text-blue-400' : 'bg-blue-100 text-blue-600'}`}>
                             <i className="fas fa-calendar-day"></i>
                         </div>
                         <div>
-                            <p className="text-xs font-bold text-blue-400 uppercase tracking-wider">Appointment Details</p>
-                            <p className="text-lg font-black text-blue-800">{selectedModality} - {selectedDate} at {selectedSlot}</p>
+                            <p className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-blue-400' : 'text-blue-400'}`}>Appointment Details</p>
+                            <p className={`text-lg font-black ${isDark ? 'text-blue-200' : 'text-blue-800'}`}>{selectedModality} - {selectedDate} at {selectedSlot}</p>
                         </div>
                     </div>
 
                     <div className="space-y-3">
                         <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Patient Name</label>
+                            <label className={`text-xs font-bold uppercase mb-1 block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Patient Name</label>
                             <input 
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                                className={`w-full border rounded-xl p-3 font-bold focus:ring-2 focus:ring-blue-500 outline-none ${isDark ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
                                 placeholder="Enter patient name"
                                 value={patientName}
                                 onChange={e => setPatientName(e.target.value)}
@@ -395,18 +403,18 @@ const DepartmentBookings: React.FC = () => {
                         </div>
                         <div className="grid grid-cols-3 gap-3">
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">File Number</label>
+                                <label className={`text-xs font-bold uppercase mb-1 block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>File Number</label>
                                 <input 
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                                    className={`w-full border rounded-xl p-3 font-bold focus:ring-2 focus:ring-blue-500 outline-none ${isDark ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
                                     placeholder="File No."
                                     value={fileNumber}
                                     onChange={e => setFileNumber(e.target.value)}
                                 />
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">{t('user.gender')}</label>
+                                <label className={`text-xs font-bold uppercase mb-1 block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('user.gender')}</label>
                                 <select 
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                                    className={`w-full border rounded-xl p-3 font-bold focus:ring-2 focus:ring-blue-500 outline-none ${isDark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
                                     value={gender}
                                     onChange={e => setGender(e.target.value)}
                                 >
@@ -416,9 +424,9 @@ const DepartmentBookings: React.FC = () => {
                                 </select>
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Phone (Optional)</label>
+                                <label className={`text-xs font-bold uppercase mb-1 block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Phone (Optional)</label>
                                 <input 
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                                    className={`w-full border rounded-xl p-3 font-bold focus:ring-2 focus:ring-blue-500 outline-none ${isDark ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
                                     placeholder="05..."
                                     value={phone}
                                     onChange={e => setPhone(e.target.value)}
@@ -426,9 +434,9 @@ const DepartmentBookings: React.FC = () => {
                             </div>
                         </div>
                         <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Notes (Optional)</label>
+                            <label className={`text-xs font-bold uppercase mb-1 block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Notes (Optional)</label>
                             <textarea 
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none h-24 resize-none"
+                                className={`w-full border rounded-xl p-3 font-bold focus:ring-2 focus:ring-blue-500 outline-none h-24 resize-none ${isDark ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
                                 placeholder="Any additional notes..."
                                 value={notes}
                                 onChange={e => setNotes(e.target.value)}

@@ -10,11 +10,13 @@ import VoiceInput from '../components/VoiceInput';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useDepartment } from '../contexts/DepartmentContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { useFilteredUsers } from '../hooks/useFilteredUsers';
 import { GoogleGenAI } from "@google/genai";
 
 const CommunicationPage: React.FC = () => {
     const { t, dir } = useLanguage();
+    const { isDark } = useTheme();
     const { selectedDepartmentId, departments } = useDepartment();
     const currentDepartment = departments.find(d => d.id === selectedDepartmentId);
     
@@ -769,11 +771,13 @@ const CommunicationPage: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-slate-100 to-slate-50 pb-24 font-sans text-slate-800" dir={dir}>
+        <div className={`min-h-screen pb-24 font-sans transition-colors duration-200 ${
+            isDark ? 'bg-slate-950 text-slate-100' : 'bg-gradient-to-b from-slate-100 to-slate-50 text-slate-800'
+        }`} dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
             {/* Top Hero Banner */}
-            <div className="bg-slate-900 text-white shadow-xl border-b border-slate-800">
+            <div className={`${isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-slate-900 border-slate-800'} text-white shadow-xl border-b`}>
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 md:py-8">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                         <div>
@@ -867,19 +871,21 @@ const CommunicationPage: React.FC = () => {
             {/* Main Content Area */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mt-6">
                 {/* Navigation Tabs */}
-                <div className="flex items-center justify-between gap-4 mb-6 border-b border-slate-200 pb-2">
+                <div className={`flex items-center justify-between gap-4 mb-6 border-b pb-2 ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
                     <div className="flex gap-3">
                         <button
                             onClick={() => setActiveTab('logbook')}
                             className={`pb-2.5 px-4 text-sm font-bold transition-all border-b-2 flex items-center gap-2 ${
                                 activeTab === 'logbook'
-                                    ? 'border-indigo-600 text-indigo-600'
-                                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                                    ? isDark ? 'border-indigo-400 text-indigo-400' : 'border-indigo-600 text-indigo-600'
+                                    : isDark ? 'border-transparent text-slate-400 hover:text-slate-200' : 'border-transparent text-slate-500 hover:text-slate-800'
                             }`}
                         >
                             <i className="fas fa-exchange-alt"></i>
                             <span>{t('comm.logbook')}</span>
-                            <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-bold">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                                isDark ? 'bg-indigo-900/60 text-indigo-300' : 'bg-indigo-50 text-indigo-600'
+                            }`}>
                                 {metrics.total}
                             </span>
                         </button>
@@ -888,14 +894,16 @@ const CommunicationPage: React.FC = () => {
                             onClick={() => setActiveTab('announcements')}
                             className={`pb-2.5 px-4 text-sm font-bold transition-all border-b-2 flex items-center gap-2 ${
                                 activeTab === 'announcements'
-                                    ? 'border-orange-500 text-orange-600'
-                                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                                    ? isDark ? 'border-orange-400 text-orange-400' : 'border-orange-500 text-orange-600'
+                                    : isDark ? 'border-transparent text-slate-400 hover:text-slate-200' : 'border-transparent text-slate-500 hover:text-slate-800'
                             }`}
                         >
                             <i className="fas fa-bullhorn"></i>
                             <span>{t('comm.announcements')}</span>
                             {announcements.length > 0 && (
-                                <span className="text-xs bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full font-bold">
+                                <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                                    isDark ? 'bg-orange-950/60 text-orange-400' : 'bg-orange-50 text-orange-600'
+                                }`}>
                                     {announcements.length}
                                 </span>
                             )}
@@ -903,10 +911,14 @@ const CommunicationPage: React.FC = () => {
                     </div>
 
                     {/* Month/Year Filter */}
-                    <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-2xl border border-slate-200 shadow-sm">
+                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-2xl border shadow-sm ${
+                        isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-700'
+                    }`}>
                         <i className="fas fa-calendar-alt text-slate-400 text-xs"></i>
                         <select
-                            className="bg-transparent border-none text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                            className={`bg-transparent border-none text-xs font-bold outline-none cursor-pointer ${
+                                isDark ? 'text-slate-200 [&>option]:bg-slate-900 [&>option]:text-slate-200' : 'text-slate-700'
+                            }`}
                             value={filterMonth}
                             onChange={e => setFilterMonth(e.target.value)}
                         >
@@ -917,7 +929,9 @@ const CommunicationPage: React.FC = () => {
                             ))}
                         </select>
                         <select
-                            className="bg-transparent border-none text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                            className={`bg-transparent border-none text-xs font-bold outline-none cursor-pointer ${
+                                isDark ? 'text-slate-200 [&>option]:bg-slate-900 [&>option]:text-slate-200' : 'text-slate-700'
+                            }`}
                             value={filterYear}
                             onChange={e => setFilterYear(e.target.value)}
                         >
@@ -933,14 +947,20 @@ const CommunicationPage: React.FC = () => {
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                         {/* LEFT COLUMN: Modern Handover Submission Form (5 Cols) */}
                         <div className="lg:col-span-5 space-y-4">
-                            <div className="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-200/80 sticky top-4">
-                                <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100">
+                            <div className={`rounded-3xl p-5 md:p-6 shadow-sm border sticky top-4 ${
+                                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80'
+                            }`}>
+                                <div className={`flex items-center justify-between pb-4 mb-4 border-b ${
+                                    isDark ? 'border-slate-800' : 'border-slate-100'
+                                }`}>
                                     <div className="flex items-center gap-2.5">
-                                        <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold ${
+                                            isDark ? 'bg-indigo-950/70 text-indigo-400' : 'bg-indigo-50 text-indigo-600'
+                                        }`}>
                                             <i className="fas fa-pen-nib"></i>
                                         </div>
                                         <div>
-                                            <h3 className="font-bold text-slate-900 text-base">{t('comm.log.title')}</h3>
+                                            <h3 className={`font-bold text-base ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>{t('comm.log.title')}</h3>
                                             <p className="text-[11px] text-slate-400 font-medium">
                                                 {userName} ({t(`comm.shift.${logShiftType}`)})
                                             </p>
@@ -948,12 +968,14 @@ const CommunicationPage: React.FC = () => {
                                     </div>
 
                                     {/* Mode Toggle: Quick vs SBAR */}
-                                    <div className="flex bg-slate-100 p-1 rounded-xl">
+                                    <div className={`flex p-1 rounded-xl ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
                                         <button
                                             type="button"
                                             onClick={() => setHandoverMode('quick')}
                                             className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
-                                                handoverMode === 'quick' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'
+                                                handoverMode === 'quick'
+                                                    ? isDark ? 'bg-slate-700 text-indigo-300 shadow-sm' : 'bg-white text-indigo-600 shadow-sm'
+                                                    : isDark ? 'text-slate-400' : 'text-slate-500'
                                             }`}
                                         >
                                             {t('comm.mode.quick')}
@@ -962,7 +984,9 @@ const CommunicationPage: React.FC = () => {
                                             type="button"
                                             onClick={() => setHandoverMode('sbar')}
                                             className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
-                                                handoverMode === 'sbar' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'
+                                                handoverMode === 'sbar'
+                                                    ? isDark ? 'bg-slate-700 text-indigo-300 shadow-sm' : 'bg-white text-indigo-600 shadow-sm'
+                                                    : isDark ? 'text-slate-400' : 'text-slate-500'
                                             }`}
                                         >
                                             {t('comm.mode.sbar')}
@@ -974,12 +998,16 @@ const CommunicationPage: React.FC = () => {
                                     {/* Location & Shift Period */}
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
-                                            <label className="block text-[11px] font-bold text-slate-600 mb-1.5">
-                                                <i className="fas fa-map-marker-alt text-indigo-500 rtl:ml-1 ltr:mr-1"></i>
+                                            <label className={`block text-[11px] font-bold mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                                                <i className="fas fa-map-marker-alt text-indigo-400 rtl:ml-1 ltr:mr-1"></i>
                                                 {t('comm.log.loc')}
                                             </label>
                                             <select
-                                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-100 transition-all"
+                                                className={`w-full border rounded-xl px-3 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-400 transition-all ${
+                                                    isDark
+                                                        ? 'bg-slate-800 border-slate-700 text-slate-100 [&>option]:bg-slate-800 [&>option]:text-slate-100'
+                                                        : 'bg-slate-50 border-slate-200 text-slate-800'
+                                                }`}
                                                 value={logLocation}
                                                 onChange={e => setLogLocation(e.target.value)}
                                                 required
@@ -993,12 +1021,16 @@ const CommunicationPage: React.FC = () => {
                                         </div>
 
                                         <div>
-                                            <label className="block text-[11px] font-bold text-slate-600 mb-1.5">
+                                            <label className={`block text-[11px] font-bold mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
                                                 <i className="fas fa-sun text-amber-500 rtl:ml-1 ltr:mr-1"></i>
                                                 {t('comm.shift.type')}
                                             </label>
                                             <select
-                                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-100 transition-all"
+                                                className={`w-full border rounded-xl px-3 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-400 transition-all ${
+                                                    isDark
+                                                        ? 'bg-slate-800 border-slate-700 text-slate-100 [&>option]:bg-slate-800 [&>option]:text-slate-100'
+                                                        : 'bg-slate-50 border-slate-200 text-slate-800'
+                                                }`}
                                                 value={logShiftType}
                                                 onChange={e => setLogShiftType(e.target.value as any)}
                                             >
@@ -1013,16 +1045,22 @@ const CommunicationPage: React.FC = () => {
                                     {/* Handover Target (Filtered to Same Department Only) */}
                                     <div>
                                         <div className="flex items-center justify-between mb-1.5">
-                                            <label className="block text-[11px] font-bold text-slate-600">
+                                            <label className={`block text-[11px] font-bold ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
                                                 <i className="fas fa-user-check text-blue-500 rtl:ml-1 ltr:mr-1"></i>
                                                 {t('comm.handover.to')}
                                             </label>
-                                            <span className="text-[10px] text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded-md">
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                                isDark ? 'text-indigo-300 bg-indigo-950/70 border border-indigo-800/50' : 'text-indigo-600 bg-indigo-50'
+                                            }`}>
                                                 {currentDepartment?.name ? `موظفي قسم ${currentDepartment.name}` : 'موظفي القسم'}
                                             </span>
                                         </div>
                                         <select
-                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100"
+                                            className={`w-full border rounded-xl px-3 py-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-indigo-400 ${
+                                                isDark
+                                                    ? 'bg-slate-800 border-slate-700 text-slate-100 [&>option]:bg-slate-800 [&>option]:text-slate-100'
+                                                    : 'bg-slate-50 border-slate-200 text-slate-700'
+                                            }`}
                                             value={logHandoverTo}
                                             onChange={e => setLogHandoverTo(e.target.value)}
                                         >
@@ -1032,7 +1070,7 @@ const CommunicationPage: React.FC = () => {
                                             ))}
                                         </select>
                                         {departmentUsers.length === 0 && (
-                                            <p className="text-[10px] text-amber-600 font-medium mt-1">
+                                            <p className="text-[10px] text-amber-500 font-medium mt-1">
                                                 <i className="fas fa-info-circle rtl:ml-1 ltr:mr-1"></i>
                                                 {dir === 'rtl' ? 'لم يتم تعيين موظفين بعد لهذا القسم' : 'No staff currently assigned to this department'}
                                             </p>
@@ -1041,13 +1079,13 @@ const CommunicationPage: React.FC = () => {
 
                                     {/* Primary Category Selector */}
                                     <div>
-                                        <label className="block text-[11px] font-bold text-slate-600 mb-1.5">{t('comm.log.cat')}</label>
+                                        <label className={`block text-[11px] font-bold mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{t('comm.log.cat')}</label>
                                         <div className="grid grid-cols-2 gap-2">
                                             {[
-                                                { id: 'general', label: t('comm.cat.general'), icon: 'fa-comments', color: 'text-indigo-600' },
-                                                { id: 'machine', label: t('comm.cat.machine'), icon: 'fa-microchip', color: 'text-amber-600' },
-                                                { id: 'patient', label: t('comm.cat.patient'), icon: 'fa-user-injured', color: 'text-emerald-600' },
-                                                { id: 'supply', label: t('comm.cat.supply'), icon: 'fa-boxes', color: 'text-purple-600' }
+                                                { id: 'general', label: t('comm.cat.general'), icon: 'fa-comments', color: 'text-indigo-400' },
+                                                { id: 'machine', label: t('comm.cat.machine'), icon: 'fa-microchip', color: 'text-amber-400' },
+                                                { id: 'patient', label: t('comm.cat.patient'), icon: 'fa-user-injured', color: 'text-emerald-400' },
+                                                { id: 'supply', label: t('comm.cat.supply'), icon: 'fa-boxes', color: 'text-purple-400' }
                                             ].map(cat => (
                                                 <button
                                                     key={cat.id}
@@ -1055,7 +1093,9 @@ const CommunicationPage: React.FC = () => {
                                                     onClick={() => setLogCategory(cat.id as any)}
                                                     className={`py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
                                                         logCategory === cat.id
-                                                            ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100'
+                                                            ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/30'
+                                                            : isDark
+                                                            ? 'bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-750'
                                                             : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
                                                     }`}
                                                 >
@@ -1067,9 +1107,9 @@ const CommunicationPage: React.FC = () => {
                                     </div>
 
                                     {/* Smart Checklist Toggles */}
-                                    <div className="bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/80">
-                                        <label className="text-[11px] font-black text-slate-700 mb-2 flex items-center gap-1.5">
-                                            <i className="fas fa-tasks text-indigo-500"></i>
+                                    <div className={`p-3.5 rounded-2xl border ${isDark ? 'bg-slate-800/60 border-slate-700/80' : 'bg-slate-50/70 border-slate-200/80'}`}>
+                                        <label className={`text-[11px] font-black mb-2 flex items-center gap-1.5 ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>
+                                            <i className="fas fa-tasks text-indigo-400"></i>
                                             <span>فحص واستلام البنود (Smart Checklist):</span>
                                         </label>
                                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
@@ -1089,11 +1129,11 @@ const CommunicationPage: React.FC = () => {
                                                         onClick={() => toggleCheck(item.key as any)}
                                                         className={`p-2 rounded-xl text-[11px] font-bold border flex items-center gap-1.5 transition-all text-start ${
                                                             isChecked
-                                                                ? 'bg-emerald-50 border-emerald-300 text-emerald-700 shadow-sm'
-                                                                : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+                                                                ? isDark ? 'bg-emerald-950/60 border-emerald-700 text-emerald-300 shadow-sm' : 'bg-emerald-50 border-emerald-300 text-emerald-700 shadow-sm'
+                                                                : isDark ? 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
                                                         }`}
                                                     >
-                                                        <i className={`fas ${isChecked ? 'fa-check-circle text-emerald-600' : 'fa-circle text-slate-300'}`}></i>
+                                                        <i className={`fas ${isChecked ? 'fa-check-circle text-emerald-500' : isDark ? 'fa-circle text-slate-600' : 'fa-circle text-slate-300'}`}></i>
                                                         <span className="truncate">{item.label}</span>
                                                     </button>
                                                 );
@@ -1103,9 +1143,11 @@ const CommunicationPage: React.FC = () => {
 
                                     {/* SBAR MODE INPUTS */}
                                     {handoverMode === 'sbar' && (
-                                        <div className="space-y-2.5 bg-indigo-50/40 p-3.5 rounded-2xl border border-indigo-100">
+                                        <div className={`space-y-2.5 p-3.5 rounded-2xl border ${
+                                            isDark ? 'bg-indigo-950/30 border-indigo-900/50' : 'bg-indigo-50/40 border-indigo-100'
+                                        }`}>
                                             <div>
-                                                <label className="block text-[11px] font-black text-indigo-900 mb-1">
+                                                <label className={`block text-[11px] font-black mb-1 ${isDark ? 'text-indigo-300' : 'text-indigo-900'}`}>
                                                     🔴 S - {t('comm.sbar.s')}
                                                 </label>
                                                 <input
@@ -1113,11 +1155,13 @@ const CommunicationPage: React.FC = () => {
                                                     value={sbarSituation}
                                                     onChange={e => setSbarSituation(e.target.value)}
                                                     placeholder="الحالة الراهنة والأجهزة الحالية..."
-                                                    className="w-full bg-white border border-indigo-200 rounded-xl p-2 text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-300"
+                                                    className={`w-full border rounded-xl p-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-indigo-400 ${
+                                                        isDark ? 'bg-slate-900 border-indigo-900/80 text-slate-100 placeholder-slate-500' : 'bg-white border-indigo-200 text-slate-800'
+                                                    }`}
                                                 />
                                             </div>
                                             <div>
-                                                <label className="block text-[11px] font-black text-indigo-900 mb-1">
+                                                <label className={`block text-[11px] font-black mb-1 ${isDark ? 'text-indigo-300' : 'text-indigo-900'}`}>
                                                     🔵 B - {t('comm.sbar.b')}
                                                 </label>
                                                 <input
@@ -1125,11 +1169,13 @@ const CommunicationPage: React.FC = () => {
                                                     value={sbarBackground}
                                                     onChange={e => setSbarBackground(e.target.value)}
                                                     placeholder="الخلفية وسير العمل في الوردية..."
-                                                    className="w-full bg-white border border-indigo-200 rounded-xl p-2 text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-300"
+                                                    className={`w-full border rounded-xl p-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-indigo-400 ${
+                                                        isDark ? 'bg-slate-900 border-indigo-900/80 text-slate-100 placeholder-slate-500' : 'bg-white border-indigo-200 text-slate-800'
+                                                    }`}
                                                 />
                                             </div>
                                             <div>
-                                                <label className="block text-[11px] font-black text-indigo-900 mb-1">
+                                                <label className={`block text-[11px] font-black mb-1 ${isDark ? 'text-indigo-300' : 'text-indigo-900'}`}>
                                                     🟡 A - {t('comm.sbar.a')}
                                                 </label>
                                                 <input
@@ -1137,11 +1183,13 @@ const CommunicationPage: React.FC = () => {
                                                     value={sbarAssessment}
                                                     onChange={e => setSbarAssessment(e.target.value)}
                                                     placeholder="الملاحظات والمشاكل المحتملة..."
-                                                    className="w-full bg-white border border-indigo-200 rounded-xl p-2 text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-300"
+                                                    className={`w-full border rounded-xl p-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-indigo-400 ${
+                                                        isDark ? 'bg-slate-900 border-indigo-900/80 text-slate-100 placeholder-slate-500' : 'bg-white border-indigo-200 text-slate-800'
+                                                    }`}
                                                 />
                                             </div>
                                             <div>
-                                                <label className="block text-[11px] font-black text-indigo-900 mb-1">
+                                                <label className={`block text-[11px] font-black mb-1 ${isDark ? 'text-indigo-300' : 'text-indigo-900'}`}>
                                                     🟢 R - {t('comm.sbar.r')}
                                                 </label>
                                                 <input
@@ -1149,7 +1197,9 @@ const CommunicationPage: React.FC = () => {
                                                     value={sbarRecommendation}
                                                     onChange={e => setSbarRecommendation(e.target.value)}
                                                     placeholder="التوصيات والخطوات المطلوبة..."
-                                                    className="w-full bg-white border border-indigo-200 rounded-xl p-2 text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-300"
+                                                    className={`w-full border rounded-xl p-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-indigo-400 ${
+                                                        isDark ? 'bg-slate-900 border-indigo-900/80 text-slate-100 placeholder-slate-500' : 'bg-white border-indigo-200 text-slate-800'
+                                                    }`}
                                                 />
                                             </div>
                                         </div>
@@ -1157,8 +1207,8 @@ const CommunicationPage: React.FC = () => {
 
                                     {/* Pending Tasks Builder */}
                                     <div>
-                                        <label className="block text-[11px] font-bold text-slate-600 mb-1.5">
-                                            <i className="fas fa-list-ol text-indigo-500 rtl:ml-1 ltr:mr-1"></i>
+                                        <label className={`block text-[11px] font-bold mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                                            <i className="fas fa-list-ol text-indigo-400 rtl:ml-1 ltr:mr-1"></i>
                                             {t('comm.pending.tasks')}
                                         </label>
                                         <div className="flex gap-2 mb-2">
@@ -1168,12 +1218,18 @@ const CommunicationPage: React.FC = () => {
                                                 onChange={e => setNewTaskInput(e.target.value)}
                                                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddPendingTask(); } }}
                                                 placeholder={t('comm.pending.taskPlaceholder')}
-                                                className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100"
+                                                className={`flex-1 border rounded-xl px-3 py-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-indigo-400 ${
+                                                    isDark
+                                                        ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500'
+                                                        : 'bg-slate-50 border-slate-200 text-slate-700'
+                                                }`}
                                             />
                                             <button
                                                 type="button"
                                                 onClick={handleAddPendingTask}
-                                                className="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-3 py-2 rounded-xl text-xs font-bold transition-colors"
+                                                className={`px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
+                                                    isDark ? 'bg-indigo-900/60 text-indigo-300 hover:bg-indigo-800/70' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+                                                }`}
                                             >
                                                 <i className="fas fa-plus"></i>
                                             </button>
@@ -1182,7 +1238,9 @@ const CommunicationPage: React.FC = () => {
                                         {pendingTasks.length > 0 && (
                                             <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
                                                 {pendingTasks.map((task, i) => (
-                                                    <div key={i} className="flex items-center justify-between bg-indigo-50/50 border border-indigo-100 px-2.5 py-1.5 rounded-xl text-xs text-indigo-950 font-medium">
+                                                    <div key={i} className={`flex items-center justify-between border px-2.5 py-1.5 rounded-xl text-xs font-medium ${
+                                                        isDark ? 'bg-indigo-950/40 border-indigo-900/60 text-indigo-200' : 'bg-indigo-50/50 border-indigo-100 text-indigo-950'
+                                                    }`}>
                                                         <span className="truncate">▫️ {task}</span>
                                                         <button
                                                             type="button"
@@ -1200,8 +1258,10 @@ const CommunicationPage: React.FC = () => {
                                     {/* Handover Details & Notes (Voice & Text) */}
                                     <div>
                                         <div className="flex items-center justify-between mb-1.5">
-                                            <label className="text-[11px] font-bold text-slate-600">{t('comm.log.content')}</label>
-                                            <span className="text-[10px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md font-bold">
+                                            <label className={`text-[11px] font-bold ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{t('comm.log.content')}</label>
+                                            <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${
+                                                isDark ? 'text-indigo-300 bg-indigo-950/70 border border-indigo-900/50' : 'text-indigo-600 bg-indigo-50'
+                                            }`}>
                                                 <i className="fas fa-microphone rtl:ml-1 ltr:mr-1"></i> {t('voice') || 'صوتي'}
                                             </span>
                                         </div>
@@ -1213,7 +1273,11 @@ const CommunicationPage: React.FC = () => {
                                                     key={idx}
                                                     type="button"
                                                     onClick={() => handleApplyTemplate(tpl)}
-                                                    className="bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 text-[10px] px-2.5 py-1 rounded-lg border border-slate-200/80 transition-colors font-medium text-start"
+                                                    className={`text-[10px] px-2.5 py-1 rounded-lg border transition-colors font-medium text-start ${
+                                                        isDark
+                                                            ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700 hover:text-indigo-300'
+                                                            : 'bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 border-slate-200/80'
+                                                    }`}
                                                 >
                                                     {tpl.slice(0, 26)}...
                                                 </button>
@@ -1232,8 +1296,8 @@ const CommunicationPage: React.FC = () => {
                                     {/* Urgent Alert Checkbox */}
                                     <div className={`flex items-center gap-2.5 p-3 rounded-2xl border transition-all ${
                                         logImportant
-                                            ? 'bg-rose-50 border-rose-200 text-rose-700 shadow-sm'
-                                            : 'bg-slate-50 border-slate-200 text-slate-600'
+                                            ? isDark ? 'bg-rose-950/40 border-rose-900/60 text-rose-300 shadow-sm' : 'bg-rose-50 border-rose-200 text-rose-700 shadow-sm'
+                                            : isDark ? 'bg-slate-800/80 border-slate-700 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-600'
                                     }`}>
                                         <input
                                             type="checkbox"
@@ -1252,7 +1316,7 @@ const CommunicationPage: React.FC = () => {
                                     <button
                                         type="submit"
                                         disabled={isSubmitting}
-                                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-2xl font-black text-sm shadow-lg shadow-indigo-200 transition-transform active:scale-95 disabled:opacity-70 disabled:scale-100 flex items-center justify-center gap-2"
+                                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-2xl font-black text-sm shadow-lg shadow-indigo-900/30 transition-transform active:scale-95 disabled:opacity-70 disabled:scale-100 flex items-center justify-center gap-2"
                                     >
                                         {isSubmitting ? (
                                             <i className="fas fa-spinner fa-spin"></i>
@@ -1270,7 +1334,9 @@ const CommunicationPage: React.FC = () => {
                         {/* RIGHT COLUMN: Handover Feed & Timeline (7 Cols) */}
                         <div className="lg:col-span-7 space-y-4">
                             {/* Filter and Search Bar */}
-                            <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-3">
+                            <div className={`p-3.5 rounded-2xl shadow-sm border flex flex-col md:flex-row items-center justify-between gap-3 ${
+                                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                            }`}>
                                 {/* Search Input */}
                                 <div className="relative w-full md:w-64">
                                     <i className="fas fa-search absolute rtl:right-3 ltr:left-3 top-2.5 text-slate-400 text-xs"></i>
@@ -1279,12 +1345,14 @@ const CommunicationPage: React.FC = () => {
                                         value={searchQuery}
                                         onChange={e => setSearchQuery(e.target.value)}
                                         placeholder={t('comm.search.placeholder')}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl rtl:pr-8 rtl:pl-3 ltr:pl-8 ltr:pr-3 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100"
+                                        className={`w-full border rounded-xl rtl:pr-8 rtl:pl-3 ltr:pl-8 ltr:pr-3 py-1.5 text-xs font-semibold outline-none focus:ring-2 focus:ring-indigo-400 ${
+                                            isDark ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-700'
+                                        }`}
                                     />
                                     {searchQuery && (
                                         <button
                                             onClick={() => setSearchQuery('')}
-                                            className="absolute rtl:left-2.5 ltr:right-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs"
+                                            className="absolute rtl:left-2.5 ltr:right-2.5 top-2 text-slate-400 hover:text-slate-200 text-xs"
                                         >
                                             <i className="fas fa-times"></i>
                                         </button>
@@ -1304,15 +1372,15 @@ const CommunicationPage: React.FC = () => {
                                             onClick={() => setCategoryFilter(tab.id as any)}
                                             className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
                                                 categoryFilter === tab.id
-                                                    ? 'bg-slate-900 text-white shadow-sm'
-                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                                    ? isDark ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-900 text-white shadow-sm'
+                                                    : isDark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                                             }`}
                                         >
                                             <i className={`fas ${tab.icon} text-[10px]`}></i>
                                             <span>{tab.label}</span>
                                             {tab.count !== undefined && tab.count > 0 && (
                                                 <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
-                                                    categoryFilter === tab.id ? 'bg-white text-slate-900' : 'bg-slate-200 text-slate-700'
+                                                    categoryFilter === tab.id ? isDark ? 'bg-white text-indigo-700' : 'bg-white text-slate-900' : isDark ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-700'
                                                 }`}>
                                                     {tab.count}
                                                 </span>
@@ -1325,11 +1393,15 @@ const CommunicationPage: React.FC = () => {
                             {/* Feed List */}
                             <div className="space-y-4">
                                 {filteredLogs.length === 0 ? (
-                                    <div className="bg-white rounded-3xl p-12 text-center border border-slate-200/80 shadow-sm">
-                                        <div className="w-16 h-16 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3 text-2xl">
+                                    <div className={`rounded-3xl p-12 text-center border shadow-sm ${
+                                        isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80'
+                                    }`}>
+                                        <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3 text-2xl ${
+                                            isDark ? 'bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-400'
+                                        }`}>
                                             <i className="fas fa-clipboard-list"></i>
                                         </div>
-                                        <h4 className="font-bold text-slate-700 text-base mb-1">
+                                        <h4 className={`font-bold text-base mb-1 ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>
                                             {dir === 'rtl' ? 'لا توجد سجلات تسليم مطابقة' : 'No matching handover logs found'}
                                         </h4>
                                         <p className="text-xs text-slate-400 max-w-sm mx-auto">
@@ -1348,24 +1420,32 @@ const CommunicationPage: React.FC = () => {
                                         return (
                                             <div
                                                 key={log.id}
-                                                className={`bg-white rounded-3xl p-5 shadow-sm border transition-all hover:shadow-md relative group ${
+                                                className={`rounded-3xl p-5 shadow-sm border transition-all hover:shadow-md relative group ${
                                                     log.isImportant
-                                                        ? 'border-rose-300 bg-gradient-to-r from-rose-50/40 via-white to-white'
-                                                        : 'border-slate-200'
+                                                        ? isDark
+                                                            ? 'border-rose-800/70 bg-gradient-to-r from-rose-950/40 via-slate-900 to-slate-900'
+                                                            : 'border-rose-300 bg-gradient-to-r from-rose-50/40 via-white to-white'
+                                                        : isDark
+                                                            ? 'bg-slate-900 border-slate-800'
+                                                            : 'bg-white border-slate-200'
                                                 }`}
                                             >
                                                 {/* Header Row: Staff Profile & Meta */}
                                                 <div className="flex items-start justify-between gap-3 mb-3">
                                                     <div className="flex items-center gap-3">
-                                                        <div className="w-11 h-11 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-black text-base shadow-sm">
+                                                        <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black text-base shadow-sm ${
+                                                            isDark ? 'bg-indigo-950 text-indigo-300 border border-indigo-800/60' : 'bg-indigo-100 text-indigo-700'
+                                                        }`}>
                                                             {log.userName ? log.userName.charAt(0).toUpperCase() : 'U'}
                                                         </div>
                                                         <div>
                                                             <div className="flex items-center gap-2">
-                                                                <h4 className="font-bold text-slate-900 text-sm">{log.userName}</h4>
+                                                                <h4 className={`font-bold text-sm ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>{log.userName}</h4>
                                                                 {log.location && (
-                                                                    <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded-lg">
-                                                                        <i className="fas fa-map-marker-alt text-indigo-500 rtl:ml-1 ltr:mr-1"></i>
+                                                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${
+                                                                        isDark ? 'bg-slate-800 text-slate-300 border border-slate-700' : 'bg-slate-100 text-slate-600'
+                                                                    }`}>
+                                                                        <i className="fas fa-map-marker-alt text-indigo-400 rtl:ml-1 ltr:mr-1"></i>
                                                                         {log.location}
                                                                     </span>
                                                                 )}
@@ -1374,7 +1454,9 @@ const CommunicationPage: React.FC = () => {
                                                                 <span className="text-[10px] text-slate-400 font-medium">
                                                                     {log.createdAt?.toDate ? log.createdAt.toDate().toLocaleString('ar-SA') : ''}
                                                                 </span>
-                                                                <span className="text-[10px] font-bold px-2 py-0.2 rounded-md bg-indigo-50 text-indigo-700">
+                                                                <span className={`text-[10px] font-bold px-2 py-0.2 rounded-md ${
+                                                                    isDark ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-800/50' : 'bg-indigo-50 text-indigo-700'
+                                                                }`}>
                                                                     {shiftBadge}
                                                                 </span>
                                                             </div>
@@ -1384,12 +1466,14 @@ const CommunicationPage: React.FC = () => {
                                                     {/* Category & Status Badges */}
                                                     <div className="flex items-center gap-1.5 flex-wrap justify-end">
                                                         {log.isImportant && (
-                                                            <span className="bg-rose-100 text-rose-700 text-[10px] font-black px-2.5 py-1 rounded-full flex items-center gap-1 animate-pulse">
+                                                            <span className="bg-rose-500/20 border border-rose-500/30 text-rose-400 text-[10px] font-black px-2.5 py-1 rounded-full flex items-center gap-1 animate-pulse">
                                                                 <i className="fas fa-exclamation-triangle"></i>
                                                                 <span>{t('comm.prio.urgent')}</span>
                                                             </span>
                                                         )}
-                                                        <span className="bg-slate-100 text-slate-700 text-[10px] font-bold px-2.5 py-1 rounded-full border border-slate-200">
+                                                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${
+                                                            isDark ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200'
+                                                        }`}>
                                                             {categoryBadge}
                                                         </span>
                                                     </div>
@@ -1397,14 +1481,18 @@ const CommunicationPage: React.FC = () => {
 
                                                 {/* Target Handover To Recipient Banner */}
                                                 {log.handoverToUserName && (
-                                                    <div className="mb-3 bg-blue-50/70 text-blue-800 px-3 py-1.5 rounded-xl text-xs font-bold border border-blue-100 flex items-center gap-2">
-                                                        <i className="fas fa-user-tag text-blue-500"></i>
+                                                    <div className={`mb-3 px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-2 ${
+                                                        isDark ? 'bg-blue-950/40 text-blue-300 border-blue-900/60' : 'bg-blue-50/70 text-blue-800 border-blue-100'
+                                                    }`}>
+                                                        <i className="fas fa-user-tag text-blue-400"></i>
                                                         <span>{t('comm.handover.to')}: <strong>{log.handoverToUserName}</strong></span>
                                                     </div>
                                                 )}
 
                                                 {/* Main Content / SBAR */}
-                                                <div className="text-slate-700 text-xs md:text-sm leading-relaxed whitespace-pre-wrap mb-4 bg-slate-50/60 p-3.5 rounded-2xl border border-slate-100 font-medium">
+                                                <div className={`text-xs md:text-sm leading-relaxed whitespace-pre-wrap mb-4 p-3.5 rounded-2xl border font-medium ${
+                                                    isDark ? 'text-slate-200 bg-slate-800/60 border-slate-750' : 'text-slate-700 bg-slate-50/60 border-slate-100'
+                                                }`}>
                                                     {log.content}
                                                 </div>
 
@@ -1412,32 +1500,44 @@ const CommunicationPage: React.FC = () => {
                                                 {log.checklist && Object.values(log.checklist).some(Boolean) && (
                                                     <div className="flex flex-wrap gap-1.5 mb-3">
                                                         {log.checklist.devices && (
-                                                            <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-md border border-emerald-200">
+                                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                                                isDark ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                            }`}>
                                                                 ✓ {t('check.devices')}
                                                             </span>
                                                         )}
                                                         {log.checklist.inventory && (
-                                                            <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-md border border-emerald-200">
+                                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                                                isDark ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                            }`}>
                                                                 ✓ {t('check.inventory')}
                                                             </span>
                                                         )}
                                                         {log.checklist.keys && (
-                                                            <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-md border border-emerald-200">
+                                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                                                isDark ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                            }`}>
                                                                 ✓ {t('check.keys')}
                                                             </span>
                                                         )}
                                                         {log.checklist.clean && (
-                                                            <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-md border border-emerald-200">
+                                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                                                isDark ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                            }`}>
                                                                 ✓ {t('check.clean')}
                                                             </span>
                                                         )}
                                                         {log.checklist.pacsWorkstation && (
-                                                            <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-md border border-emerald-200">
+                                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                                                isDark ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                            }`}>
                                                                 ✓ {t('check.pacsWorkstation')}
                                                             </span>
                                                         )}
                                                         {log.checklist.consumables && (
-                                                            <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-md border border-emerald-200">
+                                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                                                isDark ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                            }`}>
                                                                 ✓ {t('check.consumables')}
                                                             </span>
                                                         )}
@@ -1446,13 +1546,15 @@ const CommunicationPage: React.FC = () => {
 
                                                 {/* Pending Tasks List */}
                                                 {log.pendingTasks && log.pendingTasks.length > 0 && (
-                                                    <div className="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-3 mb-3">
-                                                        <span className="text-[11px] font-black text-amber-900 block mb-1.5">
+                                                    <div className={`border rounded-2xl p-3 mb-3 ${
+                                                        isDark ? 'bg-amber-950/30 border-amber-900/60' : 'bg-amber-50/60 border-amber-200/80'
+                                                    }`}>
+                                                        <span className={`text-[11px] font-black block mb-1.5 ${isDark ? 'text-amber-300' : 'text-amber-900'}`}>
                                                             📌 {t('comm.pending.tasks')}:
                                                         </span>
                                                         <div className="space-y-1">
                                                             {log.pendingTasks.map((pt, pIdx) => (
-                                                                <div key={pIdx} className="text-xs text-amber-950 font-medium flex items-center gap-1.5">
+                                                                <div key={pIdx} className={`text-xs font-medium flex items-center gap-1.5 ${isDark ? 'text-amber-200' : 'text-amber-950'}`}>
                                                                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
                                                                     <span>{pt}</span>
                                                                 </div>
@@ -1462,22 +1564,28 @@ const CommunicationPage: React.FC = () => {
                                                 )}
 
                                                 {/* Receipt Status & Action Footer */}
-                                                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
+                                                <div className={`flex flex-wrap items-center justify-between gap-3 pt-3 border-t ${
+                                                    isDark ? 'border-slate-800' : 'border-slate-100'
+                                                }`}>
                                                     {/* Received / Acknowledged Banner */}
                                                     {isReceived ? (
-                                                        <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 bg-emerald-50 px-3.5 py-1.5 rounded-xl border border-emerald-200">
-                                                            <i className="fas fa-check-double text-emerald-600"></i>
+                                                        <div className={`flex items-center gap-2 text-xs font-bold px-3.5 py-1.5 rounded-xl border ${
+                                                            isDark ? 'text-emerald-300 bg-emerald-950/60 border-emerald-800/80' : 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                                                        }`}>
+                                                            <i className="fas fa-check-double text-emerald-400"></i>
                                                             <span>
                                                                 {t('comm.receivedBy')}: <strong>{log.receivedBy}</strong>
                                                                 {log.receiverLocation && ` (${log.receiverLocation})`}
                                                             </span>
-                                                            <span className="text-[10px] text-emerald-600 font-normal">
+                                                            <span className={`text-[10px] font-normal ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
                                                                 • {log.receivedAt?.toDate ? log.receivedAt.toDate().toLocaleTimeString('ar-SA') : ''}
                                                             </span>
                                                         </div>
                                                     ) : (
                                                         <div className="flex items-center gap-2">
-                                                            <span className="text-xs font-bold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200 flex items-center gap-1.5">
+                                                            <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 ${
+                                                                isDark ? 'text-amber-300 bg-amber-950/50 border-amber-800/60' : 'text-amber-700 bg-amber-50 border-amber-200'
+                                                            }`}>
                                                                 <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
                                                                 <span>{t('comm.stats.pending')}</span>
                                                             </span>
@@ -1487,14 +1595,16 @@ const CommunicationPage: React.FC = () => {
                                                                 (!isMyLog || isSupervisor) && (
                                                                     <button
                                                                         onClick={() => handleOpenReceiveModal(log)}
-                                                                        className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black px-3.5 py-1.5 rounded-xl shadow-md shadow-indigo-100 flex items-center gap-1.5 transition-all hover:scale-105"
+                                                                        className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black px-3.5 py-1.5 rounded-xl shadow-md shadow-indigo-900/30 flex items-center gap-1.5 transition-all hover:scale-105"
                                                                     >
                                                                         <i className="fas fa-check-circle"></i>
                                                                         <span>{t('comm.receive')}</span>
                                                                     </button>
                                                                 )
                                                             ) : (
-                                                                <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 flex items-center gap-1" title="يحق فقط لموظفي نفس القسم استلام الوردية">
+                                                                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border flex items-center gap-1 ${
+                                                                    isDark ? 'text-slate-500 bg-slate-800 border-slate-700' : 'text-slate-400 bg-slate-100 border-slate-200'
+                                                                }`} title="يحق فقط لموظفي نفس القسم استلام الوردية">
                                                                     <i className="fas fa-lock text-slate-400"></i>
                                                                     <span>خاص بموظفي القسم</span>
                                                                 </span>
@@ -1507,7 +1617,9 @@ const CommunicationPage: React.FC = () => {
                                                         <button
                                                             onClick={() => handleCopyLogSummary(log)}
                                                             title="Copy Handover Report"
-                                                            className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"
+                                                            className={`p-2 rounded-xl transition-all ${
+                                                                isDark ? 'text-slate-400 hover:text-emerald-400 hover:bg-emerald-950/50' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'
+                                                            }`}
                                                         >
                                                             <i className="fas fa-copy text-xs"></i>
                                                         </button>
@@ -1516,7 +1628,9 @@ const CommunicationPage: React.FC = () => {
                                                             <button
                                                                 onClick={() => setEditLogModal({ isOpen: true, log })}
                                                                 title={t('edit')}
-                                                                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                                                                className={`p-2 rounded-xl transition-all ${
+                                                                    isDark ? 'text-slate-400 hover:text-blue-400 hover:bg-blue-950/50' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'
+                                                                }`}
                                                             >
                                                                 <i className="fas fa-pen text-xs"></i>
                                                             </button>
@@ -1526,7 +1640,9 @@ const CommunicationPage: React.FC = () => {
                                                             <button
                                                                 onClick={() => handleDeleteLog(log.id)}
                                                                 title={t('delete')}
-                                                                className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                                                                className={`p-2 rounded-xl transition-all ${
+                                                                    isDark ? 'text-slate-400 hover:text-rose-400 hover:bg-rose-950/50' : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                                                                }`}
                                                             >
                                                                 <i className="fas fa-trash text-xs"></i>
                                                             </button>
@@ -1548,47 +1664,57 @@ const CommunicationPage: React.FC = () => {
                         {/* Supervisor Post Announcement Form (5 cols) */}
                         {isSupervisor && (
                             <div className="lg:col-span-4">
-                                <div className="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-orange-200 sticky top-4">
-                                    <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-slate-100">
-                                        <div className="w-9 h-9 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center font-bold">
+                                <div className={`rounded-3xl p-5 md:p-6 shadow-sm border sticky top-4 ${
+                                    isDark ? 'bg-slate-900 border-orange-900/50' : 'bg-white border-orange-200'
+                                }`}>
+                                    <div className={`flex items-center gap-2.5 pb-4 mb-4 border-b ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+                                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold ${
+                                            isDark ? 'bg-orange-950 text-orange-400 border border-orange-800/50' : 'bg-orange-50 text-orange-600'
+                                        }`}>
                                             <i className="fas fa-bullhorn"></i>
                                         </div>
                                         <div>
-                                            <h3 className="font-bold text-slate-900 text-base">{t('comm.ann.new')}</h3>
+                                            <h3 className={`font-bold text-base ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>{t('comm.ann.new')}</h3>
                                             <p className="text-[11px] text-slate-400">{t('comm.ann.post')}</p>
                                         </div>
                                     </div>
 
                                     <form onSubmit={handleAddAnnouncement} className="space-y-4">
                                         <div>
-                                            <label className="block text-[11px] font-bold text-slate-600 mb-1">{t('comm.ann.title')}</label>
+                                            <label className={`block text-[11px] font-bold mb-1 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{t('comm.ann.title')}</label>
                                             <input
                                                 type="text"
                                                 value={newAnnounceTitle}
                                                 onChange={e => setNewAnnounceTitle(e.target.value)}
                                                 placeholder={t('comm.ann.title') + '...'}
-                                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-orange-200"
+                                                className={`w-full border rounded-xl p-3 text-xs font-bold outline-none focus:ring-2 focus:ring-orange-400 ${
+                                                    isDark ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                                }`}
                                                 required
                                             />
                                         </div>
 
                                         <div>
-                                            <label className="block text-[11px] font-bold text-slate-600 mb-1">{t('comm.ann.content')}</label>
+                                            <label className={`block text-[11px] font-bold mb-1 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{t('comm.ann.content')}</label>
                                             <textarea
                                                 value={newAnnounceContent}
                                                 onChange={e => setNewAnnounceContent(e.target.value)}
                                                 placeholder={t('comm.ann.content') + '...'}
-                                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-medium text-slate-800 outline-none focus:ring-2 focus:ring-orange-200 min-h-[120px]"
+                                                className={`w-full border rounded-xl p-3 text-xs font-medium outline-none focus:ring-2 focus:ring-orange-400 min-h-[120px] ${
+                                                    isDark ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                                }`}
                                                 required
                                             />
                                         </div>
 
                                         <div>
-                                            <label className="block text-[11px] font-bold text-slate-600 mb-1">{t('comm.ann.priority')}</label>
+                                            <label className={`block text-[11px] font-bold mb-1 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{t('comm.ann.priority')}</label>
                                             <select
                                                 value={newAnnouncePriority}
                                                 onChange={e => setNewAnnouncePriority(e.target.value as any)}
-                                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-orange-200"
+                                                className={`w-full border rounded-xl p-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-orange-400 ${
+                                                    isDark ? 'bg-slate-800 border-slate-700 text-slate-100 [&>option]:bg-slate-800 [&>option]:text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                                }`}
                                             >
                                                 <option value="normal">{t('comm.prio.normal')}</option>
                                                 <option value="urgent">{t('comm.prio.urgent')}</option>
@@ -1599,7 +1725,7 @@ const CommunicationPage: React.FC = () => {
                                         <button
                                             type="submit"
                                             disabled={isPostingAnnounce}
-                                            className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-2xl font-black text-xs shadow-lg shadow-orange-200 transition-all hover:scale-105 flex items-center justify-center gap-2"
+                                            className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-2xl font-black text-xs shadow-lg shadow-orange-900/30 transition-all hover:scale-105 flex items-center justify-center gap-2"
                                         >
                                             {isPostingAnnounce ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
                                             <span>{t('comm.ann.post')}</span>
@@ -1614,9 +1740,11 @@ const CommunicationPage: React.FC = () => {
                             {announcementsLoading ? (
                                 <SkeletonLoader type="card" count={3} />
                             ) : announcements.length === 0 ? (
-                                <div className="bg-white rounded-3xl p-12 text-center border border-slate-200/80 shadow-sm">
-                                    <i className="fas fa-bullhorn text-4xl text-slate-300 mb-3"></i>
-                                    <h4 className="font-bold text-slate-700 text-base mb-1">
+                                <div className={`rounded-3xl p-12 text-center border shadow-sm ${
+                                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80'
+                                }`}>
+                                    <i className="fas fa-bullhorn text-4xl text-slate-500 mb-3"></i>
+                                    <h4 className={`font-bold text-base mb-1 ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>
                                         {dir === 'rtl' ? 'لا توجد تعاميم حالياً' : 'No announcements posted yet'}
                                     </h4>
                                     <p className="text-xs text-slate-400">
@@ -1631,31 +1759,31 @@ const CommunicationPage: React.FC = () => {
                                     return (
                                         <div
                                             key={ann.id}
-                                            className={`bg-white rounded-3xl p-6 shadow-sm border transition-all hover:shadow-md relative group ${
+                                            className={`rounded-3xl p-6 shadow-sm border transition-all hover:shadow-md relative group ${
                                                 isCritical
-                                                    ? 'border-rose-300 bg-rose-50/20'
+                                                    ? isDark ? 'border-rose-900/80 bg-rose-950/20' : 'border-rose-300 bg-rose-50/20'
                                                     : isUrgent
-                                                    ? 'border-amber-300 bg-amber-50/20'
-                                                    : 'border-slate-200'
+                                                    ? isDark ? 'border-amber-900/80 bg-amber-950/20' : 'border-amber-300 bg-amber-50/20'
+                                                    : isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
                                             }`}
                                         >
                                             {/* Header */}
                                             <div className="flex items-start justify-between gap-4 mb-3">
                                                 <div>
                                                     <div className="flex items-center gap-2">
-                                                        <h4 className="font-black text-lg text-slate-900">{ann.title}</h4>
+                                                        <h4 className={`font-black text-lg ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>{ann.title}</h4>
                                                         <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
                                                             isCritical
-                                                                ? 'bg-rose-100 text-rose-700 animate-pulse'
+                                                                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse'
                                                                 : isUrgent
-                                                                ? 'bg-amber-100 text-amber-700'
-                                                                : 'bg-blue-50 text-blue-700'
+                                                                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                                                : isDark ? 'bg-blue-950 text-blue-300 border border-blue-800' : 'bg-blue-50 text-blue-700'
                                                         }`}>
                                                             {t(`comm.prio.${ann.priority}`)}
                                                         </span>
                                                     </div>
                                                     <span className="text-[11px] text-slate-400 font-medium">
-                                                        {t('from')}: <strong className="text-slate-700">{ann.createdBy}</strong> • {ann.createdAt?.toDate ? ann.createdAt.toDate().toLocaleDateString('ar-SA') : ''}
+                                                        {t('from')}: <strong className={isDark ? 'text-slate-300' : 'text-slate-700'}>{ann.createdBy}</strong> • {ann.createdAt?.toDate ? ann.createdAt.toDate().toLocaleDateString('ar-SA') : ''}
                                                     </span>
                                                 </div>
 
@@ -1664,13 +1792,13 @@ const CommunicationPage: React.FC = () => {
                                                     <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                                         <button
                                                             onClick={() => setEditAnnounceModal({ isOpen: true, ann })}
-                                                            className="p-2 text-slate-400 hover:text-blue-600 rounded-xl hover:bg-blue-50"
+                                                            className={`p-2 rounded-xl ${isDark ? 'text-slate-400 hover:text-blue-400 hover:bg-blue-950/50' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'}`}
                                                         >
                                                             <i className="fas fa-pen text-xs"></i>
                                                         </button>
                                                         <button
                                                             onClick={() => handleDeleteAnnouncement(ann.id)}
-                                                            className="p-2 text-slate-400 hover:text-rose-600 rounded-xl hover:bg-rose-50"
+                                                            className={`p-2 rounded-xl ${isDark ? 'text-slate-400 hover:text-rose-400 hover:bg-rose-950/50' : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'}`}
                                                         >
                                                             <i className="fas fa-trash text-xs"></i>
                                                         </button>
@@ -1679,23 +1807,29 @@ const CommunicationPage: React.FC = () => {
                                             </div>
 
                                             {/* Content */}
-                                            <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap mb-4 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
+                                            <p className={`text-sm leading-relaxed whitespace-pre-wrap mb-4 p-4 rounded-2xl border ${
+                                                isDark ? 'text-slate-200 bg-slate-800/60 border-slate-750' : 'text-slate-700 bg-slate-50/50 border-slate-100'
+                                            }`}>
                                                 {ann.content}
                                             </p>
 
                                             {/* Footer Seen By */}
-                                            <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
-                                                <div className="text-slate-500 font-semibold flex items-center gap-1.5">
-                                                    <i className="fas fa-check-circle text-emerald-500"></i>
+                                            <div className={`flex items-center justify-between pt-3 border-t text-xs ${
+                                                isDark ? 'border-slate-800' : 'border-slate-100'
+                                            }`}>
+                                                <div className={`font-semibold flex items-center gap-1.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                                                    <i className="fas fa-check-circle text-emerald-400"></i>
                                                     <span>{dir === 'rtl' ? 'تم تعميمه على كافة منسوبي القسم' : 'Broadcasted to all department staff'}</span>
                                                 </div>
 
                                                 {isSupervisor && (
                                                     <button
                                                         onClick={() => setViewersModal({ isOpen: true, title: ann.title, viewers: ann.seenBy || [] })}
-                                                        className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-colors"
+                                                        className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-colors ${
+                                                            isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                                                        }`}
                                                     >
-                                                        <i className="fas fa-eye text-indigo-500"></i>
+                                                        <i className="fas fa-eye text-indigo-400"></i>
                                                         <span>{t('comm.views')}: {ann.seenBy ? ann.seenBy.length : 0}</span>
                                                     </button>
                                                 )}
@@ -1767,31 +1901,41 @@ const CommunicationPage: React.FC = () => {
             >
                 {receiveModal.log && (
                     <div className="space-y-4">
-                        <div className="bg-indigo-50/70 p-4 rounded-2xl border border-indigo-100 text-xs text-indigo-950 space-y-1.5">
-                            <div className="flex items-center justify-between pb-2 border-b border-indigo-100/70">
+                        <div className={`p-4 rounded-2xl border text-xs space-y-1.5 ${
+                            isDark ? 'bg-indigo-950/40 border-indigo-900/60 text-indigo-200' : 'bg-indigo-50/70 border-indigo-100 text-indigo-950'
+                        }`}>
+                            <div className={`flex items-center justify-between pb-2 border-b ${isDark ? 'border-indigo-900/60' : 'border-indigo-100/70'}`}>
                                 <div><strong>المُسلّم:</strong> {receiveModal.log.userName} ({receiveModal.log.location})</div>
-                                <span className="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-2 py-0.5 rounded-md">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                    isDark ? 'bg-indigo-900 text-indigo-200' : 'bg-indigo-100 text-indigo-800'
+                                }`}>
                                     {currentDepartment?.name || 'القسم'}
                                 </span>
                             </div>
                             <div><strong>الوردية:</strong> {t(`comm.shift.${receiveModal.log.shiftType || 'morning'}`)}</div>
-                            <div className="text-slate-700 mt-2 p-2.5 bg-white rounded-xl border border-indigo-100/60 max-h-24 overflow-y-auto">
+                            <div className={`mt-2 p-2.5 rounded-xl border max-h-24 overflow-y-auto ${
+                                isDark ? 'text-slate-200 bg-slate-900 border-indigo-900/50' : 'text-slate-700 bg-white border-indigo-100/60'
+                            }`}>
                                 {receiveModal.log.content}
                             </div>
                         </div>
 
-                        <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl text-xs flex items-center gap-2">
-                            <i className="fas fa-id-badge text-emerald-600 text-base"></i>
+                        <div className={`p-3 border rounded-xl text-xs flex items-center gap-2 ${
+                            isDark ? 'bg-emerald-950/40 text-emerald-300 border-emerald-800/60' : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        }`}>
+                            <i className="fas fa-id-badge text-emerald-400 text-base"></i>
                             <div>
                                 <span className="font-bold block">المستلم: {userName}</span>
-                                <span className="text-[10px] text-emerald-600 font-medium">تأكيد الاستلام بصفتك موظفاً في قسم {currentDepartment?.name || 'القسم'}</span>
+                                <span className={`text-[10px] font-medium ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>تأكيد الاستلام بصفتك موظفاً في قسم {currentDepartment?.name || 'القسم'}</span>
                             </div>
                         </div>
 
                         <div>
-                            <label className="block text-xs font-bold text-slate-700 mb-1.5">{t('comm.receive.loc')}</label>
+                            <label className={`block text-xs font-bold mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{t('comm.receive.loc')}</label>
                             <select
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-200"
+                                className={`w-full border rounded-xl p-3 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-400 ${
+                                    isDark ? 'bg-slate-800 border-slate-700 text-slate-100 [&>option]:bg-slate-800 [&>option]:text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                }`}
                                 value={receiverLocation}
                                 onChange={e => setReceiverLocation(e.target.value)}
                                 required
@@ -1804,19 +1948,21 @@ const CommunicationPage: React.FC = () => {
                         </div>
 
                         <div>
-                            <label className="block text-xs font-bold text-slate-700 mb-1.5">{t('comm.receive.notes')}</label>
+                            <label className={`block text-xs font-bold mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{t('comm.receive.notes')}</label>
                             <textarea
                                 value={receiverNotes}
                                 onChange={e => setReceiverNotes(e.target.value)}
                                 placeholder="ملاحظات الاستلام، جاهزية الغرفة، استلام المفاتيح..."
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-medium text-slate-800 outline-none focus:ring-2 focus:ring-indigo-200 min-h-[80px]"
+                                className={`w-full border rounded-xl p-3 text-xs font-medium outline-none focus:ring-2 focus:ring-indigo-400 min-h-[80px] ${
+                                    isDark ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                }`}
                             />
                         </div>
 
                         <button
                             onClick={handleConfirmReceive}
                             disabled={isConfirmingReceive}
-                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-2xl font-black text-xs shadow-lg shadow-indigo-200 transition-all flex items-center justify-center gap-2"
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-2xl font-black text-xs shadow-lg shadow-indigo-900/30 transition-all flex items-center justify-center gap-2"
                         >
                             {isConfirmingReceive ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check-double"></i>}
                             <span>{t('comm.receive')}</span>
@@ -1834,9 +1980,11 @@ const CommunicationPage: React.FC = () => {
                 {editLogModal.log && (
                     <div className="space-y-4">
                         <div>
-                            <label className="block text-xs font-bold text-slate-700 mb-1">{t('location')}</label>
+                            <label className={`block text-xs font-bold mb-1 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{t('location')}</label>
                             <select
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-800"
+                                className={`w-full border rounded-xl p-2.5 text-xs font-bold ${
+                                    isDark ? 'bg-slate-800 border-slate-700 text-slate-100 [&>option]:bg-slate-800 [&>option]:text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                }`}
                                 value={editLogModal.log.location || ''}
                                 onChange={e => setEditLogModal(prev => ({
                                     ...prev,
@@ -1850,9 +1998,11 @@ const CommunicationPage: React.FC = () => {
                         </div>
 
                         <div>
-                            <label className="block text-xs font-bold text-slate-700 mb-1">{t('comm.log.content')}</label>
+                            <label className={`block text-xs font-bold mb-1 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{t('comm.log.content')}</label>
                             <textarea
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-medium min-h-[120px]"
+                                className={`w-full border rounded-xl p-3 text-xs font-medium min-h-[120px] ${
+                                    isDark ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                }`}
                                 value={editLogModal.log.content}
                                 onChange={e => setEditLogModal(prev => ({
                                     ...prev,
@@ -1871,14 +2021,14 @@ const CommunicationPage: React.FC = () => {
                                     log: prev.log ? { ...prev.log, isImportant: e.target.checked } : null
                                 }))}
                             />
-                            <label htmlFor="editIsImportant" className="text-xs font-bold text-rose-700">
+                            <label htmlFor="editIsImportant" className="text-xs font-bold text-rose-500">
                                 {t('comm.log.important')}
                             </label>
                         </div>
 
                         <button
                             onClick={handleEditLogSave}
-                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-2xl font-black text-xs shadow-lg shadow-indigo-200 transition-all"
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-2xl font-black text-xs shadow-lg shadow-indigo-900/30 transition-all"
                         >
                             {t('save')}
                         </button>
@@ -1895,7 +2045,9 @@ const CommunicationPage: React.FC = () => {
                 {editAnnounceModal.ann && (
                     <div className="space-y-4">
                         <input
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold"
+                            className={`w-full border rounded-xl p-3 text-xs font-bold ${
+                                isDark ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-800'
+                            }`}
                             value={editAnnounceModal.ann.title}
                             onChange={e => setEditAnnounceModal(prev => ({
                                 ...prev,
@@ -1903,7 +2055,9 @@ const CommunicationPage: React.FC = () => {
                             }))}
                         />
                         <textarea
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs min-h-[100px]"
+                            className={`w-full border rounded-xl p-3 text-xs min-h-[100px] ${
+                                isDark ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-800'
+                            }`}
                             value={editAnnounceModal.ann.content}
                             onChange={e => setEditAnnounceModal(prev => ({
                                 ...prev,
@@ -1911,7 +2065,9 @@ const CommunicationPage: React.FC = () => {
                             }))}
                         />
                         <select
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold"
+                            className={`w-full border rounded-xl p-3 text-xs font-bold ${
+                                isDark ? 'bg-slate-800 border-slate-700 text-slate-100 [&>option]:bg-slate-800 [&>option]:text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-800'
+                            }`}
                             value={editAnnounceModal.ann.priority}
                             onChange={e => setEditAnnounceModal(prev => ({
                                 ...prev,
@@ -1924,7 +2080,7 @@ const CommunicationPage: React.FC = () => {
                         </select>
                         <button
                             onClick={handleEditAnnounceSave}
-                            className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-2xl font-black text-xs shadow-lg shadow-orange-200"
+                            className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-2xl font-black text-xs shadow-lg shadow-orange-900/30"
                         >
                             {t('save')}
                         </button>
@@ -1939,8 +2095,8 @@ const CommunicationPage: React.FC = () => {
                 title={t('comm.views')}
             >
                 <div className="mb-4">
-                    <h4 className="font-bold text-slate-800 text-sm mb-1">{viewersModal.title}</h4>
-                    <p className="text-xs text-slate-500">{t('comm.views')}: <strong>{viewersModal.viewers.length}</strong></p>
+                    <h4 className={`font-bold text-sm mb-1 ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>{viewersModal.title}</h4>
+                    <p className="text-xs text-slate-400">{t('comm.views')}: <strong>{viewersModal.viewers.length}</strong></p>
                 </div>
                 <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
                     {viewersModal.viewers.length === 0 ? (
@@ -1951,12 +2107,16 @@ const CommunicationPage: React.FC = () => {
                         viewersModal.viewers.map(uid => {
                             const user = users.find(u => u.id === uid);
                             return (
-                                <div key={uid} className="flex items-center gap-3 p-2.5 bg-slate-50 border border-slate-100 rounded-2xl">
-                                    <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs">
+                                <div key={uid} className={`flex items-center gap-3 p-2.5 rounded-2xl border ${
+                                    isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'
+                                }`}>
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
+                                        isDark ? 'bg-indigo-950 text-indigo-300' : 'bg-indigo-100 text-indigo-700'
+                                    }`}>
                                         {user?.name ? user.name.charAt(0) : '?'}
                                     </div>
                                     <div>
-                                        <p className="font-bold text-slate-800 text-xs">{user?.name || 'Unknown'}</p>
+                                        <p className={`font-bold text-xs ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>{user?.name || 'Unknown'}</p>
                                         <p className="text-[10px] text-slate-400">{user?.role || 'Staff'}</p>
                                     </div>
                                 </div>
@@ -1976,18 +2136,22 @@ const CommunicationPage: React.FC = () => {
                     {isGeneratingInsights ? (
                         <div className="text-center py-12">
                             <div className="w-14 h-14 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-4"></div>
-                            <p className="text-slate-600 font-bold text-xs animate-pulse">
+                            <p className="text-slate-400 font-bold text-xs animate-pulse">
                                 {dir === 'rtl' ? 'جاري تحليل سجلات الورديات واستخراج التوصيات الذكية...' : 'Analyzing shift handovers and generating clinical insights...'}
                             </p>
                         </div>
                     ) : (
-                        <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 max-h-[65vh] overflow-y-auto text-xs md:text-sm text-slate-800 leading-relaxed space-y-3">
+                        <div className={`p-5 rounded-2xl border max-h-[65vh] overflow-y-auto text-xs md:text-sm leading-relaxed space-y-3 ${
+                            isDark ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                        }`}>
                             <div dangerouslySetInnerHTML={{ __html: insightsContent }} />
                         </div>
                     )}
                     <button
                         onClick={() => setShowInsightsModal(false)}
-                        className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-2xl font-bold text-xs transition-colors"
+                        className={`w-full py-3 rounded-2xl font-bold text-xs transition-colors ${
+                            isDark ? 'bg-slate-750 hover:bg-slate-700 text-slate-200' : 'bg-slate-800 hover:bg-slate-700 text-white'
+                        }`}
                     >
                         {dir === 'rtl' ? 'إغلاق التقرير' : 'Close Insights'}
                     </button>

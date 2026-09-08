@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import InventorySystem from '../components/InventorySystem';
 import { auth, db } from '../firebase';
 // @ts-ignore
@@ -6,6 +7,11 @@ import { doc, getDoc } from 'firebase/firestore';
 import Loading from '../components/Loading';
 
 const InventoryPage: React.FC = () => {
+    const [searchParams] = useSearchParams();
+    const tabParam = searchParams.get('tab') as any;
+    const validTabs = ['dashboard', 'usage', 'incoming', 'materials', 'reports', 'distribution', 'custody'];
+    const initialTab = validTabs.includes(tabParam) ? tabParam : undefined;
+
     const [userData, setUserData] = useState<{role: string, name: string, email?: string, uid?: string, permissions?: string[]} | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -51,6 +57,7 @@ const InventoryPage: React.FC = () => {
             userEmail={userData.email || auth.currentUser?.email || ''} 
             userId={userData.uid || auth.currentUser?.uid || ''}
             userPermissions={userData.permissions}
+            initialTab={initialTab}
         />
     );
 };

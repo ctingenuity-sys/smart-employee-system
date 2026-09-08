@@ -1,20 +1,54 @@
 {
-  "name": "نظام الموظفين ",
-  "short_name": "SmartStaff",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#f1f5f9",
-  "theme_color": "#1e293b",
-  "icons": [
+  "manifest_version": 3,
+  "name": "Smart Employee & IHMS Bridge",
+  "version": "4.3.0",
+  "description": "Auto-sync patient & radiology worklist from Hospital System (IHMS) to Smart Radiology Logbook.",
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
-      "sizes": "192x192",
-      "type": "image/png"
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content-relay.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": false
     },
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
-      "sizes": "512x512",
-      "type": "image/png"
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "smart-bridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "smart-bridge.js",
+        "content-relay.js",
+        "background.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }

@@ -13,6 +13,8 @@ import Toast from './Toast';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAttendanceStatus } from '../hooks/useAttendanceStatus';
 import { useDepartment } from '../contexts/DepartmentContext';
+import { useTheme } from '../contexts/ThemeContext';
+import ThemeToggle from './ThemeToggle';
 import NotificationBell from './NotificationBell';
 
 interface LayoutProps {
@@ -102,6 +104,7 @@ const GlobalNotificationListener: React.FC<{ userId: string, userRole: string, d
 
 const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissions = [] }) => {
   const { t, language, toggleLanguage, dir } = useLanguage();
+  const { isDark } = useTheme();
   const { departments, selectedDepartmentId, setSelectedDepartmentId } = useDepartment();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDesktopCollapsed, setIsDesktopCollapsed] = useState<boolean>(() => {
@@ -125,6 +128,9 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
   const navigate = useNavigate();
   const location = useLocation();
   const currentUserId = auth.currentUser?.uid;
+  const isUserDashboard = location.pathname === '/user';
+  const isSupervisorDashboard = location.pathname === '/supervisor';
+  const isFullWidthDashboard = isUserDashboard || isSupervisorDashboard;
 
   // Fetch Attendance Status for Sidebar Logic
   const shiftStatus = useAttendanceStatus(currentUserId);
@@ -212,7 +218,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
   };
 
   return (
-    <div className="flex h-screen overflow-hidden print:h-auto print:overflow-visible bg-slate-100" dir={dir}>
+    <div className={`flex h-screen overflow-hidden print:h-auto print:overflow-visible transition-colors duration-300 ${isDark ? 'bg-slate-900 text-slate-100' : 'bg-slate-100 text-slate-800'}`} dir={dir}>
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
       {currentUserId && <GlobalNotificationListener userId={currentUserId} userRole={userRole} departmentId={selectedDepartmentId} />}
 
@@ -220,8 +226,8 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
       <div className={`fixed inset-0 z-[9990] transition-opacity bg-black opacity-50 lg:hidden ${isSidebarOpen ? 'block pointer-events-auto' : 'hidden pointer-events-none'} print:hidden`} onClick={() => setIsSidebarOpen(false)}></div>
 
       {/* Sidebar (Desktop Collapsible & Mobile Drawer) */}
-      <div className={`fixed inset-y-0 ${sidebarPosition} z-[9999] w-64 ${desktopWidthClass} transition-all duration-300 transform bg-secondary lg:translate-x-0 lg:static lg:inset-0 ${isSidebarOpen ? 'translate-x-0 opacity-100 pointer-events-auto visible' : `${transformDirection} opacity-0 pointer-events-none invisible lg:opacity-100 lg:pointer-events-auto lg:visible`} print:hidden flex flex-col shadow-xl`}>
-        <div className="flex items-center justify-between h-16 shadow-md bg-slate-900 flex-shrink-0 px-3">
+      <div className={`fixed inset-y-0 ${sidebarPosition} z-[9999] w-64 ${desktopWidthClass} transition-all duration-300 transform ${isDark ? 'bg-slate-950 border-r rtl:border-r-0 rtl:border-l border-slate-800/90' : 'bg-secondary'} lg:translate-x-0 lg:static lg:inset-0 ${isSidebarOpen ? 'translate-x-0 opacity-100 pointer-events-auto visible' : `${transformDirection} opacity-0 pointer-events-none invisible lg:opacity-100 lg:pointer-events-auto lg:visible`} print:hidden flex flex-col shadow-xl`}>
+        <div className={`flex items-center justify-between h-16 shadow-md ${isDark ? 'bg-slate-900/90 border-b border-slate-800' : 'bg-slate-900'} flex-shrink-0 px-3`}>
           {!isDesktopCollapsed ? (
             <h1 className="text-lg font-bold text-white flex items-center truncate">
               <i className="fas fa-hospital-user mr-2 text-accent"></i>
@@ -464,7 +470,10 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
 
         </nav>
         
-        <div className="p-3 bg-slate-900 mt-auto flex-shrink-0">
+        <div className={`p-3 border-t mt-auto flex-shrink-0 ${isDark ? 'bg-slate-950 border-slate-800/80' : 'bg-slate-900 border-slate-800'}`}>
+            <div className="mb-2">
+                <ThemeToggle className="w-full justify-center !rounded-xl !py-2" showLabel={!isDesktopCollapsed} />
+            </div>
             <button 
               onClick={handleLogout} 
               className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'justify-center px-3'} w-full py-2 text-xs font-bold text-white transition-colors bg-danger rounded-lg hover:bg-red-700`}
@@ -478,12 +487,12 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
 
       <div className="flex flex-col flex-1 overflow-hidden print:overflow-visible print:h-auto min-w-0">
         {/* Top Header Bar for Desktop and Mobile */}
-        <header className="flex items-center justify-between px-4 lg:px-6 py-2.5 bg-white border-b border-slate-200 shadow-2xs print:hidden shrink-0">
-            <div className="flex items-center gap-3">
+        <header className={`flex items-center justify-between px-3 sm:px-6 py-2.5 transition-colors duration-300 ${isDark ? 'bg-slate-900/95 border-b border-slate-800 text-white' : 'bg-white border-b border-slate-200 text-slate-800'} shadow-xs print:hidden shrink-0`}>
+            <div className="flex items-center gap-2.5 sm:gap-3">
                 <button 
                   type="button"
                   onClick={toggleDesktopSidebar} 
-                  className="hidden lg:inline-flex items-center justify-center w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                  className={`hidden lg:inline-flex items-center justify-center w-8 h-8 rounded-lg ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'} transition-colors cursor-pointer`}
                   title={isDesktopCollapsed ? "توسيع القائمة الجانبية (Expand)" : "طي القائمة الجانبية (Collapse)"}
                 >
                     <i className="fas fa-bars text-sm"></i>
@@ -491,20 +500,24 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                 <button 
                   type="button"
                   onClick={() => setIsSidebarOpen(true)} 
-                  className="lg:hidden inline-flex items-center justify-center w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors focus:outline-none"
+                  className={`lg:hidden inline-flex items-center justify-center w-8 h-8 rounded-lg ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'} transition-colors focus:outline-none`}
                 >
                     <i className="fas fa-bars text-sm"></i>
                 </button>
-                <div className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                   <span>{t('app.name')}</span>
+                <div className={`text-xs sm:text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'} flex items-center gap-2 truncate`}>
+                   <span className="truncate">{t('app.name')}</span>
                 </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 sm:gap-2.5">
                 {userRole === UserRole.ADMIN && (
                     <div className="hidden sm:block">
                         <select 
-                            className="bg-slate-50 text-slate-700 border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                            className={`border rounded-xl px-2.5 py-1.5 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                              isDark 
+                                ? 'bg-slate-800 text-slate-200 border-slate-700' 
+                                : 'bg-slate-50 text-slate-700 border-slate-300'
+                            }`}
                             value={selectedDepartmentId || ''}
                             onChange={(e) => setSelectedDepartmentId(e.target.value || null)}
                         >
@@ -515,10 +528,42 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                         </select>
                     </div>
                 )}
+
+                {/* Theme Toggle Button */}
+                <ThemeToggle />
+
+                {/* Language Switcher */}
+                <button
+                  type="button"
+                  onClick={toggleLanguage}
+                  className={`px-2.5 sm:px-3 h-9 sm:h-10 rounded-2xl text-xs font-bold border transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                    isDark
+                      ? 'bg-slate-800/90 text-cyan-300 border-slate-700 hover:bg-slate-750'
+                      : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                  }`}
+                  title="Switch Language / تغيير اللغة"
+                >
+                  <i className="fas fa-globe text-xs"></i>
+                  <span className="hidden xs:inline">{language === 'ar' ? 'English' : 'عربي'}</span>
+                </button>
+
+                {/* Change Password Button */}
+                <button
+                  type="button"
+                  onClick={() => setIsPasswordModalOpen(true)}
+                  className={`w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center border transition-colors cursor-pointer shadow-xs ${
+                    isDark
+                      ? 'bg-slate-800/90 text-slate-300 border-slate-700 hover:text-white hover:bg-slate-750'
+                      : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                  }`}
+                  title={t('pw.change')}
+                >
+                  <i className="fas fa-key text-xs"></i>
+                </button>
             </div>
         </header>
 
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-100 p-4 lg:p-6 print:bg-white print:p-0 print:overflow-visible min-w-0">
+        <main className={`flex-1 overflow-x-hidden overflow-y-auto transition-colors duration-300 ${isFullWidthDashboard ? 'p-0' : (isDark ? 'bg-slate-900 text-slate-100 p-3 sm:p-4 lg:p-6' : 'bg-slate-100 text-slate-800 p-3 sm:p-4 lg:p-6')} print:bg-white print:p-0 print:overflow-visible min-w-0`}>
             {children}
         </main>
       </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { db } from '../firebase';
 // @ts-ignore
-import { collection, addDoc, updateDoc, deleteDoc, doc, query, where, onSnapshot, serverTimestamp, getDocs } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, query, where, onSnapshot, serverTimestamp, getDocs, arrayUnion } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { useDepartment } from '../contexts/DepartmentContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -119,12 +119,15 @@ export const DepartmentChatWidget: React.FC = () => {
     return localStorage.getItem('dept_chat_sound') !== 'false';
   });
 
-  // Department users list
+  // Department users list & All users for DM
   const [deptUsers, setDeptUsers] = useState<User[]>([]);
+  const [allUsersList, setAllUsersList] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [filterUnreadOnly, setFilterUnreadOnly] = useState<boolean>(false);
 
   // Unread badge count
   const [unreadCount, setUnreadCount] = useState<number>(0);
+  const messagesLengthRef = useRef<number>(0);
 
   // Mobile push notifications modal
   const [showMobileNotifModal, setShowMobileNotifModal] = useState<boolean>(false);
@@ -156,24 +159,25 @@ export const DepartmentChatWidget: React.FC = () => {
     return norm === UserRole.ADMIN || norm === UserRole.SUPERVISOR || norm === UserRole.MANAGER;
   }, [role]);
 
-  // Load department users matching Visual View logic (both hidden and visible operational staff)
+  // Load department users matching Visual View logic + all staff for direct messaging
   useEffect(() => {
     if (!user) return;
     const usersCol = collection(db, 'users');
     const unsubscribe = onSnapshot(usersCol, (snap) => {
       const list: User[] = snap.docs.map(d => ({ ...(d.data() as any), id: d.id, uid: d.data().uid || d.id }));
-      const filtered = list.filter(u => {
-        // Exclude system accounts/supervisors/managers, but include all operational staff (both hidden and visible: allowHidden = true)
-        if (!isOperationalStaff(u, departments, true)) return false;
+      
+      // All operational staff in the system
+      const operationalList = list.filter(u => isOperationalStaff(u, departments, true));
+      setAllUsersList(operationalList);
 
-        // Department check strictly matching Visual View
+      // Department check strictly matching Visual View
+      const filtered = operationalList.filter(u => {
         if (selectedDepartmentId && selectedDepartmentId !== 'all') {
           const inDept = u.departmentId === selectedDepartmentId || 
                          (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentId)) ||
                          (selectedDepartmentId === 'legacy_radiology' && !u.departmentId);
           if (!inDept) return false;
         }
-
         return true;
       });
       setDeptUsers(filtered);
@@ -271,57 +275,38 @@ export const DepartmentChatWidget: React.FC = () => {
     };
   }, [groups, deptUsers]);
 
-  // Real-time listener for department messages
+  // Real-time listener for department messages + all direct messages involving the user
   useEffect(() => {
     if (!user) return;
     const targetDeptId = selectedDepartmentId || 'legacy_radiology';
 
-    const q = query(
-      collection(db, 'department_chats'),
-      where('departmentId', '==', targetDeptId)
-    );
+    const msgsMap = new Map<string, DepartmentChatMessage>();
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetched: DepartmentChatMessage[] = [];
-      let newIncomingCount = 0;
+    const updateMessagesState = () => {
+      const fetched = Array.from(msgsMap.values());
+      // Sort by creation time
+      fetched.sort((a, b) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+        return timeA - timeB;
+      });
+
       const lastRead = Number(localStorage.getItem('dept_chat_last_read') || 0);
+      let newIncomingCount = 0;
 
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data() as any;
-        const msg: DepartmentChatMessage = {
-          id: docSnap.id,
-          departmentId: data.departmentId,
-          groupId: data.groupId,
-          senderId: data.senderId,
-          senderName: data.senderName,
-          senderRole: data.senderRole,
-          senderPhotoURL: data.senderPhotoURL,
-          content: data.content,
-          type: data.type || 'text',
-          audioData: data.audioData,
-          audioDuration: data.audioDuration,
-          reactions: data.reactions || {},
-          isPinned: !!data.isPinned,
-          replyTo: data.replyTo,
-          directRecipientId: data.directRecipientId,
-          directRecipientName: data.directRecipientName,
-          participants: data.participants,
-          createdAt: data.createdAt
-        };
-        fetched.push(msg);
-
-        // Check if unread and relevant to current user
-        const msgTime = data.createdAt?.toMillis ? data.createdAt.toMillis() : Date.now();
+      fetched.forEach(data => {
+        const msgTime = data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt ? new Date(data.createdAt).getTime() : Date.now());
         const isFromOthers = data.senderId !== user.uid;
 
         // Is message relevant to user?
         let isRelevant = false;
         if (!data.directRecipientId && !data.groupId) {
-          isRelevant = true; // general department chat
+          isRelevant = data.departmentId === targetDeptId; // general department chat
         } else if (data.directRecipientId === user.uid) {
           isRelevant = true; // direct message to user
+        } else if (data.participants && data.participants.includes(user.uid)) {
+          isRelevant = true;
         } else if (data.groupId) {
-          // If in a group, check if user is a member
           const parentGroup = groups.find(g => g.id === data.groupId);
           if (parentGroup && parentGroup.members.includes(user.uid)) {
             isRelevant = true;
@@ -333,15 +318,8 @@ export const DepartmentChatWidget: React.FC = () => {
         }
       });
 
-      // Sort by creation time
-      fetched.sort((a, b) => {
-        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
-        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
-        return timeA - timeB;
-      });
-
       // Play chime if new incoming message arrived while window is closed
-      if (fetched.length > messages.length && messages.length > 0) {
+      if (fetched.length > messagesLengthRef.current && messagesLengthRef.current > 0) {
         const latest = fetched[fetched.length - 1];
         if (latest && latest.senderId !== user.uid) {
           if (soundEnabled) {
@@ -380,6 +358,7 @@ export const DepartmentChatWidget: React.FC = () => {
         }
       }
 
+      messagesLengthRef.current = fetched.length;
       setMessages(fetched);
 
       if (!isOpen) {
@@ -388,12 +367,102 @@ export const DepartmentChatWidget: React.FC = () => {
         localStorage.setItem('dept_chat_last_read', Date.now().toString());
         setUnreadCount(0);
       }
-    }, (error) => {
-      console.error('Error listening to department chat:', error);
+    };
+
+    const processSnapshot = (snapshot: any) => {
+      snapshot.forEach((docSnap: any) => {
+        const data = docSnap.data() as any;
+        const msg: DepartmentChatMessage = {
+          id: docSnap.id,
+          departmentId: data.departmentId,
+          groupId: data.groupId,
+          senderId: data.senderId,
+          senderName: data.senderName,
+          senderRole: data.senderRole,
+          senderPhotoURL: data.senderPhotoURL,
+          content: data.content,
+          type: data.type || 'text',
+          audioData: data.audioData,
+          audioDuration: data.audioDuration,
+          reactions: data.reactions || {},
+          isPinned: !!data.isPinned,
+          replyTo: data.replyTo,
+          directRecipientId: data.directRecipientId,
+          directRecipientName: data.directRecipientName,
+          participants: Array.isArray(data.participants) ? data.participants : (data.directRecipientId && data.senderId ? [data.senderId, data.directRecipientId] : undefined),
+          isRead: !!data.isRead,
+          readAt: data.readAt,
+          readBy: Array.isArray(data.readBy) ? data.readBy : (data.isRead && data.directRecipientId ? [data.senderId, data.directRecipientId] : []),
+          createdAt: data.createdAt
+        };
+        msgsMap.set(docSnap.id, msg);
+      });
+      updateMessagesState();
+    };
+
+    // 1. Department room messages
+    const qDept = query(
+      collection(db, 'department_chats'),
+      where('departmentId', '==', targetDeptId)
+    );
+    const unSubDept = onSnapshot(qDept, processSnapshot, err => console.warn('Dept chat error', err));
+
+    // 2. Direct messages where current user is in participants
+    const qPart = query(
+      collection(db, 'department_chats'),
+      where('participants', 'array-contains', user.uid)
+    );
+    const unSubPart = onSnapshot(qPart, processSnapshot, err => console.warn('Participants chat error', err));
+
+    // 3. Direct messages where user is direct recipient
+    const qRecip = query(
+      collection(db, 'department_chats'),
+      where('directRecipientId', '==', user.uid)
+    );
+    const unSubRecip = onSnapshot(qRecip, processSnapshot, err => console.warn('Recipient chat error', err));
+
+    // 4. Direct messages where user is sender
+    const qSender = query(
+      collection(db, 'department_chats'),
+      where('senderId', '==', user.uid)
+    );
+    const unSubSender = onSnapshot(qSender, processSnapshot, err => console.warn('Sender chat error', err));
+
+    return () => {
+      unSubDept();
+      unSubPart();
+      unSubRecip();
+      unSubSender();
+    };
+  }, [user, selectedDepartmentId, soundEnabled, isOpen, groups, dir, currentDept.name]);
+
+  // Auto-mark incoming direct messages as Read when looking at that conversation
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'direct' || !selectedPeer || !user) return;
+    const peerId = selectedPeer.uid || (selectedPeer as any).id;
+    const myId = user.uid;
+
+    const unreadFromPeer = messages.filter(m => {
+      const isFromPeer = m.senderId === peerId;
+      const isForMe = m.directRecipientId === myId || (m.participants && m.participants.includes(myId));
+      const notReadYet = !m.isRead || !(m.readBy && m.readBy.includes(myId));
+      return isFromPeer && isForMe && notReadYet;
     });
 
-    return () => unsubscribe();
-  }, [user, selectedDepartmentId, soundEnabled, isOpen, messages.length, groups]);
+    if (unreadFromPeer.length > 0) {
+      unreadFromPeer.forEach(async (msg) => {
+        try {
+          await updateDoc(doc(db, 'department_chats', msg.id), {
+            isRead: true,
+            readAt: serverTimestamp(),
+            readBy: arrayUnion(myId)
+          });
+        } catch (err) {
+          console.warn('Could not mark message as read:', err);
+        }
+      });
+    }
+  }, [isOpen, activeTab, selectedPeer, messages, user]);
 
   // Auto-scroll to latest message
   useEffect(() => {
@@ -415,9 +484,11 @@ export const DepartmentChatWidget: React.FC = () => {
       return messages.filter(m => m.groupId === selectedGroup.id);
     } else if (activeTab === 'direct' && selectedPeer) {
       // Direct room: messages between user and peer
+      const peerId = selectedPeer.uid || (selectedPeer as any).id;
+      const myId = user.uid;
       return messages.filter(m => {
-        const isFromMeToPeer = m.senderId === user.uid && m.directRecipientId === selectedPeer.uid;
-        const isFromPeerToMe = m.senderId === selectedPeer.uid && m.directRecipientId === user.uid;
+        const isFromMeToPeer = m.senderId === myId && (m.directRecipientId === peerId || (m.participants && m.participants.includes(peerId) && m.participants.includes(myId)));
+        const isFromPeerToMe = m.senderId === peerId && (m.directRecipientId === myId || (m.participants && m.participants.includes(peerId) && m.participants.includes(myId)));
         return isFromMeToPeer || isFromPeerToMe;
       });
     }
@@ -452,6 +523,8 @@ export const DepartmentChatWidget: React.FC = () => {
       type: isUrgent ? 'urgent' : 'text',
       isPinned: false,
       reactions: {},
+      isRead: false,
+      readBy: [user.uid],
       createdAt: serverTimestamp()
     };
 
@@ -467,9 +540,10 @@ export const DepartmentChatWidget: React.FC = () => {
     if (activeTab === 'groups' && selectedGroup) {
       payload.groupId = selectedGroup.id;
     } else if (activeTab === 'direct' && selectedPeer) {
-      payload.directRecipientId = selectedPeer.uid;
+      const peerId = selectedPeer.uid || (selectedPeer as any).id;
+      payload.directRecipientId = peerId;
       payload.directRecipientName = selectedPeer.name || selectedPeer.email;
-      payload.participants = [user.uid, selectedPeer.uid];
+      payload.participants = [user.uid, peerId];
     }
 
     setIsUrgent(false);
@@ -579,15 +653,18 @@ export const DepartmentChatWidget: React.FC = () => {
               audioData: base64Audio,
               audioDuration: recordingSeconds,
               reactions: {},
+              isRead: false,
+              readBy: [user.uid],
               createdAt: serverTimestamp()
             };
 
             if (activeTab === 'groups' && selectedGroup) {
               payload.groupId = selectedGroup.id;
             } else if (activeTab === 'direct' && selectedPeer) {
-              payload.directRecipientId = selectedPeer.uid;
+              const peerId = selectedPeer.uid || (selectedPeer as any).id;
+              payload.directRecipientId = peerId;
               payload.directRecipientName = selectedPeer.name || selectedPeer.email;
-              payload.participants = [user.uid, selectedPeer.uid];
+              payload.participants = [user.uid, peerId];
             }
 
             try {
@@ -797,19 +874,108 @@ export const DepartmentChatWidget: React.FC = () => {
     }
   };
 
-  // Filtered members for direct message list
-  const filteredStaff = useMemo(() => {
-    return deptUsers.filter(u => {
-      if (u.uid === user?.uid) return false;
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase();
-      return (
-        (u.name && u.name.toLowerCase().includes(q)) ||
-        (u.email && u.email.toLowerCase().includes(q)) ||
-        (u.role && u.role.toLowerCase().includes(q))
-      );
+  // Total unread direct messages count for current user across all peers
+  const totalUnreadDirectCount = useMemo(() => {
+    if (!user) return 0;
+    const myId = user.uid;
+    return messages.filter(m => 
+      (m.directRecipientId === myId || (m.participants && m.participants.includes(myId) && m.senderId !== myId)) && 
+      (!m.isRead || !(m.readBy && m.readBy.includes(myId)))
+    ).length;
+  }, [messages, user]);
+
+  // List of colleagues with chat stats, sorted with UNREAD chats ALWAYS at the very top!
+  const staffWithChatStats = useMemo(() => {
+    if (!user) return [];
+    const myId = user.uid;
+
+    // Use all operational users
+    const userPool = allUsersList.length > 0 ? allUsersList : deptUsers;
+    const knownUsersMap = new Map<string, User>();
+    userPool.forEach(u => {
+      const uid = u.uid || u.id;
+      if (uid && uid !== myId) {
+        knownUsersMap.set(uid, u);
+      }
     });
-  }, [deptUsers, searchQuery, user]);
+
+    const items: Array<{
+      user: User;
+      lastMsg?: DepartmentChatMessage;
+      lastMsgTime: number;
+      unreadCount: number;
+      isInCurrentDept: boolean;
+    }> = [];
+
+    knownUsersMap.forEach(colleague => {
+      const peerId = colleague.uid || colleague.id;
+      
+      // Find all direct messages between myId and peerId
+      const peerMessages = messages.filter(m => {
+        const isFromMeToPeer = m.senderId === myId && (m.directRecipientId === peerId || (m.participants && m.participants.includes(peerId)));
+        const isFromPeerToMe = m.senderId === peerId && (m.directRecipientId === myId || (m.participants && m.participants.includes(myId)));
+        return isFromMeToPeer || isFromPeerToMe;
+      });
+
+      const lastMsg = peerMessages.length > 0 ? peerMessages[peerMessages.length - 1] : undefined;
+      const lastMsgTime = lastMsg?.createdAt?.toMillis 
+        ? lastMsg.createdAt.toMillis() 
+        : (lastMsg?.createdAt ? new Date(lastMsg.createdAt).getTime() : 0);
+
+      // Unread count: messages sent from peer to me that are not read yet
+      const unreadCount = peerMessages.filter(m => 
+        m.senderId === peerId && 
+        (!m.isRead || !(m.readBy && m.readBy.includes(myId)))
+      ).length;
+
+      // Current department check
+      const isInCurrentDept = selectedDepartmentId === 'all' || 
+        colleague.departmentId === selectedDepartmentId || 
+        (Array.isArray(colleague.departments) && !!selectedDepartmentId && colleague.departments.includes(selectedDepartmentId)) ||
+        (selectedDepartmentId === 'legacy_radiology' && !colleague.departmentId);
+
+      // Apply search query
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchName = colleague.name && colleague.name.toLowerCase().includes(q);
+        const matchEmail = colleague.email && colleague.email.toLowerCase().includes(q);
+        const matchRole = colleague.role && colleague.role.toLowerCase().includes(q);
+        if (!matchName && !matchEmail && !matchRole) return;
+      }
+
+      // Apply unread filter if toggled
+      if (filterUnreadOnly && unreadCount === 0) {
+        return;
+      }
+
+      items.push({
+        user: colleague,
+        lastMsg,
+        lastMsgTime,
+        unreadCount,
+        isInCurrentDept
+      });
+    });
+
+    // SORTING PRIORITY:
+    // 1. Unread conversations ALWAYS FIRST (sorted by newest unread message time)
+    // 2. Active chat history (sorted by latest message timestamp descending)
+    // 3. Current department colleagues
+    // 4. Alphabetical
+    items.sort((a, b) => {
+      if (a.unreadCount > 0 && b.unreadCount === 0) return -1;
+      if (b.unreadCount > 0 && a.unreadCount === 0) return 1;
+      if (a.unreadCount > 0 && b.unreadCount > 0) return b.lastMsgTime - a.lastMsgTime;
+      if (a.lastMsgTime > 0 && b.lastMsgTime > 0) return b.lastMsgTime - a.lastMsgTime;
+      if (a.lastMsgTime > 0 && b.lastMsgTime === 0) return -1;
+      if (b.lastMsgTime > 0 && a.lastMsgTime === 0) return 1;
+      if (a.isInCurrentDept && !b.isInCurrentDept) return -1;
+      if (!a.isInCurrentDept && b.isInCurrentDept) return 1;
+      return (a.user.name || '').localeCompare(b.user.name || '');
+    });
+
+    return items;
+  }, [allUsersList, deptUsers, messages, user, searchQuery, filterUnreadOnly, selectedDepartmentId]);
 
   // Filtered members for group creator modal
   const filteredForGroupCreation = useMemo(() => {
@@ -1060,7 +1226,7 @@ export const DepartmentChatWidget: React.FC = () => {
                 setActiveTab('direct');
                 setSelectedGroup(null);
               }}
-              className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1 shrink-0 ${
+              className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 shrink-0 relative ${
                 activeTab === 'direct'
                   ? 'bg-blue-600 text-white shadow-sm'
                   : (isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-900' : 'text-slate-600 hover:text-slate-900 hover:bg-white')
@@ -1068,6 +1234,11 @@ export const DepartmentChatWidget: React.FC = () => {
             >
               <i className="fas fa-user-friends text-[10px]"></i>
               <span>{dir === 'rtl' ? 'خاص' : 'Direct'}</span>
+              {totalUnreadDirectCount > 0 && (
+                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center shadow-sm animate-pulse">
+                  {totalUnreadDirectCount > 9 ? '9+' : totalUnreadDirectCount}
+                </span>
+              )}
             </button>
 
             {/* Tab 4: Staff Directory */}
@@ -1280,11 +1451,31 @@ export const DepartmentChatWidget: React.FC = () => {
                               </p>
                             )}
 
-                            {/* Timestamp for own message */}
+                            {/* Timestamp & Read Receipt for own message */}
                             {isMe && (
-                              <div className="text-[9px] text-white/70 text-left rtl:text-right mt-1 flex items-center justify-end rtl:justify-start gap-1">
+                              <div className="text-[9px] text-white/80 text-left rtl:text-right mt-1.5 flex items-center justify-end rtl:justify-start gap-1.5 font-sans">
                                 <span>{formatTime(msg.createdAt)}</span>
-                                <i className="fas fa-check-double text-[8px]"></i>
+                                {activeTab === 'direct' ? (
+                                  msg.isRead ? (
+                                    <span 
+                                      className="inline-flex items-center gap-1 text-cyan-200 bg-cyan-950/50 px-1.5 py-0.5 rounded-md border border-cyan-400/40 shadow-[0_0_8px_rgba(6,182,212,0.3)] font-black text-[9px]" 
+                                      title={dir === 'rtl' ? 'تمت القراءة من قبل المستلم' : 'Read by recipient'}
+                                    >
+                                      <i className="fas fa-check-double text-[9px] text-cyan-300"></i>
+                                      <span>{dir === 'rtl' ? 'تمت القراءة' : 'Read'}</span>
+                                    </span>
+                                  ) : (
+                                    <span 
+                                      className="inline-flex items-center gap-1 text-slate-200/90 bg-black/20 px-1.5 py-0.5 rounded-md border border-white/20 text-[9px]" 
+                                      title={dir === 'rtl' ? 'تم الإرسال - لم تُقرأ بعد' : 'Sent - Unread'}
+                                    >
+                                      <i className="fas fa-check-double text-[9px] text-slate-300"></i>
+                                      <span className="opacity-80">{dir === 'rtl' ? 'مُرسلة' : 'Sent'}</span>
+                                    </span>
+                                  )
+                                ) : (
+                                  <i className="fas fa-check text-[8px] text-white/70"></i>
+                                )}
                               </div>
                             )}
 
@@ -1621,69 +1812,181 @@ export const DepartmentChatWidget: React.FC = () => {
             {/* View 3: Direct Messages User Selection List */}
             {activeTab === 'direct' && !selectedPeer && (
               <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-3">
-                <div className="mb-3">
-                  <div className="relative">
+                {/* Search & Filter Bar */}
+                <div className="mb-2.5 flex items-center gap-2">
+                  <div className="relative flex-1">
                     <i className="fas fa-search absolute right-3 rtl:right-3 rtl:left-auto ltr:left-3 ltr:right-auto top-3 text-xs text-slate-400"></i>
                     <input
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder={dir === 'rtl' ? 'ابحث عن زميل لبدء محادثة خاصة...' : 'Search colleague for DM...'}
+                      placeholder={dir === 'rtl' ? 'ابحث بالاسم، البريد، أو التخصص...' : 'Search colleague for DM...'}
                       className={`w-full text-xs py-2 px-8 rounded-xl border outline-none transition-colors ${
-                        isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                        isDark ? 'bg-slate-900 border-slate-800 text-white placeholder:text-slate-500' : 'bg-slate-50 border-slate-200 text-slate-800 placeholder:text-slate-400'
                       }`}
                     />
+                    {searchQuery && (
+                      <button 
+                        onClick={() => setSearchQuery('')}
+                        className="absolute left-2.5 rtl:left-2.5 rtl:right-auto ltr:right-2.5 ltr:left-auto top-2.5 text-xs text-slate-400 hover:text-slate-200"
+                      >
+                        <i className="fas fa-times"></i>
+                      </button>
+                    )}
                   </div>
+
+                  {/* Filter unread toggle button */}
+                  <button
+                    onClick={() => setFilterUnreadOnly(prev => !prev)}
+                    className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 border ${
+                      filterUnreadOnly
+                        ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 shadow-xs'
+                        : (isDark ? 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900')
+                    }`}
+                    title={dir === 'rtl' ? 'عرض المحادثات غير المقروءة فقط' : 'Show Unread Only'}
+                  >
+                    <i className="fas fa-envelope text-[11px]"></i>
+                    <span className="hidden sm:inline">{dir === 'rtl' ? 'غير مقروءة' : 'Unread'}</span>
+                    {totalUnreadDirectCount > 0 && (
+                      <span className="w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">
+                        {totalUnreadDirectCount}
+                      </span>
+                    )}
+                  </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
-                  {filteredStaff.length === 0 ? (
-                    <div className="text-center py-10 text-slate-400 text-xs">
-                      <i className="fas fa-user-slash text-2xl mb-2"></i>
-                      <p>{dir === 'rtl' ? 'لا يوجد أعضاء مطابقين للبحث' : 'No members found'}</p>
+                {/* Colleagues / Conversations List */}
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                  {staffWithChatStats.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 text-xs">
+                      <i className="fas fa-user-slash text-3xl mb-2.5 opacity-40"></i>
+                      <p className="font-bold text-slate-300">
+                        {filterUnreadOnly 
+                          ? (dir === 'rtl' ? 'لا توجد رسائل غير مقروءة حالياً 👍' : 'No unread messages 👍')
+                          : (dir === 'rtl' ? 'لا يوجد أعضاء مطابقين للبحث' : 'No colleagues found')}
+                      </p>
+                      {filterUnreadOnly && (
+                        <button
+                          onClick={() => setFilterUnreadOnly(false)}
+                          className="mt-3 px-3 py-1 rounded-xl bg-blue-600/15 text-blue-400 text-xs font-bold hover:bg-blue-600/25"
+                        >
+                          {dir === 'rtl' ? 'عرض جميع الزملاء' : 'View all colleagues'}
+                        </button>
+                      )}
                     </div>
                   ) : (
-                    filteredStaff.map(colleague => {
-                      const lastMsg = messages
-                        .filter(m => 
-                          (m.senderId === user?.uid && m.directRecipientId === colleague.uid) ||
-                          (m.senderId === colleague.uid && m.directRecipientId === user?.uid)
-                        )
-                        .slice(-1)[0];
+                    staffWithChatStats.map(item => {
+                      const colleague = item.user;
+                      const lastMsg = item.lastMsg;
+                      const unread = item.unreadCount;
+                      const hasUnread = unread > 0;
+                      const lastMsgSentByMe = lastMsg?.senderId === user?.uid;
 
                       return (
                         <button
                           key={colleague.id || colleague.uid}
                           onClick={() => setSelectedPeer(colleague)}
-                          className={`w-full p-2.5 rounded-2xl flex items-center justify-between border text-left rtl:text-right transition-all group ${
-                            isDark
-                              ? 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800 hover:border-slate-700'
-                              : 'bg-white border-slate-100 hover:bg-slate-50 hover:border-slate-200'
+                          className={`w-full p-3 rounded-2xl flex items-center justify-between border text-left rtl:text-right transition-all group ${
+                            hasUnread
+                              ? (isDark 
+                                  ? 'bg-blue-950/40 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.15)] ring-1 ring-blue-500/30' 
+                                  : 'bg-blue-50/80 border-blue-300 shadow-xs ring-1 ring-blue-400/30')
+                              : (isDark
+                                  ? 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800 hover:border-slate-700'
+                                  : 'bg-white border-slate-100 hover:bg-slate-50 hover:border-slate-200')
                           }`}
                         >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-500 to-indigo-600 text-white font-black flex items-center justify-center text-sm shadow-xs shrink-0">
-                              {colleague.name ? colleague.name.charAt(0).toUpperCase() : 'U'}
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            {/* Avatar with unread indicator dot */}
+                            <div className="relative shrink-0">
+                              <div className={`w-11 h-11 rounded-2xl flex items-center justify-center text-sm font-black text-white shadow-xs ${
+                                hasUnread 
+                                  ? 'bg-gradient-to-tr from-blue-600 to-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.4)]'
+                                  : 'bg-gradient-to-tr from-slate-700 to-slate-600'
+                              }`}>
+                                {colleague.name ? colleague.name.charAt(0).toUpperCase() : 'U'}
+                              </div>
+                              <span className={`absolute -bottom-0.5 -right-0.5 rtl:-left-0.5 rtl:right-auto w-3 h-3 rounded-full border-2 ${
+                                isDark ? 'border-slate-950' : 'border-white'
+                              } ${hasUnread ? 'bg-cyan-400 animate-ping' : 'bg-emerald-500'}`}></span>
+                              <span className={`absolute -bottom-0.5 -right-0.5 rtl:-left-0.5 rtl:right-auto w-3 h-3 rounded-full border-2 ${
+                                isDark ? 'border-slate-950' : 'border-white'
+                              } ${hasUnread ? 'bg-cyan-400' : 'bg-emerald-500'}`}></span>
                             </div>
-                            <div className="min-w-0">
-                              <h4 className="text-xs font-bold truncate group-hover:text-blue-500 transition-colors flex items-center gap-1.5">
-                                <span className="truncate">{colleague.name || colleague.email}</span>
-                                {colleague.isHidden && (
-                                  <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 font-medium shrink-0 flex items-center gap-0.5">
-                                    <i className="fas fa-eye-slash text-[8px]"></i>
-                                    <span>{dir === 'rtl' ? 'مخفي' : 'Hidden'}</span>
+
+                            {/* Colleague Info and Message Preview */}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-1 mb-0.5">
+                                <h4 className={`text-xs truncate transition-colors flex items-center gap-1.5 ${
+                                  hasUnread ? 'font-black text-blue-400 dark:text-cyan-300' : 'font-bold text-slate-200'
+                                }`}>
+                                  <span className="truncate">{colleague.name || colleague.email}</span>
+                                  {colleague.isHidden && (
+                                    <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 font-medium shrink-0 flex items-center gap-0.5">
+                                      <i className="fas fa-eye-slash text-[8px]"></i>
+                                      <span>{dir === 'rtl' ? 'مخفي' : 'Hidden'}</span>
+                                    </span>
+                                  )}
+                                  {!item.isInCurrentDept && (
+                                    <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-slate-700/50 text-slate-400 font-normal shrink-0">
+                                      {colleague.departmentId || 'قسم آخر'}
+                                    </span>
+                                  )}
+                                </h4>
+
+                                {lastMsg && (
+                                  <span className={`text-[10px] shrink-0 font-sans ${
+                                    hasUnread ? 'font-black text-cyan-400' : 'text-slate-400'
+                                  }`}>
+                                    {formatTime(lastMsg.createdAt)}
                                   </span>
                                 )}
-                              </h4>
-                              <p className="text-[10px] text-slate-400 truncate">
-                                {lastMsg ? lastMsg.content : (colleague.role || colleague.email)}
-                              </p>
+                              </div>
+
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0 flex-1 text-[11px] truncate flex items-center gap-1">
+                                  {lastMsg ? (
+                                    <>
+                                      {lastMsgSentByMe && (
+                                        <span className="shrink-0 flex items-center gap-0.5 text-[10px]">
+                                          {lastMsg.isRead ? (
+                                            <span className="text-cyan-400 flex items-center gap-0.5 font-bold" title={dir === 'rtl' ? 'تمت القراءة' : 'Read'}>
+                                              <i className="fas fa-check-double text-[9px]"></i>
+                                            </span>
+                                          ) : (
+                                            <span className="text-slate-400 flex items-center gap-0.5" title={dir === 'rtl' ? 'مُرسلة' : 'Sent'}>
+                                              <i className="fas fa-check-double text-[9px]"></i>
+                                            </span>
+                                          )}
+                                        </span>
+                                      )}
+                                      <span className={`truncate ${
+                                        hasUnread ? 'font-bold text-white' : 'text-slate-400'
+                                      }`}>
+                                        {lastMsg.content}
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <span className="text-slate-500 italic text-[10px]">
+                                      {colleague.role || (dir === 'rtl' ? 'انقر لبدء المحادثة' : 'Click to start chat')}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Unread Badge */}
+                                {hasUnread && (
+                                  <span className="shrink-0 px-2 py-0.5 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-[10px] font-black shadow-[0_0_10px_rgba(6,182,212,0.4)] animate-bounce">
+                                    {unread > 9 ? '9+' : unread} {dir === 'rtl' ? 'جديدة' : 'new'}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                            <i className={`fas fa-chevron-${dir === 'rtl' ? 'left' : 'right'} text-xs text-slate-400 group-hover:translate-x-1 rtl:group-hover:-translate-x-1 transition-transform`}></i>
+                          <div className="shrink-0 ml-2 rtl:mr-2 rtl:ml-0">
+                            <i className={`fas fa-chevron-${dir === 'rtl' ? 'left' : 'right'} text-xs ${
+                              hasUnread ? 'text-cyan-400' : 'text-slate-500'
+                            } group-hover:translate-x-1 rtl:group-hover:-translate-x-1 transition-transform`}></i>
                           </div>
                         </button>
                       );

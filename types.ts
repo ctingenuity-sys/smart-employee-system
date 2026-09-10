@@ -741,4 +741,8 @@ export interface DepartmentChatMessage {
   directRecipientName?: string;
   participants?: string[]; // [senderId, directRecipientId]
   createdAt: any;
+  // Read Receipts & Delivery Status
+  isRead?: boolean;
+  readAt?: any;
+  readBy?: string[];
 }

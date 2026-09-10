@@ -700,3 +700,45 @@ export interface CustodyTransfer {
   status: 'pending' | 'confirmed' | 'rejected';
   departmentId: string;
 }
+
+export interface DepartmentChatGroup {
+  id: string;
+  name: string;
+  description?: string;
+  departmentId: string;
+  createdBy: string;
+  creatorName: string;
+  members: string[]; // User UIDs
+  memberNames?: Record<string, string>;
+  icon?: string;
+  color?: string;
+  createdAt: any;
+  updatedAt?: any;
+  lastMessage?: string;
+  lastMessageAt?: any;
+}
+
+export interface DepartmentChatMessage {
+  id: string;
+  departmentId: string;
+  groupId?: string; // If message belongs to a custom group
+  senderId: string;
+  senderName: string;
+  senderRole?: string;
+  senderPhotoURL?: string;
+  content: string;
+  type?: 'text' | 'urgent' | 'announcement' | 'voice';
+  audioData?: string; // Base64 audio url or storage URL
+  audioDuration?: number;
+  reactions?: Record<string, string[]>; // { '👍': ['uid1'], '❤️': ['uid2'] }
+  isPinned?: boolean;
+  replyTo?: {
+    id: string;
+    senderName: string;
+    content: string;
+  };
+  directRecipientId?: string; // For 1-on-1 private DM
+  directRecipientName?: string;
+  participants?: string[]; // [senderId, directRecipientId]
+  createdAt: any;
+}

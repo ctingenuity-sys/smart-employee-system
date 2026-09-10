@@ -1,20 +1,33 @@
 {
-  "name": "نظام الموظفين ",
-  "short_name": "SmartStaff",
+  "id": "/",
+  "name": "نظام الموظفين الذكي",
+  "short_name": "نظام الموظفين",
+  "description": "نظام إدارة الموظفين والمناوبات والدردشة الفورية والمهام الطبية",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#f1f5f9",
+  "orientation": "portrait-primary",
+  "background_color": "#0f172a",
   "theme_color": "#1e293b",
+  "categories": ["medical", "business", "productivity"],
   "icons": [
     {
       "src": "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

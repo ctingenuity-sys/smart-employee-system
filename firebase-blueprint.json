@@ -55,6 +55,37 @@
         "endTime": { "type": "string" }
       },
       "required": ["userId", "role", "departmentId", "date", "startTime", "endTime"]
+    },
+    "departmentChatMessage": {
+      "title": "Department Chat Message",
+      "description": "Real-time internal chat message between members of a department",
+      "type": "object",
+      "properties": {
+        "departmentId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderRole": { "type": "string" },
+        "content": { "type": "string" },
+        "type": { "type": "string", "enum": ["text", "urgent", "announcement", "voice"] },
+        "isPinned": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["departmentId", "senderId", "senderName", "content", "createdAt"]
+    },
+    "departmentChatGroup": {
+      "title": "Department Chat Group",
+      "description": "Custom work groups created by employees in the department",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "members": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "departmentId", "createdBy", "members", "createdAt"]
     }
   },
   "firestore": {
@@ -73,6 +104,14 @@
     "/onCallSchedules/{scheduleId}": {
       "schema": "onCallSchedule",
       "description": "Collection of on-call schedules"
+    },
+    "/department_chats/{messageId}": {
+      "schema": "departmentChatMessage",
+      "description": "Collection of department chat messages"
+    },
+    "/department_chat_groups/{groupId}": {
+      "schema": "departmentChatGroup",
+      "description": "Collection of employee chat groups"
     }
   }
 }

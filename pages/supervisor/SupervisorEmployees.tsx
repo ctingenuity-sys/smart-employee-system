@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { auth, db as mainDb, firebaseConfig as mainConfig } from '../../firebase';
 import { db as certDb } from '../../firebaseData';
 // @ts-ignore
@@ -272,25 +272,41 @@ const SupervisorEmployees: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { role: authRole, user: currentUser } = useAuth();
-    const { departments, selectedDepartmentId } = useDepartment();
+    const { departments, selectedDepartmentId, setSelectedDepartmentId } = useDepartment();
     
     console.log('AuthRole:', authRole, 'UserRole.ADMIN:', UserRole.ADMIN);
     const [users, setUsers] = useState<User[]>([]);
-    const [selectedDepartmentFilter, setSelectedDepartmentFilter] = useState<string>(location.state?.departmentId || selectedDepartmentId || 'all');
-    const isFirstRender = useRef(true);
+    const [selectedDepartmentFilter, setSelectedDepartmentFilter] = useState<string>(
+        () => location.state?.departmentId || selectedDepartmentId || 'all'
+    );
 
     useEffect(() => {
-        if (isFirstRender.current) {
-            isFirstRender.current = false;
-            if (location.state?.departmentId) return; // Keep the initial state
-        }
-        
-        if (selectedDepartmentId) {
+        if (location.state?.departmentId) {
+            setSelectedDepartmentFilter(location.state.departmentId);
+        } else if (selectedDepartmentId) {
             setSelectedDepartmentFilter(selectedDepartmentId);
-        } else {
-            setSelectedDepartmentFilter('all');
         }
-    }, [selectedDepartmentId]);
+    }, [selectedDepartmentId, location.state?.departmentId]);
+
+    // Effective department ID to filter by: priority to selectedDepartmentFilter if explicitly chosen, otherwise selectedDepartmentId
+    const effectiveDepartmentId = (selectedDepartmentFilter && selectedDepartmentFilter !== 'all')
+        ? selectedDepartmentFilter
+        : (selectedDepartmentId || null);
+
+    const activeDepartmentObj = useMemo(() => {
+        if (!effectiveDepartmentId || effectiveDepartmentId === 'all') return null;
+        return departments.find(d => d.id === effectiveDepartmentId) || null;
+    }, [departments, effectiveDepartmentId]);
+
+    const isUserInDepartment = useCallback((u: User, targetDeptId: string | null) => {
+        if (!targetDeptId || targetDeptId === 'all') return true;
+        return (
+            u.departmentId === targetDeptId ||
+            (Array.isArray(u.departments) && u.departments.includes(targetDeptId)) ||
+            (targetDeptId === 'legacy_radiology' && !u.departmentId)
+        );
+    }, []);
+
     const [searchQuery, setSearchQuery] = useState('');
     const [sortBy, setSortBy] = useState<'name' | 'role' | 'category'>('name');
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
@@ -304,9 +320,11 @@ const SupervisorEmployees: React.FC = () => {
     const [selectedCategoryTitle, setSelectedCategoryTitle] = useState('');
     const [selectedCategoryTheme, setSelectedCategoryTheme] = useState(''); // New for modal theme
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
-    const [hiddenEmployeesVisible, setHiddenEmployeesVisible] = useState<boolean>(() => {
-        return localStorage.getItem('show_hidden_employees') === 'true';
-    });
+    const [hiddenEmployeesVisible] = useState<boolean>(false);
+
+    useEffect(() => {
+        localStorage.removeItem('show_hidden_employees');
+    }, []);
 
     const [offlineResult, setOfflineResult] = useState<any>(null);
     const [verificationCode, setVerificationCode] = useState('');
@@ -1025,43 +1043,41 @@ const SupervisorEmployees: React.FC = () => {
       }
     };
 
-    const filteredUsers = users.filter(u => {
-        if (u.isHidden && !hiddenEmployeesVisible) return false;
-        
-        // Supervisor/Manager Isolation: Can only see users in their department or users assigned to them
-        if (authRole === UserRole.SUPERVISOR) {
-            const isSelf = u.id === currentUser?.uid || u.uid === currentUser?.uid;
-            if (!isSelf && u.departmentId !== selectedDepartmentId && u.supervisorId !== currentUser?.uid) {
-                return false;
-            }
-        } else if (authRole === UserRole.MANAGER) {
-            const isSelf = u.id === currentUser?.uid || u.uid === currentUser?.uid;
-            if (!isSelf && u.departmentId !== selectedDepartmentId && u.managerId !== currentUser?.uid) {
-                return false;
-            }
-        }
+    const filteredUsers = useMemo(() => {
+        return users.filter(u => {
+            // Include operational staff - both hidden and visible
+            if (!isOperationalStaff(u, departments, true)) return false;
 
-        // Department Filter Logic
-        if (selectedDepartmentFilter !== 'all') {
-            const inDept = u.departmentId === selectedDepartmentFilter || 
-                           (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentFilter)) ||
-                           (selectedDepartmentFilter === 'legacy_radiology' && !u.departmentId);
-            if (!inDept) return false;
-        }
+            // Supervisor/Manager Isolation: Can only see users in their department or users assigned to them
+            if (authRole === UserRole.SUPERVISOR) {
+                const isSelf = u.id === currentUser?.uid || u.uid === currentUser?.uid;
+                if (!isSelf && u.departmentId !== selectedDepartmentId && u.supervisorId !== currentUser?.uid) {
+                    return false;
+                }
+            } else if (authRole === UserRole.MANAGER) {
+                const isSelf = u.id === currentUser?.uid || u.uid === currentUser?.uid;
+                if (!isSelf && u.departmentId !== selectedDepartmentId && u.managerId !== currentUser?.uid) {
+                    return false;
+                }
+            }
 
-        return (
-            u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-            u.email.toLowerCase().includes(searchQuery.toLowerCase())
-        );
-    }).sort((a, b) => {
-        if (sortBy === 'role') {
-            return (a.role || '').localeCompare(b.role || '');
-        } else if (sortBy === 'category') {
-            return (a.jobCategory || '').localeCompare(b.jobCategory || '');
-        } else {
-            return (a.name || '').localeCompare(b.name || '');
-        }
-    });
+            // Department Filter Logic
+            if (!isUserInDepartment(u, effectiveDepartmentId)) return false;
+
+            return (
+                (u.name && u.name.toLowerCase().includes(searchQuery.toLowerCase())) || 
+                (u.email && u.email.toLowerCase().includes(searchQuery.toLowerCase()))
+            );
+        }).sort((a, b) => {
+            if (sortBy === 'role') {
+                return (a.role || '').localeCompare(b.role || '');
+            } else if (sortBy === 'category') {
+                return (a.jobCategory || '').localeCompare(b.jobCategory || '');
+            } else {
+                return (a.name || '').localeCompare(b.name || '');
+            }
+        });
+    }, [users, hiddenEmployeesVisible, departments, authRole, currentUser?.uid, selectedDepartmentId, effectiveDepartmentId, isUserInDepartment, searchQuery, sortBy]);
 
     const openEditModal = (user: User) => {
         const perms = user.permissions && user.permissions.length > 0 
@@ -1186,15 +1202,13 @@ const SupervisorEmployees: React.FC = () => {
         return "bg-gradient-to-r from-emerald-500 to-teal-600 text-white dazzle-btn border-none"; // Valid
     };
     
-    const hiddenUsersCount = useMemo(() => users.filter(u => u.isHidden).length, [users]);
-
-    // Toggle hidden employees visibility
-    const toggleHiddenEmployees = () => {
-        const nextVal = !hiddenEmployeesVisible;
-        setHiddenEmployeesVisible(nextVal);
-        localStorage.setItem('show_hidden_employees', String(nextVal));
-        window.dispatchEvent(new Event('storage'));
-    };
+    const activeDeptStaffCount = useMemo(() => {
+        return users.filter(u => {
+            if (!isOperationalStaff(u, departments, true)) return false;
+            if (!isUserInDepartment(u, effectiveDepartmentId)) return false;
+            return true;
+        }).length;
+    }, [users, departments, isUserInDepartment, effectiveDepartmentId]);
 
     const getAvatar = (user: User) => {
         if (user.gender === 'female') return 'https://cdn-icons-png.flaticon.com/512/4140/4140047.png';
@@ -1224,34 +1238,30 @@ const SupervisorEmployees: React.FC = () => {
         );
     }
 
-    const derivedCategoryUsers = users.filter(u => {
-        if (u.isHidden && !hiddenEmployeesVisible) return false;
-        
-        // Exclude Admin, Supervisor, Manager and individual accounts from employee categories
-        if (!isOperationalStaff(u, departments, hiddenEmployeesVisible)) return false;
+    const derivedCategoryUsers = useMemo(() => {
+        return users.filter(u => {
+            // Exclude Admin, Supervisor, Manager and individual accounts from employee categories
+            // Allow hidden employees so both hidden and visible are shown
+            if (!isOperationalStaff(u, departments, true)) return false;
 
-        // Supervisor/Manager Isolation
-        if (authRole === UserRole.SUPERVISOR) {
-            if (u.departmentId !== selectedDepartmentId && u.supervisorId !== currentUser?.uid) return false;
-        } else if (authRole === UserRole.MANAGER) {
-            if (u.departmentId !== selectedDepartmentId && u.managerId !== currentUser?.uid) return false;
-        }
+            // Supervisor/Manager Isolation
+            if (authRole === UserRole.SUPERVISOR) {
+                if (u.departmentId !== selectedDepartmentId && u.supervisorId !== currentUser?.uid) return false;
+            } else if (authRole === UserRole.MANAGER) {
+                if (u.departmentId !== selectedDepartmentId && u.managerId !== currentUser?.uid) return false;
+            }
 
-        // Department Filter Logic
-        if (selectedDepartmentFilter !== 'all') {
-            const inDept = u.departmentId === selectedDepartmentFilter || 
-                           (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentFilter)) ||
-                           (selectedDepartmentFilter === 'legacy_radiology' && !u.departmentId);
-            if (!inDept) return false;
-        }
+            // Department Filter Logic
+            if (!isUserInDepartment(u, effectiveDepartmentId)) return false;
 
-        const userCat = u.jobCategory || 'technician';
-        const isKnownCat = JOB_CATEGORIES.some(c => c.id === userCat);
-        if (isKnownCat) {
-            return userCat === selectedCategoryId;
-        }
-        return selectedCategoryId === 'technician';
-    });
+            const userCat = u.jobCategory || 'technician';
+            const isKnownCat = JOB_CATEGORIES.some(c => c.id === userCat);
+            if (isKnownCat) {
+                return userCat === selectedCategoryId;
+            }
+            return selectedCategoryId === 'technician';
+        });
+    }, [users, departments, authRole, currentUser?.uid, selectedDepartmentId, effectiveDepartmentId, isUserInDepartment, selectedCategoryId]);
 
     return (
         <div className={`min-h-screen py-8 px-4 transition-colors duration-300 ${isDark ? 'dark-theme bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-800'}`} dir={dir}>
@@ -1259,37 +1269,53 @@ const SupervisorEmployees: React.FC = () => {
             <style>{styles}</style>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
             {loading && <div className={`fixed inset-0 ${isDark ? 'bg-slate-900/70' : 'bg-white/50'} z-50 flex items-center justify-center`}><div className="w-10 h-10 border-4 border-blue-500 rounded-full animate-spin border-t-transparent"></div></div>}
-            
-            {/* Secret / Invisible Trigger in Bottom Center */}
-            <div id="secretTrigger" onClick={toggleHiddenEmployees} className="fixed bottom-0 left-1/2 -translate-x-1/2 w-40 h-16 cursor-pointer z-[9900] opacity-0" title="Secret Trigger"></div>
 
             <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
                 <div className="flex items-center gap-3">
                     <div>
-                        <h1 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-800'}`}>{t('sup.tab.users')}</h1>
-                        <p className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Staff Records & Compliance</p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <h1 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-800'}`}>{t('sup.tab.users')}</h1>
+                            {activeDepartmentObj && (
+                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-black border ${isDark ? 'bg-indigo-950/80 text-indigo-300 border-indigo-700/60' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
+                                    <i className="fas fa-building text-[10px] mr-1"></i>
+                                    {activeDepartmentObj.name}
+                                </span>
+                            )}
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-black border ${isDark ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                <i className="fas fa-user-check text-[10px] mr-1"></i>
+                                {activeDeptStaffCount} {dir === 'rtl' ? 'موظف فعلي' : 'Active Staff'}
+                            </span>
+                        </div>
+                        <p className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'} mt-0.5`}>
+                            {activeDepartmentObj 
+                                ? (dir === 'rtl' ? `سجلات وتراخيص موظفي ${activeDepartmentObj.name}` : `Staff Records & Compliance - ${activeDepartmentObj.name}`) 
+                                : 'Staff Records & Compliance'}
+                        </p>
                     </div>
                 </div>
                 
                 <div className="flex gap-3 items-center flex-wrap">
-                    {/* Toggle Hidden Employees Button */}
-                    <button 
-                        onClick={toggleHiddenEmployees}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
-                            hiddenEmployeesVisible 
-                            ? 'bg-amber-500 text-white border-amber-600 ring-2 ring-amber-300 shadow-amber-200' 
-                            : (isDark ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50')
-                        }`}
-                        title={hiddenEmployeesVisible ? 'إخفاء الحسابات المخفية' : 'إظهار الحسابات المخفية'}
-                    >
-                        <i className={`fas ${hiddenEmployeesVisible ? 'fa-eye' : 'fa-eye-slash'}`}></i>
-                        <span>{hiddenEmployeesVisible ? (dir === 'rtl' ? 'المخفيين معروضين' : 'Hidden Visible') : (dir === 'rtl' ? 'عرض المخفيين' : 'Show Hidden')}</span>
-                        {hiddenUsersCount > 0 && (
-                            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${hiddenEmployeesVisible ? 'bg-amber-700 text-white' : (isDark ? 'bg-slate-700 text-slate-200 border border-slate-600' : 'bg-slate-100 text-slate-700 border border-slate-300')}`}>
-                                {hiddenUsersCount}
-                            </span>
-                        )}
-                    </button>
+                    {authRole === UserRole.ADMIN && departments.length > 0 && (
+                        <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${isDark ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-700'} shadow-sm text-xs font-bold`}>
+                            <i className="fas fa-building text-indigo-500"></i>
+                            <select 
+                                className="bg-transparent outline-none cursor-pointer font-black"
+                                value={effectiveDepartmentId || 'all'}
+                                onChange={e => {
+                                    const val = e.target.value;
+                                    setSelectedDepartmentFilter(val);
+                                    if (val !== 'all') {
+                                        setSelectedDepartmentId(val);
+                                    }
+                                }}
+                            >
+                                <option value="all" className={isDark ? 'bg-slate-800 text-white' : ''}>{dir === 'rtl' ? 'جميع الأقسام' : 'All Departments'}</option>
+                                {departments.map(dept => (
+                                    <option key={dept.id} value={dept.id} className={isDark ? 'bg-slate-800 text-white' : ''}>{dept.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
 
                     <div className={`${isDark ? 'bg-slate-800 border border-slate-700' : 'bg-slate-100'} p-1 rounded-xl flex`}>
                         <button 
@@ -1522,8 +1548,14 @@ const SupervisorEmployees: React.FC = () => {
                                         <i className="fas fa-building text-gray-400"></i>
                                         <select 
                                             className={`bg-transparent outline-none text-sm font-bold ${isDark ? 'text-slate-200' : 'text-gray-600'} cursor-pointer`}
-                                            value={selectedDepartmentFilter}
-                                            onChange={e => setSelectedDepartmentFilter(e.target.value)}
+                                            value={effectiveDepartmentId || 'all'}
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                setSelectedDepartmentFilter(val);
+                                                if (val !== 'all') {
+                                                    setSelectedDepartmentId(val);
+                                                }
+                                            }}
                                         >
                                             <option value="all" className={isDark ? 'bg-slate-800 text-white' : ''}>All Departments</option>
                                             {departments.map(dept => (
@@ -1639,15 +1671,11 @@ const SupervisorEmployees: React.FC = () => {
                 // Use a centered container
                 <div className="min-h-[70vh] flex flex-col items-center justify-center animate-fade-in-up">
                     <div className="flex flex-wrap gap-8 justify-center pb-20 pt-10">
-                        {/* Show hidden categories when hiddenEmployeesVisible is true */}
-                        {JOB_CATEGORIES.filter(c => !(c as any).isHidden || hiddenEmployeesVisible).map(cat => {
+                        {JOB_CATEGORIES.filter(c => !(c as any).isHidden).map(cat => {
                             const catUsers = users.filter(u => {
-                                 // Check for hidden state
-                                 const isHidden = (u as any).isHidden;
-                                 if (isHidden && !hiddenEmployeesVisible) return false;
-                                 
-                                 // Exclude Admin, Supervisor, Manager and individual accounts from employee circle counts
-                                 if (!isOperationalStaff(u, departments, hiddenEmployeesVisible)) return false;
+                                 // Exclude Admin, Supervisor, Manager and non-operational accounts
+                                 // Allow hidden employees so both hidden and visible are shown
+                                 if (!isOperationalStaff(u, departments, true)) return false;
 
                                  // Supervisor/Manager Isolation
                                  if (authRole === UserRole.SUPERVISOR) {
@@ -1657,12 +1685,7 @@ const SupervisorEmployees: React.FC = () => {
                                  }
 
                                  // Department Filter Logic
-                                 if (selectedDepartmentFilter !== 'all') {
-                                     const inDept = u.departmentId === selectedDepartmentFilter || 
-                                                    (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentFilter)) ||
-                                                    (selectedDepartmentFilter === 'legacy_radiology' && !u.departmentId);
-                                     if (!inDept) return false;
-                                 }
+                                 if (!isUserInDepartment(u, effectiveDepartmentId)) return false;
 
                                  const userCat = u.jobCategory || 'technician';
                                  const isKnownCat = JOB_CATEGORIES.some(c => c.id === userCat);

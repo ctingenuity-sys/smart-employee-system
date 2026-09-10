@@ -4,6 +4,7 @@ import { db, auth } from '../firebase';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useDepartment } from '../contexts/DepartmentContext';
+import { MobileNotificationModal } from './MobileNotificationModal';
 
 export interface AppNotification {
     id: string;
@@ -31,6 +32,7 @@ const NotificationBell: React.FC<{ userRole: string }> = ({ userRole }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'unread' | 'all'>('all');
     const [isMarkingAll, setIsMarkingAll] = useState(false);
+    const [showMobileModal, setShowMobileModal] = useState(false);
     const { selectedDepartmentId } = useDepartment();
     const { t, dir, language } = useLanguage();
     const navigate = useNavigate();
@@ -451,6 +453,23 @@ const NotificationBell: React.FC<{ userRole: string }> = ({ userRole }) => {
                             )}
                         </div>
 
+                        {/* Mobile Notification Quick Setup Banner */}
+                        <div className="bg-blue-50/90 border-t border-blue-100 p-2.5 flex items-center justify-between text-xs px-3.5 shrink-0">
+                            <span className="text-blue-800 font-bold flex items-center gap-1.5 text-[11px]">
+                                <i className="fas fa-mobile-alt text-blue-600"></i>
+                                <span>{language === 'ar' ? 'إشعارات الجوال (والتطبيق مقفل)' : 'Mobile Alerts (When Closed)'}</span>
+                            </span>
+                            <button
+                                onClick={() => {
+                                    setIsOpen(false);
+                                    setShowMobileModal(true);
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] transition cursor-pointer shadow-xs flex items-center gap-1"
+                            >
+                                <span>{language === 'ar' ? 'تفعيل الإشعارات 📲' : 'Setup 📲'}</span>
+                            </button>
+                        </div>
+
                         {/* Footer Quick Action Bar */}
                         {visibleNotifications.length > 0 && (
                             <div className="bg-slate-50 p-2.5 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 px-3 shrink-0">
@@ -475,6 +494,11 @@ const NotificationBell: React.FC<{ userRole: string }> = ({ userRole }) => {
                     </div>
                 </>
             )}
+            {/* Mobile Push Notifications Center Modal */}
+            <MobileNotificationModal
+                isOpen={showMobileModal}
+                onClose={() => setShowMobileModal(false)}
+            />
         </div>
     );
 };

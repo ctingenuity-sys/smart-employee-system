@@ -16,6 +16,10 @@ import { useDepartment } from '../contexts/DepartmentContext';
 import { useTheme } from '../contexts/ThemeContext';
 import ThemeToggle from './ThemeToggle';
 import NotificationBell from './NotificationBell';
+import DepartmentChatWidget from './DepartmentChatWidget';
+import { sendMobileNotification, syncUserPushSubscription } from '../services/notificationService';
+import { PWAInstallButton } from './PWAInstallButton';
+import { MobileNotificationModal } from './MobileNotificationModal';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -86,7 +90,11 @@ const GlobalNotificationListener: React.FC<{ userId: string, userRole: string, d
                     else if (!data.userId && !data.targetRole) isForMe = true;
 
                     if (isForMe && (!data.readBy || !data.readBy.includes(userId))) {
-                        showBrowserNotification(data.title, data.message, data.type === 'alert' ? 'alert' : 'normal');
+                        sendMobileNotification(data.title, {
+                            body: data.message,
+                            type: data.type === 'alert' ? 'alert' : 'normal',
+                            tag: `notif-${change.doc.id}`
+                        });
                         // Dispatch custom event to show toast in Layout
                         window.dispatchEvent(new CustomEvent('app-notification', { detail: { title: data.title, message: data.message } }));
                     }
@@ -115,6 +123,9 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
     }
   });
 
+  // Mobile push notifications center modal state
+  const [isMobileNotifModalOpen, setIsMobileNotifModalOpen] = useState(false);
+
   const toggleDesktopSidebar = () => {
     setIsDesktopCollapsed(prev => {
       const next = !prev;
@@ -138,6 +149,13 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
 
   // Change Password State
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+
+  // Sync Push Subscription on User Login
+  useEffect(() => {
+    if (currentUserId) {
+      syncUserPushSubscription(currentUserId, selectedDepartmentId || undefined);
+    }
+  }, [currentUserId, selectedDepartmentId]);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -153,8 +171,14 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
   }, [t]);
 
   const handleLogout = async () => {
+    const savedTheme = localStorage.getItem('app_theme');
+    const savedThemeBackup = localStorage.getItem('theme');
+    const savedLang = localStorage.getItem('app_lang');
     await signOut(auth);
     localStorage.clear(); 
+    if (savedTheme) localStorage.setItem('app_theme', savedTheme);
+    if (savedThemeBackup) localStorage.setItem('theme', savedThemeBackup);
+    if (savedLang) localStorage.setItem('app_lang', savedLang);
     navigate('/login');
   };
 
@@ -532,6 +556,24 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                 {/* Theme Toggle Button */}
                 <ThemeToggle />
 
+                {/* In-App PWA Install Button */}
+                <PWAInstallButton />
+
+                {/* Mobile Background Notifications Center */}
+                <button
+                  type="button"
+                  onClick={() => setIsMobileNotifModalOpen(true)}
+                  className={`px-2.5 h-9 sm:h-10 rounded-2xl text-xs font-bold border transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                    isDark
+                      ? 'bg-slate-800/90 text-blue-400 border-slate-700 hover:bg-slate-750'
+                      : 'bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100'
+                  }`}
+                  title={language === 'ar' ? 'إشعارات الجوال المباشرة حتى والتطبيق مقفل 📱' : 'Mobile Push Notifications'}
+                >
+                  <i className="fas fa-bell text-xs"></i>
+                  <span className="hidden md:inline">{language === 'ar' ? 'إشعارات الجوال' : 'Mobile Alerts'}</span>
+                </button>
+
                 {/* Language Switcher */}
                 <button
                   type="button"
@@ -587,6 +629,15 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
               </button>
           </form>
       </Modal>
+
+      {/* Persistent Floating Department Live Chat Widget */}
+      <DepartmentChatWidget />
+
+      {/* Mobile Push Notifications Center Modal */}
+      <MobileNotificationModal
+        isOpen={isMobileNotifModalOpen}
+        onClose={() => setIsMobileNotifModalOpen(false)}
+      />
     </div>
   );
 };

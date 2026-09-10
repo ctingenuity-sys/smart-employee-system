@@ -655,11 +655,11 @@ const handleGenerateManualCode = () => {
       accentText: 'text-emerald-400',
       glassBorder: 'border-emerald-500/40',
       iconBg: 'bg-gradient-to-br from-emerald-400 to-teal-600 shadow-emerald-500/30 text-slate-950',
-      badge: 'bg-emerald-500/25 text-emerald-200 border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.3)]',
+      badge: 'bg-emerald-100 text-emerald-950 border-emerald-400 dark:bg-emerald-950/80 dark:text-emerald-100 dark:border-emerald-500/60 shadow-xs font-black',
       glow: 'from-emerald-500/25 to-teal-500/15',
       subText: 'text-emerald-200',
       button: 'bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-500 text-slate-950 font-black shadow-[0_0_25px_rgba(16,185,129,0.4)] hover:scale-105',
-      beacon: 'bg-emerald-400',
+      beacon: 'bg-emerald-600 dark:bg-emerald-400',
       beaconShadow: 'shadow-[0_0_12px_#34d399]',
       beaconText: t('dash.onDutyBeacon'),
       actionText: t('att.punch.checkOut')
@@ -671,11 +671,11 @@ const handleGenerateManualCode = () => {
       accentText: 'text-amber-400',
       glassBorder: 'border-amber-500/40',
       iconBg: 'bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/30 text-slate-950',
-      badge: 'bg-amber-500/25 text-amber-200 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.3)]',
+      badge: 'bg-amber-100 text-amber-950 border-amber-400 dark:bg-amber-950/80 dark:text-amber-100 dark:border-amber-500/60 shadow-xs font-black',
       glow: 'from-amber-500/25 to-orange-500/15',
       subText: 'text-amber-200',
       button: 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-slate-950 font-black shadow-[0_0_25px_rgba(245,158,11,0.4)] hover:scale-105',
-      beacon: 'bg-amber-400',
+      beacon: 'bg-amber-600 dark:bg-amber-400',
       beaconShadow: 'shadow-[0_0_12px_#fbbf24]',
       beaconText: t('dash.latePunchRequired'),
       actionText: t('att.punch.checkIn')
@@ -687,11 +687,11 @@ const handleGenerateManualCode = () => {
       accentText: 'text-purple-400',
       glassBorder: 'border-purple-500/40',
       iconBg: 'bg-gradient-to-br from-purple-500 to-pink-600 shadow-purple-500/30 text-white',
-      badge: 'bg-purple-500/25 text-purple-200 border-purple-500/50 shadow-[0_0_20px_rgba(168,85,247,0.3)]',
+      badge: 'bg-purple-100 text-purple-950 border-purple-400 dark:bg-purple-950/80 dark:text-purple-100 dark:border-purple-500/60 shadow-xs font-black',
       glow: 'from-purple-500/25 to-pink-500/15',
       subText: 'text-purple-200',
       button: 'bg-gradient-to-r from-purple-500 to-pink-500 text-white font-black shadow-[0_0_25px_rgba(168,85,247,0.4)] hover:scale-105',
-      beacon: 'bg-purple-400',
+      beacon: 'bg-purple-600 dark:bg-purple-400',
       beaconShadow: 'shadow-[0_0_12px_#c084fc]',
       beaconText: t('dash.leaveBeacon'),
       actionText: t('user.tab.requests')
@@ -703,11 +703,11 @@ const handleGenerateManualCode = () => {
       accentText: 'text-rose-400',
       glassBorder: 'border-rose-500/40',
       iconBg: 'bg-gradient-to-br from-rose-600 to-red-700 shadow-rose-500/30 text-white',
-      badge: 'bg-rose-500/25 text-rose-200 border-rose-500/50 shadow-[0_0_20px_rgba(244,63,94,0.3)]',
+      badge: 'bg-rose-100 text-rose-950 border-rose-400 dark:bg-rose-950/80 dark:text-rose-100 dark:border-rose-500/60 shadow-xs font-black',
       glow: 'from-rose-600/25 to-red-600/15',
       subText: 'text-rose-200',
       button: 'bg-gradient-to-r from-rose-600 to-red-600 text-white font-black shadow-[0_0_25px_rgba(244,63,94,0.4)] hover:scale-105',
-      beacon: 'bg-rose-400',
+      beacon: 'bg-rose-600 dark:bg-rose-400',
       beaconShadow: 'shadow-[0_0_12px_#f43f5e]',
       beaconText: t('dash.absentBeacon'),
       actionText: t('att.punch.checkIn')
@@ -719,11 +719,11 @@ const handleGenerateManualCode = () => {
       accentText: 'text-amber-400',
       glassBorder: 'border-amber-500/40',
       iconBg: 'bg-gradient-to-br from-amber-400 to-yellow-600 shadow-amber-500/30 text-slate-950',
-      badge: 'bg-amber-500/25 text-amber-200 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.3)]',
+      badge: 'bg-amber-100 text-amber-950 border-amber-400 dark:bg-amber-950/80 dark:text-amber-100 dark:border-amber-500/60 shadow-xs font-black',
       glow: 'from-amber-500/25 to-yellow-500/15',
       subText: 'text-amber-200',
       button: 'bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 text-slate-950 font-black shadow-[0_0_25px_rgba(245,158,11,0.4)] hover:scale-105',
-      beacon: 'bg-amber-400',
+      beacon: 'bg-amber-600 dark:bg-amber-400',
       beaconShadow: 'shadow-[0_0_12px_#fbbf24]',
       beaconText: t('dash.permissionBeacon'),
       actionText: t('user.tab.requests')
@@ -735,11 +735,11 @@ const handleGenerateManualCode = () => {
       accentText: 'text-blue-400',
       glassBorder: 'border-blue-500/40',
       iconBg: 'bg-gradient-to-br from-blue-400 to-cyan-600 shadow-blue-500/30 text-white',
-      badge: 'bg-blue-500/25 text-blue-200 border-blue-500/50 shadow-[0_0_20px_rgba(59,130,246,0.3)]',
+      badge: 'bg-blue-100 text-blue-950 border-blue-400 dark:bg-blue-950/80 dark:text-blue-100 dark:border-blue-500/60 shadow-xs font-black',
       glow: 'from-blue-500/25 to-cyan-500/15',
       subText: 'text-blue-200',
       button: 'bg-gradient-to-r from-blue-500 via-sky-500 to-cyan-500 text-white font-black shadow-[0_0_25px_rgba(59,130,246,0.4)] hover:scale-105',
-      beacon: 'bg-blue-400',
+      beacon: 'bg-blue-600 dark:bg-blue-400',
       beaconShadow: 'shadow-[0_0_12px_#60a5fa]',
       beaconText: t('dash.missionBeacon'),
       actionText: t('att.punch.checkIn')
@@ -751,11 +751,11 @@ const handleGenerateManualCode = () => {
       accentText: 'text-red-400',
       glassBorder: 'border-red-500/50',
       iconBg: 'bg-gradient-to-br from-red-600 to-rose-700 shadow-red-500/40 text-white',
-      badge: 'bg-red-500/25 text-red-200 border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.3)]',
+      badge: 'bg-red-100 text-red-950 border-red-400 dark:bg-red-950/80 dark:text-red-100 dark:border-red-500/60 shadow-xs font-black',
       glow: 'from-red-600/25 to-rose-600/15',
       subText: 'text-red-200',
       button: 'bg-gradient-to-r from-red-600 to-rose-700 text-white font-black shadow-[0_0_25px_rgba(239,68,68,0.4)] hover:scale-105',
-      beacon: 'bg-red-400',
+      beacon: 'bg-red-600 dark:bg-red-400',
       beaconShadow: 'shadow-[0_0_12px_#f87171]',
       beaconText: t('dash.suspendedBeacon'),
       actionText: t('user.tab.requests')
@@ -767,11 +767,11 @@ const handleGenerateManualCode = () => {
       accentText: 'text-cyan-400',
       glassBorder: 'border-cyan-500/40',
       iconBg: 'bg-gradient-to-br from-cyan-400 to-blue-600 shadow-cyan-500/30 text-slate-950',
-      badge: 'bg-cyan-500/25 text-cyan-200 border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.3)]',
+      badge: 'bg-cyan-100 text-cyan-950 border-cyan-400 dark:bg-cyan-950/80 dark:text-cyan-100 dark:border-cyan-500/60 shadow-xs font-black',
       glow: 'from-cyan-500/25 to-blue-500/15',
       subText: 'text-cyan-200',
       button: 'bg-gradient-to-r from-cyan-400 via-sky-500 to-blue-500 text-slate-950 font-black shadow-[0_0_25px_rgba(6,182,212,0.4)] hover:scale-105',
-      beacon: 'bg-cyan-400',
+      beacon: 'bg-cyan-600 dark:bg-cyan-400',
       beaconShadow: 'shadow-[0_0_12px_#22d3ee]',
       beaconText: t('dash.upcomingBeacon'),
       actionText: t('att.punch.checkIn')
@@ -783,11 +783,11 @@ const handleGenerateManualCode = () => {
       accentText: 'text-teal-400',
       glassBorder: 'border-teal-500/40',
       iconBg: 'bg-gradient-to-br from-teal-400 to-emerald-600 shadow-teal-500/30 text-slate-950',
-      badge: 'bg-teal-500/25 text-teal-200 border-teal-500/50 shadow-[0_0_20px_rgba(20,184,166,0.3)]',
+      badge: 'bg-teal-100 text-teal-950 border-teal-400 dark:bg-teal-950/80 dark:text-teal-100 dark:border-teal-500/60 shadow-xs font-black',
       glow: 'from-teal-500/25 to-emerald-500/15',
       subText: 'text-teal-200',
       button: 'bg-gradient-to-r from-teal-400 to-emerald-500 text-slate-950 font-black shadow-[0_0_25px_rgba(20,184,166,0.4)] hover:scale-105',
-      beacon: 'bg-teal-400',
+      beacon: 'bg-teal-600 dark:bg-teal-400',
       beaconShadow: 'shadow-[0_0_12px_#2dd4bf]',
       beaconText: t('dash.completeBeacon'),
       actionText: t('dash.punchNow')
@@ -799,11 +799,11 @@ const handleGenerateManualCode = () => {
       accentText: 'text-slate-300',
       glassBorder: 'border-slate-700/80',
       iconBg: 'bg-gradient-to-br from-slate-600 to-slate-700 shadow-slate-900/40 text-white',
-      badge: 'bg-white/15 text-white border-white/20',
+      badge: 'bg-slate-200 text-slate-950 border-slate-300 dark:bg-slate-800/90 dark:text-slate-100 dark:border-slate-700 shadow-xs font-black',
       glow: 'from-indigo-500/20 to-slate-500/15',
       subText: 'text-slate-300',
       button: 'bg-white/15 hover:bg-white/25 text-white font-bold border border-white/20 shadow-lg hover:scale-105',
-      beacon: 'bg-slate-400',
+      beacon: 'bg-slate-600 dark:bg-slate-400',
       beaconShadow: 'shadow-[0_0_10px_#94a3b8]',
       beaconText: t('dash.offDutyBeacon'),
       actionText: t('dash.punchNow')
@@ -1212,8 +1212,8 @@ const handleGenerateManualCode = () => {
                             </span>
 
                             {hasAttendanceOverride && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                                    <i className="fas fa-shield-alt text-[9px]"></i>
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-950 border border-amber-400 dark:bg-amber-950/80 dark:text-amber-100 dark:border-amber-500/40 shadow-xs">
+                                    <i className="fas fa-shield-alt text-[9px] text-amber-700 dark:text-amber-400"></i>
                                     <span>{t('dash.activeOverride')}</span>
                                 </span>
                             )}

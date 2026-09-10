@@ -1034,7 +1034,7 @@ const SupervisorDashboard: React.FC = () => {
             <section aria-label="KPI Overview" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
                 {/* Active Employees Card */}
                 <div 
-                    onClick={() => navigate('/supervisor/rotation')}
+                    onClick={() => navigate('/supervisor/employees', { state: { departmentId: selectedDepartmentId } })}
                     className="cursor-pointer bg-gradient-to-br from-indigo-600 via-indigo-700 to-blue-800 rounded-[2rem] p-6 text-white shadow-xl shadow-indigo-200/50 relative overflow-hidden group hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-300/60 transition-all duration-300 border border-white/15"
                 >
                     <div className="absolute -right-8 -top-8 w-36 h-36 bg-white/10 rounded-full blur-2xl pointer-events-none group-hover:scale-125 transition-transform duration-500"></div>
@@ -1665,35 +1665,35 @@ const SupervisorDashboard: React.FC = () => {
 
         {/* 9. Floating On Shift Monitor Capsule */}
         {/* Placed opposite to the sidebar: in RTL (sidebar on right) -> place on LEFT; in LTR (sidebar on left) -> place on RIGHT */}
-        <div className={`fixed bottom-5 ${dir === 'rtl' ? 'left-4 sm:left-6' : 'right-4 sm:right-6'} z-[9990] transition-all duration-300 ${onShiftNow.length > 0 || isShiftWidgetOpen ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'}`}>
+        <div className={`fixed bottom-4 ${dir === 'rtl' ? 'left-3 sm:left-5' : 'right-3 sm:right-5'} z-[10010] transition-all duration-300 ${onShiftNow.length > 0 || isShiftWidgetOpen ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'}`}>
             <div className={`backdrop-blur-2xl transition-all duration-300 overflow-hidden ${
                 isDark 
-                    ? 'bg-slate-900/95 shadow-[0_20px_50px_rgba(0,0,0,0.85)] border border-slate-700/80' 
-                    : 'bg-white/95 shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-slate-300'
-            } ${isShiftWidgetOpen ? 'rounded-3xl w-[calc(100vw-32px)] sm:w-84' : 'rounded-full hover:scale-105'}`}>
+                    ? 'bg-slate-900/95 shadow-[0_15px_35px_rgba(0,0,0,0.85)] border border-slate-700/80' 
+                    : 'bg-white/95 shadow-[0_15px_35px_rgba(0,0,0,0.15)] border border-slate-300'
+            } ${isShiftWidgetOpen ? 'rounded-2xl w-[calc(100vw-24px)] sm:w-72 max-w-[280px]' : 'rounded-full hover:scale-105'}`}>
                 
                 <div 
                     onClick={() => setIsShiftWidgetOpen(!isShiftWidgetOpen)}
                     className={`cursor-pointer flex items-center justify-between select-none ${
                         isShiftWidgetOpen 
-                            ? (isDark ? 'p-3.5 bg-slate-950/80 border-b border-white/10' : 'p-3.5 bg-slate-100 border-b border-slate-200') 
-                            : (isDark ? 'px-4 py-2.5 bg-slate-900 border border-slate-700 text-white shadow-xl' : 'px-4 py-2.5 bg-slate-900 text-white shadow-xl')
+                            ? (isDark ? 'p-2.5 bg-slate-950/80 border-b border-white/10' : 'p-2.5 bg-slate-100 border-b border-slate-200') 
+                            : (isDark ? 'px-3.5 py-2 bg-slate-900 border border-slate-700 text-white shadow-xl' : 'px-3.5 py-2 bg-slate-900 text-white shadow-xl')
                     }`}
                 >
-                    <div className="flex items-center gap-2.5">
-                        <span className="relative flex h-2.5 w-2.5">
+                    <div className="flex items-center gap-2">
+                        <span className="relative flex h-2 w-2">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-400"></span>
-                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
                         </span>
-                        <h4 className={`font-black text-xs sm:text-sm uppercase tracking-wider ${isDark ? 'text-white' : (isShiftWidgetOpen ? 'text-slate-900' : 'text-white')}`}>
+                        <h4 className={`font-black text-xs uppercase tracking-wider ${isDark ? 'text-white' : (isShiftWidgetOpen ? 'text-slate-900' : 'text-white')}`}>
                             {t('dash.onShift') || 'المناوبون الآن'}
                         </h4>
                     </div>
                     
                     {isShiftWidgetOpen ? (
-                        <i className={`fas fa-chevron-down text-xs ${isDark ? 'text-white/50' : 'text-slate-400'}`}></i>
+                        <i className={`fas fa-chevron-down text-[10px] ${isDark ? 'text-white/50' : 'text-slate-400'}`}></i>
                     ) : (
-                        <span className="ml-2.5 rtl:ml-0 rtl:mr-2.5 text-xs font-mono font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                        <span className="ml-2 rtl:ml-0 rtl:mr-2 text-[10px] font-mono font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded-full">
                             {onShiftNow.length}
                         </span>
                     )}
@@ -1702,76 +1702,76 @@ const SupervisorDashboard: React.FC = () => {
                 {isShiftWidgetOpen && (
                     <div className="flex flex-col">
                         {/* Filter Toggle */}
-                        <div className={`flex p-2 border-b gap-1.5 ${isDark ? 'bg-slate-950/50 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                        <div className={`flex p-1.5 border-b gap-1 ${isDark ? 'bg-slate-950/50 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
                             <button 
                                 onClick={(e) => { e.stopPropagation(); setShiftFilterMode('present'); }} 
-                                className={`flex-1 py-1.5 text-[10px] font-bold rounded-xl transition-all cursor-pointer ${
+                                className={`flex-1 py-1 text-[9px] font-bold rounded-lg transition-all cursor-pointer ${
                                     shiftFilterMode === 'present' 
-                                        ? 'bg-emerald-500 text-slate-950 font-black shadow-md' 
+                                        ? 'bg-emerald-500 text-slate-950 font-black shadow-xs' 
                                         : (isDark ? 'text-white/60 hover:text-white hover:bg-white/5' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60')
                                 }`}
                             >
-                                <i className="fas fa-check-circle mr-1"></i> {t('dash.filterActive') || 'الحاضرون الآن'}
+                                <i className="fas fa-check-circle mr-0.5"></i> {t('dash.filterActive') || 'الحاضرون الآن'}
                             </button>
                             <button 
                                 onClick={(e) => { e.stopPropagation(); setShiftFilterMode('all'); }} 
-                                className={`flex-1 py-1.5 text-[10px] font-bold rounded-xl transition-all cursor-pointer ${
+                                className={`flex-1 py-1 text-[9px] font-bold rounded-lg transition-all cursor-pointer ${
                                     shiftFilterMode === 'all' 
-                                        ? 'bg-cyan-500 text-slate-950 font-black shadow-md' 
+                                        ? 'bg-cyan-500 text-slate-950 font-black shadow-xs' 
                                         : (isDark ? 'text-white/60 hover:text-white hover:bg-white/5' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60')
                                 }`}
                             >
-                                <i className="fas fa-list mr-1"></i> {t('dash.filterAll') || 'كل المجدولين'}
+                                <i className="fas fa-list mr-0.5"></i> {t('dash.filterAll') || 'كل المجدولين'}
                             </button>
                         </div>
 
-                        <div className="space-y-1.5 max-h-[300px] overflow-y-auto custom-scrollbar-dark p-2.5">
+                        <div className="space-y-1 max-h-[220px] overflow-y-auto custom-scrollbar-dark p-2">
                             {onShiftNow.length === 0 ? (
-                                <div className={`text-center py-6 text-xs font-bold ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
+                                <div className={`text-center py-4 text-[11px] font-bold ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
                                     {t('dash.noActiveStaff') || 'لا يوجد موظفون في هذا الفلتر حالياً'}
                                 </div>
                             ) : (
                                 onShiftNow.map((p, i) => (
-                                    <div key={i} className={`flex items-center justify-between p-2.5 rounded-2xl transition-colors border ${
+                                    <div key={i} className={`flex items-center justify-between p-2 rounded-xl transition-colors border ${
                                         p.role === 'doctor' 
                                             ? (isDark ? 'bg-cyan-950/30 border-cyan-500/30' : 'bg-cyan-50 border-cyan-200') 
                                             : (isDark ? 'bg-white/5 border-white/5 hover:bg-white/10' : 'bg-slate-50 border-slate-200 hover:bg-slate-100')
                                     }`}>
                                         <div className="min-w-0 flex-1">
-                                            <div className="flex items-center gap-1.5">
+                                            <div className="flex items-center gap-1">
                                                 {p.role !== 'doctor' && (
-                                                    <div className={`w-2 h-2 rounded-full shrink-0 ${p.isPresent ? 'bg-emerald-500 shadow-[0_0_6px_#10b981] animate-pulse' : (isDark ? 'bg-white/30' : 'bg-slate-300')}`}></div>
+                                                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.isPresent ? 'bg-emerald-500 shadow-[0_0_6px_#10b981] animate-pulse' : (isDark ? 'bg-white/30' : 'bg-slate-300')}`}></div>
                                                 )}
 
-                                                <span className={`font-bold text-xs truncate max-w-[130px] ${
+                                                <span className={`font-bold text-[11px] truncate max-w-[110px] ${
                                                     p.role === 'doctor' 
                                                         ? (isDark ? 'text-cyan-200' : 'text-cyan-800') 
                                                         : (isDark ? 'text-white' : 'text-slate-800')
                                                 }`}>
                                                     {p.name}
                                                 </span>
-                                                {p.role === 'doctor' && <i className="fas fa-user-md text-[10px] text-cyan-500 shrink-0"></i>}
+                                                {p.role === 'doctor' && <i className="fas fa-user-md text-[9px] text-cyan-500 shrink-0"></i>}
                                                 {p.isPP && (
-                                                    <span className="shrink-0 text-[9px] bg-yellow-400 text-black px-1 rounded font-black border border-yellow-600 shadow-xs" title="Portable & Procedure">
+                                                    <span className="shrink-0 text-[7px] bg-yellow-400 text-black px-1 rounded font-black border border-yellow-600" title="Portable & Procedure">
                                                         PP
                                                     </span>
                                                 )}
                                             </div>
-                                            <span className={`text-[10px] block truncate max-w-[150px] pl-3.5 rtl:pl-0 rtl:pr-3.5 mt-0.5 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>{p.location}</span>
+                                            <span className={`text-[9px] block truncate max-w-[130px] pl-2 rtl:pl-0 rtl:pr-2 mt-0.5 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>{p.location}</span>
                                         </div>
-                                        <div className="flex flex-col items-end gap-1 shrink-0 pl-2 rtl:pl-0 rtl:pr-2">
-                                            <div className={`text-[9px] px-2 py-0.5 rounded font-mono whitespace-nowrap ${
+                                        <div className="flex flex-col items-end gap-0.5 shrink-0 pl-1.5 rtl:pl-0 rtl:pr-1.5">
+                                            <div className={`text-[8px] px-1.5 py-0.5 rounded font-mono whitespace-nowrap ${
                                                 isDark ? 'bg-black/40 text-slate-300' : 'bg-slate-200/70 text-slate-700'
                                             }`}>
                                                 {p.time}
                                             </div>
                                             <div className="flex items-center gap-1">
                                                 {p.isPresent ? (
-                                                    <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
-                                                        <i className="fas fa-check-circle text-[8px]"></i> {t('status.in') || 'حاضر'}
+                                                    <span className="text-[7px] font-bold text-emerald-600 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-100 flex items-center gap-0.5">
+                                                        <i className="fas fa-check-circle text-[6px]"></i> {t('status.in') || 'حاضر'}
                                                     </span>
                                                 ) : (
-                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                                                    <span className={`text-[7px] font-bold px-1 py-0.2 rounded border ${
                                                         isDark ? 'text-white/40 bg-white/5 border-white/10' : 'text-slate-400 bg-slate-50 border-slate-100'
                                                     }`}>
                                                         {t('status.notyet') || 'لم يحضر'}
@@ -1780,10 +1780,10 @@ const SupervisorDashboard: React.FC = () => {
                                                 {p.phone && (
                                                     <a 
                                                         href={`tel:${p.phone}`}
-                                                        className="w-5 h-5 flex items-center justify-center rounded-full bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors shadow-2xs"
+                                                        className="w-4 h-4 flex items-center justify-center rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/40 border border-emerald-500/30 transition-colors cursor-pointer"
                                                         title={t('dash.call') || 'اتصال'}
                                                     >
-                                                        <i className="fas fa-phone text-[9px]"></i>
+                                                        <i className="fas fa-phone text-[8px]"></i>
                                                     </a>
                                                 )}
                                             </div>

@@ -17,9 +17,14 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'prompt',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+      registerType: 'autoUpdate',
+      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg', 'sw-push-handler.js'],
+      devOptions: {
+        enabled: true,
+        type: 'module'
+      },
       workbox: {
+        importScripts: ['/sw-push-handler.js'],
         globPatterns: ['**/*.{js,css,html,png,svg,json}'],
         runtimeCaching: [
           {
@@ -35,23 +40,33 @@ export default defineConfig({
         ]
       },
       manifest: {
+        id: '/',
         name: "نظام الموظفين الذكي",
-        short_name: "SmartStaff",
-        description: "نظام إدارة الموظفين وتوليد أكواد الدخول",
+        short_name: "نظام الموظفين",
+        description: "نظام إدارة الموظفين والمناوبات والدردشة الفورية والمهام الطبية",
         theme_color: "#1e293b",
-        background_color: "#f1f5f9",
+        background_color: "#0f172a",
         display: "standalone",
         start_url: "/",
+        scope: "/",
         icons: [
           {
             src: "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
             sizes: "192x192",
-            type: "image/png"
+            type: "image/png",
+            purpose: "any"
           },
           {
             src: "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
             sizes: "512x512",
-            type: "image/png"
+            type: "image/png",
+            purpose: "any"
+          },
+          {
+            src: "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "maskable"
           }
         ]
       }

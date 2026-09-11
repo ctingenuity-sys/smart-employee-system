@@ -2,7 +2,7 @@
 import { AttendanceLog } from '../types';
 
 export interface AttendanceStateResult {
-    state: 'LOADING' | 'READY_IN' | 'READY_OUT' | 'LOCKED' | 'COMPLETED' | 'MISSED_OUT' | 'ABSENT' | 'WAITING' | 'NEXT_SHIFT' | 'OFF' | 'UPCOMING' | 'ON_LEAVE' | 'LATE' | 'PERMISSION' | 'MISSION' | 'SUSPENDED';
+    state: 'LOADING' | 'READY_IN' | 'READY_OUT' | 'LOCKED' | 'COMPLETED' | 'MISSED_OUT' | 'ABSENT' | 'WAITING' | 'NEXT_SHIFT' | 'OFF' | 'UPCOMING' | 'ON_LEAVE' | 'LATE' | 'PERMISSION' | 'MISSION' | 'SUSPENDED' | 'VIOLATION';
     message: string;
     sub: string;
     canPunch: boolean;
@@ -18,6 +18,7 @@ export interface AttendanceStateResult {
         timeFrom?: string;
         timeTo?: string;
         reason?: string;
+        isViolation?: boolean;
     };
 }
 
@@ -177,7 +178,11 @@ export const calculateShiftStatus = (
 ): AttendanceStateResult => {
     if (!currentTime) return { state: 'LOADING', message: 'SYNCING', sub: 'Server Time', canPunch: false };
 
-    // --- PRIORITY 0: CHECK FOR ADMIN ACTIONS (LEAVES/ABSENCE/PERMISSIONS/DELAYS) ---
+    // Active violation attachment: allows employees who returned to duty to record attendance and see their shift,
+    // while their violation remains prominently displayed on their record and dashboard!
+    let activeViolationAttachment: any = null;
+
+    // --- PRIORITY 0: CHECK FOR ADMIN ACTIONS (LEAVES/ABSENCE/PERMISSIONS/DELAYS/VIOLATIONS) ---
     if (activeAction) {
         const rawType = typeof activeAction === 'string' ? activeAction : activeAction.type;
         const normalizedType = (rawType || '').toLowerCase().trim();
@@ -187,7 +192,12 @@ export const calculateShiftStatus = (
         const isAnnual = normalizedType.includes('annual') || normalizedType === 'سنوي' || normalizedType.includes('سنوية');
         const isEmergency = normalizedType.includes('emergency') || normalizedType.includes('casual') || normalizedType.includes('طارئة') || normalizedType.includes('عارضة');
         const isRegular = normalizedType.includes('regular') || normalizedType.includes('اعتيا') || normalizedType === 'leave';
-        const isGeneralLeave = isSick || isAnnual || isEmergency || isRegular || normalizedType.includes('leave') || normalizedType.includes('إجازة') || normalizedType.includes('اجازة');
+        
+        // True leaves MUST exclude disciplinary actions, early departures, penalties, and violations!
+        const isGeneralLeave = (isSick || isAnnual || isEmergency || isRegular || 
+            (normalizedType.includes('leave') && !normalizedType.includes('early_leave') && !normalizedType.includes('early')) || 
+            normalizedType.includes('إجازة') || normalizedType.includes('اجازة')) && 
+            !normalizedType.includes('violation') && !normalizedType.includes('مخالفة') && !normalizedType.includes('penalty') && !normalizedType.includes('جزاء');
 
         const isUnjustifiedAbsence = normalizedType.includes('unjustified') || normalizedType === 'absence' || (normalizedType.includes('غياب') && !normalizedType.includes('مبرر') && !normalizedType.includes('إذن') && !normalizedType.includes('اذن'));
         const isJustifiedAbsence = normalizedType.includes('justified') || normalizedType.includes('excused') || (normalizedType.includes('غياب') && (normalizedType.includes('مبرر') || normalizedType.includes('إذن') || normalizedType.includes('اذن')));
@@ -196,6 +206,25 @@ export const calculateShiftStatus = (
         const isPermission = normalizedType.includes('permission') || normalizedType.includes('إذن') || normalizedType.includes('اذن') || normalizedType.includes('تصريح');
         const isMission = normalizedType.includes('mission') || normalizedType.includes('task') || normalizedType.includes('مأمورية') || normalizedType.includes('مامورية');
         const isSuspension = normalizedType.includes('suspension') || normalizedType.includes('إيقاف') || normalizedType.includes('ايقاف');
+
+        const isViolation = normalizedType.includes('violation') || 
+                            normalizedType.includes('مخالفة') || 
+                            normalizedType.includes('جزاء') || 
+                            normalizedType.includes('penalty') || 
+                            normalizedType.includes('warning') || 
+                            normalizedType.includes('تنبيه') || 
+                            normalizedType.includes('إنذار') || 
+                            normalizedType.includes('انذار') || 
+                            normalizedType.includes('لفت نظر') || 
+                            normalizedType.includes('neglect') || 
+                            normalizedType.includes('إهمال') || 
+                            normalizedType.includes('اهمال') || 
+                            normalizedType.includes('deduction') || 
+                            normalizedType.includes('خصم') || 
+                            normalizedType === 'early_leave' || 
+                            normalizedType.includes('early_leave') || 
+                            normalizedType.includes('انصراف مبكر') || 
+                            normalizedType.includes('مغادرة');
 
         if (isGeneralLeave) {
             let title = 'إجازة رسمية معتمدة';
@@ -348,23 +377,90 @@ export const calculateShiftStatus = (
             };
         }
 
-        // Generic fallback for any other action
-        const title = actionObj.title || rawType.replace('_', ' ').toUpperCase();
-        const sub = actionObj.subtitle || actionObj.description || 'إجراء إداري مسجل بالنظام';
-        return {
-            state: 'ON_LEAVE',
-            message: title,
-            sub,
-            canPunch: hasOverride,
-            color: 'bg-purple-600 text-white',
-            actionDetails: {
-                type: rawType,
-                title,
-                subtitle: sub,
-                reason: actionObj.reason || actionObj.description
+        // Handle disciplinary violations:
+        if (isViolation) {
+            let violationTitle = 'مخالفة إدارية رسمية';
+            if (normalizedType.includes('conduct') || normalizedType.includes('سلوك')) {
+                violationTitle = 'مخالفة سلوكية / تعليمات';
+            } else if (normalizedType.includes('early') || normalizedType.includes('مبكر') || normalizedType.includes('مغادرة')) {
+                violationTitle = 'مغادرة مقر العمل بدون إذن';
+            } else if (normalizedType.includes('neglect') || normalizedType.includes('إهمال') || normalizedType.includes('اهمال')) {
+                violationTitle = 'إهمال وتقصير في العمل';
+            } else if (normalizedType.includes('warning') || normalizedType.includes('تنبيه') || normalizedType.includes('لفت')) {
+                violationTitle = 'لفت نظر / تنبيه إداري';
+            } else if (normalizedType.includes('deduction') || normalizedType.includes('خصم')) {
+                violationTitle = 'قرار خصم من الراتب';
+            } else if (actionObj.title && actionObj.title !== 'VIOLATION' && actionObj.title !== 'action') {
+                violationTitle = actionObj.title;
             }
-        };
+
+            const violationSub = actionObj.subtitle || actionObj.description || 'تم قيد مخالفة إدارية في السجل اليومي';
+            activeViolationAttachment = {
+                type: rawType,
+                title: violationTitle,
+                subtitle: violationSub,
+                isViolation: true,
+                hours: actionObj.hours,
+                timeFrom: actionObj.timeFrom,
+                timeTo: actionObj.timeTo,
+                reason: actionObj.reason || actionObj.description
+            };
+
+            // If there are NO shifts scheduled today, return the VIOLATION state immediately!
+            if (todayShifts.length === 0) {
+                return {
+                    state: 'VIOLATION',
+                    message: violationTitle,
+                    sub: violationSub,
+                    canPunch: true,
+                    color: 'bg-rose-600 text-white',
+                    actionDetails: activeViolationAttachment
+                };
+            }
+        } else {
+            // Generic fallback for any other unclassified action (NEVER default to ON_LEAVE!)
+            const fallbackTitle = actionObj.title && actionObj.title !== 'action' 
+                ? actionObj.title 
+                : 'إجراء إداري مقيد';
+            const fallbackSub = actionObj.subtitle || actionObj.description || 'إجراء إداري مسجل بالنظام';
+            activeViolationAttachment = {
+                type: rawType,
+                title: fallbackTitle,
+                subtitle: fallbackSub,
+                isViolation: true,
+                reason: actionObj.reason || actionObj.description
+            };
+
+            if (todayShifts.length === 0) {
+                return {
+                    state: 'VIOLATION',
+                    message: fallbackTitle,
+                    sub: fallbackSub,
+                    canPunch: true,
+                    color: 'bg-rose-600 text-white',
+                    actionDetails: activeViolationAttachment
+                };
+            }
+        }
     }
+
+    const finish = (res: AttendanceStateResult): AttendanceStateResult => {
+        if (!activeViolationAttachment) return res;
+        if (res.state === 'OFF' || res.state === 'UPCOMING' || res.state === 'ABSENT') {
+            return {
+                state: 'VIOLATION',
+                message: activeViolationAttachment.title || 'مخالفة إدارية رسمية',
+                sub: activeViolationAttachment.subtitle || 'تم قيد مخالفة إدارية في السجل اليومي',
+                canPunch: true,
+                color: 'bg-rose-600 text-white',
+                actionDetails: activeViolationAttachment
+            };
+        }
+        return {
+            ...res,
+            actionDetails: activeViolationAttachment
+        };
+    };
 
     let currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
 
@@ -413,23 +509,23 @@ export const calculateShiftStatus = (
                              const m = diff % 60;
                              const timeMsg = h > 0 ? `${h}h ${m}m` : `${m}m`;
                              
-                             return {
+                             return finish({
                                  state: 'LOCKED',
                                  message: 'ON DUTY',
                                  sub: `Unlock in ${timeMsg}`,
                                  canPunch: false,
                                  shiftIdx: 1
-                             };
+                             });
                         }
 
-                        return { 
+                        return finish({ 
                             state: 'READY_OUT', 
                             message: 'END YESTERDAY SHIFT', 
                             sub: `Shift ended at ${overnightShift.end}`, 
                             canPunch: true, 
                             shiftIdx: 1,
                             color: 'bg-indigo-600'
-                        };
+                        });
                     }
                 }
             }
@@ -441,7 +537,7 @@ export const calculateShiftStatus = (
     // =========================================================================
 
     if (todayShifts.length === 0) {
-        return { state: 'OFF', message: 'OFF DUTY', sub: 'No Active Shift', canPunch: false };
+        return finish({ state: 'OFF', message: 'OFF DUTY', sub: 'No Active Shift', canPunch: false });
     }
 
     // Sort logs safely by timestamp ascending
@@ -494,7 +590,7 @@ export const calculateShiftStatus = (
         if (logIn && logOut) {
             // If it's the LAST shift, we close the day immediately and persistently.
             if (!hasNextShift) {
-                return { state: 'COMPLETED', message: 'SHIFT COMPLETE', sub: `Shift ${shiftNum} Done`, canPunch: false };
+                return finish({ state: 'COMPLETED', message: 'SHIFT COMPLETE', sub: `Shift ${shiftNum} Done`, canPunch: false });
             }
 
             // For split shifts, check if the next shift's window is open
@@ -513,7 +609,7 @@ export const calculateShiftStatus = (
             if (outMins < start && outMins < 300) outMins += 1440; 
 
             if (effectiveNow < outMins + 30) { // Show completed for 30 mins only, then WAITING
-                return { state: 'COMPLETED', message: 'SHIFT COMPLETE', sub: `Shift ${shiftNum} Done`, canPunch: false };
+                return finish({ state: 'COMPLETED', message: 'SHIFT COMPLETE', sub: `Shift ${shiftNum} Done`, canPunch: false });
             }
             continue; 
         }
@@ -530,7 +626,7 @@ export const calculateShiftStatus = (
                      // Only skip if the next shift has actually started or its window is open (60 mins before)
                      if (now >= nextStartMins - 60) continue; 
                  }
-                 return { state: 'MISSED_OUT', message: 'MISSED OUT', sub: 'Forgot to punch out?', canPunch: false };
+                 return finish({ state: 'MISSED_OUT', message: 'MISSED OUT', sub: 'Forgot to punch out?', canPunch: false });
             }
 
             // ** LOCK OUT BUTTON **
@@ -540,16 +636,16 @@ export const calculateShiftStatus = (
                 const m = diff % 60;
                 const timeMsg = h > 0 ? `${h}h ${m}m` : `${m}m`;
 
-                return { 
+                return finish({ 
                     state: 'LOCKED', 
                     message: 'ON DUTY', 
                     sub: `Unlock in ${timeMsg}`, 
                     canPunch: false, 
                     shiftIdx: shiftNum 
-                };
+                });
             }
 
-            return { state: 'READY_OUT', message: `END SHIFT ${shiftNum}`, sub: 'Record Departure', canPunch: true, shiftIdx: shiftNum };
+            return finish({ state: 'READY_OUT', message: `END SHIFT ${shiftNum}`, sub: 'Record Departure', canPunch: true, shiftIdx: shiftNum });
         }
 
         // 3. Not Started Yet
@@ -560,23 +656,23 @@ export const calculateShiftStatus = (
                     const diff = windowOpen - now;
                     const h = Math.floor(diff/60);
                     const m = diff%60;
-                    return { 
+                    return finish({ 
                         state: 'WAITING', 
                         message: 'BREAK TIME', 
                         sub: `Next shift opens in`,
                         timeRemaining: `${h}h ${m}m`, 
                         canPunch: false, 
                         isBreak: true 
-                    };
+                    });
                 }
                 
                 if ((windowOpen - now) > 240) {
-                     return { state: 'UPCOMING', message: 'UPCOMING', sub: `Starts today at ${shift.start}`, canPunch: false };
+                     return finish({ state: 'UPCOMING', message: 'UPCOMING', sub: `Starts today at ${shift.start}`, canPunch: false });
                 }
 
                 const h = Math.floor((windowOpen - now)/60);
                 const m = (windowOpen - now)%60;
-                return { state: 'LOCKED', message: 'TOO EARLY', sub: `Starts at ${shift.start} (in ${h}h ${m}m)`, canPunch: false };
+                return finish({ state: 'LOCKED', message: 'TOO EARLY', sub: `Starts at ${shift.start} (in ${h}h ${m}m)`, canPunch: false });
             }
 
             // Punch In Window (Active until End + Buffer)
@@ -584,33 +680,33 @@ export const calculateShiftStatus = (
                 let isLate = false;
                 if (now > start + 30) isLate = true;
 
-                return { 
+                return finish({ 
                     state: 'READY_IN', 
                     message: isLate ? `LATE ENTRY ${shiftNum}` : `START SHIFT ${shiftNum}`, 
                     sub: isLate ? 'Better late than never' : `Shift ${shiftNum} Entry`, 
                     canPunch: true, 
                     shiftIdx: shiftNum,
                     color: isLate ? 'text-amber-500' : undefined
-                };
+                });
             }
 
           if (now >= windowOpen && now < start) {
-            return {
+            return finish({
                 state: 'READY_IN',
                 message: 'READY TO CHECK IN',
                 sub: 'Early Check-in',
                 canPunch: true,
                 color: 'text-cyan-500'
 
-            };
+            });
         }
             // Absent
             if (effectiveNow > end) {
                 if (!isLastShift) continue; 
-                return { state: 'ABSENT', message: 'ABSENT', sub: `Shift ${shiftNum} Missed`, canPunch: false };
+                return finish({ state: 'ABSENT', message: 'ABSENT', sub: `Shift ${shiftNum} Missed`, canPunch: false });
             }
         }
     }
 
-    return { state: 'OFF', message: 'OFF DUTY', sub: 'No Active Shift', canPunch: false };
+    return finish({ state: 'OFF', message: 'OFF DUTY', sub: 'No Active Shift', canPunch: false });
 };

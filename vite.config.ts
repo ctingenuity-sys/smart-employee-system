@@ -17,7 +17,7 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg', 'sw-push-handler.js'],
       devOptions: {
         enabled: true,
@@ -51,19 +51,19 @@ export default defineConfig({
         scope: "/",
         icons: [
           {
-            src: "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+            src: "/app-icon-3d.png",
             sizes: "192x192",
             type: "image/png",
             purpose: "any"
           },
           {
-            src: "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+            src: "/app-icon-3d.png",
             sizes: "512x512",
             type: "image/png",
             purpose: "any"
           },
           {
-            src: "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+            src: "/app-icon-3d.png",
             sizes: "512x512",
             type: "image/png",
             purpose: "maskable"

@@ -9,7 +9,6 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { DepartmentChatMessage, DepartmentChatGroup, User, UserRole } from '../types';
 import { sendMobileNotification } from '../services/notificationService';
 import { MobileNotificationModal } from './MobileNotificationModal';
-import { isOperationalStaff } from '../utils/staffUtils';
 
 // Built-in pleasant chime using Web Audio API (zero external requests, works offline)
 const playChatNotificationSound = () => {
@@ -159,19 +158,19 @@ export const DepartmentChatWidget: React.FC = () => {
     return norm === UserRole.ADMIN || norm === UserRole.SUPERVISOR || norm === UserRole.MANAGER;
   }, [role]);
 
-  // Load department users matching Visual View logic + all staff for direct messaging
+  // Load department users + all staff for direct messaging (including Admins, Supervisors, etc.)
   useEffect(() => {
     if (!user) return;
     const usersCol = collection(db, 'users');
     const unsubscribe = onSnapshot(usersCol, (snap) => {
       const list: User[] = snap.docs.map(d => ({ ...(d.data() as any), id: d.id, uid: d.data().uid || d.id }));
       
-      // All operational staff in the system
-      const operationalList = list.filter(u => isOperationalStaff(u, departments, true));
-      setAllUsersList(operationalList);
+      // All registered users across the hospital system
+      const validUsers = list.filter(u => u && (u.name || u.email));
+      setAllUsersList(validUsers);
 
-      // Department check strictly matching Visual View
-      const filtered = operationalList.filter(u => {
+      // Department check matching selected department
+      const filtered = validUsers.filter(u => {
         if (selectedDepartmentId && selectedDepartmentId !== 'all') {
           const inDept = u.departmentId === selectedDepartmentId || 
                          (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentId)) ||
@@ -182,7 +181,7 @@ export const DepartmentChatWidget: React.FC = () => {
       });
       setDeptUsers(filtered);
     }, (err) => {
-      console.warn('Could not load department staff for chat:', err);
+      console.warn('Could not load staff for chat:', err);
     });
 
     return () => unsubscribe();
@@ -407,46 +406,73 @@ export const DepartmentChatWidget: React.FC = () => {
     );
     const unSubDept = onSnapshot(qDept, processSnapshot, err => console.warn('Dept chat error', err));
 
+    const myUid = user.uid;
+    const myDocId = (user as any).id;
+
     // 2. Direct messages where current user is in participants
     const qPart = query(
       collection(db, 'department_chats'),
-      where('participants', 'array-contains', user.uid)
+      where('participants', 'array-contains', myUid)
     );
     const unSubPart = onSnapshot(qPart, processSnapshot, err => console.warn('Participants chat error', err));
 
     // 3. Direct messages where user is direct recipient
     const qRecip = query(
       collection(db, 'department_chats'),
-      where('directRecipientId', '==', user.uid)
+      where('directRecipientId', '==', myUid)
     );
     const unSubRecip = onSnapshot(qRecip, processSnapshot, err => console.warn('Recipient chat error', err));
 
     // 4. Direct messages where user is sender
     const qSender = query(
       collection(db, 'department_chats'),
-      where('senderId', '==', user.uid)
+      where('senderId', '==', myUid)
     );
     const unSubSender = onSnapshot(qSender, processSnapshot, err => console.warn('Sender chat error', err));
+
+    let unSubPartDoc: (() => void) | null = null;
+    let unSubRecipDoc: (() => void) | null = null;
+    let unSubSenderDoc: (() => void) | null = null;
+
+    if (myDocId && myDocId !== myUid) {
+      const qPartDoc = query(collection(db, 'department_chats'), where('participants', 'array-contains', myDocId));
+      unSubPartDoc = onSnapshot(qPartDoc, processSnapshot, err => console.warn('Part doc error', err));
+
+      const qRecipDoc = query(collection(db, 'department_chats'), where('directRecipientId', '==', myDocId));
+      unSubRecipDoc = onSnapshot(qRecipDoc, processSnapshot, err => console.warn('Recip doc error', err));
+
+      const qSenderDoc = query(collection(db, 'department_chats'), where('senderId', '==', myDocId));
+      unSubSenderDoc = onSnapshot(qSenderDoc, processSnapshot, err => console.warn('Sender doc error', err));
+    }
 
     return () => {
       unSubDept();
       unSubPart();
       unSubRecip();
       unSubSender();
+      if (unSubPartDoc) unSubPartDoc();
+      if (unSubRecipDoc) unSubRecipDoc();
+      if (unSubSenderDoc) unSubSenderDoc();
     };
   }, [user, selectedDepartmentId, soundEnabled, isOpen, groups, dir, currentDept.name]);
 
   // Auto-mark incoming direct messages as Read when looking at that conversation
   useEffect(() => {
     if (!isOpen || activeTab !== 'direct' || !selectedPeer || !user) return;
-    const peerId = selectedPeer.uid || (selectedPeer as any).id;
-    const myId = user.uid;
+    const peerUid = selectedPeer.uid;
+    const peerId = (selectedPeer as any).id;
+    const myUid = user.uid;
+    const myId = (user as any).id || user.uid;
+
+    const matchesPeer = (id?: string) => Boolean(id && (id === peerUid || id === peerId));
+    const matchesMe = (id?: string) => Boolean(id && (id === myUid || id === myId));
 
     const unreadFromPeer = messages.filter(m => {
-      const isFromPeer = m.senderId === peerId;
-      const isForMe = m.directRecipientId === myId || (m.participants && m.participants.includes(myId));
-      const notReadYet = !m.isRead || !(m.readBy && m.readBy.includes(myId));
-      return isFromPeer && isForMe && notReadYet;
+      if (m.groupId) return false;
+      const isFromPeer = matchesPeer(m.senderId);
+      const isForMe = matchesMe(m.directRecipientId) || (m.participants && m.participants.some(matchesMe));
+      const isAlreadyRead = Boolean(m.isRead || (m.readBy && (m.readBy.includes(myUid) || m.readBy.includes(myId))));
+      return isFromPeer && isForMe && !isAlreadyRead;
     });
 
     if (unreadFromPeer.length > 0) {
@@ -455,7 +481,7 @@ export const DepartmentChatWidget: React.FC = () => {
           await updateDoc(doc(db, 'department_chats', msg.id), {
             isRead: true,
             readAt: serverTimestamp(),
-            readBy: arrayUnion(myId)
+            readBy: arrayUnion(myUid)
           });
         } catch (err) {
           console.warn('Could not mark message as read:', err);
@@ -484,11 +510,18 @@ export const DepartmentChatWidget: React.FC = () => {
       return messages.filter(m => m.groupId === selectedGroup.id);
     } else if (activeTab === 'direct' && selectedPeer) {
       // Direct room: messages between user and peer
-      const peerId = selectedPeer.uid || (selectedPeer as any).id;
-      const myId = user.uid;
+      const peerUid = selectedPeer.uid;
+      const peerId = (selectedPeer as any).id;
+      const myUid = user.uid;
+      const myId = (user as any).id || user.uid;
+
+      const matchesPeer = (id?: string) => Boolean(id && (id === peerUid || id === peerId));
+      const matchesMe = (id?: string) => Boolean(id && (id === myUid || id === myId));
+
       return messages.filter(m => {
-        const isFromMeToPeer = m.senderId === myId && (m.directRecipientId === peerId || (m.participants && m.participants.includes(peerId) && m.participants.includes(myId)));
-        const isFromPeerToMe = m.senderId === peerId && (m.directRecipientId === myId || (m.participants && m.participants.includes(peerId) && m.participants.includes(myId)));
+        if (m.groupId) return false;
+        const isFromMeToPeer = matchesMe(m.senderId) && (matchesPeer(m.directRecipientId) || (m.participants && m.participants.some(matchesPeer)));
+        const isFromPeerToMe = matchesPeer(m.senderId) && (matchesMe(m.directRecipientId) || (m.participants && m.participants.some(matchesMe)));
         return isFromMeToPeer || isFromPeerToMe;
       });
     }
@@ -539,6 +572,7 @@ export const DepartmentChatWidget: React.FC = () => {
 
     if (activeTab === 'groups' && selectedGroup) {
       payload.groupId = selectedGroup.id;
+      payload.participants = selectedGroup.members;
     } else if (activeTab === 'direct' && selectedPeer) {
       const peerId = selectedPeer.uid || (selectedPeer as any).id;
       payload.directRecipientId = peerId;
@@ -660,6 +694,7 @@ export const DepartmentChatWidget: React.FC = () => {
 
             if (activeTab === 'groups' && selectedGroup) {
               payload.groupId = selectedGroup.id;
+              payload.participants = selectedGroup.members;
             } else if (activeTab === 'direct' && selectedPeer) {
               const peerId = selectedPeer.uid || (selectedPeer as any).id;
               payload.directRecipientId = peerId;
@@ -877,27 +912,113 @@ export const DepartmentChatWidget: React.FC = () => {
   // Total unread direct messages count for current user across all peers
   const totalUnreadDirectCount = useMemo(() => {
     if (!user) return 0;
-    const myId = user.uid;
-    return messages.filter(m => 
-      (m.directRecipientId === myId || (m.participants && m.participants.includes(myId) && m.senderId !== myId)) && 
-      (!m.isRead || !(m.readBy && m.readBy.includes(myId)))
-    ).length;
+    const myUid = user.uid;
+    const myId = (user as any).id || user.uid;
+    const matchesMe = (id?: string) => Boolean(id && (id === myUid || id === myId));
+
+    return messages.filter(m => {
+      if (m.groupId) return false;
+      const isForMe = matchesMe(m.directRecipientId) || (m.participants && m.participants.some(matchesMe));
+      const isNotFromMe = !matchesMe(m.senderId);
+      const isAlreadyRead = Boolean(m.isRead || (m.readBy && (m.readBy.includes(myUid) || m.readBy.includes(myId))));
+      return isForMe && isNotFromMe && !isAlreadyRead;
+    }).length;
   }, [messages, user]);
+
+  // Unread general department room messages count
+  const unreadGeneralCount = useMemo(() => {
+    if (!user) return 0;
+    const stored = localStorage.getItem('dept_chat_general_last_read');
+    const lastRead = stored ? Number(stored) : 0;
+    const targetDeptId = selectedDepartmentId || (user as any)?.departmentId || 'legacy_radiology';
+    return messages.filter(m => {
+      const isGeneral = !m.directRecipientId && !m.groupId;
+      const isFromOthers = m.senderId !== user.uid;
+      const isInDept = m.departmentId === targetDeptId || selectedDepartmentId === 'all';
+      const msgTime = m.createdAt?.toMillis ? m.createdAt.toMillis() : (m.createdAt ? new Date(m.createdAt).getTime() : 0);
+      const isRead = Boolean((m.readBy && m.readBy.includes(user.uid)) || (lastRead > 0 && msgTime <= lastRead));
+      return isGeneral && isFromOthers && isInDept && !isRead;
+    }).length;
+  }, [messages, user, selectedDepartmentId]);
+
+  // Unread group chats count for groups current user is a member of
+  const unreadGroupsCount = useMemo(() => {
+    if (!user) return 0;
+    const stored = localStorage.getItem('dept_chat_groups_last_read');
+    const lastRead = stored ? Number(stored) : 0;
+    return messages.filter(m => {
+      const isGroup = !!m.groupId;
+      const isFromOthers = m.senderId !== user.uid;
+      const parentGroup = groups.find(g => g.id === m.groupId);
+      const isMyGroup = parentGroup && parentGroup.members.includes(user.uid);
+      const msgTime = m.createdAt?.toMillis ? m.createdAt.toMillis() : (m.createdAt ? new Date(m.createdAt).getTime() : 0);
+      const isRead = Boolean((m.readBy && m.readBy.includes(user.uid)) || (lastRead > 0 && msgTime <= lastRead));
+      return isGroup && isFromOthers && isMyGroup && !isRead;
+    }).length;
+  }, [messages, user, groups]);
+
+  // Combined accurate real-time unread messages count across all sections
+  const totalAllUnreadCount = unreadGeneralCount + unreadGroupsCount + totalUnreadDirectCount;
 
   // List of colleagues with chat stats, sorted with UNREAD chats ALWAYS at the very top!
   const staffWithChatStats = useMemo(() => {
     if (!user) return [];
-    const myId = user.uid;
+    const myUid = user.uid;
+    const myDocId = (user as any).id || user.uid;
 
-    // Use all operational users
-    const userPool = allUsersList.length > 0 ? allUsersList : deptUsers;
+    const matchesMe = (id?: string) => Boolean(id && (id === myUid || id === myDocId));
+
     const knownUsersMap = new Map<string, User>();
-    userPool.forEach(u => {
+
+    const registerUser = (u: User) => {
+      if (!u) return;
       const uid = u.uid || u.id;
-      if (uid && uid !== myId) {
-        knownUsersMap.set(uid, u);
+      if (uid && !matchesMe(uid)) {
+        if (!knownUsersMap.has(uid) || (u.name && !knownUsersMap.get(uid)?.name)) {
+          knownUsersMap.set(uid, u);
+        }
+      }
+      if (u.id && !matchesMe(u.id)) {
+        if (!knownUsersMap.has(u.id) || (u.name && !knownUsersMap.get(u.id)?.name)) {
+          knownUsersMap.set(u.id, u);
+        }
+      }
+    };
+
+    // 1. Add all users from allUsersList & deptUsers
+    allUsersList.forEach(registerUser);
+    deptUsers.forEach(registerUser);
+
+    // 2. Safeguard: Scan memory messages to synthesize missing senders/recipients
+    messages.forEach(m => {
+      if (m.groupId) return;
+      const isIncoming = (matchesMe(m.directRecipientId) || (m.participants && m.participants.some(matchesMe))) && !matchesMe(m.senderId);
+      const isOutgoing = matchesMe(m.senderId) && m.directRecipientId && !matchesMe(m.directRecipientId);
+
+      if (isIncoming && m.senderId && !knownUsersMap.has(m.senderId)) {
+        const synth: User = {
+          id: m.senderId,
+          uid: m.senderId,
+          name: m.senderName || (dir === 'rtl' ? 'زميل بالعمل' : 'Colleague'),
+          email: '',
+          role: m.senderRole || UserRole.USER,
+          departmentId: m.departmentId || ''
+        };
+        registerUser(synth);
+      } else if (isOutgoing && m.directRecipientId && !knownUsersMap.has(m.directRecipientId)) {
+        const synth: User = {
+          id: m.directRecipientId,
+          uid: m.directRecipientId,
+          name: m.directRecipientName || (dir === 'rtl' ? 'زميل بالعمل' : 'Colleague'),
+          email: '',
+          role: UserRole.USER,
+          departmentId: m.departmentId || ''
+        };
+        registerUser(synth);
       }
     });
+
+    const uniqueUsers = Array.from(new Set(knownUsersMap.values()));
 
     const items: Array<{
       user: User;
@@ -907,13 +1028,16 @@ export const DepartmentChatWidget: React.FC = () => {
       isInCurrentDept: boolean;
     }> = [];
 
-    knownUsersMap.forEach(colleague => {
-      const peerId = colleague.uid || colleague.id;
-      
-      // Find all direct messages between myId and peerId
+    uniqueUsers.forEach(colleague => {
+      const peerUid = colleague.uid;
+      const peerId = colleague.id;
+      const matchesPeer = (id?: string) => Boolean(id && (id === peerUid || id === peerId));
+
+      // Find all direct messages between me and this peer
       const peerMessages = messages.filter(m => {
-        const isFromMeToPeer = m.senderId === myId && (m.directRecipientId === peerId || (m.participants && m.participants.includes(peerId)));
-        const isFromPeerToMe = m.senderId === peerId && (m.directRecipientId === myId || (m.participants && m.participants.includes(myId)));
+        if (m.groupId) return false;
+        const isFromMeToPeer = matchesMe(m.senderId) && (matchesPeer(m.directRecipientId) || (m.participants && m.participants.some(matchesPeer)));
+        const isFromPeerToMe = matchesPeer(m.senderId) && (matchesMe(m.directRecipientId) || (m.participants && m.participants.some(matchesMe)));
         return isFromMeToPeer || isFromPeerToMe;
       });
 
@@ -923,10 +1047,11 @@ export const DepartmentChatWidget: React.FC = () => {
         : (lastMsg?.createdAt ? new Date(lastMsg.createdAt).getTime() : 0);
 
       // Unread count: messages sent from peer to me that are not read yet
-      const unreadCount = peerMessages.filter(m => 
-        m.senderId === peerId && 
-        (!m.isRead || !(m.readBy && m.readBy.includes(myId)))
-      ).length;
+      const unreadCount = peerMessages.filter(m => {
+        const isFromPeer = matchesPeer(m.senderId);
+        const isAlreadyRead = Boolean(m.isRead || (m.readBy && (m.readBy.includes(myUid) || m.readBy.includes(myDocId))));
+        return isFromPeer && !isAlreadyRead;
+      }).length;
 
       // Current department check
       const isInCurrentDept = selectedDepartmentId === 'all' || 
@@ -975,7 +1100,7 @@ export const DepartmentChatWidget: React.FC = () => {
     });
 
     return items;
-  }, [allUsersList, deptUsers, messages, user, searchQuery, filterUnreadOnly, selectedDepartmentId]);
+  }, [allUsersList, deptUsers, messages, user, searchQuery, filterUnreadOnly, selectedDepartmentId, dir]);
 
   // Filtered members for group creator modal
   const filteredForGroupCreation = useMemo(() => {
@@ -1020,10 +1145,24 @@ export const DepartmentChatWidget: React.FC = () => {
         <button
           id="floating-chat-trigger-btn"
           onClick={() => {
-            setIsOpen(prev => !prev);
             if (!isOpen) {
-              setUnreadCount(0);
-              localStorage.setItem('dept_chat_last_read', Date.now().toString());
+              // Smart Tab selection: If user has unread direct messages, open direct tab right away!
+              if (totalUnreadDirectCount > 0 && unreadGeneralCount === 0) {
+                setActiveTab('direct');
+                setSelectedGroup(null);
+              } else if (unreadGroupsCount > 0 && unreadGeneralCount === 0) {
+                setActiveTab('groups');
+                setSelectedPeer(null);
+                localStorage.setItem('dept_chat_groups_last_read', Date.now().toString());
+              } else {
+                setActiveTab('group');
+                setSelectedPeer(null);
+                setSelectedGroup(null);
+                localStorage.setItem('dept_chat_general_last_read', Date.now().toString());
+              }
+              setIsOpen(true);
+            } else {
+              setIsOpen(false);
             }
           }}
           className={`group relative w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-300 transform active:scale-95 shadow-[0_10px_30px_rgba(37,99,235,0.4)] ${
@@ -1045,12 +1184,12 @@ export const DepartmentChatWidget: React.FC = () => {
           )}
 
           {/* Unread badge */}
-          {!isOpen && unreadCount > 0 && (
+          {!isOpen && totalAllUnreadCount > 0 && (
             <span 
               id="chat-unread-badge"
               className="absolute -top-1.5 -right-1.5 rtl:-left-1.5 rtl:right-auto min-w-[22px] h-[22px] px-1 rounded-full bg-rose-500 text-white text-[11px] font-black flex items-center justify-center border-2 border-slate-900 shadow-lg animate-bounce"
             >
-              {unreadCount > 9 ? '9+' : unreadCount}
+              {totalAllUnreadCount > 9 ? '9+' : totalAllUnreadCount}
             </span>
           )}
         </button>
@@ -1188,6 +1327,7 @@ export const DepartmentChatWidget: React.FC = () => {
                 setActiveTab('group');
                 setSelectedPeer(null);
                 setSelectedGroup(null);
+                localStorage.setItem('dept_chat_general_last_read', Date.now().toString());
               }}
               className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1 shrink-0 ${
                 activeTab === 'group'
@@ -1197,6 +1337,11 @@ export const DepartmentChatWidget: React.FC = () => {
             >
               <i className="fas fa-hospital text-[10px]"></i>
               <span>{dir === 'rtl' ? 'القسم' : 'Dept'}</span>
+              {unreadGeneralCount > 0 && (
+                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center shadow-xs animate-pulse">
+                  {unreadGeneralCount > 9 ? '9+' : unreadGeneralCount}
+                </span>
+              )}
             </button>
 
             {/* Tab 2: Employee Groups (الجروبات) */}
@@ -1204,6 +1349,7 @@ export const DepartmentChatWidget: React.FC = () => {
               onClick={() => {
                 setActiveTab('groups');
                 setSelectedPeer(null);
+                localStorage.setItem('dept_chat_groups_last_read', Date.now().toString());
               }}
               className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 shrink-0 ${
                 activeTab === 'groups'
@@ -1213,11 +1359,17 @@ export const DepartmentChatWidget: React.FC = () => {
             >
               <i className="fas fa-users-cog text-[10px]"></i>
               <span>{dir === 'rtl' ? 'الجروبات' : 'Groups'}</span>
-              <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-black ${
-                activeTab === 'groups' ? 'bg-white/20 text-white' : 'bg-slate-700/50 text-slate-300'
-              }`}>
-                {groups.length}
-              </span>
+              {unreadGroupsCount > 0 ? (
+                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center shadow-xs animate-pulse">
+                  {unreadGroupsCount > 9 ? '9+' : unreadGroupsCount}
+                </span>
+              ) : (
+                <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-black ${
+                  activeTab === 'groups' ? 'bg-white/20 text-white' : 'bg-slate-700/50 text-slate-300'
+                }`}>
+                  {groups.length}
+                </span>
+              )}
             </button>
 
             {/* Tab 3: Direct Messages (DM) */}
@@ -1235,7 +1387,7 @@ export const DepartmentChatWidget: React.FC = () => {
               <i className="fas fa-user-friends text-[10px]"></i>
               <span>{dir === 'rtl' ? 'خاص' : 'Direct'}</span>
               {totalUnreadDirectCount > 0 && (
-                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center shadow-sm animate-pulse">
+                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center shadow-xs animate-pulse">
                   {totalUnreadDirectCount > 9 ? '9+' : totalUnreadDirectCount}
                 </span>
               )}
@@ -1327,6 +1479,36 @@ export const DepartmentChatWidget: React.FC = () => {
 
                 {/* Messages Scroll Area */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
+                  {/* Quick Jump Banner for Direct Messages if unread exist */}
+                  {activeTab === 'group' && totalUnreadDirectCount > 0 && (
+                    <div 
+                      onClick={() => {
+                        setActiveTab('direct');
+                        setSelectedGroup(null);
+                      }}
+                      className="p-3 rounded-2xl bg-gradient-to-r from-blue-600/25 via-indigo-600/25 to-cyan-500/25 border border-blue-500/40 flex items-center justify-between cursor-pointer hover:bg-blue-600/35 transition-all shadow-md group animate-in fade-in slide-in-from-top-2 shrink-0 mb-3"
+                    >
+                      <div className="flex items-center gap-2.5 text-xs">
+                        <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center text-xs shadow-sm animate-bounce shrink-0">
+                          <i className="fas fa-envelope-open-text"></i>
+                        </span>
+                        <div>
+                          <p className="font-black text-blue-400 dark:text-cyan-300 flex items-center gap-1.5 text-xs">
+                            <span>{dir === 'rtl' ? `لديك ${totalUnreadDirectCount} ${totalUnreadDirectCount === 1 ? 'رسالة خاصة غير مقروءة' : 'رسائل خاصة غير مقروءة'}` : `You have ${totalUnreadDirectCount} unread direct message(s)`}</span>
+                            <span className="px-1.5 py-0.2 rounded-md text-[9px] bg-rose-500 text-white font-black">جديد</span>
+                          </p>
+                          <p className="text-[11px] text-slate-400">
+                            {dir === 'rtl' ? 'انقر هنا للانتقال إلى قسم المحادثات الخاصة فوراً' : 'Click to open Direct Messages & reply'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 text-blue-400 font-bold text-xs group-hover:text-blue-300 shrink-0">
+                        <span>{dir === 'rtl' ? 'فتح' : 'Open'}</span>
+                        <i className={`fas fa-arrow-${dir === 'rtl' ? 'left' : 'right'} text-[10px] group-hover:translate-x-1 rtl:group-hover:-translate-x-1 transition-transform`}></i>
+                      </div>
+                    </div>
+                  )}
+
                   {visibleMessages.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
                       <div className="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-500 mb-3">
@@ -1346,6 +1528,20 @@ export const DepartmentChatWidget: React.FC = () => {
                               ? 'يمكنكم مشاركة الملاحظات والتنبيهات السريعة ومتابعة سير العمل لحظياً.' 
                               : 'Share quick updates, notices and coordinate workflow in real-time.')}
                       </p>
+
+                      {/* Action to jump to direct messages if there are unread direct messages */}
+                      {activeTab === 'group' && totalUnreadDirectCount > 0 && (
+                        <button
+                          onClick={() => {
+                            setActiveTab('direct');
+                            setSelectedGroup(null);
+                          }}
+                          className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition-all active:scale-95"
+                        >
+                          <i className="fas fa-envelope"></i>
+                          <span>{dir === 'rtl' ? `عرض ${totalUnreadDirectCount} رسائل خاصة غير مقروءة` : `View ${totalUnreadDirectCount} Unread Messages`}</span>
+                        </button>
+                      )}
                     </div>
                   ) : (
                     visibleMessages.map((msg) => {

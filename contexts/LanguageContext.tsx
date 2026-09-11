@@ -1232,6 +1232,8 @@ const translations: Record<string, { ar: string; en: string }> = {
   'dash.offDutyBeacon': { ar: 'خارج العمل', en: 'Off Duty' },
   'dash.upcomingBeacon': { ar: 'مناوبة قادمة', en: 'Upcoming Shift' },
   'dash.leaveBeacon': { ar: 'إجازة رسمية', en: 'Official Leave' },
+  'dash.violationBeacon': { ar: 'مخالفة إدارية مسجلة', en: 'Administrative Violation' },
+  'dash.violationNotice': { ar: 'مخالفة مقيدة', en: 'Violation Logged' },
   'dash.absentBeacon': { ar: 'غياب غير مسجل', en: 'Unexcused Absence' },
   'dash.permissionBeacon': { ar: 'إذن مصرح به', en: 'Authorized Permission' },
   'dash.missionBeacon': { ar: 'مأمورية رسمية', en: 'Official Mission' },

@@ -48,7 +48,7 @@ const showBrowserNotification = (title: string, body: string, type: 'normal' | '
   
   const options: any = {
       body, 
-      icon: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
+      icon: '/app-icon-3d.png',
       requireInteraction: type === 'alert',
       silent: true
   };
@@ -63,43 +63,96 @@ const showBrowserNotification = (title: string, body: string, type: 'normal' | '
 };
 
 const GlobalNotificationListener: React.FC<{ userId: string, userRole: string, departmentId: string | null }> = ({ userId, userRole, departmentId }) => {
-    const isFirstRun = useRef(true);
+    const subscriptionStartTime = useRef(Date.now());
     const { t } = useLanguage();
-
-    useEffect(() => {
-        const t = setTimeout(() => { isFirstRun.current = false; }, 3000); 
-        return () => clearTimeout(t);
-    }, []);
 
     useEffect(() => {
         if (!userId || !departmentId) return;
 
-        // Listen to the new notifications collection
-        const qNotif = query(collection(db, 'notifications'), where('departmentId', '==', departmentId), orderBy('createdAt', 'desc'), limit(1));
+        // Record current mount time so historical notifications never replay on app open
+        subscriptionStartTime.current = Date.now();
+
+        // Listen to the notifications collection for current department
+        const qNotif = query(
+            collection(db, 'notifications'), 
+            where('departmentId', '==', departmentId), 
+            orderBy('createdAt', 'desc'), 
+            limit(5)
+        );
         
+        let isInitialSnapshot = true;
+
         const unsubNotif = onSnapshot(qNotif, (snap: any) => {
-            if (isFirstRun.current) return;
+            // CRITICAL FIX: The initial snapshot returns existing past documents as type 'added'.
+            // We must mark initial load complete and NEVER trigger audio or toast alerts for past notifications.
+            if (isInitialSnapshot) {
+                isInitialSnapshot = false;
+                return;
+            }
+
+            // Retrieve set of already alerted notification IDs on this device (persisted across app restarts)
+            let alertedIds: string[] = [];
+            try {
+                const stored = localStorage.getItem('app_alerted_notif_ids') || sessionStorage.getItem('session_alerted_notif_ids');
+                alertedIds = stored ? JSON.parse(stored) : [];
+            } catch (e) {
+                alertedIds = [];
+            }
+
+            let dismissedIds: string[] = [];
+            try {
+                const stored = localStorage.getItem('dismissed_notif_ids');
+                dismissedIds = stored ? JSON.parse(stored) : [];
+            } catch (e) {
+                dismissedIds = [];
+            }
+
             snap.docChanges().forEach((change: any) => {
                 if (change.type === 'added') {
+                    const notifId = change.doc.id;
                     const data = change.doc.data();
+
+                    // Skip if already alerted or dismissed on this device
+                    if (alertedIds.includes(notifId) || dismissedIds.includes(notifId)) return;
+
+                    // Verify creation time is genuinely after the current session started
+                    const notifTime = data.createdAt?.toMillis 
+                        ? data.createdAt.toMillis() 
+                        : (data.createdAt ? new Date(data.createdAt).getTime() : 0);
                     
-                    // Check if notification is for me
+                    if (notifTime > 0 && notifTime < (subscriptionStartTime.current - 5000)) {
+                        return; // Past notification, do not alert
+                    }
+                    
+                    // Check if notification is targeted to current user
                     let isForMe = false;
                     if (data.userId === userId) isForMe = true;
                     else if (!data.userId && data.targetRole === userRole) isForMe = true;
                     else if (!data.userId && !data.targetRole) isForMe = true;
 
                     if (isForMe && (!data.readBy || !data.readBy.includes(userId))) {
+                        // Mark as alerted in persistent storage so it never pops up again
+                        alertedIds.push(notifId);
+                        try {
+                            localStorage.setItem('app_alerted_notif_ids', JSON.stringify(alertedIds.slice(-100)));
+                            sessionStorage.setItem('session_alerted_notif_ids', JSON.stringify(alertedIds.slice(-100)));
+                        } catch (e) {}
+
                         sendMobileNotification(data.title, {
                             body: data.message,
                             type: data.type === 'alert' ? 'alert' : 'normal',
-                            tag: `notif-${change.doc.id}`
+                            tag: `notif-${notifId}`
                         });
+
                         // Dispatch custom event to show toast in Layout
-                        window.dispatchEvent(new CustomEvent('app-notification', { detail: { title: data.title, message: data.message } }));
+                        window.dispatchEvent(new CustomEvent('app-notification', { 
+                            detail: { title: data.title, message: data.message } 
+                        }));
                     }
                 }
             });
+        }, (err) => {
+            console.warn('Global notification listener error:', err);
         });
 
         return () => {
@@ -253,13 +306,23 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
       <div className={`fixed inset-y-0 ${sidebarPosition} z-[9999] w-64 ${desktopWidthClass} transition-all duration-300 transform ${isDark ? 'bg-slate-950 border-r rtl:border-r-0 rtl:border-l border-slate-800/90' : 'bg-secondary'} lg:translate-x-0 lg:static lg:inset-0 ${isSidebarOpen ? 'translate-x-0 opacity-100 pointer-events-auto visible' : `${transformDirection} opacity-0 pointer-events-none invisible lg:opacity-100 lg:pointer-events-auto lg:visible`} print:hidden flex flex-col shadow-xl`}>
         <div className={`flex items-center justify-between h-16 shadow-md ${isDark ? 'bg-slate-900/90 border-b border-slate-800' : 'bg-slate-900'} flex-shrink-0 px-3`}>
           {!isDesktopCollapsed ? (
-            <h1 className="text-lg font-bold text-white flex items-center truncate">
-              <i className="fas fa-hospital-user mr-2 text-accent"></i>
+            <h1 className="text-lg font-bold text-white flex items-center truncate gap-2.5">
+              <img 
+                src="/app-icon-3d.png" 
+                alt="App Icon" 
+                className="w-8 h-8 rounded-lg shadow-md object-cover border border-white/20 flex-shrink-0" 
+                referrerPolicy="no-referrer" 
+              />
               <span className="truncate">{t('app.name')}</span>
             </h1>
           ) : (
-            <div className="mx-auto text-accent text-xl hidden lg:block" title={t('app.name')}>
-              <i className="fas fa-hospital-user"></i>
+            <div className="mx-auto hidden lg:block" title={t('app.name')}>
+              <img 
+                src="/app-icon-3d.png" 
+                alt="App Icon" 
+                className="w-8 h-8 rounded-lg shadow-md object-cover border border-white/20" 
+                referrerPolicy="no-referrer" 
+              />
             </div>
           )}
           

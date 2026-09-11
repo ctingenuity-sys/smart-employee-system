@@ -13,11 +13,53 @@ function ReloadPrompt() {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({
+    immediate: true,
+    onNeedRefresh() {
+      console.log('SW: New content available, need refresh');
+    },
+    onOfflineReady() {
+      console.log('SW: App ready to work offline');
+    },
     onRegistered(r: any) {
-      console.log('SW Registered: ' + r);
+      console.log('SW Registered:', r);
+      if (r) {
+        // Immediate update check when component loads
+        try {
+          r.update().catch(() => {});
+        } catch (e) {}
+
+        // Periodic check every 30 seconds for new app versions
+        const intervalId = setInterval(() => {
+          try {
+            r.update().catch(() => {});
+          } catch (e) {}
+        }, 30 * 1000);
+
+        // Check whenever the user refocuses the app or switches back to this browser tab
+        const triggerCheck = () => {
+          try {
+            r.update().catch(() => {});
+          } catch (e) {}
+        };
+        window.addEventListener('focus', triggerCheck);
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            triggerCheck();
+          }
+        });
+
+        // Custom event for manual check
+        window.addEventListener('check-for-updates', () => {
+          try {
+            r.update().then(() => {
+              console.log('Manual SW update check completed');
+            }).catch(() => {});
+          } catch (e) {}
+        });
+      }
     },
     onRegisterError(error: any) {
-      console.log('SW registration error', error);
+      console.warn('SW registration error:', error);
     },
   });
 

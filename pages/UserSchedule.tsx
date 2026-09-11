@@ -695,12 +695,18 @@ const UserSchedule: React.FC = () => {
 
     const getLocationName = useCallback((sch: Schedule) => {
         if (sch.locationId === 'LEAVE_ACTION') {
+            if (sch.actionDetails?.title) {
+                return sch.actionDetails.title;
+            }
+
             const map: Record<string, { ar: string; en: string }> = {
                 'conduct_violation': { ar: 'مخالفة سلوك / تعليمات', en: 'CONDUCT VIOLATION' },
                 'violation': { ar: 'مخالفة إدارية رسمية', en: 'ADMINISTRATIVE VIOLATION' },
                 'late': { ar: 'تأخير عن مواعيد العمل', en: 'LATE ATTENDANCE' },
                 'early_leave': { ar: 'انصراف مبكر بدون إذن', en: 'EARLY DEPARTURE' },
                 'permission_hours': { ar: 'إذن خروج مؤقت (ساعات)', en: 'TIME PERMIT' },
+                'hourly_permission': { ar: 'إذن خروج مؤقت (ساعات)', en: 'TIME PERMIT' },
+                'permission': { ar: 'إذن خروج مؤقت (ساعات)', en: 'TIME PERMIT' },
                 'neglect': { ar: 'إهمال وتقصير في العمل', en: 'WORK NEGLECT' },
                 'verbal_warning': { ar: 'لفت نظر / تنبيه شفوي', en: 'VERBAL WARNING' },
                 'deduction': { ar: 'خصم مالي من الراتب', en: 'SALARY DEDUCTION' },
@@ -711,11 +717,18 @@ const UserSchedule: React.FC = () => {
                 'sick_leave': { ar: 'إجازة مرضية معتمدة', en: 'SICK LEAVE' },
                 'mission': { ar: 'مأمورية عمل رسمية', en: 'OFFICIAL MISSION' }
             };
-            const actInfo = map[sch.note || ''];
+            const actType = (sch.note || sch.actionDetails?.type || '').toLowerCase();
+            const actInfo = map[actType];
             if (actInfo) {
                 return dir === 'rtl' ? actInfo.ar : actInfo.en;
             }
-            return (sch.note || 'LEAVE').toUpperCase().replace(/_/g, ' ');
+            if (actType.includes('violation') || actType.includes('مخالفة')) {
+                return dir === 'rtl' ? 'مخالفة إدارية رسمية' : 'ADMINISTRATIVE VIOLATION';
+            }
+            if (actType.includes('leave') || actType.includes('إجازة') || actType.includes('اجازة')) {
+                return dir === 'rtl' ? 'إجازة رسمية معتمدة' : 'OFFICIAL LEAVE';
+            }
+            return sch.note || (dir === 'rtl' ? 'إجراء إداري مقيد' : 'ADMIN ACTION');
         }
         
         let display = '';

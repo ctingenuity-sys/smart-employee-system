@@ -29,8 +29,8 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
 };
 
 const PREFS_STORAGE_KEY = 'smart_employee_notification_preferences';
-const DEFAULT_ICON = 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
-const DEFAULT_BADGE = 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
+const DEFAULT_ICON = '/app-icon-3d.png';
+const DEFAULT_BADGE = '/app-icon-3d.png';
 
 // Sound Chimes
 export const playNotificationChime = (type: 'normal' | 'alert' | 'chat' = 'normal') => {

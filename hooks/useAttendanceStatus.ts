@@ -215,6 +215,7 @@ export const useAttendanceStatus = (userId: string | undefined) => {
 
         // 2. Check actions / penalties / permissions / delays / absences in actions collection
         const activeActionItem = actionsList.find(a => {
+            if (a.type === 'positive') return false; // Ignore positive rewards/commendations
             const from = a.fromDate || a.date || a.startDate;
             const to = a.toDate || a.date || a.endDate || from;
             if (!from) return false;
@@ -223,9 +224,32 @@ export const useAttendanceStatus = (userId: string | undefined) => {
 
         if (activeActionItem) {
             const type = activeActionItem.type || 'action';
+            const actionDefaultTitles: Record<string, string> = {
+                'conduct_violation': 'مخالفة سلوك / تعليمات',
+                'violation': 'مخالفة إدارية رسمية',
+                'early_leave': 'انصراف مبكر بدون إذن',
+                'late': 'تأخير عن مواعيد العمل',
+                'permission_hours': 'إذن خروج مؤقت',
+                'hourly_permission': 'إذن خروج مؤقت',
+                'permission': 'إذن خروج مؤقت',
+                'neglect': 'إهمال وتقصير في العمل',
+                'verbal_warning': 'لفت نظر / تنبيه إداري',
+                'deduction': 'خصم مالي من الراتب',
+                'suspension': 'إيقاف مؤقت عن العمل',
+                'unjustified_absence': 'غياب غير مبرر',
+                'justified_absence': 'غياب مبرر بعذر',
+                'annual_leave': 'إجازة اعتيادية سنوية',
+                'sick_leave': 'إجازة مرضية معتمدة',
+                'mission': 'مأمورية عمل رسمية'
+            };
+
+            const resolvedTitle = activeActionItem.title && activeActionItem.title !== 'VIOLATION' && activeActionItem.title !== 'action'
+                ? activeActionItem.title
+                : (actionDefaultTitles[type] || activeActionItem.name || 'مخالفة إدارية مقيدة');
+
             setTodayAction({
                 type,
-                title: activeActionItem.title || activeActionItem.name,
+                title: resolvedTitle,
                 subtitle: activeActionItem.subtitle || activeActionItem.description,
                 description: activeActionItem.description || activeActionItem.notes,
                 reason: activeActionItem.reason || activeActionItem.description,

@@ -500,6 +500,11 @@ const handleGenerateManualCode = () => {
         location = s.actionDetails?.reason || (isRtl ? 'إيقاف إداري' : 'Administrative Suspension');
         title = s.actionDetails?.title || (isRtl ? 'إيقاف مؤقت عن العمل' : 'Temporary Suspension');
         subtitle = s.actionDetails?.subtitle || s.actionDetails?.reason || (isRtl ? 'قرار إداري بالإيقاف المؤقت عن العمل' : 'Temporary administrative suspension order');
+    } else if (s.state === 'VIOLATION') {
+        mode = 'violation';
+        location = s.actionDetails?.reason || (isRtl ? 'مخالفة مقر العمل' : 'Workplace Infraction');
+        title = s.actionDetails?.title || (isRtl ? 'مخالفة إدارية مسجلة' : 'Recorded Violation');
+        subtitle = s.actionDetails?.subtitle || s.actionDetails?.reason || (isRtl ? 'تم قيد مخالفة إدارية في السجل اليومي' : 'Violation recorded in daily log');
     } else if (s.state === 'READY_IN') {
         const isLate = s.message && s.message.includes('LATE');
         mode = isLate ? 'late' : 'upcoming';
@@ -759,6 +764,22 @@ const handleGenerateManualCode = () => {
       beaconShadow: 'shadow-[0_0_12px_#f87171]',
       beaconText: t('dash.suspendedBeacon'),
       actionText: t('user.tab.requests')
+    },
+    violation: {
+      gradient: 'from-rose-950 via-slate-900 to-slate-950',
+      blob1: 'bg-rose-600/30',
+      blob2: 'bg-red-700/20',
+      accentText: 'text-rose-400',
+      glassBorder: 'border-rose-500/50',
+      iconBg: 'bg-gradient-to-br from-rose-600 to-red-700 shadow-rose-500/40 text-white',
+      badge: 'bg-rose-100 text-rose-950 border-rose-400 dark:bg-rose-950/80 dark:text-rose-100 dark:border-rose-500/60 shadow-xs font-black',
+      glow: 'from-rose-600/25 to-red-600/15',
+      subText: 'text-rose-200',
+      button: 'bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black shadow-[0_0_25px_rgba(244,63,94,0.4)] hover:scale-105',
+      beacon: 'bg-rose-600 dark:bg-rose-400',
+      beaconShadow: 'shadow-[0_0_12px_#f43f5e]',
+      beaconText: t('dash.violationBeacon') || (dir === 'rtl' ? 'مخالفة إدارية مسجلة' : 'Recorded Violation'),
+      actionText: t('dash.punchNow') || (dir === 'rtl' ? 'تسجيل البصمة' : 'Smart Punch')
     },
     upcoming: {
       gradient: 'from-cyan-900/80 via-slate-800 to-slate-900',
@@ -1217,6 +1238,13 @@ const handleGenerateManualCode = () => {
                                     <span>{t('dash.activeOverride')}</span>
                                 </span>
                             )}
+
+                            {(shiftStatus.actionDetails?.isViolation || heroInfo.mode === 'violation') && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-950 border border-rose-400 dark:bg-rose-950/80 dark:text-rose-100 dark:border-rose-500/50 shadow-xs animate-pulse">
+                                    <i className="fas fa-triangle-exclamation text-[9px] text-rose-600 dark:text-rose-400"></i>
+                                    <span>{shiftStatus.actionDetails?.title || (dir === 'rtl' ? 'مخالفة مقيدة اليوم' : 'Violation Logged')}</span>
+                                </span>
+                            )}
                         </div>
 
                         {/* Duty Main Title & Subtitle */}
@@ -1227,6 +1255,13 @@ const handleGenerateManualCode = () => {
                             <p className={`text-xs sm:text-sm font-medium mt-1 tracking-wide ${isDark ? currentStyle.subText : 'text-slate-600 font-semibold'}`}>
                                 {heroInfo.subtitle || (heroInfo.mode === 'active' ? (dir === 'rtl' ? 'دوامك جاري وموثق داخل النظام' : 'Your shift is active in the system') : (dir === 'rtl' ? 'تأكد من تسجيل الحضور في موعد الوردية' : 'Make sure to check in at shift time'))}
                             </p>
+
+                            {shiftStatus.actionDetails?.isViolation && heroInfo.mode !== 'violation' && (
+                                <div className="mt-2.5 p-2 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs font-bold flex items-center gap-2">
+                                    <i className="fas fa-exclamation-triangle text-rose-400 text-sm shrink-0"></i>
+                                    <span>{shiftStatus.actionDetails.title}: {shiftStatus.actionDetails.subtitle || shiftStatus.actionDetails.reason}</span>
+                                </div>
+                            )}
                         </div>
 
                         {/* Location & Department Tag */}

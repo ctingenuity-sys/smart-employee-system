@@ -1,8 +1,8 @@
 // Service Worker Background Push & Notification Handler for Smart Employee System
 // Supports Background Push Notifications, Lockscreen Alerts, Delayed Test Notifications, and Notification Click Actions
 
-const DEFAULT_ICON = 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
-const DEFAULT_BADGE = 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
+const DEFAULT_ICON = '/app-icon-3d.png';
+const DEFAULT_BADGE = '/app-icon-3d.png';
 
 // 1. Listen for Background Web Push Events (FCM / Web Push API)
 self.addEventListener('push', function(event) {

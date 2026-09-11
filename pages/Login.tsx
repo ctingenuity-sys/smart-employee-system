@@ -63,8 +63,13 @@ const Login: React.FC = () => {
 
       <div className="bg-white/10 backdrop-blur-lg p-8 rounded-2xl shadow-2xl w-full max-w-md border border-white/20 z-10 mx-4">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-500/50">
-            <i className="fas fa-user-lock text-2xl text-white"></i>
+          <div className="w-20 h-20 mx-auto mb-4 relative flex items-center justify-center">
+            <img 
+              src="/app-icon-3d.png" 
+              alt="App Logo" 
+              className="w-20 h-20 rounded-2xl shadow-2xl shadow-cyan-500/40 object-cover border border-white/30" 
+              referrerPolicy="no-referrer" 
+            />
           </div>
           <h2 className="text-3xl font-bold text-white mb-2">{t('login.title')}</h2>
           <p className="text-blue-200">{t('login.subtitle')}</p>

@@ -1,12 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 // @ts-ignore
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { useLanguage } from '../contexts/LanguageContext';
+import { db } from '../firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+
+declare const __APP_BUILD_TIME__: string | undefined;
 
 function ReloadPrompt() {
   const { language, dir } = useLanguage();
   const [isUpdating, setIsUpdating] = useState(false);
   const [testMode, setTestMode] = useState<'refresh' | 'offline' | null>(null);
+  const [htmlUpdateDetected, setHtmlUpdateDetected] = useState(false);
+  const initialScriptsRef = useRef<string[]>([]);
+  const checkIntervalRef = useRef<any>(null);
 
   const {
     offlineReady: [offlineReady, setOfflineReady],
@@ -16,6 +23,7 @@ function ReloadPrompt() {
     immediate: true,
     onNeedRefresh() {
       console.log('SW: New content available, need refresh');
+      setNeedRefresh(true);
     },
     onOfflineReady() {
       console.log('SW: App ready to work offline');
@@ -63,8 +71,78 @@ function ReloadPrompt() {
     },
   });
 
+  // Layer 2: Asset & HTML Differential Checker (Works on all deployed platforms)
+  useEffect(() => {
+    // Record initial scripts present in current DOM
+    const currentScripts = Array.from(document.querySelectorAll('script[src]'))
+      .map(s => (s as HTMLScriptElement).src)
+      .filter(src => src.includes('/assets/') || src.includes('index.'));
+    initialScriptsRef.current = currentScripts;
+
+    const checkHtmlDiff = async () => {
+      if (typeof window === 'undefined' || !navigator.onLine) return;
+      try {
+        const response = await fetch(`/index.html?_t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache'
+          }
+        });
+        if (response.ok) {
+          const htmlText = await response.text();
+          // Extract script tags from fetched HTML
+          const matches = htmlText.match(/src="(\/assets\/[^"]+)"/g) || [];
+          const fetchedSrcs = matches.map(m => m.replace(/^src="/, '').replace(/"$/, ''));
+          
+          if (initialScriptsRef.current.length > 0 && fetchedSrcs.length > 0) {
+            const hasNewAsset = fetchedSrcs.some(src => !initialScriptsRef.current.some(curr => curr.includes(src)));
+            if (hasNewAsset) {
+              console.log('New build assets detected via differential HTML check!');
+              setHtmlUpdateDetected(true);
+              setNeedRefresh(true);
+            }
+          }
+        }
+      } catch (err) {
+        // Network errors silently ignored
+      }
+    };
+
+    // Initial check after 5 seconds
+    const timeoutId = setTimeout(checkHtmlDiff, 5000);
+    // Periodic check every 45 seconds
+    checkIntervalRef.current = setInterval(checkHtmlDiff, 45000);
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (checkIntervalRef.current) clearInterval(checkIntervalRef.current);
+    };
+  }, []);
+
+  // Layer 3: Firestore System Version Sync (Instant realtime push across all devices)
+  useEffect(() => {
+    try {
+      const unsub = onSnapshot(doc(db, 'system_config', 'app_version'), (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          const currentBuild = typeof __APP_BUILD_TIME__ !== 'undefined' ? __APP_BUILD_TIME__ : 'default';
+          const savedBuild = localStorage.getItem('app_local_version') || currentBuild;
+          
+          if (data.latestBuildTime && data.latestBuildTime !== savedBuild && data.latestBuildTime !== currentBuild) {
+            console.log('Realtime system update broadcast received from Firestore');
+            setHtmlUpdateDetected(true);
+            setNeedRefresh(true);
+          }
+        }
+      }, () => {});
+
+      return () => unsub();
+    } catch (e) {}
+  }, []);
+
   // Listen for custom test events so admin or user can test anytime
-  React.useEffect(() => {
+  useEffect(() => {
     const handleTest = (e: any) => {
       setTestMode(e.detail?.type || 'refresh');
     };
@@ -75,28 +153,54 @@ function ReloadPrompt() {
   const close = () => {
     setOfflineReady(false);
     setNeedRefresh(false);
+    setHtmlUpdateDetected(false);
     setTestMode(null);
   };
 
   const handleUpdate = async () => {
     try {
       setIsUpdating(true);
-      if (testMode) {
-        setTimeout(() => {
-          setIsUpdating(false);
-          setTestMode(null);
-          window.location.reload();
-        }, 1200);
-        return;
+      
+      // 1. Clear all service worker caches
+      if ('caches' in window) {
+        try {
+          const keys = await caches.keys();
+          await Promise.all(keys.map(key => caches.delete(key)));
+        } catch (e) {}
       }
-      await updateServiceWorker(true);
+
+      // 2. Unregister or update SW
+      if ('serviceWorker' in navigator) {
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          for (const reg of registrations) {
+            await reg.unregister();
+          }
+        } catch (e) {}
+      }
+
+      // 3. Update PWA register state if active
+      try {
+        await updateServiceWorker(true);
+      } catch (e) {}
+
+      // 4. Update stored version stamp
+      if (typeof __APP_BUILD_TIME__ !== 'undefined') {
+        localStorage.setItem('app_local_version', __APP_BUILD_TIME__);
+      }
+
+      // 5. Force hard reload from server
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
     } catch (e) {
       console.error('Update error:', e);
       setIsUpdating(false);
+      window.location.reload();
     }
   };
 
-  const isShowRefresh = needRefresh || testMode === 'refresh';
+  const isShowRefresh = needRefresh || htmlUpdateDetected || testMode === 'refresh';
   const isShowOffline = offlineReady || testMode === 'offline';
 
   if (!isShowOffline && !isShowRefresh) {

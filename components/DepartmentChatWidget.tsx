@@ -280,6 +280,29 @@ export const DepartmentChatWidget: React.FC = () => {
     const targetDeptId = selectedDepartmentId || 'legacy_radiology';
 
     const msgsMap = new Map<string, DepartmentChatMessage>();
+    const mountTime = Date.now();
+    let isInitialLoad = true;
+    const seenMsgIds = new Set<string>();
+
+    // Persisted alerted chat message IDs to ensure no message ever alerts twice on this device
+    let alertedChatMsgIds: string[] = [];
+    try {
+      const storedAlerted = localStorage.getItem('alerted_chat_msg_ids');
+      alertedChatMsgIds = storedAlerted ? JSON.parse(storedAlerted) : [];
+    } catch (e) {
+      alertedChatMsgIds = [];
+    }
+
+    // Ensure general last read baseline is initialized on device
+    if (!localStorage.getItem('dept_chat_general_last_read')) {
+      localStorage.setItem('dept_chat_general_last_read', Date.now().toString());
+    }
+    if (!localStorage.getItem('dept_chat_groups_last_read')) {
+      localStorage.setItem('dept_chat_groups_last_read', Date.now().toString());
+    }
+    if (!localStorage.getItem('dept_chat_last_read')) {
+      localStorage.setItem('dept_chat_last_read', Date.now().toString());
+    }
 
     const updateMessagesState = () => {
       const fetched = Array.from(msgsMap.values());
@@ -290,11 +313,11 @@ export const DepartmentChatWidget: React.FC = () => {
         return timeA - timeB;
       });
 
-      const lastRead = Number(localStorage.getItem('dept_chat_last_read') || 0);
+      const lastRead = Number(localStorage.getItem('dept_chat_last_read') || Date.now());
       let newIncomingCount = 0;
 
       fetched.forEach(data => {
-        const msgTime = data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt ? new Date(data.createdAt).getTime() : Date.now());
+        const msgTime = data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt ? new Date(data.createdAt).getTime() : 0);
         const isFromOthers = data.senderId !== user.uid;
 
         // Is message relevant to user?
@@ -312,50 +335,12 @@ export const DepartmentChatWidget: React.FC = () => {
           }
         }
 
-        if (isFromOthers && isRelevant && msgTime > lastRead) {
+        const isAlreadyRead = Boolean(data.isRead || (data.readBy && data.readBy.includes(user.uid)));
+
+        if (isFromOthers && isRelevant && !isAlreadyRead && msgTime > lastRead) {
           newIncomingCount++;
         }
       });
-
-      // Play chime if new incoming message arrived while window is closed
-      if (fetched.length > messagesLengthRef.current && messagesLengthRef.current > 0) {
-        const latest = fetched[fetched.length - 1];
-        if (latest && latest.senderId !== user.uid) {
-          if (soundEnabled) {
-            playChatNotificationSound();
-          }
-
-          // Trigger mobile lockscreen notification if chat window is closed or document/tab is hidden
-          if (!isOpen || (typeof document !== 'undefined' && document.hidden)) {
-            let notifTitle = dir === 'rtl' ? 'نظام الموظفين الذكي' : 'Smart Staff System';
-            if (latest.groupId) {
-              const g = groups.find(item => item.id === latest.groupId);
-              notifTitle = `👥 ${g ? g.name : (dir === 'rtl' ? 'مجموعة عمل' : 'Group')}: ${latest.senderName}`;
-            } else if (latest.directRecipientId) {
-              notifTitle = dir === 'rtl' ? `💬 رسالة خاصة من ${latest.senderName}` : `💬 Direct message from ${latest.senderName}`;
-            } else {
-              notifTitle = dir === 'rtl' ? `💬 ${latest.senderName} (${currentDept.name || 'دردشة القسم'})` : `💬 ${latest.senderName} (${currentDept.name || 'Department'})`;
-            }
-
-            let notifBody = latest.content || '';
-            if (latest.type === 'voice') {
-              notifBody = dir === 'rtl' ? `🎤 رسالة صوتية (${latest.audioDuration || 0} ثانية)` : `🎤 Voice message (${latest.audioDuration || 0}s)`;
-            } else if (latest.type === 'urgent') {
-              notifBody = `🚨 ${latest.content}`;
-            }
-
-            sendMobileNotification(notifTitle, {
-              body: notifBody,
-              icon: latest.senderPhotoURL || undefined,
-              type: latest.type === 'urgent' ? 'alert' : 'chat',
-              tag: `chat-${latest.groupId || latest.directRecipientId || 'general'}`,
-              openChat: true,
-              groupId: latest.groupId || null,
-              senderId: latest.senderId
-            });
-          }
-        }
-      }
 
       messagesLengthRef.current = fetched.length;
       setMessages(fetched);
@@ -371,8 +356,9 @@ export const DepartmentChatWidget: React.FC = () => {
     const processSnapshot = (snapshot: any) => {
       snapshot.forEach((docSnap: any) => {
         const data = docSnap.data() as any;
+        const msgId = docSnap.id;
         const msg: DepartmentChatMessage = {
-          id: docSnap.id,
+          id: msgId,
           departmentId: data.departmentId,
           groupId: data.groupId,
           senderId: data.senderId,
@@ -394,10 +380,80 @@ export const DepartmentChatWidget: React.FC = () => {
           readBy: Array.isArray(data.readBy) ? data.readBy : (data.isRead && data.directRecipientId ? [data.senderId, data.directRecipientId] : []),
           createdAt: data.createdAt
         };
-        msgsMap.set(docSnap.id, msg);
+        msgsMap.set(msgId, msg);
+
+        // ONLY trigger audio chime or mobile alert for genuine new live messages arriving after initial app hydration
+        if (!isInitialLoad && !seenMsgIds.has(msgId)) {
+          const msgTime = data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt ? new Date(data.createdAt).getTime() : Date.now());
+          const isFromOthers = data.senderId !== user.uid;
+          
+          let isRelevant = false;
+          if (!data.directRecipientId && !data.groupId) {
+            isRelevant = data.departmentId === targetDeptId;
+          } else if (data.directRecipientId === user.uid || (data.participants && data.participants.includes(user.uid))) {
+            isRelevant = true;
+          } else if (data.groupId) {
+            const parentGroup = groups.find(g => g.id === data.groupId);
+            if (parentGroup && parentGroup.members.includes(user.uid)) {
+              isRelevant = true;
+            }
+          }
+
+          const isAlreadyRead = Boolean(data.isRead || (data.readBy && data.readBy.includes(user.uid)));
+
+          if (isFromOthers && isRelevant && !isAlreadyRead && msgTime >= mountTime - 2000 && !alertedChatMsgIds.includes(msgId)) {
+            // Record alert
+            alertedChatMsgIds.push(msgId);
+            try {
+              localStorage.setItem('alerted_chat_msg_ids', JSON.stringify(alertedChatMsgIds.slice(-150)));
+            } catch (e) {}
+
+            // Play chime
+            if (soundEnabled) {
+              playChatNotificationSound();
+            }
+
+            // Trigger mobile lockscreen notification if chat window is closed or document/tab is hidden
+            if (!isOpen || (typeof document !== 'undefined' && document.hidden)) {
+              let notifTitle = dir === 'rtl' ? 'نظام الموظفين الذكي' : 'Smart Staff System';
+              if (data.groupId) {
+                const g = groups.find(item => item.id === data.groupId);
+                notifTitle = `👥 ${g ? g.name : (dir === 'rtl' ? 'مجموعة عمل' : 'Group')}: ${data.senderName}`;
+              } else if (data.directRecipientId) {
+                notifTitle = dir === 'rtl' ? `💬 رسالة خاصة من ${data.senderName}` : `💬 Direct message from ${data.senderName}`;
+              } else {
+                notifTitle = dir === 'rtl' ? `💬 ${data.senderName} (${currentDept.name || 'دردشة القسم'})` : `💬 ${data.senderName} (${currentDept.name || 'Department'})`;
+              }
+
+              let notifBody = data.content || '';
+              if (data.type === 'voice') {
+                notifBody = dir === 'rtl' ? `🎤 رسالة صوتية (${data.audioDuration || 0} ثانية)` : `🎤 Voice message (${data.audioDuration || 0}s)`;
+              } else if (data.type === 'urgent') {
+                notifBody = `🚨 ${data.content}`;
+              }
+
+              sendMobileNotification(notifTitle, {
+                body: notifBody,
+                icon: data.senderPhotoURL || undefined,
+                type: data.type === 'urgent' ? 'alert' : 'chat',
+                tag: `chat-msg-${msgId}`,
+                openChat: true,
+                groupId: data.groupId || null,
+                senderId: data.senderId
+              });
+            }
+          }
+        }
+
+        seenMsgIds.add(msgId);
       });
       updateMessagesState();
     };
+
+    // Allow 2.5 seconds for all initial queries to load historical messages without alerting
+    const initTimer = setTimeout(() => {
+      isInitialLoad = false;
+    }, 2500);
 
     // 1. Department room messages
     const qDept = query(
@@ -446,6 +502,7 @@ export const DepartmentChatWidget: React.FC = () => {
     }
 
     return () => {
+      clearTimeout(initTimer);
       unSubDept();
       unSubPart();
       unSubRecip();
@@ -929,7 +986,7 @@ export const DepartmentChatWidget: React.FC = () => {
   const unreadGeneralCount = useMemo(() => {
     if (!user) return 0;
     const stored = localStorage.getItem('dept_chat_general_last_read');
-    const lastRead = stored ? Number(stored) : 0;
+    const lastRead = stored ? Number(stored) : Date.now();
     const targetDeptId = selectedDepartmentId || (user as any)?.departmentId || 'legacy_radiology';
     return messages.filter(m => {
       const isGeneral = !m.directRecipientId && !m.groupId;
@@ -945,7 +1002,7 @@ export const DepartmentChatWidget: React.FC = () => {
   const unreadGroupsCount = useMemo(() => {
     if (!user) return 0;
     const stored = localStorage.getItem('dept_chat_groups_last_read');
-    const lastRead = stored ? Number(stored) : 0;
+    const lastRead = stored ? Number(stored) : Date.now();
     return messages.filter(m => {
       const isGroup = !!m.groupId;
       const isFromOthers = m.senderId !== user.uid;

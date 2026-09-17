@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 import { db as certDb } from '../firebaseData';
 // @ts-ignore
-import { collection, query, where, getDocs, addDoc, Timestamp, getCountFromServer, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, Timestamp, getCountFromServer, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ActionLog, PeerRecognition, User } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useDepartment } from '../contexts/DepartmentContext';
@@ -44,9 +44,54 @@ const UserProfile: React.FC = () => {
     const [patientsCount, setPatientsCount] = useState(0);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     
+    // User Profile Information State
+    const [currentUserProfile, setCurrentUserProfile] = useState<User | null>(null);
+    const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
+    const [editEmpNumber, setEditEmpNumber] = useState('');
+    const [editPhone, setEditPhone] = useState('');
+    const [isSavingProfile, setIsSavingProfile] = useState(false);
+    
     const [isKudosModalOpen, setIsKudosModalOpen] = useState(false);
     const [kudosForm, setKudosForm] = useState({ toUserId: '', type: 'thankyou' as 'hero'|'thankyou'|'teamplayer', message: '' });
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
+
+    useEffect(() => {
+        if (!currentUserId) return;
+        const fetchUserProfile = async () => {
+            try {
+                const userDocSnap = await getDoc(doc(db, 'users', currentUserId));
+                if (userDocSnap.exists()) {
+                    const data = { id: userDocSnap.id, ...userDocSnap.data() } as User;
+                    setCurrentUserProfile(data);
+                    setEditEmpNumber(data.employeeNumber || '');
+                    setEditPhone(data.phone || '');
+                }
+            } catch (err) {
+                console.error("Error fetching user profile:", err);
+            }
+        };
+        fetchUserProfile();
+    }, [currentUserId, refreshTrigger]);
+
+    const handleSaveProfile = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!currentUserId) return;
+        setIsSavingProfile(true);
+        try {
+            await updateDoc(doc(db, 'users', currentUserId), {
+                employeeNumber: editEmpNumber.trim(),
+                phone: editPhone.trim()
+            });
+            setCurrentUserProfile(prev => prev ? ({ ...prev, employeeNumber: editEmpNumber.trim(), phone: editPhone.trim() }) : null);
+            setToast({ msg: 'تم تحديث الرقم الوظيفي والبيانات بنجاح!', type: 'success' });
+            setIsEditProfileOpen(false);
+            setRefreshTrigger(prev => prev + 1);
+        } catch (err: any) {
+            setToast({ msg: 'فشل التحديث: ' + err.message, type: 'error' });
+        } finally {
+            setIsSavingProfile(false);
+        }
+    };
 
     useEffect(() => {
         localStorage.setItem('usr_cached_actions', JSON.stringify(myActions));
@@ -188,11 +233,79 @@ const UserProfile: React.FC = () => {
         <div className="max-w-5xl mx-auto px-4 py-8 animate-fade-in" dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
             
-            <div className="flex items-center gap-4 mb-8">
-                <button onClick={() => navigate('/user')} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-300 transition-colors">
-                    <i className="fas fa-arrow-left rtl:rotate-180"></i>
+            <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-4">
+                    <button onClick={() => navigate('/user')} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-300 transition-colors">
+                        <i className="fas fa-arrow-left rtl:rotate-180"></i>
+                    </button>
+                    <div>
+                        <h1 className="text-2xl font-black text-slate-800">{t('user.tab.profile')}</h1>
+                        <p className="text-xs text-slate-500 font-medium">الملف التعريفي والبيانات الوظيفية</p>
+                    </div>
+                </div>
+
+                <button 
+                    onClick={() => {
+                        setEditEmpNumber(currentUserProfile?.employeeNumber || '');
+                        setEditPhone(currentUserProfile?.phone || '');
+                        setIsEditProfileOpen(true);
+                    }}
+                    className="bg-white hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 shadow-sm flex items-center gap-2 transition-all hover:shadow"
+                >
+                    <i className="fas fa-user-edit text-blue-500"></i> تعديل بيانات الموظف
                 </button>
-                <h1 className="text-2xl font-black text-slate-800">{t('user.tab.profile')}</h1>
+            </div>
+
+            {/* Employee ID & Profile Overview Card */}
+            <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm mb-8">
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white flex items-center justify-center text-2xl font-black shadow-md shadow-blue-200">
+                            {currentUserProfile?.name ? currentUserProfile.name.charAt(0) : currentUserName.charAt(0)}
+                        </div>
+                        <div>
+                            <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <h2 className="text-xl font-black text-slate-800">
+                                    {currentUserProfile?.name || currentUserName}
+                                </h2>
+                                <span className="bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                                    {currentUserProfile?.jobCategory || currentUserProfile?.role || 'Staff'}
+                                </span>
+                            </div>
+                            <p className="text-xs text-slate-400 font-medium flex items-center gap-2">
+                                <i className="fas fa-envelope text-slate-300"></i> {currentUserProfile?.email || auth.currentUser?.email || '-'}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3 w-full md:w-auto pt-3 md:pt-0 border-t md:border-t-0 border-slate-100">
+                        {/* Employee Number Badge */}
+                        <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 rounded-2xl px-4 py-2.5 flex items-center gap-3 shadow-sm">
+                            <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center text-sm shadow-sm">
+                                <i className="fas fa-id-badge"></i>
+                            </div>
+                            <div>
+                                <span className="block text-[10px] font-bold text-amber-800/70 uppercase tracking-wider">الرقم الوظيفي (ID)</span>
+                                <span className="text-sm font-black text-amber-950">
+                                    {currentUserProfile?.employeeNumber ? `#${currentUserProfile.employeeNumber}` : 'غير محدد'}
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Phone Badge */}
+                        {currentUserProfile?.phone && (
+                            <div className="bg-slate-50 border border-slate-200/80 rounded-2xl px-4 py-2.5 flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-xl bg-slate-200 text-slate-600 flex items-center justify-center text-sm">
+                                    <i className="fas fa-phone"></i>
+                                </div>
+                                <div>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">رقم الهاتف</span>
+                                    <span className="text-xs font-bold text-slate-700 dir-ltr">{currentUserProfile.phone}</span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
             </div>
 
             {/* Score Card */}
@@ -403,6 +516,70 @@ const UserProfile: React.FC = () => {
                     <button type="submit" className="w-full bg-gradient-to-r from-amber-500 to-orange-500 text-white py-3.5 rounded-xl font-bold hover:shadow-lg hover:scale-[1.02] transition-all active:scale-95 shadow-md shadow-orange-200 flex items-center justify-center gap-2">
                         <i className="fas fa-paper-plane"></i> Send Appreciation
                     </button>
+                </form>
+            </Modal>
+
+            {/* Edit Profile / Employee Number Modal */}
+            <Modal isOpen={isEditProfileOpen} onClose={() => setIsEditProfileOpen(false)} title="تعديل بيانات الموظف والرقم الوظيفي">
+                <form onSubmit={handleSaveProfile} className="space-y-4">
+                    <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-xs text-blue-800 flex items-start gap-3 mb-2">
+                        <i className="fas fa-info-circle text-blue-500 text-base mt-0.5"></i>
+                        <div>
+                            <p className="font-bold mb-0.5">الرقم الوظيفي الخاص بك:</p>
+                            <p className="text-blue-700/90">يُستخدم هذا الرقم كمعرف شخصي فريد في نماذج التقييم السنوي والشهادات والمعاملات الرسمية.</p>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1.5">
+                            <i className="fas fa-id-badge text-amber-500"></i> الرقم الوظيفي (Employee Number / ID)
+                        </label>
+                        <input 
+                            type="text" 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-300 focus:bg-white transition-all"
+                            placeholder="مثال: 10423 أو EMP-882"
+                            value={editEmpNumber}
+                            onChange={e => setEditEmpNumber(e.target.value)}
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1.5">
+                            <i className="fas fa-phone text-blue-500"></i> رقم الهاتف (Phone Number)
+                        </label>
+                        <input 
+                            type="text" 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-300 focus:bg-white transition-all dir-ltr"
+                            placeholder="+966 5X XXX XXXX"
+                            value={editPhone}
+                            onChange={e => setEditPhone(e.target.value)}
+                        />
+                    </div>
+
+                    <div className="pt-2 flex gap-3">
+                        <button 
+                            type="button" 
+                            onClick={() => setIsEditProfileOpen(false)}
+                            className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl font-bold text-sm transition-all"
+                        >
+                            إلغاء
+                        </button>
+                        <button 
+                            type="submit" 
+                            disabled={isSavingProfile}
+                            className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white py-3 rounded-xl font-bold text-sm shadow-md shadow-blue-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                            {isSavingProfile ? (
+                                <>
+                                    <i className="fas fa-spinner fa-spin"></i> جاري الحفظ...
+                                </>
+                            ) : (
+                                <>
+                                    <i className="fas fa-check"></i> حفظ التعديلات
+                                </>
+                            )}
+                        </button>
+                    </div>
                 </form>
             </Modal>
         </div>

@@ -71,7 +71,7 @@ function ReloadPrompt() {
     },
   });
 
-  // Layer 2: Asset & HTML Differential Checker (Works on all deployed platforms)
+  // Layer 2: Network-Direct Version.json & HTML Differential Checker (Works on all deployed platforms)
   useEffect(() => {
     // Record initial scripts present in current DOM
     const currentScripts = Array.from(document.querySelectorAll('script[src]'))
@@ -79,8 +79,31 @@ function ReloadPrompt() {
       .filter(src => src.includes('/assets/') || src.includes('index.'));
     initialScriptsRef.current = currentScripts;
 
-    const checkHtmlDiff = async () => {
+    const checkAppVersion = async () => {
       if (typeof window === 'undefined' || !navigator.onLine) return;
+
+      // 1. Direct version.json check (Bypasses ServiceWorker and Workbox precache)
+      try {
+        const res = await fetch(`/version.json?_t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache'
+          }
+        });
+        if (res.ok) {
+          const vData = await res.json();
+          const currentBuild = typeof __APP_BUILD_TIME__ !== 'undefined' ? __APP_BUILD_TIME__ : null;
+          if (vData && vData.buildTime && currentBuild && vData.buildTime !== currentBuild) {
+            console.log('[AppUpdate] New version detected via version.json:', vData.buildTime);
+            setHtmlUpdateDetected(true);
+            setNeedRefresh(true);
+            return;
+          }
+        }
+      } catch (err) {}
+
+      // 2. Direct HTML Differential check as secondary verification
       try {
         const response = await fetch(`/index.html?_t=${Date.now()}`, {
           cache: 'no-store',
@@ -98,7 +121,7 @@ function ReloadPrompt() {
           if (initialScriptsRef.current.length > 0 && fetchedSrcs.length > 0) {
             const hasNewAsset = fetchedSrcs.some(src => !initialScriptsRef.current.some(curr => curr.includes(src)));
             if (hasNewAsset) {
-              console.log('New build assets detected via differential HTML check!');
+              console.log('[AppUpdate] New build assets detected via differential HTML check!');
               setHtmlUpdateDetected(true);
               setNeedRefresh(true);
             }
@@ -109,14 +132,47 @@ function ReloadPrompt() {
       }
     };
 
-    // Initial check after 5 seconds
-    const timeoutId = setTimeout(checkHtmlDiff, 5000);
-    // Periodic check every 45 seconds
-    checkIntervalRef.current = setInterval(checkHtmlDiff, 45000);
+    // Check SW waiting state directly
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        if (reg) {
+          if (reg.waiting) {
+            console.log('[AppUpdate] SW waiting state detected on load');
+            setNeedRefresh(true);
+          }
+          reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            if (newWorker) {
+              newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  console.log('[AppUpdate] SW new worker installed and waiting');
+                  setNeedRefresh(true);
+                }
+              });
+            }
+          });
+        }
+      }).catch(() => {});
+    }
+
+    // Initial check after 3 seconds
+    const timeoutId = setTimeout(checkAppVersion, 3000);
+    // Periodic check every 30 seconds
+    checkIntervalRef.current = setInterval(checkAppVersion, 30000);
+
+    const onFocusOrVisible = () => {
+      if (document.visibilityState === 'visible') {
+        checkAppVersion();
+      }
+    };
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
 
     return () => {
       clearTimeout(timeoutId);
       if (checkIntervalRef.current) clearInterval(checkIntervalRef.current);
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
     };
   }, []);
 

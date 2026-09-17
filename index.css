@@ -283,6 +283,58 @@
 }
 
 /* =========================================================
+   ANNUAL APPRAISAL A4 PRINTING STYLES (Portrait Isolated Print)
+   ========================================================= */
+@media print {
+  body.print-evaluation-only {
+    background-color: #ffffff !important;
+    background-image: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    color: #000000 !important;
+  }
+
+  body.print-evaluation-only #root {
+    display: none !important;
+  }
+
+  body.print-evaluation-only #annual-evaluation-print-portal {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  body.print-evaluation-only #annual-evaluation-print-portal * {
+    visibility: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body.print-evaluation-only .print-page {
+    box-shadow: none !important;
+    border: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  body.print-evaluation-only .print-page-break {
+    page-break-before: always !important;
+    break-before: page !important;
+    margin-top: 0 !important;
+    padding-top: 4mm !important;
+  }
+}
+
+/* =========================================================
    THERMAL STICKER PRINTING STYLES (2.5cm x 5cm / 50mm x 25mm)
    ========================================================= */
 @media print {

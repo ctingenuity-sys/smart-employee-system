@@ -2,11 +2,42 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import fs from 'fs';
 import { VitePWA } from 'vite-plugin-pwa';
+
+const currentBuildTime = new Date().toISOString();
+
+function versionPlugin() {
+  return {
+    name: 'version-generator',
+    buildStart() {
+      try {
+        const payload = JSON.stringify({
+          buildTime: currentBuildTime,
+          timestamp: Date.now(),
+          version: '1.2.0'
+        }, null, 2);
+        if (!fs.existsSync('public')) fs.mkdirSync('public', { recursive: true });
+        fs.writeFileSync('public/version.json', payload);
+      } catch (e) {}
+    },
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: JSON.stringify({
+          buildTime: currentBuildTime,
+          timestamp: Date.now(),
+          version: '1.2.0'
+        }, null, 2)
+      });
+    }
+  };
+}
 
 export default defineConfig({
   define: {
-    __APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    __APP_BUILD_TIME__: JSON.stringify(currentBuildTime),
   },
   server: {
     port: 3000,
@@ -19,6 +50,7 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    versionPlugin(),
     VitePWA({
       registerType: 'prompt',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg', 'sw-push-handler.js'],
@@ -29,6 +61,8 @@ export default defineConfig({
       workbox: {
         importScripts: ['/sw-push-handler.js'],
         globPatterns: ['**/*.{js,css,html,png,svg,json}'],
+        globIgnores: ['**/version.json'],
+        navigateFallbackDenylist: [/^\/version\.json/],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/cdn\.tailwindcss\.com\/.*/i,

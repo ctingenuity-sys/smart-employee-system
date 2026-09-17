@@ -120,8 +120,13 @@ const GlobalNotificationListener: React.FC<{ userId: string, userRole: string, d
                         ? data.createdAt.toMillis() 
                         : (data.createdAt ? new Date(data.createdAt).getTime() : 0);
                     
-                    if (notifTime > 0 && notifTime < (subscriptionStartTime.current - 5000)) {
-                        return; // Past notification, do not alert
+                    if (!notifTime || notifTime < subscriptionStartTime.current) {
+                        return; // Past notification or unverified timestamp, do not alert
+                    }
+
+                    // Skip if user already read this notification
+                    if (data.readBy && Array.isArray(data.readBy) && data.readBy.includes(userId)) {
+                        return;
                     }
                     
                     // Check if notification is targeted to current user
@@ -445,6 +450,10 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                     {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.dataArchive')}</span>}
                   </Link>
               )}
+              <Link to="/evaluations" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/evaluations')}`} title="التقييم السنوي">
+                <i className="fas fa-award w-5 text-center text-amber-400"></i>
+                {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{language === 'ar' ? 'التقييم السنوي' : 'Annual Evaluations'}</span>}
+              </Link>
             </>
           )}
 
@@ -460,6 +469,10 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                     {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('user.tab.schedule')}</span>}
                   </Link>
               )}
+              <Link to="/evaluations" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/evaluations')}`} title="تقييمي السنوي">
+                <i className="fas fa-award w-5 text-center text-amber-400"></i>
+                {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{language === 'ar' ? 'تقييمي السنوي' : 'My Annual Evaluation'}</span>}
+              </Link>
               <Link to="/user/penalties" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/user/penalties')}`} title={t('nav.penalties')}>
                 <i className="fas fa-gavel w-5 text-center text-amber-400"></i>
                 {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.penalties')}</span>}

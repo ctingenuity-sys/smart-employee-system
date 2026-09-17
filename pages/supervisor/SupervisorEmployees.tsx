@@ -320,11 +320,21 @@ const SupervisorEmployees: React.FC = () => {
     const [selectedCategoryTitle, setSelectedCategoryTitle] = useState('');
     const [selectedCategoryTheme, setSelectedCategoryTheme] = useState(''); // New for modal theme
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
-    const [hiddenEmployeesVisible] = useState<boolean>(false);
+    const [hiddenEmployeesVisible, setHiddenEmployeesVisible] = useState<boolean>(() => {
+        return localStorage.getItem('show_hidden_employees') === 'true';
+    });
 
-    useEffect(() => {
-        localStorage.removeItem('show_hidden_employees');
-    }, []);
+    const toggleHiddenEmployees = () => {
+        const nextVal = !hiddenEmployeesVisible;
+        setHiddenEmployeesVisible(nextVal);
+        localStorage.setItem('show_hidden_employees', String(nextVal));
+        setToast({
+            msg: nextVal 
+                ? (dir === 'rtl' ? 'تم إظهار الموظفين المخفيين في القوائم' : 'Hidden employees are now visible') 
+                : (dir === 'rtl' ? 'تم إخفاء الموظفين المخفيين من القوائم' : 'Hidden employees are now hidden'),
+            type: nextVal ? 'info' : 'success'
+        });
+    };
 
     const [offlineResult, setOfflineResult] = useState<any>(null);
     const [verificationCode, setVerificationCode] = useState('');
@@ -398,6 +408,7 @@ const SupervisorEmployees: React.FC = () => {
     const [newUserSupervisor, setNewUserSupervisor] = useState('');
     const [newUserManager, setNewUserManager] = useState('');
     const [newUserPhone, setNewUserPhone] = useState('');
+    const [newUserEmployeeNumber, setNewUserEmployeeNumber] = useState('');
     const [newUserCategory, setNewUserCategory] = useState('technician');
     const [newUserPermissions, setNewUserPermissions] = useState<string[]>([]);
     const [newUserGender, setNewUserGender] = useState<'male'|'female'>('male');
@@ -575,6 +586,7 @@ const SupervisorEmployees: React.FC = () => {
                 supervisorId: newUserSupervisor || null,
                 managerId: newUserManager || null,
                 phone: newUserPhone.trim(),
+                employeeNumber: newUserEmployeeNumber.trim(),
                 permissions: assignedPermissions,
                 jobCategory: newUserCategory || 'technician',
                 gender: newUserGender || 'male',
@@ -593,7 +605,7 @@ const SupervisorEmployees: React.FC = () => {
             });
             
             setToast({ msg: 'User Added Successfully!', type: 'success' });
-            setNewUserName(''); setNewUserEmail(''); setNewUserPassword(''); setNewUserPhone(''); setNewUserIndividual(false);
+            setNewUserName(''); setNewUserEmail(''); setNewUserPassword(''); setNewUserPhone(''); setNewUserEmployeeNumber(''); setNewUserIndividual(false);
             
             await signOut(secondaryAuth);
             await deleteApp(secondaryApp);
@@ -633,6 +645,7 @@ const SupervisorEmployees: React.FC = () => {
                 supervisorId: editForm.supervisorId || null,
                 managerId: editForm.managerId || null,
                 phone: editForm.phone || '', 
+                employeeNumber: editForm.employeeNumber?.trim() || '',
                 permissions: editForm.permissions || [],
                 jobCategory: editForm.jobCategory || 'technician',
                 nationality: editForm.nationality || '',
@@ -1045,8 +1058,8 @@ const SupervisorEmployees: React.FC = () => {
 
     const filteredUsers = useMemo(() => {
         return users.filter(u => {
-            // Include operational staff - both hidden and visible
-            if (!isOperationalStaff(u, departments, true)) return false;
+            // Include operational staff - respect hiddenEmployeesVisible toggle
+            if (!isOperationalStaff(u, departments, hiddenEmployeesVisible)) return false;
 
             // Supervisor/Manager Isolation: Can only see users in their department or users assigned to them
             if (authRole === UserRole.SUPERVISOR) {
@@ -1066,7 +1079,8 @@ const SupervisorEmployees: React.FC = () => {
 
             return (
                 (u.name && u.name.toLowerCase().includes(searchQuery.toLowerCase())) || 
-                (u.email && u.email.toLowerCase().includes(searchQuery.toLowerCase()))
+                (u.email && u.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
+                (u.employeeNumber && u.employeeNumber.toLowerCase().includes(searchQuery.toLowerCase()))
             );
         }).sort((a, b) => {
             if (sortBy === 'role') {
@@ -1086,6 +1100,7 @@ const SupervisorEmployees: React.FC = () => {
             
         setEditForm({ 
             ...user, 
+            employeeNumber: user.employeeNumber || '',
             permissions: perms, 
             jobCategory: user.jobCategory || 'technician', 
             gender: user.gender || 'male', 
@@ -1204,11 +1219,11 @@ const SupervisorEmployees: React.FC = () => {
     
     const activeDeptStaffCount = useMemo(() => {
         return users.filter(u => {
-            if (!isOperationalStaff(u, departments, true)) return false;
+            if (!isOperationalStaff(u, departments, hiddenEmployeesVisible)) return false;
             if (!isUserInDepartment(u, effectiveDepartmentId)) return false;
             return true;
         }).length;
-    }, [users, departments, isUserInDepartment, effectiveDepartmentId]);
+    }, [users, departments, isUserInDepartment, effectiveDepartmentId, hiddenEmployeesVisible]);
 
     const getAvatar = (user: User) => {
         if (user.gender === 'female') return 'https://cdn-icons-png.flaticon.com/512/4140/4140047.png';
@@ -1241,8 +1256,8 @@ const SupervisorEmployees: React.FC = () => {
     const derivedCategoryUsers = useMemo(() => {
         return users.filter(u => {
             // Exclude Admin, Supervisor, Manager and individual accounts from employee categories
-            // Allow hidden employees so both hidden and visible are shown
-            if (!isOperationalStaff(u, departments, true)) return false;
+            // Respect hiddenEmployeesVisible toggle
+            if (!isOperationalStaff(u, departments, hiddenEmployeesVisible)) return false;
 
             // Supervisor/Manager Isolation
             if (authRole === UserRole.SUPERVISOR) {
@@ -1261,7 +1276,7 @@ const SupervisorEmployees: React.FC = () => {
             }
             return selectedCategoryId === 'technician';
         });
-    }, [users, departments, authRole, currentUser?.uid, selectedDepartmentId, effectiveDepartmentId, isUserInDepartment, selectedCategoryId]);
+    }, [users, departments, authRole, currentUser?.uid, selectedDepartmentId, effectiveDepartmentId, isUserInDepartment, selectedCategoryId, hiddenEmployeesVisible]);
 
     return (
         <div className={`min-h-screen py-8 px-4 transition-colors duration-300 ${isDark ? 'dark-theme bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-800'}`} dir={dir}>
@@ -1378,6 +1393,10 @@ const SupervisorEmployees: React.FC = () => {
                                         <div className="input-group-modern">
                                             <i className="fas fa-phone input-icon"></i>
                                             <input className="input-modern" placeholder="Phone Number" value={newUserPhone} onChange={e => setNewUserPhone(e.target.value)} />
+                                        </div>
+                                        <div className="input-group-modern">
+                                            <i className="fas fa-id-badge input-icon"></i>
+                                            <input className="input-modern" placeholder="الرقم الوظيفي (Employee Number)" value={newUserEmployeeNumber} onChange={e => setNewUserEmployeeNumber(e.target.value)} />
                                         </div>
                                     </div>
 
@@ -1596,7 +1615,14 @@ const SupervisorEmployees: React.FC = () => {
                                                         {user.name ? user.name.charAt(0) : '?'}
                                                     </div>
                                                     <div>
-                                                        <h4 className={`font-bold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>{user.name}</h4>
+                                                        <div className="flex items-center gap-2">
+                                                            <h4 className={`font-bold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>{user.name}</h4>
+                                                            {user.employeeNumber && (
+                                                                <span className="text-[10px] font-black px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200" title="الرقم الوظيفي">
+                                                                    #{user.employeeNumber}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>{user.email}</p>
                                                         {user.departmentId && (
                                                             <p className="text-xs text-indigo-400 font-medium mt-0.5">
@@ -1674,8 +1700,8 @@ const SupervisorEmployees: React.FC = () => {
                         {JOB_CATEGORIES.filter(c => !(c as any).isHidden).map(cat => {
                             const catUsers = users.filter(u => {
                                  // Exclude Admin, Supervisor, Manager and non-operational accounts
-                                 // Allow hidden employees so both hidden and visible are shown
-                                 if (!isOperationalStaff(u, departments, true)) return false;
+                                 // Respect hiddenEmployeesVisible toggle
+                                 if (!isOperationalStaff(u, departments, hiddenEmployeesVisible)) return false;
 
                                  // Supervisor/Manager Isolation
                                  if (authRole === UserRole.SUPERVISOR) {
@@ -1740,6 +1766,17 @@ const SupervisorEmployees: React.FC = () => {
                 </div>
             )}
 
+            {/* --- 100% INVISIBLE SECRET TRIGGER AT BOTTOM --- */}
+            <div className="pt-8 pb-4 flex justify-center items-center select-none">
+                <button
+                    type="button"
+                    onClick={toggleHiddenEmployees}
+                    className="w-32 h-8 opacity-0 cursor-default focus:outline-none border-none bg-transparent"
+                    aria-hidden="true"
+                    tabIndex={-1}
+                />
+            </div>
+
             {/* Edit Modal (Enhanced) */}
              {/* Edit Modal (Enhanced) */}
             <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="تعديل بيانات الموظف">
@@ -1754,6 +1791,15 @@ const SupervisorEmployees: React.FC = () => {
                                     className={`w-full ${isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-800'} border rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none`} 
                                     value={editForm.name || ''} 
                                     onChange={e => setEditForm({...editForm, name: e.target.value})} 
+                                />
+                            </div>
+                            <div>
+                                <label className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'} block mb-1`}>الرقم الوظيفي (Employee Number)</label>
+                                <input 
+                                    className={`w-full ${isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-800'} border rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none`} 
+                                    placeholder="مثال: 10423"
+                                    value={editForm.employeeNumber || ''} 
+                                    onChange={e => setEditForm({...editForm, employeeNumber: e.target.value})} 
                                 />
                             </div>
                             <div>
@@ -2147,6 +2193,13 @@ const SupervisorEmployees: React.FC = () => {
                                         
                                         {/* Info Pills Row */}
                                         <div className="flex flex-wrap gap-2 mb-4">
+                                            {/* Employee Number Pill */}
+                                            {user.employeeNumber && (
+                                                <span className="flex items-center gap-1 text-[11px] font-black px-3 py-1 bg-amber-400 text-slate-900 rounded-full border border-amber-300 shadow-sm font-bold">
+                                                    <i className="fas fa-id-badge"></i> الرقم الوظيفي: {user.employeeNumber}
+                                                </span>
+                                            )}
+
                                              {/* Specialty Pill */}
                                              <span className="flex items-center gap-1 text-[11px] font-black px-3 py-1 bg-white/20 text-white rounded-full border border-white/30 backdrop-blur-md shadow-sm">
                                                 <i className="fas fa-briefcase"></i> {JOB_CATEGORIES.find(c => c.id === user.jobCategory)?.title || user.jobCategory || 'Staff'}

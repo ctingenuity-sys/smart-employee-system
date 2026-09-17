@@ -194,6 +194,13 @@ const SupervisorPerformance: React.FC = () => {
                             <i className="fas fa-arrow-left rtl:rotate-180"></i>
                         </button>
                         <h1 className="text-2xl font-black text-slate-800">مراقبة الأداء</h1>
+                        <button
+                            onClick={() => navigate('/evaluations')}
+                            className="mr-2 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5"
+                        >
+                            <i className="fas fa-award"></i>
+                            <span>التقييم السنوي</span>
+                        </button>
                     </div>
 
                     <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">

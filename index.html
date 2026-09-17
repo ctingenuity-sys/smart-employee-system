@@ -210,7 +210,7 @@
       
       @media print {
         @page {
-          size: landscape;
+          size: auto;
           margin: 0.5cm;
         }
         body {
@@ -219,11 +219,15 @@
           background-color: white !important;
           margin: 0 !important;
           padding: 0 !important;
-          font-family: 'Cairo', sans-serif !important; /* Updated to Cairo */
+          font-family: 'Cairo', sans-serif !important;
           font-size: 11px;
         }
         
-        .no-print, button, input, select, .print\:hidden, nav, header, .sidebar, .toast {
+        body.print-evaluation-only #root {
+          display: none !important;
+        }
+        
+        .no-print, button:not(.allow-print), input:not(.allow-print), select:not(.allow-print), .print\:hidden, nav, header:not(.print-header), .sidebar, .toast {
           display: none !important;
         }
 

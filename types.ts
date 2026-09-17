@@ -56,6 +56,7 @@ export interface User {
   name: string;
   role: string;
   phone?: string;
+  employeeNumber?: string; // Employee ID / الرقم الوظيفي
   biometricId?: string; // ID of the bound device/credential
   biometricRegisteredAt?: any;
   createdAt?: any;
@@ -745,4 +746,62 @@ export interface DepartmentChatMessage {
   isRead?: boolean;
   readAt?: any;
   readBy?: string[];
+}
+
+// --- ANNUAL PERFORMANCE APPRAISAL FORM ---
+export interface AppraisalCriterion {
+  id: string;
+  nameEn: string;
+  nameAr: string;
+  score: number;
+  maxScore: number;
+  options: number[];
+  isCustom?: boolean;
+}
+
+export interface AppraisalTrainingProgram {
+  id: string;
+  programName: string;
+  timePeriod: string;
+  trainingPlace: string;
+}
+
+export interface AnnualEvaluation {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  employeeNumber?: string;
+  position?: string;
+  departmentId?: string;
+  departmentName?: string;
+  currentContract?: string;
+  evaluationDate: string;
+  evaluationYear: number;
+  section1Criteria: AppraisalCriterion[];
+  section1Score: number;
+  section2Criteria: AppraisalCriterion[];
+  section2Score: number;
+  section3Criteria: AppraisalCriterion[];
+  section3Score: number;
+  totalScore: number;
+  ratingGrade: 'excellent' | 'very_good' | 'good' | 'fair' | 'poor';
+  strengthPoints: string;
+  weaknessPoints: string;
+  supervisorId: string;
+  supervisorName: string;
+  supervisorSignatureDate?: string;
+  supervisorSigned?: boolean;
+  evaluatorRole?: 'supervisor' | 'manager';
+  evaluatorTitle?: string;
+  employeeDiscussed?: boolean;
+  employeeObjectionStatus?: 'none' | 'has_objections';
+  employeeComments?: string;
+  employeeSignature?: string;
+  employeeSignedDate?: string;
+  employeeSigned?: boolean;
+  recommendTraining: boolean;
+  trainingPrograms: AppraisalTrainingProgram[];
+  status: 'draft' | 'published' | 'acknowledged';
+  createdAt: any;
+  updatedAt: any;
 }

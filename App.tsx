@@ -67,6 +67,7 @@ const CTConsentPage = React.lazy(() => import('./pages/CTConsentPage'));
 
 const ModalityLogbook = React.lazy(() => import('./pages/ModalityLogbook'));
 const StandaloneRadiologyLogbook = React.lazy(() => import('./pages/StandaloneRadiologyLogbook'));
+const AnnualEvaluationsPage = React.lazy(() => import('./pages/AnnualEvaluationsPage').then(m => ({ default: m.AnnualEvaluationsPage })));
 
 // --- Protected Route Component ---
 interface ProtectedRouteProps {
@@ -225,6 +226,11 @@ const AppRoutes: React.FC = () => {
           <Route path="/appointments" element={<ProtectedRoute requiredPermission="appointments"><AppointmentsPage /></ProtectedRoute>} />
           <Route path="/department-bookings" element={<ProtectedRoute requiredPermission="appointments"><DepartmentBookings /></ProtectedRoute>} />
           <Route path="/ct-consent" element={<ProtectedRoute requiredPermission="appointments"><CTConsentPage /></ProtectedRoute>} />
+
+          {/* Annual Employee Evaluations Routes */}
+          <Route path="/evaluations" element={<ProtectedRoute><AnnualEvaluationsPage /></ProtectedRoute>} />
+          <Route path="/supervisor/evaluations" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]}><AnnualEvaluationsPage /></ProtectedRoute>} />
+          <Route path="/user/evaluations" element={<ProtectedRoute allowedRoles={[UserRole.USER]}><AnnualEvaluationsPage /></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

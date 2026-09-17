@@ -384,7 +384,9 @@ export const DepartmentChatWidget: React.FC = () => {
 
         // ONLY trigger audio chime or mobile alert for genuine new live messages arriving after initial app hydration
         if (!isInitialLoad && !seenMsgIds.has(msgId)) {
-          const msgTime = data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt ? new Date(data.createdAt).getTime() : Date.now());
+          const msgTime = data.createdAt?.toMillis 
+            ? data.createdAt.toMillis() 
+            : (data.createdAt ? new Date(data.createdAt).getTime() : 0);
           const isFromOthers = data.senderId !== user.uid;
           
           let isRelevant = false;
@@ -401,11 +403,13 @@ export const DepartmentChatWidget: React.FC = () => {
 
           const isAlreadyRead = Boolean(data.isRead || (data.readBy && data.readBy.includes(user.uid)));
 
-          if (isFromOthers && isRelevant && !isAlreadyRead && msgTime >= mountTime - 2000 && !alertedChatMsgIds.includes(msgId)) {
+          // CRITICAL: Must be a genuine live message created strictly after session start
+          // If msgTime is 0 or before mountTime, it is a historical message and MUST NEVER alert!
+          if (isFromOthers && isRelevant && !isAlreadyRead && msgTime > 0 && msgTime >= (mountTime - 1000) && !alertedChatMsgIds.includes(msgId)) {
             // Record alert
             alertedChatMsgIds.push(msgId);
             try {
-              localStorage.setItem('alerted_chat_msg_ids', JSON.stringify(alertedChatMsgIds.slice(-150)));
+              localStorage.setItem('alerted_chat_msg_ids', JSON.stringify(alertedChatMsgIds.slice(-300)));
             } catch (e) {}
 
             // Play chime
@@ -450,10 +454,10 @@ export const DepartmentChatWidget: React.FC = () => {
       updateMessagesState();
     };
 
-    // Allow 2.5 seconds for all initial queries to load historical messages without alerting
+    // Mark historical messages as loaded and seen so they never trigger notifications
     const initTimer = setTimeout(() => {
       isInitialLoad = false;
-    }, 2500);
+    }, 2000);
 
     // 1. Department room messages
     const qDept = query(
@@ -551,7 +555,13 @@ export const DepartmentChatWidget: React.FC = () => {
   useEffect(() => {
     if (isOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      localStorage.setItem('dept_chat_last_read', Date.now().toString());
+      const nowStr = Date.now().toString();
+      localStorage.setItem('dept_chat_last_read', nowStr);
+      if (activeTab === 'group') {
+        localStorage.setItem('dept_chat_general_last_read', nowStr);
+      } else if (activeTab === 'groups') {
+        localStorage.setItem('dept_chat_groups_last_read', nowStr);
+      }
       setUnreadCount(0);
     }
   }, [isOpen, messages, activeTab, selectedPeer, selectedGroup]);
@@ -584,6 +594,39 @@ export const DepartmentChatWidget: React.FC = () => {
     }
     return [];
   }, [messages, activeTab, selectedPeer, selectedGroup, user]);
+
+  // When viewing messages in open chat, mark them as read in Firestore and record them as alerted
+  useEffect(() => {
+    if (!isOpen || !user || visibleMessages.length === 0) return;
+    const myUid = user.uid;
+
+    // 1. Record all visible messages into alerted_chat_msg_ids so they never alert again
+    try {
+      const stored = localStorage.getItem('alerted_chat_msg_ids');
+      const list: string[] = stored ? JSON.parse(stored) : [];
+      const newIds = visibleMessages.map(m => m.id).filter(id => !list.includes(id));
+      if (newIds.length > 0) {
+        localStorage.setItem('alerted_chat_msg_ids', JSON.stringify([...list, ...newIds].slice(-300)));
+      }
+    } catch (e) {}
+
+    // 2. Mark any unread message in this conversation as read in Firestore
+    const unreadInView = visibleMessages.filter(m => {
+      const isFromOther = m.senderId !== myUid;
+      const isAlreadyRead = Boolean(m.isRead || (m.readBy && m.readBy.includes(myUid)));
+      return isFromOther && !isAlreadyRead;
+    });
+
+    if (unreadInView.length > 0) {
+      unreadInView.forEach(async (m) => {
+        try {
+          await updateDoc(doc(db, 'department_chats', m.id), {
+            readBy: arrayUnion(myUid)
+          });
+        } catch (err) {}
+      });
+    }
+  }, [isOpen, visibleMessages, user]);
 
   // Pinned messages in current room
   const pinnedMessages = useMemo(() => {

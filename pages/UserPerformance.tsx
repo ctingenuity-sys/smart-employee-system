@@ -95,13 +95,26 @@ const UserPerformance: React.FC = () => {
                         </div>
                     </div>
 
-                    <h1 className="text-4xl md:text-5xl font-black text-white leading-tight drop-shadow-lg tracking-tight mb-2">
-                        مؤشرات الأداء
-                        <span className="text-purple-400">.</span>
-                    </h1>
-                    <p className="text-blue-200 text-lg font-medium opacity-80 max-w-lg">
-                        تتبع إنجازاتك اليومية والشهرية وتحليل نشاطك المهني
-                    </p>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                            <h1 className="text-4xl md:text-5xl font-black text-white leading-tight drop-shadow-lg tracking-tight mb-2">
+                                مؤشرات الأداء
+                                <span className="text-purple-400">.</span>
+                            </h1>
+                            <p className="text-blue-200 text-lg font-medium opacity-80 max-w-lg">
+                                تتبع إنجازاتك اليومية والشهرية وتحليل نشاطك المهني
+                            </p>
+                        </div>
+
+                        <button
+                            onClick={() => navigate('/evaluations')}
+                            className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-white/15 hover:bg-white/25 text-white font-bold text-sm backdrop-blur-md border border-white/20 shadow-lg hover:shadow-xl transition-all self-start sm:self-center"
+                        >
+                            <i className="fas fa-award text-yellow-300 text-base"></i>
+                            <span>عرض تقييمي السنوي</span>
+                            <i className="fas fa-chevron-left rtl:rotate-0 rotate-180 text-xs text-white/70"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
 

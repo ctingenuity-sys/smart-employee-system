@@ -3,6 +3,7 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { FridayScheduleRow, VisualStaff, User, ScheduleColumn } from '../../types';
 import { PrintHeader, PrintFooter } from '../PrintLayout';
 import { SoftColorInfo, getSoftStaffColor } from './scheduleColorUtils';
+import { GenderBadge, resolveUserGender } from './GenderIndicator';
 
 export type StaffColorInfo = SoftColorInfo;
 
@@ -12,6 +13,7 @@ interface FridayScheduleViewProps {
   isEditing: boolean;
   allUsers: User[];
   publishMonth: string;
+  onOpenStaffHistory?: (staffNameOrUser: string | any) => void;
   onUpdateRow: (index: number, newRow: FridayScheduleRow) => void;
   onAddRow: () => void;
   onRemoveRow: (index: number) => void;
@@ -28,7 +30,9 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
     searchTerm, 
     data, 
     isEditing,
+    allUsers = [],
     publishMonth,
+    onOpenStaffHistory,
     onUpdateRow,
     onAddRow,
     onRemoveRow,
@@ -215,7 +219,11 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                  const staffData = JSON.parse(rawData);
                  const row = { ...data[targetRowIndex] };
                  const currentList = [...(row[targetColumnId] as VisualStaff[] || [])];
-                 currentList.push({ name: staffData.name, userId: staffData.id });
+                 currentList.push({ 
+                     name: staffData.name, 
+                     userId: staffData.id,
+                     gender: staffData.gender || resolveUserGender(staffData.name, allUsers)
+                 });
                  onUpdateRow(targetRowIndex, { ...row, [targetColumnId]: currentList });
             }
         } catch(err) { console.error(err); }
@@ -327,24 +335,43 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                                         className="w-full text-xs font-bold p-1 bg-white/70 focus:bg-white rounded border border-transparent focus:border-blue-400 outline-none text-gray-900"
                                         placeholder="Name"
                                     />
+                                    {(() => {
+                                        const g = s.gender || resolveUserGender(s.name, allUsers);
+                                        return g ? <GenderBadge gender={g} variant="mini" isAr={true} className="shrink-0" /> : null;
+                                    })()}
                                     {/* Quick Check & Count Button */}
                                     {trimmed && trimmed !== 'New Staff' && (
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleStaffClick(trimmed);
-                                            }}
-                                            className={`px-1.5 py-0.5 rounded text-[10px] font-black border transition-all flex items-center gap-0.5 whitespace-nowrap ${
-                                                isSelected 
-                                                    ? 'bg-amber-500 text-white border-amber-600 shadow' 
-                                                    : 'bg-white/80 text-slate-700 hover:bg-white border-slate-300'
-                                            }`}
-                                            title="فحص وتتبع عدد الجمعات لهذا الموظف"
-                                        >
-                                            <i className="fas fa-eye text-[9px]"></i>
-                                            <span>{count}</span>
-                                        </button>
+                                        <div className="flex items-center gap-0.5">
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleStaffClick(trimmed);
+                                                }}
+                                                className={`px-1.5 py-0.5 rounded text-[10px] font-black border transition-all flex items-center gap-0.5 whitespace-nowrap ${
+                                                    isSelected 
+                                                        ? 'bg-amber-500 text-white border-amber-600 shadow' 
+                                                        : 'bg-white/80 text-slate-700 hover:bg-white border-slate-300'
+                                                }`}
+                                                title="فحص وتتبع عدد الجمعات لهذا الموظف"
+                                            >
+                                                <i className="fas fa-eye text-[9px]"></i>
+                                                <span>{count}</span>
+                                            </button>
+                                            {onOpenStaffHistory && (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onOpenStaffHistory(trimmed);
+                                                    }}
+                                                    className="p-1 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-[10px] transition-colors"
+                                                    title="سجل روتيشن آخر 6 شهور (6-Month History)"
+                                                >
+                                                    <i className="fas fa-history text-[10px]"></i>
+                                                </button>
+                                            )}
+                                        </div>
                                     )}
                                     <button 
                                         onClick={() => removeStaffMember(rowIndex, columnId, i)}
@@ -485,9 +512,26 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                                 {s.shiftType === 'high_broken' && <i className="fas fa-bolt text-[10px] text-red-700 print:hidden"></i>}
                                 {s.shiftType === 'long_duty' && <i className="fas fa-arrow-right text-[10px] text-emerald-500 print:hidden"></i>}
                                 
-                                <span className="font-bold print:text-[10px] leading-tight">
+                                <span className="font-bold print:text-[10px] leading-tight flex items-center gap-1">
                                     {highlightMatch(s.name)}
+                                    {onOpenStaffHistory && trimmed && (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onOpenStaffHistory(trimmed);
+                                            }}
+                                            className="text-slate-400 hover:text-indigo-600 p-0.5 rounded transition-colors print:hidden"
+                                            title="سجل روتيشن آخر 6 شهور"
+                                        >
+                                            <i className="fas fa-history text-[9px]"></i>
+                                        </button>
+                                    )}
                                 </span>
+                                {(() => {
+                                    const g = s.gender || resolveUserGender(s.name, allUsers);
+                                    return g ? <GenderBadge gender={g} variant="mini" isAr={true} className="shrink-0 print:hidden" /> : null;
+                                })()}
                             </div>
 
                             {/* Friday count indicator when selected or on hover */}
@@ -658,6 +702,16 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
+                        {onOpenStaffHistory && (
+                            <button
+                                type="button"
+                                onClick={() => onOpenStaffHistory(selectedStaffDetails.originalName)}
+                                className="bg-indigo-950 text-indigo-200 hover:bg-black text-xs font-black px-3.5 py-2 rounded-xl shadow transition-all flex items-center gap-1.5"
+                            >
+                                <i className="fas fa-history text-indigo-400"></i>
+                                سجل روتيشن آخر 6 شهور
+                            </button>
+                        )}
                         <button
                             onClick={() => setSelectedStaffName(null)}
                             className="bg-amber-950 text-yellow-200 hover:bg-black text-xs font-black px-4 py-2 rounded-xl shadow transition-all flex items-center gap-1.5"

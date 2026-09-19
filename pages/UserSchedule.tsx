@@ -413,17 +413,6 @@ const getScheduleBilingualInfo = (sch: Schedule, status: any, isRtl: boolean) =>
             isSwap: true
         };
     }
-    if (sch.locationId === 'common_duty') {
-        return {
-            primary: isRtl ? 'جدول التكليف الشهري العام' : 'GENERAL MONTHLY ROSTER',
-            secondary: isRtl ? 'جدول دوام رسمي معتمد' : 'OFFICIAL DUTY SCHEDULE',
-            badge: isRtl ? 'جدول شهري' : 'MONTHLY ROSTER',
-            classBadge: isRtl ? 'تكليف شهري' : 'MONTHLY DUTY',
-            shiftTitle: isRtl ? 'جدول التكليف الشهري العام' : 'General Monthly Roster',
-            isRamadan: false
-        };
-    }
-
     if (sch.periodName) {
         const isPeriodRamadan = /ramadan|رمضان/i.test(sch.periodName);
         return {
@@ -437,6 +426,44 @@ const getScheduleBilingualInfo = (sch: Schedule, status: any, isRtl: boolean) =>
                 ? (isRtl ? 'جدول شهر رمضان المبارك' : 'Ramadan Schedule')
                 : sch.periodName,
             isRamadan: isPeriodRamadan
+        };
+    }
+
+    // Determine derived month title from sch.month or sch.validFrom
+    const derivedMonthTitle = (() => {
+        const raw = sch.month || (sch.validFrom ? sch.validFrom.slice(0, 7) : '');
+        if (raw && /^\d{4}-\d{2}$/.test(raw)) {
+            const [yStr, mStr] = raw.split('-');
+            const y = parseInt(yStr, 10);
+            const m = parseInt(mStr, 10);
+            if (!isNaN(y) && !isNaN(m)) {
+                const date = new Date(y, m - 1, 1);
+                const mName = date.toLocaleString(isRtl ? 'ar-EG' : 'en-US', { month: 'long', year: 'numeric' });
+                return isRtl ? `جدول ${mName}` : `${mName.toUpperCase()} ROSTER`;
+            }
+        }
+        return '';
+    })();
+
+    if (derivedMonthTitle) {
+        return {
+            primary: derivedMonthTitle,
+            secondary: isRtl ? 'جدول دوام رسمي معتمد' : 'OFFICIAL CERTIFIED ROSTER',
+            badge: isRtl ? 'جدول شهري' : 'MONTHLY ROSTER',
+            classBadge: isRtl ? 'تكليف شهري' : 'MONTHLY DUTY',
+            shiftTitle: derivedMonthTitle,
+            isRamadan: false
+        };
+    }
+
+    if (sch.locationId === 'common_duty') {
+        return {
+            primary: isRtl ? 'جدول التكليف الشهري العام' : 'GENERAL MONTHLY ROSTER',
+            secondary: isRtl ? 'جدول دوام رسمي معتمد' : 'OFFICIAL DUTY SCHEDULE',
+            badge: isRtl ? 'جدول شهري' : 'MONTHLY ROSTER',
+            classBadge: isRtl ? 'تكليف شهري' : 'MONTHLY DUTY',
+            shiftTitle: isRtl ? 'جدول التكليف الشهري العام' : 'General Monthly Roster',
+            isRamadan: false
         };
     }
 

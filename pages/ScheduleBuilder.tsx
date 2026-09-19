@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 // @ts-ignore
 import { collection, addDoc, getDocs, Timestamp, query, where, writeBatch, doc, deleteDoc, updateDoc, orderBy, setDoc, getDoc } from 'firebase/firestore';
-import { ModalityColumn, CommonDuty, FridayScheduleRow, HolidayScheduleRow, SavedTemplate, User, Location, VisualStaff, DoctorScheduleRow, DoctorFridayRow, ScheduleColumn, DateException } from '../types';
+import { ModalityColumn, CommonDuty, FridayScheduleRow, HolidayScheduleRow, SavedTemplate, User, Location, VisualStaff, DoctorScheduleRow, DoctorFridayRow, ScheduleColumn, DateException, Schedule } from '../types';
 import { isOperationalStaff } from '../utils/staffUtils';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -17,6 +17,8 @@ import DoctorFridayScheduleView from '../components/schedule/DoctorFridaySchedul
 import ExceptionScheduleView from '../components/schedule/ExceptionScheduleView';
 import RamadanScheduleView from '../components/schedule/RamadanScheduleView';
 import StaffSidebar from '../components/schedule/StaffSidebar';
+import { QuickStaffRotationPopover } from '../components/schedule/QuickStaffRotationPopover';
+import { StaffSixMonthHistoryModal } from '../components/schedule/StaffSixMonthHistoryModal';
 import Loading from '../components/Loading';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
@@ -234,6 +236,41 @@ const ScheduleBuilder: React.FC = () => {
     const [availableMonthsToDelete, setAvailableMonthsToDelete] = useState<string[]>([]);
     const [isFetchingMonths, setIsFetchingMonths] = useState(false);
 
+    // 6-Month Rotation Quick Popover & Full Modal State
+    const [monthlyPublishes, setMonthlyPublishes] = useState<Record<string, any>>({});
+    const [schedulesList, setSchedulesList] = useState<Schedule[]>([]);
+    const [leaveRequestsList, setLeaveRequestsList] = useState<any[]>([]);
+    const [quickHistoryUser, setQuickHistoryUser] = useState<User | null>(null);
+    const [quickHistoryStaffName, setQuickHistoryStaffName] = useState<string | undefined>(undefined);
+    const [isQuickHistoryOpen, setIsQuickHistoryOpen] = useState(false);
+    const [selectedStaffForFullHistory, setSelectedStaffForFullHistory] = useState<User | null>(null);
+    const [isFullHistoryModalOpen, setIsFullHistoryModalOpen] = useState(false);
+
+    const handleOpenStaffHistory = (staffNameOrUser: string | any) => {
+        if (!staffNameOrUser) return;
+        if (typeof staffNameOrUser === 'string') {
+            const trimmed = staffNameOrUser.trim();
+            const found = allEmployees.find(u => (u.name || '').trim().toLowerCase() === trimmed.toLowerCase());
+            if (found) {
+                setQuickHistoryUser(found);
+                setQuickHistoryStaffName(undefined);
+            } else {
+                setQuickHistoryUser(null);
+                setQuickHistoryStaffName(trimmed);
+            }
+        } else if (staffNameOrUser && typeof staffNameOrUser === 'object') {
+            setQuickHistoryUser(staffNameOrUser);
+            setQuickHistoryStaffName(undefined);
+        }
+        setIsQuickHistoryOpen(true);
+    };
+
+    const handleOpenFullModalFromQuick = (user: User) => {
+        setIsQuickHistoryOpen(false);
+        setSelectedStaffForFullHistory(user);
+        setIsFullHistoryModalOpen(true);
+    };
+
     // ... (Keep useEffect for initData)
     useEffect(() => {
         const initData = async () => {
@@ -257,6 +294,24 @@ const ScheduleBuilder: React.FC = () => {
                 setAllLocations(lSnap.docs.map((d: any) => ({ ...(d.data() as any), id: d.id } as Location)));
                 const tSnap = await getDocs(query(collection(db, "schedule_templates"), where('departmentId', '==', selectedDepartmentId)));
                 setSavedTemplates(tSnap.docs.map((d: any) => ({ ...(d.data() as any), id: d.id } as SavedTemplate)));
+
+                // Fetch monthly_publishes and schedules for rotation history inspection
+                const pubSnap = await getDocs(collection(db, "monthly_publishes"));
+                const pubMap: Record<string, any> = {};
+                pubSnap.docs.forEach((d: any) => {
+                    pubMap[d.id] = d.data();
+                });
+                setMonthlyPublishes(pubMap);
+
+                const schedSnap = await getDocs(collection(db, "schedules"));
+                setSchedulesList(schedSnap.docs.map((d: any) => ({ ...(d.data() as any), id: d.id } as Schedule)));
+
+                try {
+                    const lrSnap = await getDocs(collection(db, "leaveRequests"));
+                    setLeaveRequestsList(lrSnap.docs.map((d: any) => ({ ...(d.data() as any), id: d.id })));
+                } catch (e) {
+                    console.error("Error loading leaves in schedule builder:", e);
+                }
             } catch (error: any) {
                 setToast({ msg: 'Error loading data: ' + error.message, type: 'error' });
             } finally {
@@ -264,7 +319,7 @@ const ScheduleBuilder: React.FC = () => {
             }
         };
         initData();
-    }, []);
+    }, [selectedDepartmentId]);
 
     // ... (Keep existing Column Handlers: handleAddColumn, handleRemoveColumn, handleUpdateColumn)
     const handleAddColumn = (type: 'friday' | 'holiday' | 'doctor' | 'doctor_friday') => {
@@ -909,41 +964,74 @@ const ScheduleBuilder: React.FC = () => {
         <div className="flex h-screen overflow-hidden bg-slate-50 print:bg-white print:h-auto print:overflow-visible" dir={dir}>
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
             
-            {isSidebarOpen && <StaffSidebar users={employees} />}
+            {isSidebarOpen && <StaffSidebar users={employees} onOpenStaffHistory={handleOpenStaffHistory} />}
 
             <div className="flex-1 flex flex-col h-full overflow-hidden print:h-auto print:overflow-visible relative">
-                {/* ... (Keep header and controls) */}
-                <div className="bg-white border-b border-gray-200 p-3 flex flex-col xl:flex-row justify-between items-center gap-4 print:hidden">
+                {/* Modern Schedule Builder Top Bar */}
+                <div className="bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 py-3 flex flex-col xl:flex-row justify-between items-center gap-4 print:hidden shadow-xs z-10">
                     <div className="flex items-center gap-3 w-full xl:w-auto">
-                        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`p-2 rounded-lg transition-colors ${isSidebarOpen ? 'bg-slate-100 text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}>
-                            <i className="fas fa-users"></i>
+                        <button 
+                            onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
+                            className={`p-2.5 rounded-xl transition-all font-bold ${isSidebarOpen ? 'bg-indigo-50 text-indigo-700 shadow-2xs' : 'text-slate-500 hover:bg-slate-100'}`}
+                            title={isSidebarOpen ? 'إخفاء قائمة الموظفين' : 'إظهار قائمة الموظفين'}
+                        >
+                            <i className="fas fa-users text-sm"></i>
                         </button>
-                        <h1 className="text-xl font-bold text-slate-800">Schedule Builder</h1>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h1 className="text-base font-black text-slate-800 tracking-tight flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></span>
+                                    {language === 'ar' ? 'صانع الجداول الذكي' : 'Smart Schedule Builder'}
+                                </h1>
+                                {activeTemplateName && (
+                                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                        {activeTemplateName}
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-[11px] font-semibold text-slate-400">
+                                {language === 'ar' 
+                                    ? 'بناء وتوزيع الورديات مع فحص مباشر لروتيشن آخر 6 شهور' 
+                                    : 'Build schedules with live 6-month rotation history tracking'}
+                            </p>
+                        </div>
                     </div>
 
                     <div className="flex flex-wrap gap-2 items-center">
                          <button 
                             onClick={() => setIsTemplatesOpen(!isTemplatesOpen)} 
-                            className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${isTemplatesOpen ? 'bg-indigo-700 text-white shadow-md' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'}`}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${isTemplatesOpen ? 'bg-indigo-700 text-white shadow-md' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'}`}
                             title={t('sb.btn.saved') || 'الجداول المحفوظة'}
                         >
                             <i className="fas fa-folder-open"></i> 
                             <span>{t('sb.btn.saved') || 'الجداول المحفوظة'}</span>
                             {savedTemplates.length > 0 && (
-                                <span className="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">
+                                <span className="bg-indigo-600 text-white text-[10px] px-2 py-0.2 rounded-full font-black">
                                     {savedTemplates.length}
                                 </span>
                             )}
                         </button>
-                         <button onClick={() => setIsEditingVisual(!isEditingVisual)} className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${isEditingVisual ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
-                            {isEditingVisual ? 'Edit Mode' : 'Preview Mode'}
+                         <button 
+                            onClick={() => setIsEditingVisual(!isEditingVisual)} 
+                            className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all ${isEditingVisual ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                        >
+                            <i className={`fas ${isEditingVisual ? 'fa-edit' : 'fa-eye'}`}></i>
+                            {isEditingVisual ? 'وضع التعديل' : 'وضع المعاينة'}
                         </button>
-                         <button onClick={handleSaveTemplate} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center gap-2 shadow-sm"><i className="fas fa-save"></i> {t('save')}</button>
-                        <button onClick={() => window.print()} className="bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-200 flex items-center gap-2">
-                            <i className="fas fa-print"></i> Print
+                        <button 
+                            onClick={handleSaveTemplate} 
+                            className="bg-blue-600 text-white px-3.5 py-2 rounded-xl text-xs font-black hover:bg-blue-700 flex items-center gap-1.5 shadow-sm transition-all"
+                        >
+                            <i className="fas fa-save"></i> {t('save')}
+                        </button>
+                        <button 
+                            onClick={() => window.print()} 
+                            className="bg-slate-100 text-slate-600 px-3.5 py-2 rounded-xl text-xs font-black hover:bg-slate-200 flex items-center gap-1.5 transition-all"
+                        >
+                            <i className="fas fa-print"></i> طباعة
                         </button>
                         
-                        <div className="flex items-center gap-2 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200">
+                        <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
                             <input 
                                 type="checkbox" 
                                 id="mergeMode"
@@ -951,89 +1039,125 @@ const ScheduleBuilder: React.FC = () => {
                                 onChange={(e) => setMergeMode(e.target.checked)}
                                 className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer"
                             />
-                            <label htmlFor="mergeMode" className="text-xs font-bold text-slate-600 cursor-pointer select-none">
+                            <label htmlFor="mergeMode" className="text-xs font-bold text-slate-700 cursor-pointer select-none">
                                 وضع الدمج (Merge)
                             </label>
                         </div>
 
-                        <button onClick={handlePublishSchedule} className={`text-white px-4 py-2 rounded-lg text-xs font-bold shadow-lg flex items-center gap-2 ${mergeMode ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
-                            <i className="fas fa-upload"></i> {mergeMode ? 'Merge Range' : 'Publish Range'}
+                        <button 
+                            onClick={handlePublishSchedule} 
+                            className={`text-white px-4 py-2 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5 transition-all ${mergeMode ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'}`}
+                        >
+                            <i className="fas fa-upload"></i> {mergeMode ? 'دمج ونشر' : 'نشر وتثبيت'}
                         </button>
                         
-                        <button onClick={handleOpenDeleteModal} className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-100 flex items-center gap-2">
-                            <i className="fas fa-trash"></i> Delete Published
+                        <button 
+                            onClick={handleOpenDeleteModal} 
+                            className="bg-rose-50 text-rose-600 px-3 py-2 rounded-xl text-xs font-black hover:bg-rose-100 flex items-center gap-1.5 transition-all"
+                        >
+                            <i className="fas fa-trash"></i> حذف منشور
                         </button>
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-6 bg-slate-50 print:p-0 print:bg-white print:overflow-visible">
+                <div className="flex-1 overflow-y-auto p-5 bg-slate-50/70 print:p-0 print:bg-white print:overflow-visible">
                     
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-6 flex flex-wrap gap-6 items-end print:hidden">
-                        <div className="flex flex-col gap-1">
-                             <label className="text-[10px] font-bold text-slate-400 uppercase block">Month ID (Database Key)</label>
-                             <div className="flex gap-2">
-                                 <input 
-                                    type="month" 
-                                    value={publishMonth} 
-                                    onChange={e => setPublishMonth(e.target.value)} 
-                                    className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm font-bold w-40"
-                                    title="Group ID"
-                                />
-                                <button 
-                                    onClick={handleLoadPublished}
-                                    className="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1 rounded-lg text-xs font-bold hover:bg-blue-100 flex items-center gap-2"
-                                    title="Load existing data for this month from database to edit"
-                                >
-                                    <i className="fas fa-cloud-download-alt"></i> {language === 'en' ? 'Import Published' : 'استيراد المنشور'}
-                                </button>
-                             </div>
-                        </div>
-                        
-                        <div className="flex gap-2 items-end">
-                            <div>
-                                <label className="text-[10px] font-bold text-blue-600 uppercase block mb-1">Period Start</label>
-                                <input 
-                                    type="date" 
-                                    value={globalStartDate} 
-                                    onChange={e => setGlobalStartDate(e.target.value)} 
-                                    className="bg-white border border-blue-200 rounded px-3 py-2 text-xs font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-100" 
-                                />
+                    {/* Month & Period Selector Card with Pro Aesthetics */}
+                    <div className="bg-white p-4 rounded-2xl shadow-xs border border-slate-200/80 mb-5 flex flex-wrap gap-5 items-end justify-between print:hidden">
+                        <div className="flex flex-wrap gap-5 items-end">
+                            <div className="flex flex-col gap-1.5">
+                                 <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                                    <i className="fas fa-calendar-alt text-indigo-500"></i>
+                                    شهر الجدول (Database Key)
+                                 </label>
+                                 <div className="flex gap-2">
+                                     <input 
+                                        type="month" 
+                                        value={publishMonth} 
+                                        onChange={e => setPublishMonth(e.target.value)} 
+                                        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-black text-slate-800 w-40 focus:ring-2 focus:ring-indigo-100 outline-none"
+                                        title="Group ID"
+                                    />
+                                    <button 
+                                        onClick={handleLoadPublished}
+                                        className="bg-indigo-50 text-indigo-700 border border-indigo-200 px-3 py-2 rounded-xl text-xs font-black hover:bg-indigo-100 flex items-center gap-1.5 transition-all shadow-2xs"
+                                        title="Load existing data for this month from database to edit"
+                                    >
+                                        <i className="fas fa-cloud-download-alt"></i> {language === 'en' ? 'Import Published' : 'استيراد المنشور'}
+                                    </button>
+                                 </div>
                             </div>
-                            <div className="pb-2 text-slate-300"><i className="fas fa-arrow-right"></i></div>
+                            
+                            <div className="flex gap-2 items-end">
+                                <div>
+                                    <label className="text-[11px] font-black text-indigo-600 uppercase tracking-wider block mb-1.5">
+                                        تاريخ البداية (Start)
+                                    </label>
+                                    <input 
+                                        type="date" 
+                                        value={globalStartDate} 
+                                        onChange={e => setGlobalStartDate(e.target.value)} 
+                                        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-black text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-100" 
+                                    />
+                                </div>
+                                <div className="pb-2.5 text-slate-300 font-black"><i className="fas fa-arrow-right"></i></div>
+                                <div>
+                                    <label className="text-[11px] font-black text-indigo-600 uppercase tracking-wider block mb-1.5">
+                                        تاريخ النهاية (End)
+                                    </label>
+                                    <input 
+                                        type="date" 
+                                        value={globalEndDate} 
+                                        onChange={e => setGlobalEndDate(e.target.value)} 
+                                        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-black text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-100" 
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Quick Help / Rotation Tip Pill */}
+                        <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100/80 rounded-xl px-3.5 py-2.5 text-xs text-indigo-950 flex items-center gap-2.5">
+                            <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 text-[11px] shadow-2xs font-bold">
+                                <i className="fas fa-history"></i>
+                            </span>
                             <div>
-                                <label className="text-[10px] font-bold text-blue-600 uppercase block mb-1">Period End</label>
-                                <input 
-                                    type="date" 
-                                    value={globalEndDate} 
-                                    onChange={e => setGlobalEndDate(e.target.value)} 
-                                    className="bg-white border border-blue-200 rounded px-3 py-2 text-xs font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-100" 
-                                />
+                                <p className="font-black text-[11px] text-indigo-900 leading-tight">
+                                    فحص سجل الروتيشن الفوري
+                                </p>
+                                <p className="text-[10px] text-indigo-600 font-semibold leading-tight mt-0.5">
+                                    اضغط على زر <i className="fas fa-history text-[9px] mx-0.5"></i> بجانب أي موظف لمعاينة آخر 6 شهور
+                                </p>
                             </div>
                         </div>
                     </div>
 
-                    <div className="flex gap-2 mb-6 overflow-x-auto pb-2 print:hidden">
+                    {/* Schedule Builder Sub-Tabs */}
+                    <div className="flex gap-2 mb-4 overflow-x-auto pb-2 print:hidden scrollbar-thin">
                         {[
-                            { id: 'general', label: 'General Duty' },
-                            { id: 'friday', label: 'Friday Shifts' },
-                            { id: 'holiday', label: 'Holiday Shifts' },
-                            { id: 'ramadan', label: 'Ramadan Schedule' }, 
-                            { id: 'exceptions', label: 'Exceptions' },
-                            { id: 'doctor', label: 'Doctors Weekly' },
-                            { id: 'doctor_friday', label: 'Doctors Friday' }
+                            { id: 'general', label: 'الجدول العام (General Duty)', icon: 'fa-calendar-week' },
+                            { id: 'friday', label: 'ورديات الجمعة (Friday)', icon: 'fa-mosque' },
+                            { id: 'holiday', label: 'ورديات العيد (Holiday)', icon: 'fa-star' },
+                            { id: 'ramadan', label: 'جدول رمضان (Ramadan)', icon: 'fa-moon', isSpecial: true }, 
+                            { id: 'exceptions', label: 'استثناءات الأيام (Exceptions)', icon: 'fa-exclamation-circle' },
+                            { id: 'doctor', label: 'الأطباء أسبوعي (Doctors)', icon: 'fa-user-md' },
+                            { id: 'doctor_friday', label: 'جمعات الأطباء (Dr. Friday)', icon: 'fa-stethoscope' }
                         ].map(tab => (
                             <button
                                 key={tab.id}
                                 onClick={() => setVisualSubTab(tab.id as any)}
-                                className={`px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${(visualSubTab as string) === tab.id ? 'bg-slate-800 text-white shadow-lg' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'} ${tab.id === 'ramadan' ? 'border-indigo-300 text-indigo-700' : ''}`}
+                                className={`px-4 py-2.5 rounded-xl text-xs font-black whitespace-nowrap transition-all flex items-center gap-2 cursor-pointer ${
+                                    (visualSubTab as string) === tab.id 
+                                        ? 'bg-slate-900 text-white shadow-md shadow-slate-900/10 scale-[1.02]' 
+                                        : 'bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-100/70 hover:text-slate-800'
+                                } ${tab.isSpecial ? 'border-amber-300 text-amber-900' : ''}`}
                             >
-                                {tab.id === 'ramadan' && <i className="fas fa-moon mr-2 text-amber-500"></i>}
-                                {tab.label}
+                                <i className={`fas ${tab.icon} ${tab.isSpecial ? 'text-amber-500' : (visualSubTab === tab.id ? 'text-indigo-400' : 'text-slate-400')}`}></i>
+                                <span>{tab.label}</span>
                             </button>
                         ))}
                     </div>
 
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-h-[500px] print:shadow-none print:border-none print:p-0">
+                    <div className="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5 min-h-[500px] print:shadow-none print:border-none print:p-0">
                         {isEditingVisual && visualSubTab !== 'general' && visualSubTab !== 'exceptions' && visualSubTab !== 'ramadan' && (
                             <div className="mb-4 p-3 bg-slate-50 rounded-xl border border-dashed border-slate-300 flex items-center justify-between print:hidden">
                                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Column Manager</span>
@@ -1052,6 +1176,7 @@ const ScheduleBuilder: React.FC = () => {
                                 publishMonth={publishMonth} globalStartDate={globalStartDate} globalEndDate={globalEndDate}
                                 setGlobalStartDate={setGlobalStartDate} setGlobalEndDate={setGlobalEndDate}
                                 scheduleNote={scheduleNote} setScheduleNote={setScheduleNote}
+                                onOpenStaffHistory={handleOpenStaffHistory}
                                 onUpdateColumn={(i, d) => { const n = [...generalData]; n[i] = d; setGeneralData(n); }}
                                 onUpdateDuty={(i, d) => { const n = [...commonDuties]; n[i] = d; setCommonDuties(n); }}
                                 onAddColumn={() => setGeneralData([...generalData, { id: Date.now().toString(), title: 'New', defaultTime: '', colorClass: 'bg-blue-100 text-blue-900', staff: [] }])}
@@ -1093,6 +1218,7 @@ const ScheduleBuilder: React.FC = () => {
                         {visualSubTab === 'friday' && (
                             <FridayScheduleView 
                                 data={fridayData} isEditing={isEditingVisual} allUsers={employees} publishMonth={publishMonth}
+                                onOpenStaffHistory={handleOpenStaffHistory}
                                 onUpdateRow={(i, d) => { const n = [...fridayData]; n[i] = d; setFridayData(n); }}
                                 onAddRow={() => setFridayData([...fridayData, { id: Date.now().toString(), date: '' }])}
                                 onRemoveRow={(i) => setFridayData(fridayData.filter((_, idx) => idx !== i))}
@@ -1324,6 +1450,41 @@ const ScheduleBuilder: React.FC = () => {
                     </button>
                 </div>
             </Modal>
+
+            {/* QUICK ROTATION HISTORY POPOVER */}
+            <QuickStaffRotationPopover
+                user={quickHistoryUser}
+                staffName={quickHistoryStaffName}
+                isOpen={isQuickHistoryOpen}
+                onClose={() => setIsQuickHistoryOpen(false)}
+                onOpenFullHistory={handleOpenFullModalFromQuick}
+                monthlyPublishes={monthlyPublishes}
+                schedules={schedulesList}
+                leaveRequests={leaveRequestsList}
+                allUsers={allEmployees}
+                locations={allLocations}
+                referenceMonth={publishMonth}
+                dir={dir as 'rtl' | 'ltr'}
+                isDark={false}
+            />
+
+            {/* FULL 6-MONTH ROTATION HISTORY MODAL */}
+            {selectedStaffForFullHistory && (
+                <StaffSixMonthHistoryModal
+                    user={selectedStaffForFullHistory}
+                    isOpen={isFullHistoryModalOpen}
+                    onClose={() => setIsFullHistoryModalOpen(false)}
+                    monthlyPublishes={monthlyPublishes}
+                    schedules={schedulesList}
+                    leaveRequests={leaveRequestsList}
+                    allUsers={allEmployees}
+                    locations={allLocations}
+                    initialReferenceMonth={publishMonth}
+                    selectedDepartmentId={selectedDepartmentId}
+                    dir={dir as 'rtl' | 'ltr'}
+                    isDark={false}
+                />
+            )}
 
         </div>
     );

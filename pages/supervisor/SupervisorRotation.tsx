@@ -11,6 +11,8 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { useDepartment } from '../../contexts/DepartmentContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { PrintHeader, PrintFooter } from '../../components/PrintLayout';
+import { GenderBadge, GenderFilterSegment } from '../../components/schedule/GenderIndicator';
+import { StaffSixMonthHistoryModal } from '../../components/schedule/StaffSixMonthHistoryModal';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 
@@ -210,6 +212,24 @@ const SupervisorRotation: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [viewType, setViewType] = useState<'general' | 'friday'>('general'); 
     const [staffCategoryFilter, setStaffCategoryFilter] = useState<string>('all');
+    const [genderFilter, setGenderFilter] = useState<'all' | 'male' | 'female'>('all');
+
+    // Data
+    const [users, setUsers] = useState<User[]>([]);
+    const [locations, setLocations] = useState<Location[]>([]);
+    const [schedules, setSchedules] = useState<Schedule[]>([]);
+    const [monthlyPublishes, setMonthlyPublishes] = useState<Record<string, any>>({});
+
+    // Count statistics for male/female staff
+    const genderCounts = useMemo(() => {
+        let male = 0;
+        let female = 0;
+        users.forEach(u => {
+            if (u.gender === 'female') female++;
+            else if (u.gender === 'male') male++;
+        });
+        return { all: users.length, male, female };
+    }, [users]);
 
     // Duty Turn Inspector & Highlight State
     const [selectedDuty, setSelectedDuty] = useState<string | null>(null);
@@ -236,12 +256,15 @@ const SupervisorRotation: React.FC = () => {
     const [reorderSearch, setReorderSearch] = useState('');
     const [orderSavedToast, setOrderSavedToast] = useState(false);
     const [targetPosInput, setTargetPosInput] = useState<{ [userId: string]: string }>({});
-    
-    // Data
-    const [users, setUsers] = useState<User[]>([]);
-    const [locations, setLocations] = useState<Location[]>([]);
-    const [schedules, setSchedules] = useState<Schedule[]>([]);
-    const [monthlyPublishes, setMonthlyPublishes] = useState<Record<string, any>>({});
+
+    // 6-Month Staff Rotation History Modal State
+    const [selectedStaffForHistory, setSelectedStaffForHistory] = useState<User | null>(null);
+    const [isStaffHistoryModalOpen, setIsStaffHistoryModalOpen] = useState(false);
+
+    const handleOpenStaffHistory = (user: User) => {
+        setSelectedStaffForHistory(user);
+        setIsStaffHistoryModalOpen(true);
+    };
 
     const months = useMemo(() => generateMonthRange(startMonth, endMonth), [startMonth, endMonth]);
 
@@ -435,7 +458,9 @@ const SupervisorRotation: React.FC = () => {
             });
             setMonthlyPublishes(pubMap);
         });
-        const oldestMonth = months[0];
+        const curMonth = getCurrentMonthStr();
+        const sixMonthsAgo = addMonthsToMonthStr(curMonth, -6);
+        const oldestMonth = (months[0] && months[0] < sixMonthsAgo) ? months[0] : sixMonthsAgo;
         const qSch = withDept(query(collection(db, 'schedules'), where('month', '>=', oldestMonth)));
         getDocs(qSch).then((snap) => {
             setSchedules(snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as Schedule)));
@@ -606,6 +631,10 @@ const SupervisorRotation: React.FC = () => {
                     }
                 }
 
+                // Gender filter
+                if (genderFilter === 'male' && u.gender !== 'male') return false;
+                if (genderFilter === 'female' && u.gender !== 'female') return false;
+
                 // Name/email search
                 const name = (u.name || '').toLowerCase();
                 const email = (u.email || '').toLowerCase();
@@ -649,7 +678,7 @@ const SupervisorRotation: React.FC = () => {
             // Tertiary Sort: Name
             return (a.name || '').localeCompare(b.name || '');
         });
-    }, [users, searchQuery, staffCategoryFilter, customOrder]);
+    }, [users, searchQuery, staffCategoryFilter, genderFilter, customOrder]);
 
     const formatGeneralCell = (userId: string, month: string) => {
         const data = rotationMatrix[userId]?.[month];
@@ -743,8 +772,10 @@ const SupervisorRotation: React.FC = () => {
         const searchNorm = selectedDuty.toLowerCase().trim();
         const isFriday = searchNorm.includes('friday') || searchNorm.includes('جمعة') || searchNorm === 'friday shift';
 
-        // Filter eligible staff by job category / operational group if requested
+        // Filter eligible staff by job category / operational group and gender if requested
         const eligibleStaff = users.filter(u => {
+            if (genderFilter === 'male' && u.gender !== 'male') return false;
+            if (genderFilter === 'female' && u.gender !== 'female') return false;
             if (dutyCategoryFilter === 'all') return true;
             const group = getStaffGroup(u.jobCategory);
             if (dutyCategoryFilter === 'tech_pool') {
@@ -856,7 +887,7 @@ const SupervisorRotation: React.FC = () => {
             lastCandidateUserId,
             totalAssignmentsInPeriod: staffTurnList.reduce((acc, s) => acc + s.totalAssigned, 0)
         };
-    }, [selectedDuty, dutyCategoryFilter, users, months, rotationMatrix, dir]);
+    }, [selectedDuty, dutyCategoryFilter, genderFilter, users, months, rotationMatrix, dir]);
 
     // Fast click on duty badge in legend/matrix: highlights duty + illuminates who is next in turn immediately
     const handleSelectAndHighlightDuty = (dutyName: string) => {
@@ -925,147 +956,254 @@ const SupervisorRotation: React.FC = () => {
 
             <div className="max-w-7xl mx-auto px-4 py-6 print:p-0 print:max-w-none">
                 
-                {/* Header Area */}
-                <div className="flex flex-col lg:flex-row justify-between items-center mb-6 gap-4 print:hidden">
-                    <div className="flex items-center gap-4">
-                        <button onClick={() => navigate('/supervisor')} className={`w-11 h-11 rounded-2xl shadow-sm flex items-center justify-center transition-all border cursor-pointer ${isDark ? 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700' : 'bg-white border-slate-200 text-slate-400 hover:text-slate-800 hover:border-slate-400'}`}>
-                            <i className="fas fa-arrow-left rtl:rotate-180"></i>
-                        </button>
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <h1 className={`text-2xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{t('nav.rotation')}</h1>
-                                <button
-                                    onClick={() => {
-                                        const defaultDuty = availableDuties.find(d => d.toLowerCase().includes('port')) || availableDuties[0] || 'PORTABLE';
-                                        handleOpenDutyInspector(defaultDuty);
-                                    }}
-                                    className="px-3 py-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-full text-xs font-black shadow-md shadow-amber-500/20 flex items-center gap-1.5 transition-all transform hover:scale-105 cursor-pointer"
-                                    title={dir === 'rtl' ? 'معرفة من عليه الدور في أي مهمة أو قسم' : 'Inspect duty turn history'}
-                                >
-                                    <i className="fas fa-dice text-amber-100"></i>
-                                    <span>{dir === 'rtl' ? '🎯 مين عليه الدور؟' : '🎯 Turn Assistant'}</span>
-                                </button>
-                            </div>
-                            <p className={`text-xs font-bold opacity-80 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('rot.subtitle')}</p>
-                        </div>
-                    </div>
-
-                    <div className={`flex flex-wrap items-center gap-3 p-2.5 rounded-[2rem] shadow-sm border w-full lg:w-auto ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                        <div className={`flex p-1 rounded-xl ${isDark ? 'bg-slate-800/80' : 'bg-slate-100'}`}>
-                             <button 
-                                onClick={() => setViewType('general')}
-                                className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${viewType === 'general' ? (isDark ? 'bg-slate-700 text-indigo-300 shadow-sm' : 'bg-white text-indigo-600 shadow-sm') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-400 hover:text-slate-600')}`}
-                             >
-                                <i className="fas fa-th-large"></i> {t('rot.filter.general')}
-                             </button>
-                             <button 
-                                onClick={() => setViewType('friday')}
-                                className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${viewType === 'friday' ? (isDark ? 'bg-slate-700 text-teal-300 shadow-sm' : 'bg-white text-teal-600 shadow-sm') : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-400 hover:text-slate-600')}`}
-                             >
-                                <i className="fas fa-calendar-day"></i> {t('rot.filter.friday')}
-                             </button>
-                        </div>
-
-                        <div className="relative flex-1 lg:flex-none">
-                            <i className="fas fa-search absolute top-2.5 left-3 text-slate-400 text-xs"></i>
-                            <input 
-                                className={`pl-9 pr-3 py-1.5 rounded-xl text-xs font-bold border-none outline-none focus:ring-2 focus:ring-indigo-100 w-full lg:w-36 transition-all ${isDark ? 'bg-slate-800 text-slate-100 placeholder-slate-500' : 'bg-slate-50 text-slate-800'}`}
-                                placeholder={t('search')}
-                                value={searchQuery}
-                                onChange={e => setSearchQuery(e.target.value)}
-                            />
-                        </div>
-
-                        <div className={`h-6 w-px hidden lg:block ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`}></div>
-
-                        {/* Flexible Month Range Controls */}
-                        <div className="flex flex-wrap items-center gap-2">
-                            <select 
-                                className={`border rounded-xl py-1.5 px-3 text-xs font-bold cursor-pointer focus:ring-2 focus:ring-indigo-100 outline-none ${isDark ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
-                                value={preset}
-                                onChange={e => handlePresetChange(e.target.value)}
+                {/* Header & Dashboard Overview Banner */}
+                <div className={`mb-6 p-5 sm:p-6 rounded-[2.5rem] border shadow-sm print:hidden transition-all relative overflow-hidden ${
+                    isDark ? 'bg-gradient-to-br from-slate-900 via-slate-900/90 to-indigo-950/40 border-slate-800' : 'bg-gradient-to-br from-white via-indigo-50/30 to-purple-50/30 border-slate-200/80 shadow-slate-200/40'
+                }`}>
+                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-5">
+                        {/* Title & Back button */}
+                        <div className="flex items-center gap-4">
+                            <button 
+                                onClick={() => navigate('/supervisor')} 
+                                className={`w-12 h-12 rounded-2xl shadow-sm flex items-center justify-center transition-all border cursor-pointer ${
+                                    isDark ? 'bg-slate-800/90 border-slate-700 text-slate-200 hover:bg-slate-700 hover:text-white' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                }`}
+                                title={dir === 'rtl' ? 'الرجوع للوحة المشرف' : 'Back to Supervisor Dashboard'}
                             >
-                                <option value="past3_next4">{dir === 'rtl' ? '3 سابقة + 4 قادمة (شامل)' : 'Past 3 + Next 4'}</option>
-                                <option value="next4">{dir === 'rtl' ? '4 أشهر قادمة (المستقبل)' : 'Next 4 Months'}</option>
-                                <option value="next6">{dir === 'rtl' ? '6 أشهر قادمة (المستقبل)' : 'Next 6 Months'}</option>
-                                <option value="past3">{dir === 'rtl' ? '3 أشهر سابقة' : 'Past 3 Months'}</option>
-                                <option value="past6">{dir === 'rtl' ? '6 أشهر سابقة' : 'Past 6 Months'}</option>
-                                <option value="past12">{dir === 'rtl' ? '12 شهراً سابقة' : 'Past 12 Months'}</option>
-                                <option value="custom">{dir === 'rtl' ? 'نطاق مخصص...' : 'Custom Range...'}</option>
-                            </select>
+                                <i className="fas fa-arrow-left rtl:rotate-180 text-sm"></i>
+                            </button>
+                            <div>
+                                <div className="flex items-center gap-2.5 flex-wrap">
+                                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                                    <h1 className={`text-2xl sm:text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                        {t('nav.rotation')}
+                                    </h1>
+                                    <button
+                                        onClick={() => {
+                                            const defaultDuty = availableDuties.find(d => d.toLowerCase().includes('port')) || availableDuties[0] || 'PORTABLE';
+                                            handleOpenDutyInspector(defaultDuty);
+                                        }}
+                                        className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-full text-xs font-black shadow-md shadow-amber-500/20 flex items-center gap-1.5 transition-all transform hover:scale-105 cursor-pointer"
+                                        title={dir === 'rtl' ? 'معرفة من عليه الدور في أي مهمة أو قسم' : 'Inspect duty turn history'}
+                                    >
+                                        <i className="fas fa-dice text-amber-100"></i>
+                                        <span>{dir === 'rtl' ? '🎯 مين عليه الدور؟' : '🎯 Turn Assistant'}</span>
+                                    </button>
+                                </div>
+                                <p className={`text-xs font-bold mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                                    {t('rot.subtitle')}
+                                </p>
+                            </div>
+                        </div>
 
-                            <div className={`flex items-center gap-1.5 p-1 border rounded-xl ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-                                <span className="text-[10px] text-slate-400 font-bold px-1">{dir === 'rtl' ? 'من' : 'From'}</span>
-                                <input 
-                                    type="month" 
-                                    className={`border rounded-lg px-2 py-1 text-xs font-bold outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-700 border-slate-600 text-slate-100' : 'bg-white border-slate-200 text-slate-700'}`}
-                                    value={startMonth}
-                                    onChange={e => {
-                                        setStartMonth(e.target.value);
-                                        setPreset('custom');
-                                    }}
-                                />
-                                <span className="text-[10px] text-slate-400 font-bold px-1">{dir === 'rtl' ? 'إلى' : 'To'}</span>
-                                <input 
-                                    type="month" 
-                                    className={`border rounded-lg px-2 py-1 text-xs font-bold outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-700 border-slate-600 text-slate-100' : 'bg-white border-slate-200 text-slate-700'}`}
-                                    value={endMonth}
-                                    onChange={e => {
-                                        setEndMonth(e.target.value);
-                                        setPreset('custom');
-                                    }}
-                                />
+                        {/* Quick Action Badges & Stats */}
+                        <div className="flex flex-wrap items-center gap-2.5">
+                            {/* Staff Count Pill with Male / Female breakdown */}
+                            <div className={`px-3.5 py-2 rounded-2xl border flex items-center gap-2 text-xs font-bold ${
+                                isDark ? 'bg-slate-800/80 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-700 shadow-xs'
+                            }`}>
+                                <i className="fas fa-users text-indigo-500"></i>
+                                <span>{filteredAndSortedUsers.length} {dir === 'rtl' ? 'موظف' : 'Staff'}</span>
+                                <span className="text-slate-300 dark:text-slate-600">|</span>
+                                <span className="text-sky-600 dark:text-sky-400">♂ {genderCounts.male}</span>
+                                <span className="text-pink-600 dark:text-pink-400">♀ {genderCounts.female}</span>
                             </div>
 
-                            <div className={`flex items-center gap-1 p-1 rounded-xl ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
-                                <button 
-                                    onClick={() => handleShiftRange(-1)} 
-                                    className={`w-7 h-7 rounded-lg flex items-center justify-center shadow-sm text-xs font-bold cursor-pointer transition-colors ${isDark ? 'bg-slate-700 text-slate-200 hover:text-indigo-400' : 'bg-white text-slate-600 hover:text-indigo-600'}`}
-                                    title={dir === 'rtl' ? 'إلى الشهر السابق' : 'Shift month back'}
-                                >
-                                    <i className="fas fa-chevron-right rtl:rotate-180"></i>
-                                </button>
-                                <button 
-                                    onClick={handleResetToCurrent} 
-                                    className={`px-2 h-7 rounded-lg flex items-center justify-center text-[10px] font-black shadow-sm cursor-pointer transition-colors ${isDark ? 'bg-slate-700 text-indigo-300 hover:bg-slate-600' : 'bg-white text-indigo-700 hover:bg-indigo-50'}`}
-                                    title={dir === 'rtl' ? 'الرجوع للفترة الحالية' : 'Reset to current'}
-                                >
-                                    {dir === 'rtl' ? 'الآن' : 'Now'}
-                                </button>
-                                <button 
-                                    onClick={() => handleShiftRange(1)} 
-                                    className={`w-7 h-7 rounded-lg flex items-center justify-center shadow-sm text-xs font-bold cursor-pointer transition-colors ${isDark ? 'bg-slate-700 text-slate-200 hover:text-indigo-400' : 'bg-white text-slate-600 hover:text-indigo-600'}`}
-                                    title={dir === 'rtl' ? 'إلى الشهر التالي' : 'Shift month forward'}
-                                >
-                                    <i className="fas fa-chevron-left rtl:rotate-180"></i>
-                                </button>
+                            {/* Month Span Pill */}
+                            <div className={`px-3.5 py-2 rounded-2xl border flex items-center gap-2 text-xs font-bold ${
+                                isDark ? 'bg-slate-800/80 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-700 shadow-xs'
+                            }`}>
+                                <i className="fas fa-calendar-alt text-teal-500"></i>
+                                <span>{startMonth} ➔ {endMonth}</span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-950/80 text-teal-800 dark:text-teal-300 font-mono">
+                                    {months.length}m
+                                </span>
                             </div>
 
+                            {/* Reorder Button */}
                             <button 
                                 onClick={() => setIsReorderModalOpen(true)}
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 h-8 rounded-xl flex items-center gap-1.5 text-xs font-black shadow-md cursor-pointer transition-all hover:scale-105"
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-2xl flex items-center gap-1.5 text-xs font-black shadow-md cursor-pointer transition-all hover:scale-105"
                                 title={dir === 'rtl' ? 'فتح نافذة ترتيب وتنظيم الموظفين في الجدول' : 'Open Staff Reordering Center'}
                             >
                                 <i className="fas fa-sort-amount-down-alt text-xs"></i>
-                                <span>{dir === 'rtl' ? 'ترتيب الموظفين' : 'Reorder Staff'}</span>
+                                <span>{dir === 'rtl' ? 'ترتيب الموظفين' : 'Reorder'}</span>
                                 {customOrder.length > 0 && (
                                     <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
                                 )}
                             </button>
 
+                            {/* Print Button */}
                             <button 
-                                onClick={() => setInlineReorderMode(prev => !prev)}
-                                className={`px-2.5 h-8 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer shadow-xs ${inlineReorderMode ? 'bg-amber-500 text-slate-950 font-black ring-2 ring-amber-300' : (isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700')}`}
-                                title={dir === 'rtl' ? 'تفعيل أزرار الترتيب السريع مباشرة في كل صف' : 'Toggle inline reorder buttons in table'}
+                                onClick={() => window.print()} 
+                                className={`w-9 h-9 rounded-2xl flex items-center justify-center transition-all shadow-xs cursor-pointer border ${
+                                    isDark ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                                }`} 
+                                title={dir === 'rtl' ? 'طباعة الجدول' : 'Print Table'}
                             >
-                                <i className="fas fa-arrows-alt-v text-xs"></i>
-                                <span className="hidden sm:inline">{dir === 'rtl' ? 'أزرار الترتيب' : 'Quick Order'}</span>
-                            </button>
-
-                            <button onClick={() => window.print()} className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-md cursor-pointer ${isDark ? 'bg-slate-800 text-slate-200 hover:bg-slate-700' : 'bg-slate-900 text-white hover:bg-black'}`} title={dir === 'rtl' ? 'طباعة الجدول' : 'Print Table'}>
                                 <i className="fas fa-print text-xs"></i>
                             </button>
                         </div>
+                    </div>
+
+                    {/* Interactive 6-Month Tip Banner */}
+                    <div className={`mt-4 pt-3 border-t flex items-center justify-between gap-3 text-xs ${
+                        isDark ? 'border-slate-800/80 text-slate-300' : 'border-slate-200/60 text-slate-600'
+                    }`}>
+                        <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-lg bg-indigo-500/10 text-indigo-500 flex items-center justify-center shrink-0">
+                                <i className="fas fa-history text-[11px]"></i>
+                            </span>
+                            <span className="font-bold">
+                                {dir === 'rtl' 
+                                    ? '💡 ميزة جديدة: انقر على اسم أي موظف في الجدول لعرض سجل روتيشن آخر 6 شهور وتحليل الأقسام وتوصيات التكليف القادم.' 
+                                    : '💡 Tip: Click any employee name in the table to inspect their 6-month rotation history, modality balance & turn suggestions.'}
+                            </span>
+                        </div>
+                        <span className="hidden sm:inline text-[11px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-1 rounded-full border border-indigo-200 dark:border-indigo-800">
+                            {dir === 'rtl' ? 'سجل 6 شهور تفاعلي 📊' : 'Interactive 6-Month View 📊'}
+                        </span>
+                    </div>
+                </div>
+
+                {/* Primary Toolbar Controls */}
+                <div className={`flex flex-wrap items-center justify-between gap-3 mb-5 p-3 rounded-[2rem] shadow-sm border print:hidden ${
+                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                }`}>
+                    {/* View Type Toggle */}
+                    <div className={`flex p-1 rounded-2xl ${isDark ? 'bg-slate-800/80' : 'bg-slate-100'}`}>
+                        <button 
+                            onClick={() => setViewType('general')}
+                            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                                viewType === 'general' 
+                                    ? (isDark ? 'bg-slate-700 text-indigo-300 shadow-sm' : 'bg-white text-indigo-600 shadow-sm') 
+                                    : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800')
+                            }`}
+                        >
+                            <i className="fas fa-th-large"></i> {t('rot.filter.general')}
+                        </button>
+                        <button 
+                            onClick={() => setViewType('friday')}
+                            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                                viewType === 'friday' 
+                                    ? (isDark ? 'bg-slate-700 text-teal-300 shadow-sm' : 'bg-white text-teal-600 shadow-sm') 
+                                    : (isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800')
+                            }`}
+                        >
+                            <i className="fas fa-calendar-day"></i> {t('rot.filter.friday')}
+                        </button>
+                    </div>
+
+                    {/* Search Input */}
+                    <div className="relative flex-1 min-w-[180px] max-w-xs">
+                        <i className="fas fa-search absolute top-3 rtl:right-3 ltr:left-3 text-slate-400 text-xs"></i>
+                        <input 
+                            className={`rtl:pr-9 rtl:pl-3 ltr:pl-9 ltr:pr-3 py-2 rounded-2xl text-xs font-bold border-none outline-none focus:ring-2 focus:ring-indigo-500 w-full transition-all ${
+                                isDark ? 'bg-slate-800 text-slate-100 placeholder-slate-500' : 'bg-slate-50 text-slate-800 placeholder-slate-400'
+                            }`}
+                            placeholder={t('search')}
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                        />
+                        {searchQuery && (
+                            <button
+                                onClick={() => setSearchQuery('')}
+                                className="absolute top-2.5 rtl:left-2.5 ltr:right-2.5 text-slate-400 hover:text-slate-600 text-xs"
+                            >
+                                <i className="fas fa-times-circle"></i>
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Month Range & Stepper Controls */}
+                    <div className="flex flex-wrap items-center gap-2">
+                        <select 
+                            className={`border rounded-2xl py-2 px-3 text-xs font-bold cursor-pointer focus:ring-2 focus:ring-indigo-500 outline-none ${
+                                isDark ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'
+                            }`}
+                            value={preset}
+                            onChange={e => handlePresetChange(e.target.value)}
+                        >
+                            <option value="past3_next4">{dir === 'rtl' ? '3 سابقة + 4 قادمة (شامل)' : 'Past 3 + Next 4'}</option>
+                            <option value="next4">{dir === 'rtl' ? '4 أشهر قادمة (المستقبل)' : 'Next 4 Months'}</option>
+                            <option value="next6">{dir === 'rtl' ? '6 أشهر قادمة (المستقبل)' : 'Next 6 Months'}</option>
+                            <option value="past3">{dir === 'rtl' ? '3 أشهر سابقة' : 'Past 3 Months'}</option>
+                            <option value="past6">{dir === 'rtl' ? '6 أشهر سابقة' : 'Past 6 Months'}</option>
+                            <option value="past12">{dir === 'rtl' ? '12 شهراً سابقة' : 'Past 12 Months'}</option>
+                            <option value="custom">{dir === 'rtl' ? 'نطاق مخصص...' : 'Custom Range...'}</option>
+                        </select>
+
+                        <div className={`flex items-center gap-1.5 p-1 border rounded-2xl ${
+                            isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'
+                        }`}>
+                            <span className="text-[10px] text-slate-400 font-bold px-1">{dir === 'rtl' ? 'من' : 'From'}</span>
+                            <input 
+                                type="month" 
+                                className={`border rounded-xl px-2 py-1 text-xs font-bold outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
+                                    isDark ? 'bg-slate-700 border-slate-600 text-slate-100' : 'bg-white border-slate-200 text-slate-700'
+                                }`}
+                                value={startMonth}
+                                onChange={e => {
+                                    setStartMonth(e.target.value);
+                                    setPreset('custom');
+                                }}
+                            />
+                            <span className="text-[10px] text-slate-400 font-bold px-1">{dir === 'rtl' ? 'إلى' : 'To'}</span>
+                            <input 
+                                type="month" 
+                                className={`border rounded-xl px-2 py-1 text-xs font-bold outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
+                                    isDark ? 'bg-slate-700 border-slate-600 text-slate-100' : 'bg-white border-slate-200 text-slate-700'
+                                }`}
+                                value={endMonth}
+                                onChange={e => {
+                                    setEndMonth(e.target.value);
+                                    setPreset('custom');
+                                }}
+                            />
+                        </div>
+
+                        <div className={`flex items-center gap-1 p-1 rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                            <button 
+                                onClick={() => handleShiftRange(-1)} 
+                                className={`w-8 h-8 rounded-xl flex items-center justify-center shadow-xs text-xs font-bold cursor-pointer transition-colors ${
+                                    isDark ? 'bg-slate-700 text-slate-200 hover:text-indigo-400' : 'bg-white text-slate-600 hover:text-indigo-600'
+                                }`}
+                                title={dir === 'rtl' ? 'إلى الشهر السابق' : 'Shift month back'}
+                            >
+                                <i className="fas fa-chevron-right rtl:rotate-180"></i>
+                            </button>
+                            <button 
+                                onClick={handleResetToCurrent} 
+                                className={`px-2.5 h-8 rounded-xl flex items-center justify-center text-[10px] font-black shadow-xs cursor-pointer transition-colors ${
+                                    isDark ? 'bg-slate-700 text-indigo-300 hover:bg-slate-600' : 'bg-white text-indigo-700 hover:bg-indigo-50'
+                                }`}
+                                title={dir === 'rtl' ? 'الرجوع للفترة الحالية' : 'Reset to current'}
+                            >
+                                {dir === 'rtl' ? 'الآن' : 'Now'}
+                            </button>
+                            <button 
+                                onClick={() => handleShiftRange(1)} 
+                                className={`w-8 h-8 rounded-xl flex items-center justify-center shadow-xs text-xs font-bold cursor-pointer transition-colors ${
+                                    isDark ? 'bg-slate-700 text-slate-200 hover:text-indigo-400' : 'bg-white text-slate-600 hover:text-indigo-600'
+                                }`}
+                                title={dir === 'rtl' ? 'إلى الشهر التالي' : 'Shift month forward'}
+                            >
+                                <i className="fas fa-chevron-left rtl:rotate-180"></i>
+                            </button>
+                        </div>
+
+                        <button 
+                            onClick={() => setInlineReorderMode(prev => !prev)}
+                            className={`px-3 h-9 rounded-2xl flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer shadow-xs ${
+                                inlineReorderMode 
+                                    ? 'bg-amber-500 text-slate-950 font-black ring-2 ring-amber-300' 
+                                    : (isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700')
+                            }`}
+                            title={dir === 'rtl' ? 'تفعيل أزرار الترتيب السريع مباشرة في كل صف' : 'Toggle inline reorder buttons in table'}
+                        >
+                            <i className="fas fa-arrows-alt-v text-xs"></i>
+                            <span className="hidden sm:inline">{dir === 'rtl' ? 'أزرار الترتيب' : 'Quick Order'}</span>
+                        </button>
                     </div>
                 </div>
 
@@ -1254,6 +1392,16 @@ const SupervisorRotation: React.FC = () => {
                             {users.filter(u => getStaffGroup(u.jobCategory) === 'worker').length}
                         </span>
                     </button>
+
+                    <div className="ms-auto flex items-center gap-1.5 pl-2">
+                        <GenderFilterSegment
+                            current={genderFilter}
+                            onChange={setGenderFilter}
+                            counts={genderCounts}
+                            isAr={dir === 'rtl'}
+                            size="sm"
+                        />
+                    </div>
                 </div>
 
                 {/* MAIN TABLE */}
@@ -1363,7 +1511,11 @@ const SupervisorRotation: React.FC = () => {
                                                         <span className="text-[9px] font-mono font-bold opacity-60 mt-0.5">#{filteredAndSortedUsers.findIndex(u => u.id === user.id) + 1}</span>
                                                     </div>
 
-                                                    <div className={`w-9 h-9 rounded-2xl flex items-center justify-center font-black text-sm shadow-sm transition-transform group-hover:scale-105 relative ${isTopCandidate ? 'bg-amber-500 text-white ring-4 ring-amber-300 animate-pulse' : roleBadge.color.split(' ')[0]}`}>
+                                                    <div 
+                                                        onClick={(e) => { e.stopPropagation(); handleOpenStaffHistory(user); }}
+                                                        className={`w-9 h-9 rounded-2xl flex items-center justify-center font-black text-sm shadow-sm transition-all group-hover:scale-105 relative cursor-pointer hover:ring-2 hover:ring-indigo-400 ${isTopCandidate ? 'bg-amber-500 text-white ring-4 ring-amber-300 animate-pulse' : roleBadge.color.split(' ')[0]} ${user.gender === 'female' ? 'ring-2 ring-pink-400/80 shadow-pink-500/10' : user.gender === 'male' ? 'ring-2 ring-sky-400/80 shadow-sky-500/10' : ''}`}
+                                                        title={dir === 'rtl' ? `اضغط لعرض سجل روتيشن آخر 6 شهور لـ ${user.name}` : `Click to view 6-month rotation history for ${user.name}`}
+                                                    >
                                                         {isTopCandidate ? (
                                                             <i className="fas fa-crown text-amber-100 text-sm"></i>
                                                         ) : (
@@ -1372,7 +1524,20 @@ const SupervisorRotation: React.FC = () => {
                                                     </div>
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-center gap-1.5 flex-wrap">
-                                                            <h4 className={`font-black text-sm leading-tight truncate ${isDark ? (isTopCandidate ? 'text-amber-300 font-black text-base' : 'text-slate-100') : (isTopCandidate ? 'text-amber-950 font-black text-base' : 'text-slate-900')}`}>{user.name}</h4>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => { e.stopPropagation(); handleOpenStaffHistory(user); }}
+                                                                className="text-left rtl:text-right group/staff flex items-center gap-1.5 focus:outline-none cursor-pointer max-w-full"
+                                                                title={dir === 'rtl' ? `اضغط لعرض سجل روتيشن آخر 6 شهور لـ ${user.name}` : `Click to view 6-month rotation history for ${user.name}`}
+                                                            >
+                                                                <h4 className={`font-black text-sm leading-tight truncate group-hover/staff:text-indigo-600 dark:group-hover/staff:text-indigo-400 group-hover/staff:underline ${isDark ? (isTopCandidate ? 'text-amber-300 font-black text-base' : 'text-slate-100') : (isTopCandidate ? 'text-amber-950 font-black text-base' : 'text-slate-900')}`}>
+                                                                    {user.name}
+                                                                </h4>
+                                                                <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[9px] font-black px-1.5 py-0.2 rounded-full bg-indigo-100 dark:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700 shrink-0 flex items-center gap-1 print:hidden">
+                                                                    <i className="fas fa-history text-[8px]"></i>
+                                                                    <span>{dir === 'rtl' ? '6 شهور' : '6m'}</span>
+                                                                </span>
+                                                            </button>
                                                             {isTopCandidate && (
                                                                 <span className="bg-amber-500 text-slate-950 text-[9px] font-black px-2 py-0.5 rounded-full shadow-xs flex items-center gap-1 animate-bounce">
                                                                     <i className="fas fa-star text-slate-950"></i>
@@ -1385,10 +1550,22 @@ const SupervisorRotation: React.FC = () => {
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <div className="flex items-center gap-2 mt-1">
+                                                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                                            <GenderBadge gender={user.gender} variant="pill" isAr={dir === 'rtl'} />
                                                             <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border ${roleBadge.color}`}>
                                                                 {dir === 'rtl' ? roleBadge.ar : roleBadge.en}
                                                             </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => { e.stopPropagation(); handleOpenStaffHistory(user); }}
+                                                                className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full border transition-all cursor-pointer flex items-center gap-1 print:hidden ${
+                                                                    isDark ? 'bg-slate-800/80 hover:bg-slate-700 border-slate-700 text-slate-300 hover:text-indigo-300' : 'bg-slate-50 hover:bg-indigo-50 border-slate-200 text-slate-600 hover:text-indigo-700'
+                                                                }`}
+                                                                title={dir === 'rtl' ? `معاينة روتيشن آخر 6 شهور لـ ${user.name}` : `Inspect 6-month history for ${user.name}`}
+                                                            >
+                                                                <i className="fas fa-chart-bar text-[8px] text-indigo-500"></i>
+                                                                <span>{dir === 'rtl' ? 'سجل 6 شهور' : '6m History'}</span>
+                                                            </button>
                                                             {isTopCandidate && highlightDuty && (
                                                                 <span className={`text-[10px] font-bold ${isDark ? 'text-amber-300' : 'text-amber-800'}`}>
                                                                     {dutyAnalysis?.topCandidate?.monthsSinceLast === 999 
@@ -1603,6 +1780,7 @@ const SupervisorRotation: React.FC = () => {
                                                 <span className="bg-amber-500 text-white text-[10px] font-black uppercase px-2 py-0.5 rounded-md">
                                                     {dir === 'rtl' ? '👑 المرشح الأول للدور' : '👑 Top Next-in-Turn Candidate'}
                                                 </span>
+                                                <GenderBadge gender={dutyAnalysis.topCandidate.user.gender} variant="pill" isAr={dir === 'rtl'} />
                                                 <span className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                                                     {dir === 'rtl' 
                                                         ? (ROLE_BADGES[dutyAnalysis.topCandidate.user.jobCategory || 'technician']?.ar || 'فني أشعة') 
@@ -1624,7 +1802,10 @@ const SupervisorRotation: React.FC = () => {
                                     {dutyAnalysis.lastAssignedCandidate && (
                                         <div className={`p-3 rounded-2xl border text-xs ${isDark ? 'bg-slate-800/90 border-slate-700 text-slate-200' : 'bg-white/80 border-slate-200'}`}>
                                             <span className="block text-[10px] font-bold text-slate-400 uppercase">{dir === 'rtl' ? 'آخر موظف استلمها:' : 'Last Person Assigned:'}</span>
-                                            <span className={`font-black ${isDark ? 'text-white' : 'text-slate-800'}`}>{dutyAnalysis.lastAssignedCandidate.user.name}</span>
+                                            <div className="flex items-center gap-1.5 mt-0.5">
+                                                <span className={`font-black ${isDark ? 'text-white' : 'text-slate-800'}`}>{dutyAnalysis.lastAssignedCandidate.user.name}</span>
+                                                <GenderBadge gender={dutyAnalysis.lastAssignedCandidate.user.gender} variant="mini" isAr={dir === 'rtl'} />
+                                            </div>
                                             <span className={`block text-[10px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                                                 {dir === 'rtl' ? `في شهر: ${dutyAnalysis.lastAssignedCandidate.lastMonth}` : `In month: ${dutyAnalysis.lastAssignedCandidate.lastMonth}`}
                                             </span>
@@ -1711,8 +1892,28 @@ const SupervisorRotation: React.FC = () => {
                                                         {isTop ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
                                                     </td>
                                                     <td className="p-3">
-                                                        <div className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{item.user.name}</div>
-                                                        <span className={`text-[10px] font-semibold px-2 py-0.2 rounded-md border ${itemBadge.color}`}>
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleOpenStaffHistory(item.user)}
+                                                                    className={`font-bold hover:underline cursor-pointer text-left rtl:text-right ${isDark ? 'text-white hover:text-indigo-400' : 'text-slate-900 hover:text-indigo-600'}`}
+                                                                    title={dir === 'rtl' ? 'معاينة روتيشن آخر 6 شهور' : 'View 6-month history'}
+                                                                >
+                                                                    {item.user.name}
+                                                                </button>
+                                                                <GenderBadge gender={item.user.gender} variant="pill" isAr={dir === 'rtl'} />
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleOpenStaffHistory(item.user)}
+                                                                className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/80 transition-colors"
+                                                                title={dir === 'rtl' ? 'معاينة سجل روتيشن 6 شهور' : '6-Month History'}
+                                                            >
+                                                                <i className="fas fa-history text-xs"></i>
+                                                            </button>
+                                                        </div>
+                                                        <span className={`text-[10px] font-semibold px-2 py-0.2 rounded-md border inline-block mt-0.5 ${itemBadge.color}`}>
                                                             {dir === 'rtl' ? itemBadge.ar : itemBadge.en}
                                                         </span>
                                                     </td>
@@ -1899,7 +2100,10 @@ const SupervisorRotation: React.FC = () => {
 
                                             {/* Staff details */}
                                             <div className="min-w-0">
-                                                <h5 className={`font-black text-sm truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{u.name}</h5>
+                                                <div className="flex items-center gap-1.5">
+                                                    <h5 className={`font-black text-sm truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{u.name}</h5>
+                                                    <GenderBadge gender={u.gender} variant="mini" isAr={dir === 'rtl'} />
+                                                </div>
                                                 <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border inline-block mt-0.5 ${roleBadge.color}`}>
                                                     {dir === 'rtl' ? roleBadge.ar : roleBadge.en}
                                                 </span>
@@ -1976,6 +2180,21 @@ const SupervisorRotation: React.FC = () => {
                     </div>
                 </Modal>
                 
+                {/* 6-Month Staff Rotation History Modal */}
+                <StaffSixMonthHistoryModal
+                    isOpen={isStaffHistoryModalOpen}
+                    onClose={() => setIsStaffHistoryModalOpen(false)}
+                    user={selectedStaffForHistory}
+                    allUsers={users}
+                    locations={locations}
+                    monthlyPublishes={monthlyPublishes}
+                    schedules={schedules}
+                    selectedDepartmentId={selectedDepartmentId}
+                    initialReferenceMonth={months[months.length - 1] || getCurrentMonthStr()}
+                    isDark={isDark}
+                    dir={dir}
+                />
+
                 {/* Info Card */}
                 <div className={`mt-10 p-8 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden print:hidden ${isDark ? 'bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 border border-slate-800' : 'bg-gradient-to-br from-slate-900 to-slate-800'}`}>
                     <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500 opacity-10 rounded-full blur-[80px] -mr-32 -mt-32"></div>

@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { ModalityColumn, CommonDuty } from '../../types';
 import { PrintHeader, PrintFooter } from '../PrintLayout';
 import { getSoftStaffColor } from './scheduleColorUtils';
+import { GenderBadge, resolveUserGender } from './GenderIndicator';
 
 // Solid, Fixed Colors for Headers to look professional and consistent
 const fixedHeaderColors = [
@@ -46,6 +47,7 @@ interface GeneralScheduleViewProps {
 
   locations: { id: string; name: string }[];
   allUsers: any[];
+  onOpenStaffHistory?: (staffNameOrUser: string | any) => void;
   onUpdateColumn: (index: number, newData: ModalityColumn) => void;
   onUpdateDuty: (index: number, newData: CommonDuty) => void;
   onAddColumn: () => void;
@@ -67,6 +69,8 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
     setGlobalEndDate,
     scheduleNote,
     setScheduleNote,
+    allUsers = [],
+    onOpenStaffHistory,
     onUpdateColumn,
     onUpdateDuty,
     onAddColumn,
@@ -213,7 +217,8 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
               const newCols = [...data];
               newCols[targetColIndex].staff.push({ 
                   name: staffData.name, 
-                  userId: staffData.id 
+                  userId: staffData.id,
+                  gender: staffData.gender || resolveUserGender(staffData.name, allUsers)
               });
               onUpdateColumn(targetColIndex, newCols[targetColIndex]);
           }
@@ -230,7 +235,8 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
               const newDuties = [...commonDuties];
               newDuties[dutyIndex].staff.push({
                   name: staffData.name,
-                  userId: staffData.id
+                  userId: staffData.id,
+                  gender: staffData.gender || resolveUserGender(staffData.name, allUsers)
               });
               onUpdateDuty(dutyIndex, newDuties[dutyIndex]);
           }
@@ -371,6 +377,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
 
             {column.staff.map((staff, staffIndex) => {
             const staffColor = getStaffColor(staff.name);
+            const staffGender = staff.gender || resolveUserGender(staff.name, allUsers);
             return (
                 <div 
                     key={staffIndex}
@@ -406,6 +413,19 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                                 className="w-full bg-white border border-slate-200 rounded px-1 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-blue-300 print:hidden font-oswald"
                                 placeholder="Name"
                             />
+                            {staffGender && (
+                                <GenderBadge gender={staffGender} variant="mini" isAr={true} className="shrink-0 print:hidden" />
+                            )}
+                            {onOpenStaffHistory && staff.name && staff.name !== 'New Staff' && (
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); onOpenStaffHistory(staff.name); }}
+                                    className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded text-xs transition-colors shrink-0 print:hidden cursor-pointer"
+                                    title="سجل روتيشن آخر 6 شهور (6-Month History)"
+                                >
+                                    <i className="fas fa-history text-[11px]"></i>
+                                </button>
+                            )}
                         </div>
                     ) : (
                         <div className={`text-lg font-medium text-center whitespace-nowrap overflow-hidden text-ellipsis w-full print:hidden font-oswald tracking-wide flex items-center justify-center gap-1.5`}>
@@ -415,7 +435,24 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                                 {staff.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-sm" title="Broken Shift"></i>}
                                 {staff.shiftType === 'high_broken' && <i className="fas fa-bolt text-red-700 text-sm" title="High Broken Shift"></i>}
                                 {staff.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-sm" title="Straight Shift"></i>}
-                                <span>{staff.name}</span>
+                                
+                                {onOpenStaffHistory ? (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); onOpenStaffHistory(staff.name); }}
+                                        className="hover:underline hover:text-indigo-600 cursor-pointer transition-colors inline-flex items-center gap-1"
+                                        title="معاينة روتيشن آخر 6 شهور (Click for 6-month history)"
+                                    >
+                                        <span>{staff.name}</span>
+                                        <i className="fas fa-history text-[10px] text-slate-400 opacity-60 hover:opacity-100"></i>
+                                    </button>
+                                ) : (
+                                    <span>{staff.name}</span>
+                                )}
+                                
+                                {staffGender && (
+                                    <GenderBadge gender={staffGender} variant="mini" isAr={true} className="shrink-0 print:hidden" />
+                                )}
                         </div>
                     )}
                     
@@ -777,6 +814,7 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
             >
                 {duty.staff.map((s, sIndex) => {
                     const dutyStaffColor = getStaffColor(s.name);
+                    const dutyGender = s.gender || resolveUserGender(s.name, allUsers);
                     return (
                         <div key={sIndex} className="relative group w-full print:w-auto print:flex-1 print:min-w-[80px]">
                             {isEditing ? (
@@ -793,6 +831,19 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                                             className="px-2 py-1 rounded text-sm w-full outline-none bg-transparent font-bold font-oswald"
                                             placeholder="Name"
                                         />
+                                        {dutyGender && (
+                                            <GenderBadge gender={dutyGender} variant="mini" isAr={true} className="shrink-0 print:hidden" />
+                                        )}
+                                        {onOpenStaffHistory && s.name && s.name !== 'New Staff' && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); onOpenStaffHistory(s.name); }}
+                                                className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded text-xs transition-colors shrink-0 print:hidden cursor-pointer"
+                                                title="سجل روتيشن آخر 6 شهور (6-Month History)"
+                                            >
+                                                <i className="fas fa-history text-[11px]"></i>
+                                            </button>
+                                        )}
                                         <button onClick={() => removeDutyStaff(dutyIndex, sIndex)} className="text-red-400 hover:text-red-600"><i className="fas fa-times"></i></button>
                                     </div>
                                     <div className="flex gap-1">
@@ -894,7 +945,22 @@ const GeneralScheduleView: React.FC<GeneralScheduleViewProps> = ({
                                         {s.shiftType === 'night' && <i className="fas fa-moon text-indigo-500 text-sm" title="Night Shift"></i>}
                                         {s.shiftType === 'broken' && <i className="fas fa-unlink text-red-500 text-sm" title="Broken Shift"></i>}
                                         {s.shiftType === 'long_duty' && <i className="fas fa-minus text-green-500 text-sm" title="Straight Shift"></i>}
-                                        <span className="font-oswald tracking-wide text-xl">{highlightMatch(s.name)}</span>
+                                        {onOpenStaffHistory ? (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); onOpenStaffHistory(s.name); }}
+                                                className="font-oswald tracking-wide text-xl hover:underline hover:text-indigo-600 cursor-pointer inline-flex items-center gap-1 transition-colors"
+                                                title="معاينة روتيشن آخر 6 شهور (6-Month History)"
+                                            >
+                                                <span>{highlightMatch(s.name)}</span>
+                                                <i className="fas fa-history text-[10px] text-slate-400 opacity-60 hover:opacity-100"></i>
+                                            </button>
+                                        ) : (
+                                            <span className="font-oswald tracking-wide text-xl">{highlightMatch(s.name)}</span>
+                                        )}
+                                        {dutyGender && (
+                                            <GenderBadge gender={dutyGender} variant="mini" isAr={true} className="shrink-0 print:hidden" />
+                                        )}
                                     </div>
                                     {s.time && <span className="text-[11px] bg-white/50 px-1 py-0 rounded mt-1 font-mono border border-black/5" dir="ltr">{s.time}</span>}
                                     {s.note && <span className="text-[10px] text-amber-800 bg-amber-100 px-1 py-0.5 rounded mt-1 w-full italic">{s.note}</span>}

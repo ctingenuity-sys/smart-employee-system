@@ -3,6 +3,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { HolidayScheduleRow, VisualStaff, User, ScheduleColumn } from '../../types';
 import { PrintHeader, PrintFooter } from '../PrintLayout';
 import { getSoftStaffColor } from './scheduleColorUtils';
+import { GenderBadge, resolveUserGender } from './GenderIndicator';
 
 interface StaffMember {
     name: string;
@@ -52,6 +53,7 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
     searchTerm, 
     data, 
     isEditing,
+    allUsers = [],
     onUpdateRow,
     onAddRow,
     onRemoveRow,
@@ -144,7 +146,11 @@ const HolidayScheduleView: React.FC<HolidayScheduleViewProps> = ({
                  const staffData = JSON.parse(rawData);
                  const row = { ...data[targetRowIndex] };
                  const currentList = [...(row[targetColumnId] as VisualStaff[] || [])];
-                 currentList.push({ name: staffData.name, userId: staffData.id });
+                 currentList.push({ 
+                     name: staffData.name, 
+                     userId: staffData.id,
+                     gender: staffData.gender || resolveUserGender(staffData.name, allUsers)
+                 });
                  onUpdateRow(targetRowIndex, { ...row, [targetColumnId]: currentList });
             }
         } catch(err) { console.error(err); }
@@ -233,6 +239,10 @@ const renderHeader = (col: ScheduleColumn, index: number) => {
                                     className="w-full text-xs font-bold p-1 bg-gray-50 focus:bg-white border-b border-transparent focus:border-blue-300 outline-none text-gray-900"
                                     placeholder="Name"
                                 />
+                                {(() => {
+                                    const g = s.gender || resolveUserGender(s.name, allUsers);
+                                    return g ? <GenderBadge gender={g} variant="mini" isAr={true} className="shrink-0" /> : null;
+                                })()}
                                 <button 
                                     onClick={() => removeStaffMember(rowIndex, columnId, i)}
                                     className="text-slate-300 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-all"
@@ -299,6 +309,10 @@ const renderHeader = (col: ScheduleColumn, index: number) => {
                                 <span className="font-bold print:text-[11px] leading-tight">
                                     {highlightMatch(s.name)}
                                 </span>
+                                {(() => {
+                                    const g = resolveUserGender(s.name, allUsers);
+                                    return g ? <GenderBadge gender={g} variant="mini" isAr={true} className="shrink-0 print:hidden" /> : null;
+                                })()}
                             </div>
                             
                             {s.time && (

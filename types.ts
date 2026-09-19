@@ -395,6 +395,7 @@ export interface PanicReport {
 export interface VisualStaff {
     name: string;
     userId?: string; // Optional ID for smart assignment
+    gender?: 'male' | 'female'; // Gender indicator (Male/Female)
     time?: string;
     startDate?: string;
     endDate?: string;

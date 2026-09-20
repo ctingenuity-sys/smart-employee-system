@@ -5,7 +5,7 @@ import { collection, getDocs } from 'firebase/firestore';
 import Modal from '../Modal';
 import { User, Schedule, Location } from '../../types';
 import { GenderBadge } from './GenderIndicator';
-import { getSoftStaffColor, detectShiftPeriod, detectVacationForMonth, MonthVacationInfo, VACATION_STYLE } from './scheduleColorUtils';
+import { getSoftStaffColor, detectShiftPeriod, detectVacationForMonth, unpackTimingIntervals, MonthVacationInfo, VACATION_STYLE } from './scheduleColorUtils';
 
 interface StaffSixMonthHistoryModalProps {
     isOpen: boolean;
@@ -163,7 +163,7 @@ export const StaffSixMonthHistoryModal: React.FC<StaffSixMonthHistoryModalProps>
 
             // Status determination
             const departments = Array.from(departmentsSet);
-            const timings = Array.from(timingSet);
+            const timings = unpackTimingIntervals(Array.from(timingSet));
             const hasAssignment = departments.length > 0;
             const isCurrent = month === getCurrentMonthStr();
 
@@ -475,7 +475,7 @@ export const StaffSixMonthHistoryModal: React.FC<StaffSixMonthHistoryModalProps>
                         {monthDetails.map((m, index) => {
                             const isFirst = index === 0;
                             const isLast = index === monthDetails.length - 1;
-                            const shiftStyle = detectShiftPeriod(m.timings.join(' '), m.departments.join(' '));
+                            const shiftStyle = detectShiftPeriod(m.timings, m.departments.join(' '));
                             const hasVacation = m.vacation.hasVacation;
                             const isFullVacation = hasVacation && m.vacation.isFullMonth;
 
@@ -642,23 +642,60 @@ export const StaffSixMonthHistoryModal: React.FC<StaffSixMonthHistoryModalProps>
                                                 )}
                                             </div>
 
-                                            {/* Shift Timing & Working Hours (Ultra Prominent with 'من ... إلى ...') */}
+                                            {/* Shift Timing & Working Hours (Ultra Prominent with individual periods for broken shifts) */}
                                             {m.timings.length > 0 && (
                                                 <div>
-                                                    <div className="text-[10px] font-black uppercase tracking-wider opacity-60 mb-1 flex items-center gap-1">
-                                                        <i className="fas fa-clock text-[9px]"></i>
-                                                        <span>{dir === 'rtl' ? 'توقيت وساعات الدوام:' : 'Duty Hours:'}</span>
+                                                    <div className="text-[10px] font-black uppercase tracking-wider opacity-60 mb-1 flex items-center justify-between">
+                                                        <div className="flex items-center gap-1">
+                                                            <i className="fas fa-clock text-[9px]"></i>
+                                                            <span>{dir === 'rtl' ? 'توقيت وساعات الدوام:' : 'Duty Hours:'}</span>
+                                                        </div>
+                                                        {shiftStyle.type === 'split' && (
+                                                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md bg-teal-500/20 text-teal-900 dark:text-teal-200 border border-teal-400/40">
+                                                                {dir === 'rtl' ? 'دوام مقسم فترتين' : 'Split Shift'}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     <div className="space-y-1.5">
-                                                        {/* From ... To ... Readable Chip */}
-                                                        {shiftStyle.timeParsed.formattedAr && (
+                                                        {/* If shift has distinct intervals (e.g. morning and evening for broken shifts) */}
+                                                        {shiftStyle.timeParsed.intervals && shiftStyle.timeParsed.intervals.length > 0 ? (
+                                                            shiftStyle.timeParsed.intervals.map((interval, intIdx) => (
+                                                                <div
+                                                                    key={intIdx}
+                                                                    className={`px-3 py-1.5 rounded-xl text-xs font-black border flex items-center justify-between gap-2 shadow-2xs transition-all ${
+                                                                        isDark
+                                                                            ? `${interval.cardBgDark} ${interval.cardBorderDark}`
+                                                                            : `${interval.cardBgLight} ${interval.cardBorderLight}`
+                                                                    }`}
+                                                                >
+                                                                    <div className="flex items-center gap-2 min-w-0">
+                                                                        <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black shrink-0 border flex items-center gap-1 ${
+                                                                            interval.badgeBg
+                                                                        } ${interval.badgeText} ${interval.badgeBorder}`}>
+                                                                            <i className={`fas ${interval.icon} text-[10px]`}></i>
+                                                                            <span>{dir === 'rtl' ? interval.periodLabelAr : interval.periodLabelEn}</span>
+                                                                        </span>
+                                                                        <span className="font-black text-xs truncate text-slate-900 dark:text-slate-100">
+                                                                            {dir === 'rtl' ? interval.formattedAr : interval.formattedEn}
+                                                                        </span>
+                                                                    </div>
+                                                                    <span 
+                                                                        className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-white/90 dark:bg-black/40 text-slate-800 dark:text-slate-200 border border-black/10 dark:border-white/10 shrink-0 shadow-2xs" 
+                                                                        dir="ltr"
+                                                                    >
+                                                                        {interval.raw}
+                                                                    </span>
+                                                                </div>
+                                                            ))
+                                                        ) : (
+                                                            /* Fallback single chip */
                                                             <div className={`px-3 py-1.5 rounded-xl text-xs font-black border flex items-center justify-between gap-2 shadow-2xs ${
                                                                 isDark
                                                                     ? `${shiftStyle.timeBgDark} ${shiftStyle.timeTextDark} ${shiftStyle.timeBorderDark}`
                                                                     : `${shiftStyle.timeBgLight} ${shiftStyle.timeTextLight} ${shiftStyle.timeBorderLight}`
                                                             }`}>
                                                                 <div className="flex items-center gap-1.5">
-                                                                    <i className="fas fa-business-time text-[11px] opacity-85"></i>
+                                                                    <i className={`fas ${shiftStyle.icon} text-[11px] opacity-85`}></i>
                                                                     <span>
                                                                         {dir === 'rtl' ? shiftStyle.timeParsed.formattedAr : shiftStyle.timeParsed.formattedEn}
                                                                     </span>
@@ -668,21 +705,6 @@ export const StaffSixMonthHistoryModal: React.FC<StaffSixMonthHistoryModalProps>
                                                                         {m.timings[0]}
                                                                     </span>
                                                                 )}
-                                                            </div>
-                                                        )}
-
-                                                        {/* If there are multiple different timings */}
-                                                        {m.timings.length > 1 && (
-                                                            <div className="flex flex-wrap gap-1 pt-0.5">
-                                                                {m.timings.slice(1).map((tm, ti) => (
-                                                                    <span 
-                                                                        key={ti} 
-                                                                        className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-lg border bg-black/5 dark:bg-white/5 border-black/10 dark:border-white/10"
-                                                                        dir="ltr"
-                                                                    >
-                                                                        {tm}
-                                                                    </span>
-                                                                ))}
                                                             </div>
                                                         )}
                                                     </div>

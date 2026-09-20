@@ -11,48 +11,52 @@ export const useFilteredUsers = (users: User[], overrideDeptId?: string | null) 
     // 1. Filter by Visual View staff according to department
     const visualUsers = filterVisualUsers(users, targetDeptId);
 
+    const matchesDept = (u: User, deptId?: string | null) => {
+        if (!deptId) return true;
+        return (
+            u.departmentId === deptId ||
+            (Array.isArray(u.departments) && u.departments.includes(deptId)) ||
+            (deptId === 'legacy_radiology' && (!u.departmentId || u.departmentId === 'radiology' || u.departmentId === 'legacy_radiology')) ||
+            (deptId === 'radiology' && (!u.departmentId || u.departmentId === 'radiology' || u.departmentId === 'legacy_radiology'))
+        );
+    };
+
     // 2. Filter by Roles & Permissions
     return visualUsers.filter(u => {
+        const isUserDoctor = (u.role && u.role.toLowerCase() === UserRole.DOCTOR.toLowerCase()) || 
+                             (u.jobCategory && u.jobCategory.toLowerCase() === 'doctor') ||
+                             (u.name && (u.name.toLowerCase().startsWith('dr.') || u.name.toLowerCase().startsWith('dr ') || u.name.includes('د.')));
+
         if (authRole === UserRole.ADMIN) {
             if (targetDeptId) {
-                return (
-                    u.departmentId === targetDeptId ||
-                    (Array.isArray(u.departments) && u.departments.includes(targetDeptId)) ||
-                    (targetDeptId === 'legacy_radiology' && !u.departmentId)
-                );
+                return matchesDept(u, targetDeptId);
             }
             return true;
         }
         
         // Doctor filtering logic
         const isAuthDoctor = (authRole && authRole.toLowerCase() === UserRole.DOCTOR.toLowerCase()) || (currentUser?.jobCategory && currentUser.jobCategory.toLowerCase() === 'doctor');
-        const isUserDoctor = (u.role && u.role.toLowerCase() === UserRole.DOCTOR.toLowerCase()) || (u.jobCategory && u.jobCategory.toLowerCase() === 'doctor');
         
         if (isAuthDoctor) {
+            // Doctors only view doctor rosters and fellow doctors belonging to their department
             if (!isUserDoctor) return false;
-        } else {
-            if (isUserDoctor) return false;
+            const deptId = targetDeptId || currentUser?.departmentId;
+            return matchesDept(u, deptId);
         }
         
+        const effectiveDept = targetDeptId || selectedDepartmentId || currentUser?.departmentId;
+
         if (authRole === UserRole.SUPERVISOR) {
-            return (
-                u.departmentId === selectedDepartmentId || 
-                (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentId || '')) ||
-                (selectedDepartmentId === 'legacy_radiology' && !u.departmentId) ||
-                u.supervisorId === currentUser?.uid
-            );
+            // Supervisors only manage and view staff/doctors belonging to the department
+            if (matchesDept(u, effectiveDept)) return true;
+            return u.supervisorId === currentUser?.uid;
         } else if (authRole === UserRole.MANAGER) {
-            return (
-                u.departmentId === selectedDepartmentId || 
-                (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentId || '')) ||
-                (selectedDepartmentId === 'legacy_radiology' && !u.departmentId) ||
-                u.managerId === currentUser?.uid
-            );
+            // Managers only manage and view staff/doctors belonging to the department
+            if (matchesDept(u, effectiveDept)) return true;
+            return u.managerId === currentUser?.uid;
         } else if (authRole === UserRole.USER) {
-            return (
-                u.departmentId === currentUser?.departmentId ||
-                (Array.isArray(u.departments) && u.departments.includes(currentUser?.departmentId || ''))
-            );
+            const userDept = effectiveDept || currentUser?.departmentId;
+            return matchesDept(u, userDept);
         }
         
         return false;

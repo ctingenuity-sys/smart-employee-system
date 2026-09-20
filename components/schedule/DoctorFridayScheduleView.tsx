@@ -3,6 +3,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { DoctorFridayRow, VisualStaff, User, ScheduleColumn } from '../../types';
 import { PrintHeader, PrintFooter } from '../PrintLayout';
 import { SoftColorInfo, getSoftStaffColor } from './scheduleColorUtils';
+import { useDepartment } from '../../contexts/DepartmentContext';
 
 export type DoctorColorInfo = SoftColorInfo;
 
@@ -46,6 +47,7 @@ const DoctorFridayScheduleView: React.FC<DoctorFridayScheduleViewProps> = ({
     searchTerm: _searchTerm, 
     data = [],
     isEditing,
+    allUsers = [],
     onUpdateRow,
     onAddRow,
     onRemoveRow,
@@ -57,6 +59,30 @@ const DoctorFridayScheduleView: React.FC<DoctorFridayScheduleViewProps> = ({
     const [editDragItem, setEditDragItem] = useState<{ rowIndex: number, column: string, index: number } | null>(null);
     const [customTitle, setCustomTitle] = useState('');
     const [selectedDoctorName, setSelectedDoctorName] = useState<string | null>(null);
+    const { selectedDepartmentId } = useDepartment();
+
+    const matchesDept = useCallback((u: User, deptId?: string | null) => {
+        if (!deptId) return true;
+        return (
+            u.departmentId === deptId ||
+            (Array.isArray(u.departments) && u.departments.includes(deptId)) ||
+            (deptId === 'legacy_radiology' && (!u.departmentId || u.departmentId === 'radiology' || u.departmentId === 'legacy_radiology')) ||
+            (deptId === 'radiology' && (!u.departmentId || u.departmentId === 'radiology' || u.departmentId === 'legacy_radiology'))
+        );
+    }, []);
+
+    // List of available doctors from allUsers for quick selection - filtered strictly to section/department
+    const availableDoctors = useMemo(() => {
+        return (allUsers || []).filter(u => {
+            if (selectedDepartmentId && !matchesDept(u, selectedDepartmentId)) {
+                return false;
+            }
+            const role = (u.role || '').toLowerCase();
+            const cat = (u.jobCategory || '').toLowerCase();
+            const name = (u.name || '').toLowerCase();
+            return role === 'doctor' || cat === 'doctor' || cat.includes('طبيب') || name.startsWith('dr.') || name.startsWith('dr ') || name.includes('د.');
+        });
+    }, [allUsers, selectedDepartmentId, matchesDept]);
 
     // Compute Doctor Friday Statistics
     const doctorFridayStats = useMemo(() => {
@@ -229,74 +255,156 @@ const DoctorFridayScheduleView: React.FC<DoctorFridayScheduleViewProps> = ({
         if (isEditing) {
             const rawList = (data[rowIndex] && data[rowIndex][columnId]) ? (data[rowIndex][columnId] as VisualStaff[]) : [];
             return (
-                <div 
-                    className="space-y-1 min-h-[50px] p-1 h-full"
-                    onDragOver={onEditDragOver}
-                    onDrop={(e) => onEditDrop(e, rowIndex, columnId)}
-                >
-                    {rawList.map((s, i) => {
-                        const hasPP = ppRegex.test(s.name);
-                        const cleanName = s.name.replace(ppRegex, '').trim();
-                        const colorInfo = getSoftStaffColor(cleanName, uniqueDoctorNames);
-                        const stats = cleanName ? doctorFridayStats[cleanName.toLowerCase()] : null;
-                        const count = stats?.count || 0;
-                        const isSelected = selectedDoctorName && cleanName.toLowerCase() === selectedDoctorName;
+                <>
+                    <div 
+                        className="space-y-2 min-h-[60px] p-1.5 h-full print:hidden"
+                        onDragOver={onEditDragOver}
+                        onDrop={(e) => onEditDrop(e, rowIndex, columnId)}
+                    >
+                        {rawList.map((s, i) => {
+                            const hasPP = ppRegex.test(s.name);
+                            const cleanName = s.name.replace(ppRegex, '').trim();
+                            const colorInfo = getSoftStaffColor(cleanName, uniqueDoctorNames);
+                            const stats = cleanName ? doctorFridayStats[cleanName.toLowerCase()] : null;
+                            const count = stats?.count || 0;
+                            const isSelected = selectedDoctorName && cleanName.toLowerCase() === selectedDoctorName;
 
-                        return (
-                        <div 
-                            key={i} 
-                            draggable 
-                            onDragStart={(e) => onEditDragStart(e, rowIndex, columnId, i)} 
-                            className={`flex items-center gap-1 group cursor-grab active:cursor-grabbing p-1 rounded border transition-all ${isSelected ? 'ring-2 ring-offset-1 ring-blue-500 shadow-md scale-[1.02]' : 'border-slate-200'}`}
-                            style={{ backgroundColor: colorInfo.bg, borderColor: colorInfo.border }}
-                        >
-                            <div className="flex flex-col flex-1 gap-1">
-                                <div className="flex items-center justify-between gap-1">
-                                    <input
-                                        value={s.name}
-                                        onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'name', e.target.value)}
-                                        className={`w-full text-[11px] font-bold p-0.5 bg-transparent border-b border-transparent focus:border-blue-500 outline-none ${hasPP ? 'text-amber-800' : 'text-slate-800'}`}
-                                        placeholder="Dr. Name"
-                                    />
-                                    {count > 0 && (
-                                        <span 
-                                            className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full whitespace-nowrap shadow-xs"
-                                            style={{ backgroundColor: colorInfo.badgeBg, color: colorInfo.badgeText }}
-                                            title={`إجمالي جمعات الطبيب: ${count}`}
-                                        >
-                                            {count} ج
+                            return (
+                            <div 
+                                key={i} 
+                                draggable 
+                                onDragStart={(e) => onEditDragStart(e, rowIndex, columnId, i)} 
+                                className={`flex items-start gap-1.5 group cursor-grab active:cursor-grabbing p-2 rounded-lg border-2 transition-all shadow-xs ${
+                                    isSelected 
+                                        ? 'ring-2 ring-offset-1 ring-blue-500 border-blue-500 shadow-md scale-[1.01]' 
+                                        : 'border-slate-200 hover:border-slate-300'
+                                }`}
+                                style={{ backgroundColor: colorInfo.bg, borderColor: isSelected ? undefined : colorInfo.border }}
+                            >
+                                <div className="flex flex-col flex-1 gap-1.5 min-w-0">
+                                    <div className="flex items-center justify-between gap-1">
+                                        <input
+                                            value={cleanName}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                handleStaffChange(rowIndex, columnId, i, 'name', hasPP ? `${val} (PP)` : val);
+                                            }}
+                                            className={`w-full text-xs font-black px-2 py-1 bg-white border border-slate-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 rounded-md outline-none transition-all shadow-xs ${
+                                                hasPP ? 'text-amber-900' : 'text-slate-900'
+                                            }`}
+                                            placeholder="اسم الطبيب / Dr. Name"
+                                            list={`dr-friday-list-${rowIndex}-${columnId}-${i}`}
+                                        />
+                                        <datalist id={`dr-friday-list-${rowIndex}-${columnId}-${i}`}>
+                                            {availableDoctors.map(doc => (
+                                                <option key={doc.id} value={doc.name} />
+                                            ))}
+                                        </datalist>
+                                        {count > 0 && (
+                                            <span 
+                                                className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full whitespace-nowrap shadow-xs shrink-0"
+                                                style={{ backgroundColor: colorInfo.badgeBg, color: colorInfo.badgeText }}
+                                                title={`إجمالي جمعات الطبيب في الشهر: ${count}`}
+                                            >
+                                                {count} ج
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="relative flex items-center">
+                                        <span className="absolute left-2 text-[10px] text-slate-400 pointer-events-none">
+                                            <i className="far fa-clock"></i>
                                         </span>
+                                        <input
+                                            value={s.time || ''}
+                                            onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'time', e.target.value)}
+                                            className="w-full text-xs font-bold text-slate-800 pl-6 pr-2 py-1 bg-white border border-slate-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none rounded-md transition-all shadow-xs placeholder:text-slate-400 placeholder:font-normal"
+                                            placeholder="الوقت المحدد (Specific Time)"
+                                        />
+                                    </div>
+                                    <div className="relative flex items-center">
+                                        <span className="absolute left-2 text-[10px] text-amber-600 pointer-events-none">
+                                            <i className="fas fa-sticky-note"></i>
+                                        </span>
+                                        <input
+                                            value={s.note || ''}
+                                            onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'note', e.target.value)}
+                                            className="w-full text-xs font-bold text-amber-950 pl-6 pr-2 py-1 bg-amber-50/90 border border-amber-300 focus:border-amber-600 focus:ring-2 focus:ring-amber-100 outline-none rounded-md transition-all shadow-xs placeholder:text-amber-700/60 placeholder:font-normal"
+                                            placeholder="ملاحظة (Note)"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex flex-col gap-1 shrink-0 pt-0.5">
+                                    <button 
+                                        type="button"
+                                        onClick={() => togglePP(rowIndex, columnId, i)} 
+                                        className={`px-1.5 py-1 rounded text-[10px] font-black border transition-all shadow-xs ${
+                                            hasPP 
+                                                ? 'bg-amber-400 text-amber-950 border-amber-500 ring-2 ring-amber-200' 
+                                                : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200'
+                                        }`}
+                                        title={hasPP ? "إزالة شارة PP" : "إضافة شارة PP (Portable & Procedure)"}
+                                    >
+                                        PP
+                                    </button>
+                                    <button 
+                                        type="button"
+                                        onClick={() => removeStaffMember(rowIndex, columnId, i)} 
+                                        className="p-1 rounded text-red-400 hover:text-red-700 hover:bg-red-50 transition-colors flex items-center justify-center"
+                                        title="حذف الطبيب من هذا الشفت"
+                                    >
+                                        <i className="fas fa-trash-alt text-xs"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        )})}
+                        <button 
+                            type="button"
+                            onClick={() => handleAddNewStaff(rowIndex, columnId)} 
+                            className="w-full text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 py-1.5 rounded-lg transition-all shadow-xs flex items-center justify-center gap-1.5 mt-1.5 cursor-pointer"
+                        >
+                            <i className="fas fa-plus text-[10px]"></i>
+                            <span>إضافة طبيب (+ Add)</span>
+                        </button>
+                    </div>
+
+                    {/* Dedicated Print View for Edit Mode */}
+                    <div className="hidden print:flex flex-col gap-1 w-full h-full justify-center">
+                        {rawList.map((s, idx) => {
+                            const displayName = s.name.replace(ppRegex, '').trim();
+                            const colorInfo = getSoftStaffColor(displayName, uniqueDoctorNames);
+                            const hasPP = ppRegex.test(s.name);
+
+                            return (
+                                <div 
+                                    key={idx}
+                                    className="flex flex-col items-center justify-center text-center leading-tight w-full rounded-md p-1 border print-color-adjust-exact"
+                                    style={{
+                                        backgroundColor: colorInfo.bg,
+                                        color: colorInfo.text,
+                                        borderColor: colorInfo.border,
+                                        borderWidth: '1px',
+                                        borderStyle: 'solid'
+                                    }}
+                                >
+                                    <div className="text-sm font-bold uppercase text-center print:leading-tight flex flex-wrap justify-center items-center gap-1 w-full print:text-[11px] print:text-black">
+                                        <span className="font-black font-oswald">{displayName}</span>
+                                        {s.time && <span className="text-[10px] font-medium opacity-80 whitespace-nowrap">({s.time})</span>}
+                                    </div>
+                                    {s.note && (
+                                        <div className="text-[10px] font-bold text-yellow-700 bg-yellow-50 px-1 py-0.5 rounded border border-yellow-200 mt-1 w-full text-center print:text-[8px] print:bg-white print:text-black">
+                                            {s.note}
+                                        </div>
+                                    )}
+                                    {hasPP && (
+                                        <div className="w-full text-[10px] font-black bg-yellow-400 text-black border-2 border-yellow-600 rounded px-1 py-0.5 mt-1 shadow-md uppercase tracking-wider text-center block print:bg-yellow-400 print:text-black print:border-black print-color-adjust-exact print:text-[8px]">
+                                            PORTABLE & PROCEDURE
+                                        </div>
                                     )}
                                 </div>
-                                <input
-                                    value={s.time || ''}
-                                    onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'time', e.target.value)}
-                                    className="w-full text-[9px] text-slate-500 p-0.5 bg-white/70 border-b border-transparent focus:border-blue-300 outline-none rounded"
-                                    placeholder="Specific Time"
-                                />
-                                <input
-                                    value={s.note || ''}
-                                    onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'note', e.target.value)}
-                                    className="w-full text-[9px] text-yellow-700 p-0.5 bg-yellow-50/80 border-b border-transparent focus:border-yellow-400 outline-none rounded"
-                                    placeholder="Note"
-                                />
-                            </div>
-                            <button 
-                                onClick={() => togglePP(rowIndex, columnId, i)} 
-                                className={`px-1 rounded text-[9px] font-bold border transition-colors h-6 ${hasPP ? 'bg-yellow-400 text-black border-yellow-600 ring-2 ring-yellow-200 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-200'}`}
-                                title={hasPP ? "Remove PP" : "Add PP Badge"}
-                            >
-                                PP
-                            </button>
-                            <button onClick={() => removeStaffMember(rowIndex, columnId, i)} className="text-red-400 hover:text-red-600">
-                                <i className="fas fa-times text-xs"></i>
-                            </button>
-                        </div>
-                    )})}
-                    <button onClick={() => handleAddNewStaff(rowIndex, columnId)} className="w-full text-[10px] text-blue-600 bg-blue-50 py-1 rounded hover:bg-blue-100 mt-1">
-                        + Add
-                    </button>
-                </div>
+                            );
+                        })}
+                    </div>
+                </>
             );
         }
         return (
@@ -531,29 +639,29 @@ const DoctorFridayScheduleView: React.FC<DoctorFridayScheduleViewProps> = ({
         )}
 
       <div dir="ltr" className="overflow-x-auto rounded-none border-2 border-slate-800 shadow-none bg-white print:block print:overflow-visible print:border-2 print:border-slate-900 print:w-full">
-        <table className="min-w-full divide-y divide-slate-800 border-collapse table-fixed">
+        <table className="doctor-schedule-table min-w-full divide-y divide-slate-800 border-collapse table-fixed">
           <thead className="bg-slate-200 print:bg-[#e6e7e8] print-color-adjust-exact">
             <tr className="divide-x divide-slate-800 border-b-2 border-slate-800">
-              <th className="px-2 py-3 text-center text-xs font-black text-slate-900 uppercase border-r-2 border-slate-800 w-32 bg-slate-200 print:bg-[#e6e7e8] print:w-20 print:px-1 print:py-2 print:text-[10px] print:leading-tight">
+              <th className="px-2 py-3 text-center text-xs font-black text-slate-900 uppercase border-r-2 border-slate-800 min-w-[130px] w-36 bg-slate-200 print:bg-[#e6e7e8] print:w-20 print:px-1 print:py-2 print:text-[10px] print:leading-tight">
                   DATE
               </th>
               {columns.map((col, idx) => renderHeaderCell(col, idx, colWidth))}
-              <th className="px-2 py-3 text-center text-xs font-black text-slate-900 uppercase border-r-2 border-slate-800 w-32 bg-slate-200 print:bg-[#e6e7e8] print:w-24 print:px-1 print:py-2 print:text-[10px] print:leading-tight">
+              <th className="px-2 py-3 text-center text-xs font-black text-slate-900 uppercase border-r-2 border-slate-800 min-w-[120px] w-32 bg-slate-200 print:bg-[#e6e7e8] print:w-24 print:px-1 print:py-2 print:text-[10px] print:leading-tight">
                   NOTE
               </th>
               {isEditing && <th className="w-8 bg-white print:hidden"></th>}
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-slate-800 print:divide-slate-800">
+          <tbody className="bg-white">
             {staffData.map((row, idx) => (
-              <tr key={idx} className="divide-x divide-slate-800 border-b border-slate-800 min-h-[5rem] print:h-auto print:border-b">
-                <td className="px-2 py-2 text-sm font-bold text-slate-900 align-middle bg-slate-50 print:bg-transparent border-r-2 border-slate-800 print:p-1 print:text-[10px] text-center">
+              <tr key={idx} className="divide-x divide-slate-800 border-b-2 border-slate-800 print:border-b-2 print:border-slate-900 min-h-[5rem] print:h-auto">
+                <td className="px-2 py-2 text-sm font-bold text-slate-900 align-middle bg-slate-50 print:bg-transparent border-r-2 border-slate-800 border-b-2 border-slate-800 print:border-b-2 print:border-slate-900 print:p-1 print:text-[10px] text-center min-w-[130px] w-36">
                     {isEditing ? (
                         <input
                             type="text"
                             value={row.date || ''}
                             onChange={(e) => onUpdateRow(idx, {...data[idx], date: e.target.value})}
-                            className="w-full bg-white border border-slate-300 p-2 text-sm font-bold rounded text-center"
+                            className="w-full bg-white border-2 border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 p-2 text-xs font-black rounded-lg text-center shadow-xs transition-all placeholder:text-slate-400"
                             placeholder="DD/MM/YYYY"
                         />
                     ) : (
@@ -564,18 +672,18 @@ const DoctorFridayScheduleView: React.FC<DoctorFridayScheduleViewProps> = ({
                 </td>
                 
                 {columns.map((col) => (
-                    <td key={col.id} className="px-1 py-1 align-middle bg-white border-r-2 border-slate-800 print:p-0.5">
+                    <td key={col.id} className="px-1.5 py-1.5 align-middle bg-white border-r-2 border-slate-800 border-b-2 border-slate-800 print:border-b-2 print:border-slate-900 print:p-0.5">
                         {renderStaffList(row[col.id], idx, col.id)}
                     </td>
                 ))}
 
-                <td className="px-2 py-2 text-sm font-bold text-slate-900 align-middle bg-slate-50 print:bg-transparent border-r-2 border-slate-800 print:p-1 print:text-[10px] text-center">
+                <td className="px-2 py-2 text-sm font-bold text-slate-900 align-middle bg-slate-50 print:bg-transparent border-r-2 border-slate-800 border-b-2 border-slate-800 print:border-b-2 print:border-slate-900 print:p-1 print:text-[10px] text-center min-w-[120px] w-32">
                     {isEditing ? (
                         <textarea
                             value={row.note || ''}
                             onChange={(e) => onUpdateRow(idx, {...data[idx], note: e.target.value})}
-                            className="w-full bg-white border border-slate-300 p-1 text-[10px] rounded text-center resize-none h-12"
-                            placeholder="Note..."
+                            className="w-full bg-white border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 p-1.5 text-xs font-medium rounded-lg text-center resize-none h-16 shadow-xs transition-all placeholder:text-slate-400"
+                            placeholder="ملاحظات..."
                         />
                     ) : (
                         <div className="font-bold text-[10px] print:text-[9px] whitespace-pre-line leading-tight text-slate-600">
@@ -585,7 +693,7 @@ const DoctorFridayScheduleView: React.FC<DoctorFridayScheduleViewProps> = ({
                 </td>
 
                 {isEditing && (
-                    <td className="px-1 py-1 align-middle print:hidden bg-white text-center">
+                    <td className="px-1 py-1 align-middle print:hidden bg-white text-center border-b-2 border-slate-800">
                         <button onClick={() => { if(window.confirm('Delete this row?')) onRemoveRow(idx); }} className="text-red-500 hover:bg-red-50 p-1 rounded">
                             <i className="fas fa-times"></i>
                         </button>

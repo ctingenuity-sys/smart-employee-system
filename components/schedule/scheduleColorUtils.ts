@@ -140,6 +140,29 @@ export const getSoftStaffColor = (name: string, uniqueList?: string[]): SoftColo
   return SOFT_PASTEL_PALETTE[index];
 };
 
+export interface ParsedShiftInterval {
+  raw: string;
+  startHour24: number | null;
+  endHour24: number | null;
+  formattedAr: string;
+  formattedEn: string;
+  periodType: 'morning' | 'evening' | 'night' | 'straight';
+  periodLabelAr: string;
+  periodLabelEn: string;
+  icon: string;
+  badgeBg: string;
+  badgeText: string;
+  badgeBorder: string;
+  cardBgLight: string;
+  cardBgDark: string;
+  cardBorderLight: string;
+  cardBorderDark: string;
+  timeChipBgLight: string;
+  timeChipBgDark: string;
+  timeChipTextLight: string;
+  timeChipTextDark: string;
+}
+
 export interface ParsedShiftTime {
   raw: string;
   startHour24: number | null;
@@ -147,25 +170,41 @@ export interface ParsedShiftTime {
   formattedAr: string;
   formattedEn: string;
   isSplit: boolean;
+  intervals?: ParsedShiftInterval[];
 }
 
 /**
- * Parses various shift time string formats (e.g., '9.30am-8.30pm', '9:30AM-5:30PM', '5pm-1am', '9PM-8AM', '08:00-16:00', '8 AM - 8 PM')
- * and generates precise 24-hour boundaries and readable "من ... إلى ..." Arabic/English formatted strings.
+ * Unpacks combined timing strings (split by comma, slash, semicolon, ampersand, newline, or plus)
+ * or arrays of strings into cleanly trimmed, distinct individual shift intervals.
  */
-export const parseShiftTime = (timeStr?: string): ParsedShiftTime => {
-  if (!timeStr || !timeStr.trim()) {
-    return {
-      raw: '',
-      startHour24: null,
-      endHour24: null,
-      formattedAr: '',
-      formattedEn: '',
-      isSplit: false
-    };
-  }
+export const unpackTimingIntervals = (input?: string | string[] | null): string[] => {
+  if (!input) return [];
+  const rawList = Array.isArray(input) ? input : [input];
+  const results: string[] = [];
+  const seen = new Set<string>();
 
-  const raw = timeStr.trim();
+  rawList.forEach(item => {
+    if (!item || typeof item !== 'string' || !item.trim()) return;
+    // Split by comma, slash, semicolon, ampersand, newline, or " + "
+    const parts = item.split(/[,/;&\n]|\s\+\s/);
+    parts.forEach(p => {
+      const trimmed = p.trim();
+      if (trimmed && !seen.has(trimmed.toLowerCase())) {
+        seen.add(trimmed.toLowerCase());
+        results.push(trimmed);
+      }
+    });
+  });
+
+  return results;
+};
+
+/**
+ * Parses a single shift time range (e.g. '09:00 - 13:00', '17:00 - 21:00', '9am - 5pm')
+ * and classifies it with its specific period (Morning / Evening / Night) and custom theme styling.
+ */
+export const parseSingleShiftInterval = (rawInterval: string, isSoleShift: boolean = true): ParsedShiftInterval => {
+  const raw = rawInterval.trim();
 
   // 24 Hours / All Day
   if (raw.toLowerCase().includes('24') && (raw.toLowerCase().includes('hour') || raw.includes('ساعة') || raw.toLowerCase().includes('hrs'))) {
@@ -175,28 +214,25 @@ export const parseShiftTime = (timeStr?: string): ParsedShiftTime => {
       endHour24: 24,
       formattedAr: 'على مدار 24 ساعة',
       formattedEn: '24 Hours Duty',
-      isSplit: false
-    };
-  }
-
-  // Handle multi-interval / split shifts (e.g. "9AM-1PM / 5PM-9PM" or "09:00-13:00 / 17:00-21:00" or "9am-1pm & 5pm-9pm")
-  if (raw.includes('/') || raw.includes(';') || raw.includes('&') || raw.includes(' + ')) {
-    const delimiter = raw.includes('/') ? '/' : (raw.includes(';') ? ';' : (raw.includes('&') ? '&' : ' + '));
-    const parts = raw.split(delimiter);
-    const p1 = parseShiftTime(parts[0]);
-    const p2 = parseShiftTime(parts[1]);
-    return {
-      raw,
-      startHour24: p1.startHour24,
-      endHour24: p2.endHour24,
-      formattedAr: `${p1.formattedAr || parts[0].trim()} | ${p2.formattedAr || parts[1].trim()}`,
-      formattedEn: `${p1.formattedEn || parts[0].trim()} | ${p2.formattedEn || parts[1].trim()}`,
-      isSplit: true
+      periodType: 'straight',
+      periodLabelAr: 'دوام 24 ساعة',
+      periodLabelEn: '24-Hour Duty',
+      icon: 'fa-clock-rotate-left',
+      badgeBg: 'bg-indigo-500/20 text-indigo-950 dark:text-indigo-200',
+      badgeText: 'text-indigo-950 dark:text-indigo-200',
+      badgeBorder: 'border-indigo-400/50',
+      cardBgLight: 'bg-indigo-50/90 text-indigo-950',
+      cardBgDark: 'bg-indigo-950/50 text-indigo-100',
+      cardBorderLight: 'border-indigo-300',
+      cardBorderDark: 'border-indigo-700/60',
+      timeChipBgLight: 'bg-indigo-100/90 text-indigo-950',
+      timeChipBgDark: 'bg-indigo-900/80 text-indigo-200',
+      timeChipTextLight: 'text-indigo-950',
+      timeChipTextDark: 'text-indigo-200'
     };
   }
 
   // Regex matching all variants: "9.30am-8.30pm", "9:30AM - 5:30PM", "08:00 - 16:00", "5pm - 1am", "9am to 5pm", "9.30 ص - 8.30 م"
-  // Note: [:.,hH] allows ':' and '.' (e.g. 9.30 or 9:30 or 9,30 or 9h30)
   const regex = /(\d{1,2})(?:[:.,hH](\d{1,2}))?\s*(am|pm|a\.m\.|p\.m\.|ص|م|صباحا|صباحاً|مساء|مساءً)?\s*(?:-|–|—|to|➔|->|إلى|الي|حتى)\s*(\d{1,2})(?:[:.,hH](\d{1,2}))?\s*(am|pm|a\.m\.|p\.m\.|ص|م|صباحا|صباحاً|مساء|مساءً)?/i;
   const match = raw.match(regex);
 
@@ -207,12 +243,10 @@ export const parseShiftTime = (timeStr?: string): ParsedShiftTime => {
     let eH = parseInt(eHStr, 10);
     let eM = eMStr ? parseInt(eMStr, 10) : 0;
 
-    // Validate boundaries
     if (sH >= 0 && sH <= 24 && eH >= 0 && eH <= 24 && sM >= 0 && sM <= 59 && eM >= 0 && eM <= 59) {
       let sPeriod = sAmpm ? sAmpm.toLowerCase().replace(/\./g, '') : '';
       let ePeriod = eAmpm ? eAmpm.toLowerCase().replace(/\./g, '') : '';
 
-      // Normalize Arabic markers
       if (sPeriod.startsWith('ص')) sPeriod = 'am';
       if (sPeriod.startsWith('م')) sPeriod = 'pm';
       if (ePeriod.startsWith('ص')) ePeriod = 'am';
@@ -223,11 +257,9 @@ export const parseShiftTime = (timeStr?: string): ParsedShiftTime => {
 
       if (!sPeriod && !ePeriod) {
         if (sH >= 13 || eH >= 13 || (sH >= 7 && eH >= 13)) {
-          // 24-hour style (e.g. 08:00 - 16:00, 17:00 - 01:00, 21:00 - 08:00)
           s24 = sH;
           e24 = eH;
         } else {
-          // 12-hour heuristic (e.g. 9-5 => 9 AM to 5 PM, 8-8 => 8 AM to 8 PM, 8-4 => 8 AM to 4 PM, 5-1 => 5 PM to 1 AM)
           if (sH >= 6 && sH <= 11) {
             s24 = sH;
             e24 = (eH <= sH && eH <= 11) ? eH + 12 : eH;
@@ -242,18 +274,15 @@ export const parseShiftTime = (timeStr?: string): ParsedShiftTime => {
         if (ePeriod === 'pm' && eH < 12) e24 = eH + 12;
         if (ePeriod === 'am' && eH === 12) e24 = 0;
 
-        // If only end has PM (e.g. "9-5PM" or "9.30-8.30pm" or "8-4PM"), start is AM if between 6-11
         if (!sPeriod && ePeriod === 'pm') {
           if (sH >= 6 && sH <= 11) s24 = sH;
           else if (sH < 12 && sH > eH) s24 = sH;
           else if (sH < 12) s24 = sH + 12;
         }
-        // If only start has PM (e.g. "5PM-1"), end is AM if between 1-6
         if (sPeriod === 'pm' && !ePeriod) {
-          if (eH >= 1 && eH <= 11 && eH <= sH) e24 = eH; // e.g. 5PM - 1AM
+          if (eH >= 1 && eH <= 11 && eH <= sH) e24 = eH;
           else if (eH < 12) e24 = eH + 12;
         }
-        // If only start has AM (e.g. "9AM-5" or "9.30AM-8.30"), end is PM if eH < sH or eH <= 11
         if (sPeriod === 'am' && !ePeriod) {
           if (eH < sH || eH <= 11) e24 = eH + 12;
         }
@@ -270,24 +299,152 @@ export const parseShiftTime = (timeStr?: string): ParsedShiftTime => {
       const formattedAr = `من ${format12(s24, sM, true)} إلى ${format12(e24, eM, true)}`;
       const formattedEn = `From ${format12(s24, sM, false)} to ${format12(e24, eM, false)}`;
 
+      // Period classification
+      const isNight = s24 >= 21 || s24 < 6 || raw.toLowerCase().includes('night') || raw.includes('ليلي') || raw.includes('سهر');
+      const isEvening = !isNight && (s24 >= 12 || raw.toLowerCase().includes('pm') || raw.includes('مساء'));
+      
+      if (isNight) {
+        return {
+          raw,
+          startHour24: s24,
+          endHour24: e24,
+          formattedAr,
+          formattedEn,
+          periodType: 'night',
+          periodLabelAr: isSoleShift ? 'دوام ليلي' : 'الفترة الليلية',
+          periodLabelEn: 'Night Shift',
+          icon: 'fa-moon',
+          badgeBg: 'bg-indigo-950/30 text-indigo-900 dark:text-indigo-200',
+          badgeText: 'text-indigo-950 dark:text-indigo-200',
+          badgeBorder: 'border-indigo-400/50',
+          cardBgLight: 'bg-gradient-to-r from-indigo-50/95 to-slate-50/95 text-indigo-950 shadow-2xs',
+          cardBgDark: 'bg-gradient-to-r from-indigo-950/60 to-slate-900/60 text-indigo-100 shadow-2xs',
+          cardBorderLight: 'border-indigo-300 ring-1 ring-indigo-400/20',
+          cardBorderDark: 'border-indigo-700/60 ring-1 ring-indigo-500/20',
+          timeChipBgLight: 'bg-indigo-100/90 text-indigo-950',
+          timeChipBgDark: 'bg-indigo-900/80 text-indigo-200',
+          timeChipTextLight: 'text-indigo-950',
+          timeChipTextDark: 'text-indigo-200'
+        };
+      }
+
+      if (isEvening) {
+        return {
+          raw,
+          startHour24: s24,
+          endHour24: e24,
+          formattedAr,
+          formattedEn,
+          periodType: 'evening',
+          periodLabelAr: isSoleShift ? 'دوام مسائي' : 'الفترة المسائية',
+          periodLabelEn: 'Evening Shift',
+          icon: 'fa-cloud-sun',
+          badgeBg: 'bg-amber-500/20 text-amber-900 dark:text-amber-200',
+          badgeText: 'text-amber-900 dark:text-amber-200',
+          badgeBorder: 'border-amber-400/50',
+          cardBgLight: 'bg-gradient-to-r from-amber-50/95 to-orange-50/70 text-amber-950 shadow-2xs',
+          cardBgDark: 'bg-gradient-to-r from-amber-950/50 to-slate-900/60 text-amber-100 shadow-2xs',
+          cardBorderLight: 'border-amber-300 ring-1 ring-amber-400/20',
+          cardBorderDark: 'border-amber-700/60 ring-1 ring-amber-500/20',
+          timeChipBgLight: 'bg-amber-100/90 text-amber-950',
+          timeChipBgDark: 'bg-amber-900/80 text-amber-200',
+          timeChipTextLight: 'text-amber-950',
+          timeChipTextDark: 'text-amber-200'
+        };
+      }
+
+      // Default: Morning Shift
       return {
         raw,
         startHour24: s24,
         endHour24: e24,
         formattedAr,
         formattedEn,
-        isSplit: false
+        periodType: 'morning',
+        periodLabelAr: isSoleShift ? 'دوام صباحي' : 'الفترة الصباحية',
+        periodLabelEn: 'Morning Shift',
+        icon: 'fa-sun',
+        badgeBg: 'bg-sky-500/20 text-sky-900 dark:text-sky-200',
+        badgeText: 'text-sky-900 dark:text-sky-200',
+        badgeBorder: 'border-sky-300/60',
+        cardBgLight: 'bg-gradient-to-r from-sky-50/95 to-blue-50/70 text-sky-950 shadow-2xs',
+        cardBgDark: 'bg-gradient-to-r from-sky-950/50 to-slate-900/60 text-sky-100 shadow-2xs',
+        cardBorderLight: 'border-sky-300 ring-1 ring-sky-400/20',
+        cardBorderDark: 'border-sky-700/60 ring-1 ring-sky-500/20',
+        timeChipBgLight: 'bg-sky-100/90 text-sky-950',
+        timeChipBgDark: 'bg-sky-900/80 text-sky-200',
+        timeChipTextLight: 'text-sky-950',
+        timeChipTextDark: 'text-sky-200'
       };
     }
   }
 
+  // Fallback for unparseable raw string
   return {
     raw,
     startHour24: null,
     endHour24: null,
     formattedAr: raw,
     formattedEn: raw,
-    isSplit: false
+    periodType: 'straight',
+    periodLabelAr: 'توقيت الدوام',
+    periodLabelEn: 'Duty Hours',
+    icon: 'fa-clock',
+    badgeBg: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300',
+    badgeText: 'text-slate-700 dark:text-slate-300',
+    badgeBorder: 'border-slate-300 dark:border-slate-700',
+    cardBgLight: 'bg-slate-50 text-slate-800',
+    cardBgDark: 'bg-slate-800 text-slate-200',
+    cardBorderLight: 'border-slate-300',
+    cardBorderDark: 'border-slate-700',
+    timeChipBgLight: 'bg-slate-100 text-slate-800',
+    timeChipBgDark: 'bg-slate-800 text-slate-200',
+    timeChipTextLight: 'text-slate-800',
+    timeChipTextDark: 'text-slate-200'
+  };
+};
+
+/**
+ * Parses various shift time string formats (single or multi-interval)
+ * and generates precise boundaries, parsed intervals, and readable "من ... إلى ..." strings.
+ */
+export const parseShiftTime = (timeInput?: string | string[]): ParsedShiftTime => {
+  const intervals = unpackTimingIntervals(timeInput);
+  if (intervals.length === 0) {
+    return {
+      raw: '',
+      startHour24: null,
+      endHour24: null,
+      formattedAr: '',
+      formattedEn: '',
+      isSplit: false,
+      intervals: []
+    };
+  }
+
+  if (intervals.length === 1) {
+    const single = parseSingleShiftInterval(intervals[0], true);
+    return {
+      raw: single.raw,
+      startHour24: single.startHour24,
+      endHour24: single.endHour24,
+      formattedAr: single.formattedAr,
+      formattedEn: single.formattedEn,
+      isSplit: false,
+      intervals: [single]
+    };
+  }
+
+  // Multi-interval (Broken / Split Shift)
+  const parsedIntervals = intervals.map(iv => parseSingleShiftInterval(iv, false));
+  return {
+    raw: intervals.join(' , '),
+    startHour24: parsedIntervals[0]?.startHour24 ?? null,
+    endHour24: parsedIntervals[parsedIntervals.length - 1]?.endHour24 ?? null,
+    formattedAr: parsedIntervals.map(i => i.formattedAr).join(' | '),
+    formattedEn: parsedIntervals.map(i => i.formattedEn).join(' | '),
+    isSplit: true,
+    intervals: parsedIntervals
   };
 };
 
@@ -324,15 +481,15 @@ export interface ShiftPeriodStyle {
 }
 
 /**
- * Detects whether a shift is Morning (صباح), Evening/Afternoon (مساء/بعد الظهر), Night (ليل), or Split (فترتين)
+ * Detects whether a shift is Morning (صباح), Evening/Afternoon (مساء/بعد الظهر), Night (ليل), or Split (فترتين / بروكن)
  * and returns high-contrast theme styling for UI rotation cards.
  */
-export const detectShiftPeriod = (timeStr?: string, dutyName?: string, shiftType?: string): ShiftPeriodStyle => {
-  const rawTime = (timeStr || '').trim().toUpperCase();
+export const detectShiftPeriod = (timeInput?: string | string[], dutyName?: string, shiftType?: string): ShiftPeriodStyle => {
   const rawDuty = (dutyName || '').trim().toUpperCase();
   const rawType = (shiftType || '').trim().toLowerCase();
 
-  const parsed = parseShiftTime(timeStr);
+  const parsed = parseShiftTime(timeInput);
+  const rawTime = parsed.raw.toUpperCase();
 
   // If no duty and no time, it's unassigned
   if (!rawTime && !rawDuty && !rawType) {
@@ -367,8 +524,77 @@ export const detectShiftPeriod = (timeStr?: string, dutyName?: string, shiftType
     };
   }
 
-  // 1. NIGHT SHIFT (وردية ليلية)
-  // Detected if explicit night keyword OR start hour >= 20 (8PM) or start hour < 6 (6AM)
+  // 1. SPLIT / BROKEN SHIFT (دوام مقسم / فترتين / بروكن مثل صبح ومساء)
+  const isExplicitSplit =
+    rawType === 'broken' ||
+    rawType === 'high_broken' ||
+    rawDuty.includes('BROKEN') ||
+    rawDuty.includes('مجزء') ||
+    rawDuty.includes('مقسم') ||
+    rawDuty.includes('فترتين') ||
+    parsed.isSplit ||
+    (parsed.intervals && parsed.intervals.length > 1);
+
+  if (isExplicitSplit) {
+    // Check specific sub-periods (e.g. morning + evening)
+    const hasMorning = parsed.intervals?.some(i => i.periodType === 'morning');
+    const hasEvening = parsed.intervals?.some(i => i.periodType === 'evening');
+    const hasNight = parsed.intervals?.some(i => i.periodType === 'night');
+
+    let periodBadgeAr = '🔄 دوام فترتين (Split)';
+    let periodBadgeEn = '🔄 Split Shift';
+    let labelAr = 'دوام مقسم فترتين (Split)';
+    let labelEn = 'Split Shift';
+
+    if (hasMorning && hasEvening) {
+      periodBadgeAr = '🔄 دوام فترتين: صبح ومساء';
+      periodBadgeEn = '🔄 Split: Morning & Evening';
+      labelAr = 'دوام مقسم فترتين (صبح ومساء)';
+      labelEn = 'Split Shift: Morning & Evening';
+    } else if (hasMorning && hasNight) {
+      periodBadgeAr = '🔄 دوام فترتين: صبح وليل';
+      periodBadgeEn = '🔄 Split: Morning & Night';
+      labelAr = 'دوام مقسم فترتين (صبح وليل)';
+      labelEn = 'Split Shift: Morning & Night';
+    } else if (hasEvening && hasNight) {
+      periodBadgeAr = '🔄 دوام فترتين: مساء وليل';
+      periodBadgeEn = '🔄 Split: Evening & Night';
+      labelAr = 'دوام مقسم فترتين (مساء وليل)';
+      labelEn = 'Split Shift: Evening & Night';
+    }
+
+    return {
+      type: 'split',
+      icon: 'fa-arrows-split-up-and-left',
+      labelAr,
+      labelEn,
+      periodBadgeAr,
+      periodBadgeEn,
+      timeParsed: parsed,
+      badgeBg: 'bg-teal-500/20 text-teal-900 dark:text-teal-200',
+      badgeText: 'text-teal-900 dark:text-teal-200',
+      badgeBorder: 'border-teal-400/60 dark:border-teal-600/60',
+      cardBgLight: 'bg-gradient-to-br from-teal-50/95 via-cyan-50/40 to-emerald-50/60 text-slate-900 shadow-sm shadow-teal-900/10',
+      cardBgDark: 'bg-gradient-to-br from-teal-950/40 via-slate-900 to-emerald-950/30 text-slate-100 shadow-sm shadow-black/40',
+      cardBorderLight: 'border-teal-300 ring-1 ring-teal-400/40',
+      cardBorderDark: 'border-teal-600/60 ring-1 ring-teal-500/30',
+      glowColor: 'text-teal-500',
+      timeBgLight: 'bg-teal-100/90 text-teal-950',
+      timeBgDark: 'bg-teal-950/80 text-teal-200',
+      timeTextLight: 'text-teal-950 font-mono font-black',
+      timeTextDark: 'text-teal-200 font-mono font-black',
+      timeBorderLight: 'border-teal-300',
+      timeBorderDark: 'border-teal-700/60',
+      locationBgLight: 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white',
+      locationBgDark: 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white',
+      locationTextLight: 'text-white font-black',
+      locationTextDark: 'text-white font-black',
+      locationBorderLight: 'border-teal-500',
+      locationBorderDark: 'border-teal-500'
+    };
+  }
+
+  // 2. NIGHT SHIFT (وردية ليلية)
   const isExplicitNight =
     rawType === 'night' ||
     rawDuty.includes('NIGHT') ||
@@ -414,47 +640,6 @@ export const detectShiftPeriod = (timeStr?: string, dutyName?: string, shiftType
       locationTextDark: 'text-white font-black',
       locationBorderLight: 'border-indigo-400',
       locationBorderDark: 'border-indigo-400'
-    };
-  }
-
-  // 2. SPLIT / BROKEN SHIFT (دوام مقسم / فترتين)
-  const isExplicitSplit =
-    rawType === 'broken' ||
-    rawType === 'high_broken' ||
-    rawDuty.includes('BROKEN') ||
-    rawDuty.includes('مجزء') ||
-    rawDuty.includes('فترتين') ||
-    parsed.isSplit;
-
-  if (isExplicitSplit) {
-    return {
-      type: 'split',
-      icon: 'fa-arrows-split-up-and-left',
-      labelAr: 'دوام مقسم فترتين (Split)',
-      labelEn: 'Split Shift',
-      periodBadgeAr: '🔄 دوام فترتين (Split)',
-      periodBadgeEn: '🔄 Split Shift',
-      timeParsed: parsed,
-      badgeBg: 'bg-teal-500/20 text-teal-900 dark:text-teal-200',
-      badgeText: 'text-teal-900 dark:text-teal-200',
-      badgeBorder: 'border-teal-400/60 dark:border-teal-600/60',
-      cardBgLight: 'bg-gradient-to-br from-teal-50/95 via-cyan-50/40 to-emerald-50/60 text-slate-900 shadow-sm shadow-teal-900/10',
-      cardBgDark: 'bg-gradient-to-br from-teal-950/40 via-slate-900 to-emerald-950/30 text-slate-100 shadow-sm shadow-black/40',
-      cardBorderLight: 'border-teal-300 ring-1 ring-teal-400/40',
-      cardBorderDark: 'border-teal-600/60 ring-1 ring-teal-500/30',
-      glowColor: 'text-teal-500',
-      timeBgLight: 'bg-teal-100/90 text-teal-950',
-      timeBgDark: 'bg-teal-950/80 text-teal-200',
-      timeTextLight: 'text-teal-950 font-mono font-black',
-      timeTextDark: 'text-teal-200 font-mono font-black',
-      timeBorderLight: 'border-teal-300',
-      timeBorderDark: 'border-teal-700/60',
-      locationBgLight: 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white',
-      locationBgDark: 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white',
-      locationTextLight: 'text-white font-black',
-      locationTextDark: 'text-white font-black',
-      locationBorderLight: 'border-teal-500',
-      locationBorderDark: 'border-teal-500'
     };
   }
 

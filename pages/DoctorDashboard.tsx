@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
-import { Schedule, User, SwapRequest, LeaveRequest, Location, Announcement, OpenShift, ActionLog, PeerRecognition, AttendanceLog, SavedTemplate } from '../types';
+import { Schedule, User, UserRole, SwapRequest, LeaveRequest, Location, Announcement, OpenShift, ActionLog, PeerRecognition, AttendanceLog, SavedTemplate } from '../types';
 import Loading from '../components/Loading';
 import Modal from '../components/Modal';
 import Toast from '../components/Toast';
@@ -15,6 +15,8 @@ import DoctorScheduleView from '../components/schedule/DoctorScheduleView';
 import DoctorFridayScheduleView from '../components/schedule/DoctorFridayScheduleView';
 import ExceptionScheduleView from '../components/schedule/ExceptionScheduleView';
 import RamadanScheduleView from '../components/schedule/RamadanScheduleView';
+import { StaffSixMonthHistoryModal } from '../components/schedule/StaffSixMonthHistoryModal';
+import { detectShiftPeriod, unpackTimingIntervals, getSoftStaffColor } from '../components/schedule/scheduleColorUtils';
 
 // @ts-ignore
 import { collection, getDocs, addDoc, query, where, doc, getDoc, updateDoc, Timestamp, orderBy, limit, onSnapshot } from 'firebase/firestore';
@@ -110,7 +112,7 @@ const formatTime12 = (time24: string) => {
   try {
     const [hStr, mStr] = time24.split(':');
     let h = parseInt(hStr);
-    const m = mStr;
+    const m = mStr || '00';
     const ampm = h >= 12 ? 'PM' : 'AM';
     h = h % 12;
     h = h ? h : 12;
@@ -118,6 +120,224 @@ const formatTime12 = (time24: string) => {
   } catch (e) {
     return time24;
   }
+};
+
+const formatTime12Ar = (time24: string) => {
+  if (!time24) return '';
+  if (time24 === '00:00' || time24 === '24:00') return '12:00 ص';
+  try {
+    const [hStr, mStr] = time24.split(':');
+    let h = parseInt(hStr, 10);
+    const m = mStr ? `:${mStr.padStart(2, '0')}` : ':00';
+    const ampm = h >= 12 ? 'م' : 'ص';
+    h = h % 12;
+    h = h ? h : 12;
+    return `${h}${m} ${ampm}`;
+  } catch (e) {
+    return time24;
+  }
+};
+
+export interface AnalyzedInterval {
+  start: string;
+  end: string;
+  start12: string;
+  end12: string;
+  start12Ar: string;
+  end12Ar: string;
+  formattedAr: string;
+  formattedEn: string;
+  periodLabelAr: string;
+  periodLabelEn: string;
+  icon: string;
+  periodType: 'morning' | 'evening' | 'night';
+}
+
+export interface AnalyzedDoctorSchedule {
+  isSplit: boolean;
+  shiftType: 'morning' | 'evening' | 'night' | 'split' | 'friday';
+  periodBadge: {
+    labelAr: string;
+    labelEn: string;
+    icon: string;
+    bg: string;
+    accent: string;
+  };
+  displayShifts: { start: string; end: string }[];
+  intervals: AnalyzedInterval[];
+  customNote: string;
+  detailedDesc: string;
+  isPP: boolean;
+}
+
+export const analyzeDoctorSchedule = (sch: Schedule): AnalyzedDoctorSchedule => {
+  const isPP = !!((sch.staffName && ppRegex.test(sch.staffName)) || (sch.note && ppRegex.test(sch.note)));
+  const detailedDesc = sch.note && SHIFT_DESCRIPTIONS[sch.note] ? SHIFT_DESCRIPTIONS[sch.note] : '';
+  
+  let customNote = '';
+  if (sch.note && !SHIFT_DESCRIPTIONS[sch.note]) {
+    const parts = sch.note.split(' - ');
+    if (parts.length > 1) { 
+      customNote = parts.slice(1).join(' - '); 
+    } else if (sch.note !== sch.locationId) { 
+      customNote = sch.note; 
+    }
+  }
+
+  // 1. Resolve shifts array
+  let displayShifts: { start: string; end: string }[] = sch.shifts ? [...sch.shifts] : [];
+  if (!displayShifts || displayShifts.length === 0 || (displayShifts.length === 1 && displayShifts[0].start === '08:00' && displayShifts[0].end === '16:00' && sch.note && sch.note.match(/\d/))) {
+    const extracted = parseMultiShifts(sch.note || '');
+    if (extracted.length > 0) displayShifts = extracted;
+  }
+
+  // 2. Check for Split / Broken
+  const noteUpper = (sch.note || '').toUpperCase();
+  const locUpper = (sch.locationId || '').toUpperCase();
+  const customUpper = customNote.toUpperCase();
+  const shiftTypeStr = ((sch as any).shiftType || '').toLowerCase();
+
+  const isBrokenText = 
+    noteUpper.includes('BROKEN') || 
+    locUpper.includes('BROKEN') || 
+    customUpper.includes('BROKEN') ||
+    noteUpper.includes('مقسم') || 
+    locUpper.includes('مقسم') || 
+    noteUpper.includes('فترتين') || 
+    noteUpper.includes('مجزء') ||
+    shiftTypeStr === 'broken' || 
+    shiftTypeStr === 'high_broken' ||
+    displayShifts.length > 1;
+
+  const isFriday = locUpper.includes('FRIDAY') || noteUpper.includes('FRIDAY') || locUpper.includes('جمعة') || noteUpper.includes('جمعة');
+
+  let isSplit = isBrokenText;
+  
+  // If explicitly broken but only 1 or 0 shifts given in array, assign standard broken slots (9am-1pm & 5pm-9pm)
+  if (isSplit && displayShifts.length < 2) {
+    if (detailedDesc && detailedDesc.includes('&')) {
+      const parsedDesc = parseMultiShifts(detailedDesc);
+      if (parsedDesc.length >= 2) {
+        displayShifts = parsedDesc;
+      } else {
+        displayShifts = [{ start: '09:00', end: '13:00' }, { start: '17:00', end: '21:00' }];
+      }
+    } else {
+      displayShifts = [{ start: '09:00', end: '13:00' }, { start: '17:00', end: '21:00' }];
+    }
+  }
+
+  // 3. Build interval metadata
+  const intervals: AnalyzedInterval[] = displayShifts.map((s, idx) => {
+    const sH = parseInt((s.start || '09:00').split(':')[0], 10);
+    const isNight = sH >= 20 || sH < 6;
+    const isEve = !isNight && sH >= 12;
+    const periodType: 'morning' | 'evening' | 'night' = isNight ? 'night' : isEve ? 'evening' : 'morning';
+
+    const s12 = formatTime12(s.start);
+    const e12 = formatTime12(s.end);
+    const s12Ar = formatTime12Ar(s.start);
+    const e12Ar = formatTime12Ar(s.end);
+
+    const periodLabelAr = idx === 0 
+      ? (periodType === 'morning' ? 'الفترة الأولى (صباحي)' : periodType === 'evening' ? 'الفترة الأولى (مسائي)' : 'الفترة الأولى (ليلي)')
+      : (periodType === 'evening' ? 'الفترة الثانية (مسائي)' : periodType === 'night' ? 'الفترة الثانية (ليلي)' : 'الفترة الثانية (صباحي)');
+
+    const periodLabelEn = idx === 0 
+      ? (periodType === 'morning' ? 'Period 1 (Morning)' : periodType === 'evening' ? 'Period 1 (Evening)' : 'Period 1 (Night)')
+      : (periodType === 'evening' ? 'Period 2 (Evening)' : periodType === 'night' ? 'Period 2 (Night)' : 'Period 2 (Morning)');
+
+    const icon = periodType === 'morning' ? 'fa-sun text-amber-500' : periodType === 'evening' ? 'fa-cloud-sun text-orange-500' : 'fa-moon text-indigo-500';
+
+    return {
+      start: s.start,
+      end: s.end,
+      start12: s12,
+      end12: e12,
+      start12Ar: s12Ar,
+      end12Ar: e12Ar,
+      formattedAr: `من ${s12Ar} إلى ${e12Ar}`,
+      formattedEn: `From ${s12} to ${e12}`,
+      periodLabelAr,
+      periodLabelEn,
+      icon,
+      periodType
+    };
+  });
+
+  // 4. Overall classification and styling badge
+  let shiftType: 'morning' | 'evening' | 'night' | 'split' | 'friday' = 'morning';
+  let periodBadge = {
+    labelAr: 'مناوبة صباحية',
+    labelEn: 'Morning Shift',
+    icon: 'fa-sun',
+    bg: 'bg-amber-100 text-amber-800 border-amber-200',
+    accent: 'bg-amber-500'
+  };
+
+  if (isSplit) {
+    shiftType = 'split';
+    periodBadge = {
+      labelAr: 'دوام مقسم / فترتين',
+      labelEn: 'Split Shift',
+      icon: 'fa-layer-group',
+      bg: 'bg-purple-100 text-purple-800 border-purple-200',
+      accent: 'bg-purple-600'
+    };
+  } else if (isFriday) {
+    shiftType = 'friday';
+    periodBadge = {
+      labelAr: 'مناوبة الجمعة',
+      labelEn: 'Friday Duty',
+      icon: 'fa-mosque',
+      bg: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+      accent: 'bg-emerald-600'
+    };
+  } else {
+    const firstH = displayShifts.length > 0 ? parseInt(displayShifts[0].start.split(':')[0], 10) : 9;
+    const isNight = firstH >= 20 || firstH < 6 || noteUpper.includes('NIGHT') || noteUpper.includes('ليلي') || noteUpper.includes('سهر');
+    const isEve = !isNight && (firstH >= 12 || noteUpper.includes('EVENING') || noteUpper.includes('مسائي') || noteUpper.includes('مساء'));
+
+    if (isNight) {
+      shiftType = 'night';
+      periodBadge = {
+        labelAr: 'مناوبة ليلية',
+        labelEn: 'Night Shift',
+        icon: 'fa-moon',
+        bg: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+        accent: 'bg-indigo-600'
+      };
+    } else if (isEve) {
+      shiftType = 'evening';
+      periodBadge = {
+        labelAr: 'مناوبة مسائية',
+        labelEn: 'Evening Shift',
+        icon: 'fa-cloud-sun',
+        bg: 'bg-orange-100 text-orange-800 border-orange-200',
+        accent: 'bg-orange-500'
+      };
+    } else {
+      shiftType = 'morning';
+      periodBadge = {
+        labelAr: 'مناوبة صباحية',
+        labelEn: 'Morning Shift',
+        icon: 'fa-sun',
+        bg: 'bg-amber-100 text-amber-800 border-amber-200',
+        accent: 'bg-amber-500'
+      };
+    }
+  }
+
+  return {
+    isSplit,
+    shiftType,
+    periodBadge,
+    displayShifts,
+    intervals,
+    customNote,
+    detailedDesc,
+    isPP
+  };
 };
 
 const padTime = (time: string) => {
@@ -158,9 +378,30 @@ const PersonalNotepad: React.FC = () => {
 // Expanded Regex
 const ppRegex = /(?:\(|\[|\{)\s*pp\s*(?:\)|\]|\})|(?:\bPP\b)/i;
 
+// Helper to strictly identify doctors
+const isUserDoctor = (u: User): boolean => {
+  if (!u) return false;
+  if (u.role?.toLowerCase() === 'doctor' || (u.role as any) === UserRole.DOCTOR) return true;
+  if (u.jobCategory === 'doctor') return true;
+  const name = (u.name || '').trim().toLowerCase();
+  if (/^(د\.|د\/|دكتور|dr\.|dr\s+|doctor\s+)/i.test(name)) return true;
+  if (name.includes('استشاري') || name.includes('أخصائي') || name.includes('طبيب')) return true;
+  return false;
+};
+
+// Helper to format doctor display name cleanly without duplicate 'د. د.'
+const formatDoctorDisplayName = (nameOrEmail: string) => {
+  const clean = (nameOrEmail || '').trim();
+  if (!clean) return '';
+  if (/^(د\.|د\/|دكتور|dr\.|dr\s+|doctor\s+)/i.test(clean)) {
+    return clean;
+  }
+  return `${clean}`;
+};
+
 const DoctorDashboard: React.FC = () => {
   const { t, dir } = useLanguage();
-  const { selectedDepartmentId } = useDepartment();
+  const { selectedDepartmentId, departments } = useDepartment();
   const { isDark } = useTheme();
   
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -208,10 +449,22 @@ const DoctorDashboard: React.FC = () => {
   const [todayAbsences, setTodayAbsences] = useState<Set<string>>(new Set());
   const [isShiftWidgetOpen, setIsShiftWidgetOpen] = useState(false);
   const [isNoteOpen, setIsNoteOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<'cards' | 'full'>('cards');
+  const [viewMode, setViewMode] = useState<'cards' | 'doctor' | 'doctorFriday' | 'full'>('cards');
   const [publishedData, setPublishedData] = useState<SavedTemplate | null>(null);
   const [shiftFilterMode, setShiftFilterMode] = useState<'present' | 'all'>('present');
+  const [staffHistoryModal, setStaffHistoryModal] = useState<{ isOpen: boolean; staffName: string; userObj?: User }>({
+    isOpen: false,
+    staffName: ''
+  });
+  const [allMonthlyPublishes, setAllMonthlyPublishes] = useState<Record<string, any>>({});
   
+  // Real-time live clock for shifts countdown
+  const [liveNow, setLiveNow] = useState(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setLiveNow(new Date()), 15000);
+    return () => clearInterval(timer);
+  }, []);
+
   // NEW: State for all logs today
   const [allTodayLogs, setAllTodayLogs] = useState<AttendanceLog[]>([]);
 
@@ -259,6 +512,13 @@ const DoctorDashboard: React.FC = () => {
     getDocs(collection(db, 'locations')).then((snap) => {
         setLocations(snap.docs.map(d => ({ ...d.data(), id: d.id } as LocationData)));
     });
+    getDocs(collection(db, 'monthly_publishes')).then((snap) => {
+        const pubMap: Record<string, any> = {};
+        snap.docs.forEach(doc => {
+            pubMap[doc.id] = doc.data();
+        });
+        setAllMonthlyPublishes(pubMap);
+    }).catch(err => console.error("Error fetching monthly publishes", err));
     
     if (!selectedDepartmentId) return;
 
@@ -284,7 +544,7 @@ const DoctorDashboard: React.FC = () => {
   }, [refreshTrigger, selectedDepartmentId]);
 
   useEffect(() => {
-      if (viewMode === 'full') {
+      if (viewMode !== 'cards') {
           setLoading(true);
           const docRef = doc(db, 'monthly_publishes', selectedMonth);
           getDoc(docRef).then((docSnap) => {
@@ -359,6 +619,45 @@ const DoctorDashboard: React.FC = () => {
     return user ? (user.name || user.email) : 'Unknown';
   }, [users]);
 
+  // Extract doctor's department to filter requests and relievers
+  const doctorDepartment = useMemo(() => {
+    return currentUserData?.departmentId || (currentUserData?.departments && currentUserData.departments[0]) || selectedDepartmentId || '';
+  }, [currentUserData, selectedDepartmentId]);
+
+  // Resolve human-readable department name
+  const departmentName = useMemo(() => {
+    const deptId = currentUserData?.departmentId || (currentUserData?.departments && currentUserData.departments[0]) || selectedDepartmentId || '';
+    const found = (departments || []).find(d => d.id === deptId);
+    if (found && found.name) return found.name;
+    if (deptId && !/^[0-9a-zA-Z]{15,}$/.test(deptId)) return deptId;
+    return dir === 'rtl' ? 'القسم الطبي' : 'Medical Department';
+  }, [currentUserData, selectedDepartmentId, departments, dir]);
+
+  // Filter department doctors only for swap requests and leave relievers
+  const departmentDoctors = useMemo(() => {
+    return users.filter(u => {
+      if (u.id === currentUserId) return false;
+      if (doctorDepartment) {
+        const matchesDept = u.departmentId === doctorDepartment || (u.departments && u.departments.includes(doctorDepartment));
+        if (!matchesDept) return false;
+      }
+      return isUserDoctor(u);
+    });
+  }, [users, currentUserId, doctorDepartment]);
+
+  // Filter department supervisors/managers
+  const departmentManagers = useMemo(() => {
+    return users.filter(u => {
+      const isManagerRole = u.role === 'supervisor' || u.role === 'admin' || u.role === 'manager';
+      if (!isManagerRole) return false;
+      if (doctorDepartment) {
+        const matchesDept = u.departmentId === doctorDepartment || (u.departments && u.departments.includes(doctorDepartment));
+        return matchesDept || u.role === 'admin';
+      }
+      return true;
+    });
+  }, [users, doctorDepartment]);
+
   const getLocationName = useCallback((sch: Schedule) => {
     if (sch.locationId.startsWith('Swap Duty')) {
         const parts = sch.locationId.split(' - ');
@@ -372,6 +671,124 @@ const DoctorDashboard: React.FC = () => {
     const loc = locations.find(l => l.id === sch.locationId);
     return loc ? loc.name : (sch.locationId === 'common_duty' ? 'Common Duty' : sch.locationId);
   }, [locations]);
+
+  const getTicketStatus = useCallback((sch: Schedule) => {
+    if (!sch.date) {
+      if(sch.locationId === 'Doctor Schedule') return { label: 'Weekly Roster', theme: 'cyan', icon: 'fa-user-md' };
+      if((sch.locationId || '').includes('Friday')) return { label: 'Friday Duty', theme: 'teal', icon: 'fa-mosque' };
+      return { label: 'Recurring', theme: 'blue', icon: 'fa-calendar' };
+    }
+    const shiftDate = new Date(sch.date);
+    const today = new Date(); today.setHours(0,0,0,0); shiftDate.setHours(0,0,0,0);
+    if (shiftDate < today) return { label: 'Completed', theme: 'slate', icon: 'fa-check-circle', grayscale: true };
+    if (shiftDate.getTime() === today.getTime()) return { label: 'Today', theme: 'amber', icon: 'fa-briefcase', pulse: true };
+    return { label: 'Upcoming', theme: 'sky', icon: 'fa-calendar-day' };
+  }, []);
+
+  const getThemeClasses = useCallback((theme: string, isGrayscale: boolean) => {
+      const themes: Record<string, any> = {
+          cyan: { bg: 'bg-cyan-600', light: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200' },
+          teal: { bg: 'bg-teal-600', light: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-200' },
+          blue: { bg: 'bg-blue-600', light: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
+          slate: { bg: 'bg-slate-500', light: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200' },
+          amber: { bg: 'bg-amber-500', light: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
+          sky: { bg: 'bg-sky-600', light: 'bg-sky-50', text: 'text-sky-700', border: 'border-sky-200' },
+      };
+      const t = themes[theme] || themes.blue;
+      if (isGrayscale) { return { bg: 'bg-slate-400', light: 'bg-slate-50', text: 'text-slate-500', border: 'border-slate-200' }; }
+      return t;
+  }, []);
+
+  // Timeline analysis for distinct cards: Active (شغال حالياً), Next Up (عليه الدور), Completed (خلصان), and Future
+  const scheduleCardsWithTimeline = useMemo(() => {
+    const todayStr = getLocalDateStr(new Date());
+
+    const enriched = schedules.map(sch => {
+      const analysis = analyzeDoctorSchedule(sch);
+      const status = getTicketStatus(sch);
+      const theme = getThemeClasses(status.theme || 'blue', status.grayscale || false);
+
+      // Date boundaries
+      let startDate = sch.date || sch.validFrom || (sch.month ? `${sch.month}-01` : '');
+      let endDate = sch.date || sch.validTo || (sch.validFrom ? sch.validFrom : (sch.month ? `${sch.month}-31` : ''));
+
+      // Parse single date info if applicable
+      let dateInfo = null;
+      if (sch.date) {
+        const d = new Date(sch.date);
+        if (!isNaN(d.getTime())) {
+          const now = new Date();
+          const isToday = d.toDateString() === now.toDateString();
+          const isPast = d < new Date(now.setHours(0, 0, 0, 0));
+          dateInfo = {
+            dayNum: d.getDate(),
+            weekdayAr: d.toLocaleDateString('ar-EG', { weekday: 'long' }),
+            weekdayEn: d.toLocaleDateString('en-US', { weekday: 'short' }),
+            monthAr: d.toLocaleDateString('ar-EG', { month: 'short' }),
+            monthEn: d.toLocaleDateString('en-US', { month: 'short' }),
+            isToday,
+            isPast
+          };
+        }
+      }
+
+      // Active week/shift check
+      let isCurrentActive = false;
+      if (sch.date) {
+        isCurrentActive = (sch.date === todayStr);
+      } else if (sch.validFrom) {
+        const vTo = sch.validTo || sch.validFrom;
+        isCurrentActive = (todayStr >= sch.validFrom && todayStr <= vTo);
+      } else if (sch.month) {
+        isCurrentActive = todayStr.startsWith(sch.month);
+      }
+
+      // Finished / Past check
+      let isCompleted = false;
+      if (sch.date) {
+        isCompleted = sch.date < todayStr;
+      } else if (sch.validTo) {
+        isCompleted = sch.validTo < todayStr;
+      } else if (sch.validFrom) {
+        isCompleted = sch.validFrom < todayStr && !isCurrentActive;
+      } else if (sch.month) {
+        isCompleted = sch.month < todayStr.slice(0, 7);
+      }
+
+      // Strictly Future check
+      let isFuture = false;
+      if (sch.date) {
+        isFuture = sch.date > todayStr;
+      } else if (sch.validFrom) {
+        isFuture = sch.validFrom > todayStr;
+      } else if (sch.month) {
+        isFuture = sch.month > todayStr.slice(0, 7);
+      }
+
+      return {
+        sch,
+        analysis,
+        status,
+        theme,
+        dateInfo,
+        startDate,
+        endDate,
+        isCurrentActive,
+        isCompleted,
+        isFuture,
+        isNextInTurn: false
+      };
+    });
+
+    // Find the single future item that is "Next in Turn" (اللي عليه الدور)
+    const futureList = enriched.filter(e => e.isFuture);
+    if (futureList.length > 0) {
+      futureList.sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
+      futureList[0].isNextInTurn = true;
+    }
+
+    return enriched;
+  }, [schedules, locations]);
 
   // ... (Requests loading useEffects) ...
   useEffect(() => {
@@ -635,18 +1052,24 @@ const DoctorDashboard: React.FC = () => {
     // Sort strictly by time
     flatShifts.sort((a, b) => a.startObj.getTime() - b.startObj.getTime());
     
-
-    
     // Find Active Shift
     const active = flatShifts.find(s => now >= s.startObj && now < s.endObj);
     
     if (active) { 
+        const diffMs = active.endObj.getTime() - now.getTime();
+        const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+        const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+        const countdownText = diffHrs > 0 ? `${diffHrs}h ${diffMins}m remaining` : `${diffMins}m remaining`;
+
         return { 
             mode: 'active', 
             title: t('user.hero.currentStatus'), 
             subtitle: `${formatTime12(active.start)} - ${formatTime12(active.end)}`, 
             location: getLocationName(active.schedule), 
-            dateObj: active.startObj 
+            dateObj: active.startObj,
+            endObj: active.endObj,
+            countdownText,
+            shiftObj: active
         }; 
     }
     
@@ -660,13 +1083,25 @@ const DoctorDashboard: React.FC = () => {
         if (isToday) sub = `Today ${formatTime12(next.start)}`; 
         else if (isTom) sub = `Tomorrow ${formatTime12(next.start)}`; 
         else sub = `${next.startObj.toLocaleDateString()} ${formatTime12(next.start)}`;
+
+        const diffMs = next.startObj.getTime() - now.getTime();
+        const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+        const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+        const countdownText = diffHrs > 24 
+            ? `in ${Math.floor(diffHrs/24)}d ${diffHrs%24}h` 
+            : diffHrs > 0 
+                ? `in ${diffHrs}h ${diffMins}m` 
+                : `in ${diffMins}m`;
         
         return { 
             mode: 'upcoming', 
             title: t('user.hero.nextShift'), 
             subtitle: sub, 
             location: getLocationName(next.schedule), 
-            dateObj: next.startObj 
+            dateObj: next.startObj,
+            endObj: next.endObj,
+            countdownText,
+            shiftObj: next
         };
     }
 
@@ -674,6 +1109,39 @@ const DoctorDashboard: React.FC = () => {
   };
 
   const heroInfo = getHeroInfo();
+
+  // Compute monthly stats for the doctor
+  const doctorMonthlyStats = useMemo(() => {
+    let morning = 0;
+    let evening = 0;
+    let night = 0;
+    let split = 0;
+    let friday = 0;
+
+    schedules.forEach(sch => {
+        const analysis = analyzeDoctorSchedule(sch);
+        if (analysis.isSplit) {
+          split++;
+        } else if (analysis.shiftType === 'friday') {
+          friday++;
+        } else if (analysis.shiftType === 'night') {
+          night++;
+        } else if (analysis.shiftType === 'evening') {
+          evening++;
+        } else {
+          morning++;
+        }
+    });
+
+    return {
+        total: schedules.length,
+        morning,
+        evening,
+        night,
+        split,
+        friday
+    };
+  }, [schedules]);
 
   // ... (Rest of UI methods like getTicketStatus, getThemeClasses, handlers) ...
   const handleSwapSubmit = async (e: React.FormEvent) => {
@@ -768,33 +1236,6 @@ const DoctorDashboard: React.FC = () => {
           }
         }
       });
-  };
-
-  const getTicketStatus = (sch: Schedule) => {
-    if (!sch.date) {
-      if(sch.locationId === 'Doctor Schedule') return { label: 'Weekly Roster', theme: 'cyan', icon: 'fa-user-md' };
-      if((sch.locationId || '').includes('Friday')) return { label: 'Friday Duty', theme: 'teal', icon: 'fa-mosque' };
-      return { label: 'Recurring', theme: 'blue', icon: 'fa-calendar' };
-    }
-    const shiftDate = new Date(sch.date);
-    const today = new Date(); today.setHours(0,0,0,0); shiftDate.setHours(0,0,0,0);
-    if (shiftDate < today) return { label: 'Completed', theme: 'slate', icon: 'fa-check-circle', grayscale: true };
-    if (shiftDate.getTime() === today.getTime()) return { label: 'Today', theme: 'amber', icon: 'fa-briefcase', pulse: true };
-    return { label: 'Upcoming', theme: 'sky', icon: 'fa-calendar-day' };
-  };
-
-  const getThemeClasses = (theme: string, isGrayscale: boolean) => {
-      const themes: Record<string, any> = {
-          cyan: { bg: 'bg-cyan-600', light: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200' },
-          teal: { bg: 'bg-teal-600', light: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-200' },
-          blue: { bg: 'bg-blue-600', light: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-          slate: { bg: 'bg-slate-500', light: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200' },
-          amber: { bg: 'bg-amber-500', light: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
-          sky: { bg: 'bg-sky-600', light: 'bg-sky-50', text: 'text-sky-700', border: 'border-sky-200' },
-      };
-      const t = themes[theme] || themes.blue;
-      if (isGrayscale) { return { bg: 'bg-slate-400', light: 'bg-slate-50', text: 'text-slate-500', border: 'border-slate-200' }; }
-      return t;
   };
 
     const RenderFullVisualSchedule = () => {
@@ -932,55 +1373,130 @@ const DoctorDashboard: React.FC = () => {
       )}
 
       {/* Hero */}
-      <div className="bg-gradient-to-br from-cyan-900 to-teal-800 text-white rounded-b-[3rem] shadow-2xl relative overflow-hidden mb-8">
-        <div className="max-w-5xl mx-auto px-6 pt-8 pb-12 relative z-10">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-            <div className={`text-center ${dir === 'rtl' ? 'md:text-right' : 'md:text-left'}`}>
-              <p className="text-white/70 font-medium text-sm mb-1">{t('user.hero.welcome')}</p>
+      <div className="bg-gradient-to-br from-slate-900 via-teal-950 to-cyan-950 text-white rounded-b-[2.5rem] shadow-2xl relative overflow-hidden mb-6 border-b border-teal-500/20">
+        {/* Background glow effects */}
+        <div className="absolute -top-32 -right-32 w-96 h-96 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute -bottom-32 -left-32 w-96 h-96 bg-teal-500/15 rounded-full blur-3xl pointer-events-none"></div>
+
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-7 pb-9 relative z-10">
+          <div className="flex flex-col lg:flex-row justify-between items-center gap-6">
+            <div className={`text-center ${dir === 'rtl' ? 'lg:text-right' : 'lg:text-left'} flex-1`}>
+              <div className="flex flex-wrap items-center gap-2 justify-center lg:justify-start mb-2.5">
+                <span className="bg-cyan-500/20 text-cyan-300 border border-cyan-400/30 px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase flex items-center gap-1.5 shadow-sm">
+                  <i className="fas fa-stethoscope text-[11px] text-cyan-400"></i>
+                  {t('role.doctor')}
+                </span>
+                <span className="bg-teal-500/20 text-teal-200 border border-teal-400/30 px-3 py-1 rounded-full text-xs font-black flex items-center gap-1.5 shadow-sm">
+                  <i className="fas fa-hospital text-[11px] text-teal-400"></i>
+                  {departmentName}
+                </span>
+              </div>
               
               <div className="flex flex-col">
-                  <h1 className="text-3xl md:text-4xl font-black tracking-tight">Dr. {currentUserName}</h1>
+                  <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white flex flex-wrap items-center justify-center lg:justify-start gap-2 sm:gap-3">
+                    <span className="text-white">{formatDoctorDisplayName(currentUserName)}</span>
+                    <span className="text-teal-300/60 font-light hidden sm:inline">|</span>
+                    <span className="text-teal-300 text-lg sm:text-xl font-medium hidden sm:inline">Dr. {currentUserName.replace(/^(د\.|د\/|دكتور|dr\.|dr\s+|doctor\s+)/i, '').trim()}</span>
+                  </h1>
+                  
                   {heroInfo && (
-                      <span className={`text-sm font-bold mt-1 px-3 py-1 rounded-full w-fit ${dir === 'rtl' ? 'mr-0' : 'ml-0'} ${heroInfo.mode === 'active' ? 'bg-emerald-500 text-white animate-pulse' : 'bg-white/20 text-cyan-100'}`}>
-                          {heroInfo.mode === 'active' ? t('dash.activeNow') : heroInfo.subtitle}
-                      </span>
+                      <div className={`flex flex-wrap items-center gap-2 mt-2.5 justify-center ${dir === 'rtl' ? 'lg:justify-start' : 'lg:justify-start'}`}>
+                          <span className={`text-xs font-black px-3.5 py-1 rounded-full flex items-center gap-2 shadow-sm ${
+                            heroInfo.mode === 'active' 
+                              ? 'bg-emerald-500 text-white animate-pulse' 
+                              : heroInfo.mode === 'leave' 
+                                ? 'bg-amber-500 text-white' 
+                                : 'bg-cyan-500/30 text-cyan-200 border border-cyan-400/30'
+                          }`}>
+                              <i className={`fas ${heroInfo.mode === 'active' ? 'fa-bolt' : heroInfo.mode === 'leave' ? 'fa-umbrella-beach' : 'fa-clock'}`}></i>
+                              {heroInfo.mode === 'active' ? (dir === 'rtl' ? 'على رأس العمل الآن' : 'On Duty Now') : heroInfo.subtitle}
+                          </span>
+
+                          {heroInfo.countdownText && (
+                            <span className="bg-black/40 text-emerald-300 border border-emerald-500/30 px-3 py-1 rounded-full text-xs font-mono font-bold flex items-center gap-1.5 shadow-inner">
+                              <i className="fas fa-stopwatch text-[11px]"></i>
+                              {heroInfo.countdownText}
+                            </span>
+                          )}
+                      </div>
                   )}
               </div>
 
-              <div className={`flex items-center gap-3 mt-4 justify-center ${dir === 'rtl' ? 'md:justify-start' : 'md:justify-start'}`}>
-                <span className="bg-white/10 backdrop-blur-md border border-white/10 px-4 py-1.5 rounded-full text-xs font-bold text-white/90">
-                  <i className="fas fa-user-md mx-2"></i> {t('role.doctor')}
-                </span>
-                
+              {/* Action Buttons */}
+              <div className={`flex flex-wrap items-center gap-3 mt-5 justify-center ${dir === 'rtl' ? 'lg:justify-start' : 'lg:justify-start'}`}>
+                {/* Personal Notes */}
+                <button 
+                  onClick={() => setIsNoteOpen(!isNoteOpen)}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 border shadow-sm backdrop-blur-md hover:scale-105 active:scale-95 ${
+                    isNoteOpen 
+                      ? 'bg-amber-400 text-slate-900 border-amber-300 shadow-amber-400/30 font-black ring-2 ring-amber-300/50' 
+                      : 'bg-white/10 hover:bg-white/20 text-white border-white/20'
+                  }`}
+                  title="Toggle Personal Notes"
+                >
+                  <i className="fas fa-sticky-note text-amber-300"></i>
+                  <span>{isNoteOpen ? (dir === 'rtl' ? 'إخفاء الملاحظات' : 'Hide Notes') : (dir === 'rtl' ? 'ملاحظاتي الشخصية' : 'My Notes')}</span>
+                </button>
+
+                {/* Open IHMS */}
                 <a 
                     href="http://192.168.0.8" 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="bg-emerald-500/90 text-white px-4 py-1.5 rounded-full text-xs font-bold hover:bg-emerald-500 transition-all flex items-center gap-2 shadow-lg hover:shadow-emerald-500/30"
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 shadow-lg shadow-emerald-950/40 hover:scale-105 active:scale-95 border border-emerald-400/30"
                 >
-                    <i className="fas fa-desktop"></i> Open IHMS
+                    <i className="fas fa-desktop"></i>
+                    <span>Open IHMS</span>
                 </a>
               </div>
             </div>
 
-            <div className="bg-white/10 backdrop-blur-lg border border-white/20 p-5 rounded-2xl w-full md:w-auto min-w-[280px] shadow-lg transition-all hover:bg-white/15">
+            {/* Current / Next Shift Card */}
+            <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-5 rounded-3xl w-full lg:w-80 shadow-2xl transition-all hover:bg-white/15 shrink-0">
               {heroInfo ? (
                 <div className="flex items-center gap-4">
-                  <div className={`rounded-xl w-14 h-14 flex flex-col items-center justify-center font-bold shadow-lg ${heroInfo.mode === 'active' ? 'bg-emerald-500 text-white' : 'bg-yellow-400 text-yellow-900'}`}>
-                      {heroInfo.mode === 'leave' ? <i className="fas fa-umbrella-beach text-2xl"></i> : <i className="fas fa-calendar-check text-2xl"></i>}
+                  <div className={`rounded-2xl w-14 h-14 flex flex-col items-center justify-center font-bold shadow-lg shrink-0 ${
+                    heroInfo.mode === 'active' 
+                      ? 'bg-emerald-500 text-white shadow-emerald-500/40' 
+                      : heroInfo.mode === 'leave' 
+                        ? 'bg-amber-400 text-slate-900 shadow-amber-400/40' 
+                        : 'bg-cyan-500 text-white shadow-cyan-500/40'
+                  }`}>
+                      {heroInfo.mode === 'leave' ? (
+                        <i className="fas fa-umbrella-beach text-2xl"></i>
+                      ) : heroInfo.mode === 'active' ? (
+                        <i className="fas fa-heartbeat text-2xl animate-pulse"></i>
+                      ) : (
+                        <i className="fas fa-calendar-check text-2xl"></i>
+                      )}
                   </div>
-                  <div>
-                    <h3 className="font-bold text-lg">{heroInfo.title}</h3>
-                    <p className={`text-sm font-bold ${heroInfo.mode === 'active' ? 'text-emerald-300' : 'text-yellow-200'}`}>
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[10px] font-black text-teal-200/80 uppercase tracking-wider block">
+                      {heroInfo.title}
+                    </span>
+                    <h3 className={`font-black text-base truncate ${heroInfo.mode === 'active' ? 'text-emerald-300' : 'text-white'}`}>
+                      {heroInfo.location || 'Hospital'}
+                    </h3>
+                    <p className={`text-xs font-bold mt-0.5 ${heroInfo.mode === 'active' ? 'text-emerald-200' : 'text-cyan-200'}`}>
                       {heroInfo.subtitle}
                     </p>
-                    <p className="text-xs text-white/60 mt-0.5">{heroInfo.location}</p>
+                    {heroInfo.countdownText && (
+                      <p className="text-[10px] font-mono text-white/80 mt-1 flex items-center gap-1">
+                        <i className="fas fa-hourglass-half text-[9px] text-teal-300"></i>
+                        {heroInfo.countdownText}
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-3 text-cyan-100">
-                  <i className="fas fa-hospital-user text-2xl opacity-50"></i>
-                  <span>Ready for Duty</span>
+                <div className="flex items-center gap-3 text-cyan-100 py-1">
+                  <div className="w-12 h-12 rounded-2xl bg-teal-500/20 border border-teal-400/30 flex items-center justify-center text-teal-300">
+                    <i className="fas fa-user-md text-2xl"></i>
+                  </div>
+                  <div>
+                    <h4 className="font-black text-sm text-white">{dir === 'rtl' ? 'جاهز للمناوبة' : 'Ready for Duty'}</h4>
+                    <p className="text-xs text-teal-200/70 font-medium">{dir === 'rtl' ? 'لا توجد مناوبات مسجلة لليوم' : 'No active shifts scheduled today'}</p>
+                  </div>
                 </div>
               )}
             </div>
@@ -988,27 +1504,91 @@ const DoctorDashboard: React.FC = () => {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 -mt-8 relative z-20">
+      <div className="max-w-6xl mx-auto px-4 relative z-20">
 
-        <div className="bg-white rounded-2xl shadow-xl p-1.5 flex flex-wrap md:justify-start gap-2 overflow-x-auto no-scrollbar mb-8 border border-slate-100">
+        {/* Doctor Shift Summary KPI Bar */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+          <div className="bg-white p-3.5 sm:p-4 rounded-2xl shadow-sm border border-slate-200/80 hover:shadow-md hover:border-cyan-300 transition-all flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-cyan-50 text-cyan-700 flex items-center justify-center font-black text-lg shrink-0 border border-cyan-100">
+              <i className="fas fa-calendar-alt"></i>
+            </div>
+            <div className="min-w-0">
+              <span className="text-[11px] font-bold text-slate-400 block">{dir === 'rtl' ? 'إجمالي المناوبات' : 'Total Shifts'}</span>
+              <span className="text-xl font-black text-slate-800">{doctorMonthlyStats.total}</span>
+            </div>
+          </div>
+
+          <div className="bg-white p-3.5 sm:p-4 rounded-2xl shadow-sm border border-slate-200/80 hover:shadow-md hover:border-amber-300 transition-all flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-black text-lg shrink-0 border border-amber-100">
+              <i className="fas fa-sun"></i>
+            </div>
+            <div className="min-w-0">
+              <span className="text-[11px] font-bold text-slate-400 block">{dir === 'rtl' ? 'صباحي' : 'Morning'}</span>
+              <span className="text-xl font-black text-slate-800">{doctorMonthlyStats.morning}</span>
+            </div>
+          </div>
+
+          <div className="bg-white p-3.5 sm:p-4 rounded-2xl shadow-sm border border-slate-200/80 hover:shadow-md hover:border-orange-300 transition-all flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center font-black text-lg shrink-0 border border-orange-100">
+              <i className="fas fa-cloud-sun"></i>
+            </div>
+            <div className="min-w-0">
+              <span className="text-[11px] font-bold text-slate-400 block">{dir === 'rtl' ? 'مسائي' : 'Evening'}</span>
+              <span className="text-xl font-black text-slate-800">{doctorMonthlyStats.evening}</span>
+            </div>
+          </div>
+
+          <div className="bg-white p-3.5 sm:p-4 rounded-2xl shadow-sm border border-slate-200/80 hover:shadow-md hover:border-purple-300 transition-all flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-black text-lg shrink-0 border border-purple-100">
+              <i className="fas fa-layer-group"></i>
+            </div>
+            <div className="min-w-0">
+              <span className="text-[11px] font-bold text-slate-400 block">{dir === 'rtl' ? 'دوام مقسم' : 'Split/Broken'}</span>
+              <span className="text-xl font-black text-slate-800">{doctorMonthlyStats.split}</span>
+            </div>
+          </div>
+
+          <div className="bg-white p-3.5 sm:p-4 rounded-2xl shadow-sm border border-slate-200/80 hover:shadow-md hover:border-indigo-300 transition-all flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center font-black text-lg shrink-0 border border-indigo-100">
+              <i className="fas fa-moon"></i>
+            </div>
+            <div className="min-w-0">
+              <span className="text-[11px] font-bold text-slate-400 block">{dir === 'rtl' ? 'ليلي' : 'Night'}</span>
+              <span className="text-xl font-black text-slate-800">{doctorMonthlyStats.night}</span>
+            </div>
+          </div>
+
+          <div className="bg-white p-3.5 sm:p-4 rounded-2xl shadow-sm border border-slate-200/80 hover:shadow-md hover:border-emerald-300 transition-all flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-black text-lg shrink-0 border border-emerald-100">
+              <i className="fas fa-mosque"></i>
+            </div>
+            <div className="min-w-0">
+              <span className="text-[11px] font-bold text-slate-400 block">{dir === 'rtl' ? 'جمعات' : 'Fridays'}</span>
+              <span className="text-xl font-black text-slate-800">{doctorMonthlyStats.friday}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Main Tabs */}
+        <div className="bg-white rounded-2xl shadow-sm p-1.5 flex flex-wrap md:justify-start gap-2 overflow-x-auto no-scrollbar mb-8 border border-slate-200/80">
           {[
-            { id: 'schedule', icon: 'fa-ticket-alt', label: t('user.tab.schedule') },
-            { id: 'requests', icon: 'fa-paper-plane', label: t('user.tab.requests') },
-            { id: 'incoming', icon: 'fa-inbox', label: t('user.tab.incoming'), badge: incomingSwaps.length },
-            { id: 'history', icon: 'fa-history', label: t('user.tab.history') }
+            { id: 'schedule', icon: 'fa-calendar-alt', label: dir === 'rtl' ? 'جدول الورديات' : 'My Schedule' },
+            { id: 'requests', icon: 'fa-paper-plane', label: dir === 'rtl' ? 'تقديم الطلبات' : 'Submit Requests' },
+            { id: 'incoming', icon: 'fa-inbox', label: dir === 'rtl' ? 'الطلبات الواردة' : 'Incoming Requests', badge: incomingSwaps.length },
+            { id: 'history', icon: 'fa-history', label: dir === 'rtl' ? 'الأرشيف والسجل' : 'Requests History' }
           ].map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 md:flex-none min-w-fit flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all duration-300 relative
+              className={`flex-1 md:flex-none min-w-fit flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl text-sm font-black transition-all duration-200 relative
               ${activeTab === tab.id
-                ? 'bg-cyan-700 text-white shadow-lg'
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
+                ? 'bg-gradient-to-r from-teal-800 to-cyan-800 text-white shadow-md shadow-teal-950/20 scale-[1.01]'
+                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
             >
-              <i className={`fas ${tab.icon} ${activeTab === tab.id ? 'animate-pulse' : ''}`}></i>
+              <i className={`fas ${tab.icon} ${activeTab === tab.id ? 'text-teal-200' : 'text-slate-400'}`}></i>
               <span>{tab.label}</span>
               {tab.badge ? (
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center border-2 border-white shadow-sm">
+                <span className="bg-rose-500 text-white text-[11px] font-bold px-2 py-0.5 rounded-full border border-white shadow-sm animate-pulse">
                   {tab.badge}
                 </span>
               ) : null}
@@ -1020,78 +1600,171 @@ const DoctorDashboard: React.FC = () => {
 
           {activeTab === 'schedule' && (
             <div className="space-y-6 animate-fade-in">
-              <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                <div className="flex items-center gap-2">
-                    <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
-                    <i className="fas fa-ticket-alt text-cyan-600"></i>
-                    {t('user.tab.schedule')}
-                    </h2>
-                    
-                    <div className="flex bg-slate-100 p-1 rounded-lg ml-4">
-                        <button 
-                            onClick={() => setViewMode('cards')}
-                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${viewMode === 'cards' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}
-                        >
-                            <i className="fas fa-th-large mr-1"></i> My Tickets
-                        </button>
-                        <button 
-                            onClick={() => setViewMode('full')}
-                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${viewMode === 'full' ? 'bg-white shadow text-purple-600' : 'text-slate-500'}`}
-                        >
-                            <i className="fas fa-table mr-1"></i> Full Schedule
-                        </button>
-                    </div>
+              {/* Controls Bar */}
+              <div className="flex flex-col lg:flex-row justify-between items-stretch lg:items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100 gap-4">
+                
+                {/* View Mode Switcher */}
+                <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1.5 rounded-xl">
+                    <button 
+                        onClick={() => setViewMode('cards')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
+                          viewMode === 'cards' 
+                            ? 'bg-white shadow text-cyan-700' 
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        <i className="fas fa-ticket-alt"></i>
+                        <span>{dir === 'rtl' ? 'كروت الدوام' : 'My Tickets'}</span>
+                    </button>
 
-                    {viewMode === 'cards' && (
-                        <button 
-                            onClick={() => setIsNoteOpen(!isNoteOpen)}
-                            className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all flex items-center gap-2 ml-2 ${isNoteOpen ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-yellow-50 hover:text-yellow-600'}`}
-                            title="Toggle Personal Notes"
-                        >
-                            <i className="fas fa-sticky-note"></i> {isNoteOpen ? 'Hide Notes' : 'Notes'}
-                        </button>
-                    )}
-                    {viewMode === 'full' && (
-                        <button onClick={() => window.print()} className="ml-2 bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-slate-700">
-                            <i className="fas fa-print"></i> Print
-                        </button>
-                    )}
+                    <button 
+                        onClick={() => setViewMode('doctor')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
+                          viewMode === 'doctor' 
+                            ? 'bg-white shadow text-teal-700' 
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        <i className="fas fa-user-md"></i>
+                        <span>{dir === 'rtl' ? 'جدول الأطباء' : 'Doctor Schedule'}</span>
+                    </button>
+
+                    <button 
+                        onClick={() => setViewMode('doctorFriday')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
+                          viewMode === 'doctorFriday' 
+                            ? 'bg-white shadow text-emerald-700' 
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        <i className="fas fa-mosque"></i>
+                        <span>{dir === 'rtl' ? 'جمعات الأطباء' : 'Doctor Fridays'}</span>
+                    </button>
+
+                    <button 
+                        onClick={() => setViewMode('full')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
+                          viewMode === 'full' 
+                            ? 'bg-white shadow text-purple-700' 
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        <i className="fas fa-table"></i>
+                        <span>{dir === 'rtl' ? 'الجدول الشامل' : 'Full Roster'}</span>
+                    </button>
                 </div>
 
-                <div className="flex items-center gap-3 mt-3 md:mt-0 bg-slate-50 p-1 rounded-xl">
-                  <button onClick={() => {
-                      const d = new Date(selectedMonth);
-                      d.setMonth(d.getMonth() - 1);
-                      setSelectedMonth(d.toISOString().slice(0, 7));
-                  }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white hover:shadow-sm text-slate-500 transition-all">
-                      <i className="fas fa-chevron-right rtl:rotate-180"></i>
-                  </button>
-                  <input
-                    type="month"
-                    value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(e.target.value)}
-                    className="bg-transparent border-none font-bold text-slate-700 text-sm focus:ring-0 cursor-pointer"
-                  />
-                  <button onClick={() => {
-                      const d = new Date(selectedMonth);
-                      d.setMonth(d.getMonth() + 1);
-                      setSelectedMonth(d.toISOString().slice(0, 7));
-                  }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white hover:shadow-sm text-slate-500 transition-all">
-                      <i className="fas fa-chevron-left rtl:rotate-180"></i>
-                  </button>
+                {/* Right controls: Print & Month picker */}
+                <div className="flex items-center gap-3 self-end lg:self-auto">
+                  {viewMode !== 'cards' && (
+                    <button 
+                      onClick={() => window.print()} 
+                      className="bg-slate-800 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-slate-700 shadow-sm"
+                    >
+                        <i className="fas fa-print"></i>
+                        <span>{dir === 'rtl' ? 'طباعة' : 'Print'}</span>
+                    </button>
+                  )}
+
+                  <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl border border-slate-200">
+                    <button onClick={() => {
+                        const d = new Date(selectedMonth);
+                        d.setMonth(d.getMonth() - 1);
+                        setSelectedMonth(d.toISOString().slice(0, 7));
+                    }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white hover:shadow-sm text-slate-500 transition-all">
+                        <i className="fas fa-chevron-right rtl:rotate-180"></i>
+                    </button>
+                    <input
+                      type="month"
+                      value={selectedMonth}
+                      onChange={(e) => setSelectedMonth(e.target.value)}
+                      className="bg-transparent border-none font-bold text-slate-700 text-sm focus:ring-0 cursor-pointer"
+                    />
+                    <button onClick={() => {
+                        const d = new Date(selectedMonth);
+                        d.setMonth(d.getMonth() + 1);
+                        setSelectedMonth(d.toISOString().slice(0, 7));
+                    }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white hover:shadow-sm text-slate-500 transition-all">
+                        <i className="fas fa-chevron-left rtl:rotate-180"></i>
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {viewMode === 'cards' && isNoteOpen && (
+              {/* Personal Notes Card */}
+              {isNoteOpen && (
                   <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 mb-6 animate-fade-in-down">
                       <PersonalNotepad />
                   </div>
               )}
 
-              {viewMode === 'full' ? (
-                  <RenderFullVisualSchedule />
-              ) : (
-                  loading ? <Loading /> : schedules.length === 0 ? (
+              {/* VIEW: Doctor Schedule */}
+              {viewMode === 'doctor' && (
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-4 sm:p-6">
+                  {loading ? (
+                    <Loading />
+                  ) : !publishedData ? (
+                    <div className="text-center py-20 text-slate-400">
+                      <i className="fas fa-file-excel text-4xl mb-4 opacity-50"></i>
+                      <p className="font-bold">No Published Schedule found for {selectedMonth}</p>
+                      <p className="text-xs mt-2">The supervisor hasn't published the official schedule yet.</p>
+                    </div>
+                  ) : (
+                    <DoctorScheduleView 
+                      data={publishedData.doctorData || []} 
+                      isEditing={false} 
+                      allUsers={users} 
+                      publishMonth={publishedData.targetMonth || selectedMonth}
+                      onUpdateRow={()=>{}} 
+                      onAddRow={()=>{}} 
+                      onRemoveRow={()=>{}}
+                      columns={publishedData.doctorColumns || []}
+                      onUpdateColumn={()=>{}} 
+                      onRemoveColumn={()=>{}}
+                      searchTerm=""
+                      onOpenStaffHistory={(staffName) => setStaffHistoryModal({ isOpen: true, staffName })}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* VIEW: Doctor Friday Schedule */}
+              {viewMode === 'doctorFriday' && (
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-4 sm:p-6">
+                  {loading ? (
+                    <Loading />
+                  ) : !publishedData ? (
+                    <div className="text-center py-20 text-slate-400">
+                      <i className="fas fa-file-excel text-4xl mb-4 opacity-50"></i>
+                      <p className="font-bold">No Published Schedule found for {selectedMonth}</p>
+                      <p className="text-xs mt-2">The supervisor hasn't published the official schedule yet.</p>
+                    </div>
+                  ) : (
+                    <DoctorFridayScheduleView 
+                      data={publishedData.doctorFridayData || []} 
+                      isEditing={false} 
+                      allUsers={users} 
+                      publishMonth={publishedData.targetMonth || selectedMonth}
+                      onUpdateRow={()=>{}} 
+                      onAddRow={()=>{}} 
+                      onRemoveRow={()=>{}}
+                      columns={publishedData.doctorFridayColumns || []}
+                      onUpdateColumn={()=>{}} 
+                      onRemoveColumn={()=>{}}
+                      searchTerm=""
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* VIEW: Full Visual Schedule */}
+              {viewMode === 'full' && (
+                <RenderFullVisualSchedule />
+              )}
+
+              {/* VIEW: My Tickets (Cards) */}
+              {viewMode === 'cards' && (
+                  loading ? <Loading /> : scheduleCardsWithTimeline.length === 0 ? (
                     <div className="text-center py-20 bg-white rounded-3xl shadow-sm border border-dashed border-slate-200">
                       <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
                         <i className="fas fa-calendar-times text-3xl"></i>
@@ -1100,81 +1773,261 @@ const DoctorDashboard: React.FC = () => {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                      {schedules.map((sch) => {
-                    const status = getTicketStatus(sch);
-                    const theme = getThemeClasses(status.theme || 'blue', status.grayscale || false);
-                    let detailedDesc = sch.note && SHIFT_DESCRIPTIONS[sch.note] ? SHIFT_DESCRIPTIONS[sch.note] : '';
-                    let customNote = '';
-                    if (sch.note && !SHIFT_DESCRIPTIONS[sch.note]) {
-                        const parts = sch.note.split(' - ');
-                        if (parts.length > 1) { customNote = parts.slice(1).join(' - '); } else if (sch.note !== sch.locationId) { customNote = sch.note; }
-                    }
-                    let displayShifts = sch.shifts;
-                    if (!displayShifts || displayShifts.length === 0 || (displayShifts.length === 1 && displayShifts[0].start === '08:00' && displayShifts[0].end === '16:00' && sch.note && sch.note.match(/\d/))) {
-                         const extracted = parseMultiShifts(sch.note || "");
-                         if (extracted.length > 0) displayShifts = extracted;
-                    }
+                      {scheduleCardsWithTimeline.map((item) => {
+                        const { sch, analysis, status, dateInfo, isCurrentActive, isCompleted, isNextInTurn } = item;
+                        const { isSplit, shiftType, periodBadge, intervals, customNote, detailedDesc, isPP } = analysis;
 
-                    // Check for PP
-                    const isPP = (sch.staffName && ppRegex.test(sch.staffName)) || (sch.note && ppRegex.test(sch.note));
+                        // Timeline styles and distinct status visuals
+                        let cardContainerStyle = 'bg-white border-slate-200/90 shadow-sm hover:shadow-xl hover:border-slate-300';
+                        let accentBarStyle = isSplit ? 'bg-purple-600' : shiftType === 'night' ? 'bg-indigo-600' : shiftType === 'evening' ? 'bg-orange-500' : shiftType === 'friday' ? 'bg-emerald-600' : 'bg-amber-500';
+                        let dateBoxStyle = 'bg-slate-50 text-slate-800 border-slate-200';
+                        let footerBgStyle = 'bg-slate-50 border-t border-slate-100';
+                        let footerStatusLabel = status.label;
+                        let timelineBadge = null;
 
-                    return (
-                        <div key={sch.id} className={`relative flex w-full rounded-3xl shadow-lg border-2 overflow-hidden hover:shadow-2xl hover:scale-[1.01] transition-all duration-300 group 
-                            ${status.grayscale ? 'bg-slate-100 border-slate-300 opacity-60 grayscale' : 'bg-white ' + theme.border}`}>
-                            <div className={`absolute top-4 right-4 rtl:left-4 rtl:right-auto px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider z-20 shadow-md ${status.grayscale ? 'bg-slate-400 text-white' : `${theme.bg} text-white`}`}>
-                                {status.label}
-                            </div>
-                            <div className="flex-1 p-6 flex flex-col justify-between border-r-2 border-dashed border-slate-200 relative">
-                                <div className="flex items-start gap-4">
-                                    <div className={`w-16 h-16 rounded-2xl flex flex-col items-center justify-center text-white shadow-lg ${theme.bg}`}>
-                                        {sch.date ? (
-                                            <>
-                                                <span className="text-[10px] font-bold opacity-80 uppercase">{new Date(sch.date).toLocaleDateString('en-US', {weekday: 'short'})}</span>
-                                                <span className="text-2xl font-black leading-none">{new Date(sch.date).getDate()}</span>
-                                            </>
-                                        ) : (
-                                            <i className={`fas ${status.icon} text-2xl`}></i>
-                                        )}
+                        if (isCurrentActive) {
+                          cardContainerStyle = 'bg-gradient-to-b from-emerald-50/60 via-white to-white border-emerald-400 ring-2 ring-emerald-500/80 shadow-2xl shadow-emerald-500/15';
+                          accentBarStyle = 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 h-2';
+                          dateBoxStyle = 'bg-gradient-to-br from-emerald-600 to-teal-700 text-white border-emerald-500 shadow-md shadow-emerald-600/25';
+                          footerBgStyle = 'bg-emerald-50/80 border-t border-emerald-200';
+                          footerStatusLabel = dir === 'rtl' ? '🟢 االأسبوع الحالي' : '🟢 Active Shift • Ongoing';
+                          timelineBadge = (
+                            <span className="bg-emerald-600 text-white text-[11px] font-black px-3 py-1 rounded-full shadow-md shadow-emerald-600/30 flex items-center gap-1.5 animate-pulse">
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-80"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                              </span>
+                              <span>{dir === 'rtl' ? 'الأسبوع الحالي' : 'Active This Week'}</span>
+                            </span>
+                          );
+                        } else if (isNextInTurn) {
+                          cardContainerStyle = 'bg-gradient-to-b from-amber-50/50 via-white to-white border-amber-400 ring-2 ring-amber-400/90 shadow-xl shadow-amber-400/15';
+                          accentBarStyle = 'bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 h-2';
+                          dateBoxStyle = 'bg-gradient-to-br from-amber-500 to-amber-600 text-white border-amber-400 shadow-md shadow-amber-500/25';
+                          footerBgStyle = 'bg-amber-50/80 border-t border-amber-200';
+                          footerStatusLabel = dir === 'rtl' ? '⏳ المناوبة القادمة' : '⏳ Next In Turn • Upcoming';
+                          timelineBadge = (
+                            <span className="bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[11px] font-black px-3 py-1 rounded-full shadow-md shadow-amber-500/30 flex items-center gap-1.5">
+                              <i className="fas fa-hourglass-half text-[10px]"></i>
+                              <span>{dir === 'rtl' ? 'المناوبة القادمة' : 'Next In Turn'}</span>
+                            </span>
+                          );
+                        } else if (isCompleted) {
+                          cardContainerStyle = 'bg-slate-50/80 border-slate-200/80 shadow-xs opacity-75 hover:opacity-100 transition-opacity';
+                          accentBarStyle = 'bg-slate-300 h-1.5';
+                          dateBoxStyle = 'bg-slate-200 text-slate-600 border-slate-300';
+                          footerBgStyle = 'bg-slate-100/70 border-t border-slate-200';
+                          footerStatusLabel = dir === 'rtl' ? '✔ منتهي  ' : '✔ Completed / Past';
+                          timelineBadge = (
+                            <span className="bg-slate-200 text-slate-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-300 flex items-center gap-1">
+                              <i className="fas fa-check-circle text-emerald-600 text-[10px]"></i>
+                              <span>{dir === 'rtl' ? 'منتهي  ' : 'Finished'}</span>
+                            </span>
+                          );
+                        } else {
+                          timelineBadge = (
+                            <span className="bg-sky-50 text-sky-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-sky-200 flex items-center gap-1">
+                              <i className="fas fa-calendar text-sky-500 text-[9px]"></i>
+                              <span>{dir === 'rtl' ? 'مجدول' : 'Scheduled'}</span>
+                            </span>
+                          );
+                        }
+
+                        return (
+                          <div 
+                            key={sch.id} 
+                            className={`relative rounded-3xl border overflow-hidden transition-all duration-300 flex flex-col justify-between ${cardContainerStyle}`}
+                          >
+                            {/* Top colored accent bar */}
+                            <div className={`w-full ${accentBarStyle}`}></div>
+
+                            <div className="p-5 sm:p-6 space-y-4 flex-1">
+                              {/* Header: Date badge + Timeline status + Period Tags */}
+                              <div className="flex items-start justify-between gap-3">
+                                {/* Date display */}
+                                {dateInfo ? (
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center font-black text-center shadow-sm shrink-0 border ${dateBoxStyle}`}>
+                                      <span className="text-[10px] font-bold uppercase opacity-80 leading-none">
+                                        {dir === 'rtl' ? dateInfo.weekdayAr : dateInfo.weekdayEn}
+                                      </span>
+                                      <span className="text-xl font-black leading-none mt-1">
+                                        {dateInfo.dayNum}
+                                      </span>
                                     </div>
-                                    <div className="flex-1 min-w-0">
-                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">LOCATION</span>
-                                        <h3 className="font-black text-slate-800 text-xl leading-none uppercase tracking-tight">{getLocationName(sch)}</h3>
-                                        
-                                        {isPP && (
-                                            <div className="mt-2 w-fit text-[10px] font-black bg-yellow-400 text-black border-2 border-yellow-600 rounded px-2 py-1 shadow-sm uppercase tracking-wider flex items-center gap-1">
-                                                <i className="fas fa-procedures"></i> PORTABLE & PROCEDURE
-                                            </div>
-                                        )}
 
-                                        {customNote && ( <div className="mt-2 bg-yellow-50 border border-yellow-200 text-yellow-800 text-xs font-bold px-2 py-1.5 rounded-lg inline-block shadow-sm"> <i className="fas fa-info-circle mr-1"></i> {customNote} </div> )}
-                                        {!sch.date && sch.validFrom && ( <div className="mt-2 flex items-center gap-2 text-[10px] font-bold text-slate-500 bg-slate-50 px-2 py-1 rounded border border-slate-100 w-fit"> <i className="far fa-calendar-check text-indigo-400"></i> <span className="font-mono"> {sch.validFrom} <span className="mx-1 text-slate-300">➜</span> {sch.validTo || 'End of Month'} </span> </div> )}
-                                        {sch.note && !customNote && <p className="text-xs text-slate-500 mt-1 font-bold bg-slate-100 px-2 py-0.5 rounded-md inline-block">{sch.note}</p>}
-                                        {detailedDesc && ( <div className="mt-2 text-[10px] text-slate-600 font-medium whitespace-pre-wrap leading-tight border-l-2 border-slate-300 pl-2"> {detailedDesc} </div> )}
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-xs font-black text-slate-700">
+                                          {dir === 'rtl' ? `${dateInfo.weekdayAr}، ${dateInfo.dayNum} ${dateInfo.monthAr}` : `${dateInfo.weekdayEn}, ${dateInfo.monthEn} ${dateInfo.dayNum}`}
+                                        </span>
+                                        {timelineBadge}
+                                      </div>
+                                      <span className="text-[11px] font-bold text-slate-400 block mt-0.5">
+                                        {sch.date}
+                                      </span>
                                     </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl shrink-0 border ${
+                                      isCurrentActive ? 'bg-emerald-600 text-white border-emerald-500 shadow-md' :
+                                      isNextInTurn ? 'bg-amber-500 text-white border-amber-400 shadow-md' :
+                                      isCompleted ? 'bg-slate-200 text-slate-600 border-slate-300' :
+                                      'bg-cyan-50 text-cyan-700 border-cyan-200'
+                                    }`}>
+                                      <i className="fas fa-calendar-alt"></i>
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-xs font-black text-slate-700 block">
+                                          {sch.validFrom ? `${sch.validFrom} ➔ ${sch.validTo || 'End of Month'}` : (dir === 'rtl' ? 'مناوبة شهرية' : 'Monthly Schedule')}
+                                        </span>
+                                        {timelineBadge}
+                                      </div>
+                                      <span className="text-[10px] font-bold text-slate-400 block mt-0.5">
+                                        {selectedMonth}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Period Badge */}
+                                <div className="flex flex-col items-end gap-1.5">
+                                  <span className={`px-2.5 py-1 rounded-full text-[11px] font-black border flex items-center gap-1.5 shadow-xs ${periodBadge.bg}`}>
+                                    <i className={`fas ${periodBadge.icon} text-[10px]`}></i>
+                                    <span>{dir === 'rtl' ? periodBadge.labelAr : periodBadge.labelEn}</span>
+                                  </span>
+
+                                  {isPP && (
+                                    <span className="bg-amber-400 text-slate-950 font-black text-[9px] px-2 py-0.5 rounded-md border border-amber-500 shadow-xs flex items-center gap-1 tracking-wider uppercase">
+                                      <i className="fas fa-procedures text-[9px]"></i>
+                                      <span>PP</span>
+                                    </span>
+                                  )}
                                 </div>
-                                <div className="mt-6 space-y-2">
-                                    {displayShifts.map((s, i) => (
-                                        <div key={i} className={`flex justify-between items-center p-3 rounded-xl border transition-colors ${theme.light} ${theme.border}`}>
-                                            <div className="flex items-center gap-3">
-                                                <i className={`far fa-clock ${theme.text}`}></i>
-                                                <span className="text-sm font-black text-slate-700 dir-ltr">{formatTime12(s.start)}</span>
-                                            </div>
-                                            <div className="flex-1 h-0.5 bg-slate-300 mx-4"></div>
-                                            <span className="text-sm font-black text-slate-700 dir-ltr">{formatTime12(s.end)}</span>
+                              </div>
+
+                              {/* Location and station details */}
+                              <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-100">
+                                <div className="flex items-start gap-3">
+                                  <div className="w-9 h-9 rounded-xl bg-white shadow-xs border border-slate-200 flex items-center justify-center text-cyan-700 shrink-0 mt-0.5">
+                                    <i className="fas fa-hospital text-sm"></i>
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                                      {dir === 'rtl' ? 'مكان ومقر المناوبة' : 'Duty Location / Station'}
+                                    </span>
+                                    <h4 className="text-base sm:text-lg font-black text-slate-800 leading-snug mt-0.5">
+                                      {getLocationName(sch)}
+                                    </h4>
+                                    
+                                    {sch.note && !customNote && (
+                                      <p className="text-xs font-bold text-slate-600 mt-1 flex items-center gap-1.5">
+                                        <i className="fas fa-info-circle text-cyan-600 text-[11px]"></i>
+                                        <span>{sch.note}</span>
+                                      </p>
+                                    )}
+
+                                    {customNote && (
+                                      <div className="mt-2 bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-2">
+                                        <i className="fas fa-sticky-note text-amber-600"></i>
+                                        <span>{customNote}</span>
+                                      </div>
+                                    )}
+
+                                    {detailedDesc && (
+                                      <div className="mt-2 text-xs text-slate-600 font-medium whitespace-pre-wrap leading-relaxed border-s-2 border-cyan-400 ps-2.5">
+                                        {detailedDesc}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Shift Timing Section */}
+                              <div className="pt-1">
+                                {isSplit && intervals.length > 1 ? (
+                                  /* Broken / Split Shifts Breakdown - 2 Sleek Cards */
+                                  <div className="space-y-2">
+                                    <span className="text-[10px] font-black text-purple-700 uppercase tracking-wider block">
+                                      {dir === 'rtl' ? 'مواعيد الفترتين (دوام مقسم):' : 'Two-Period Shift Schedule:'}
+                                    </span>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                      {intervals.map((interval, idx) => (
+                                        <div key={idx} className="bg-purple-50/70 border border-purple-200/80 rounded-2xl p-3 flex flex-col justify-between">
+                                          <div className="flex items-center justify-between gap-2 mb-1.5">
+                                            <span className="text-[11px] font-black text-purple-900 flex items-center gap-1.5">
+                                              <i className={`fas ${idx === 0 ? 'fa-sun text-amber-500' : 'fa-moon text-purple-600'} text-xs`}></i>
+                                              <span>{dir === 'rtl' ? interval.periodLabelAr : interval.periodLabelEn}</span>
+                                            </span>
+                                            <span className="w-5 h-5 rounded-full bg-purple-200 text-purple-900 text-[10px] font-black flex items-center justify-center shrink-0">
+                                              {idx + 1}
+                                            </span>
+                                          </div>
+                                          <div className="bg-white rounded-xl px-2.5 py-1.5 border border-purple-100 font-mono font-black text-xs text-purple-900 dir-ltr text-center shadow-xs">
+                                            {dir === 'rtl' ? interval.formattedAr : interval.formattedEn}
+                                          </div>
                                         </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  /* Standard shift timing bar */
+                                  <div className="space-y-1.5">
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                                      {dir === 'rtl' ? 'توقيت المناوبة:' : 'Shift Timing:'}
+                                    </span>
+                                    {intervals.map((s, i) => (
+                                      <div key={i} className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3 flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2">
+                                          <div className="w-7 h-7 rounded-lg bg-cyan-100 text-cyan-800 flex items-center justify-center text-xs">
+                                            <i className="far fa-clock"></i>
+                                          </div>
+                                          <span className="text-xs font-black text-slate-700 dir-ltr font-mono">
+                                            {dir === 'rtl' ? s.start12Ar : s.start12}
+                                          </span>
+                                        </div>
+
+                                        <div className="flex-1 flex items-center justify-center px-2">
+                                          <div className="h-0.5 w-full bg-slate-200 relative flex items-center justify-center">
+                                            <span className="bg-slate-100 text-slate-500 text-[9px] font-black px-2 py-0.5 rounded-full border border-slate-200">
+                                              {dir === 'rtl' ? 'إلى' : 'TO'}
+                                            </span>
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs font-black text-slate-700 dir-ltr font-mono">
+                                            {dir === 'rtl' ? s.end12Ar : s.end12}
+                                          </span>
+                                          <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">
+                                            <i className="fas fa-check text-[10px]"></i>
+                                          </div>
+                                        </div>
+                                      </div>
                                     ))}
-                                </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <div className="w-24 bg-slate-50 p-2 flex flex-col justify-center items-center text-center relative border-l-2 border-dashed border-slate-200">
-                                    <div className="my-auto transform -rotate-90 whitespace-nowrap"><span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">BOARDING</span></div>
-                                    <i className={`fas ${status.icon} text-3xl text-slate-300 opacity-50 mt-auto mb-4`}></i>
+
+                            {/* Card Footer */}
+                            <div className={`px-5 py-3 flex items-center justify-between text-xs font-bold ${footerBgStyle}`}>
+                              <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                                <i className="fas fa-ticket-alt text-[10px]"></i>
+                                <span>{dir === 'rtl' ? 'تذكرة دوام رسمية' : 'Official Shift Ticket'}</span>
+                              </span>
+                              <span className="text-xs font-black text-slate-800">
+                                {footerStatusLabel}
+                              </span>
                             </div>
-                        </div>
-                    );
-                  })}
-                </div>
-              )
-            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )
+              )}
           </div>
         )}
         
@@ -1211,7 +2064,7 @@ const DoctorDashboard: React.FC = () => {
                                             <div className="mt-2">
                                                 <label className="block text-xs font-bold text-slate-400 mb-1">End Date</label>
                                                 <input 
-                                                    type="date"
+                                                    type="date" 
                                                     className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-indigo-100"
                                                     value={swapEndDate}
                                                     onChange={e => setSwapEndDate(e.target.value)}
@@ -1222,18 +2075,30 @@ const DoctorDashboard: React.FC = () => {
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-slate-400 mb-1 block">{t('user.req.colleague')}</label>
+                                    <label className="text-xs font-bold text-slate-500 mb-1.5 flex items-center justify-between">
+                                      <span>{t('user.req.colleague')}</span>
+                                      <span className="text-[11px] text-teal-700 font-bold bg-teal-50 border border-teal-100 px-2 py-0.5 rounded-lg">
+                                        {dir === 'rtl' ? 'أطباء القسم فقط' : 'Department Doctors Only'}
+                                      </span>
+                                    </label>
                                     <select 
-                                        className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-3 focus:ring-2 focus:ring-indigo-100"
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 p-3 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all"
                                         value={targetUser}
                                         onChange={e => setTargetUser(e.target.value)}
                                         required
                                     >
-                                        <option value="">{t('user.req.colleague')}...</option>
-                                        {users.filter(u => u.id !== currentUserId && !['admin', 'supervisor', 'manager'].includes(u.role)).map(u => (
-                                            <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                                        <option value="">{dir === 'rtl' ? 'اختر طبيباً من أطباء القسم...' : 'Select a department doctor...'}</option>
+                                        {departmentDoctors.map(u => (
+                                            <option key={u.id} value={u.id}>
+                                              {formatDoctorDisplayName(u.name || u.email)} {u.employeeNumber ? `(${u.employeeNumber})` : ''}
+                                            </option>
                                         ))}
                                     </select>
+                                    {departmentDoctors.length === 0 && (
+                                      <p className="text-[11px] text-amber-600 mt-1 font-medium">
+                                        {dir === 'rtl' ? 'لا يوجد أطباء آخرون مسجلون بنفس القسم حالياً' : 'No other doctors currently registered in this department'}
+                                      </p>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-400 mb-1">{t('notes')}</label>
@@ -1282,13 +2147,25 @@ const DoctorDashboard: React.FC = () => {
                                         <input type="text" placeholder="e.g., 5 days" className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={leaveDuration} onChange={e => setLeaveDuration(e.target.value)} />
                                     </div>
                                     <div className="col-span-2">
-                                        <label className="block text-xs font-bold text-slate-400 mb-1">{t('user.req.relievers')}</label>
-                                        <select multiple className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100 min-h-[100px]" value={relieverIds} onChange={e => {
+                                        <label className="text-xs font-bold text-slate-500 mb-1.5 flex items-center justify-between">
+                                          <span>{t('user.req.relievers')}</span>
+                                          <span className="text-[11px] text-rose-700 font-bold bg-rose-50 border border-rose-100 px-2 py-0.5 rounded-lg">
+                                            {dir === 'rtl' ? 'أطباء القسم فقط' : 'Department Doctors Only'}
+                                          </span>
+                                        </label>
+                                        <select 
+                                          multiple 
+                                          className="w-full bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 p-2.5 focus:ring-2 focus:ring-rose-500 focus:border-rose-500 min-h-[110px] transition-all" 
+                                          value={relieverIds} 
+                                          onChange={e => {
                                             const selected = Array.from(e.target.selectedOptions, option => option.value);
                                             setRelieverIds(selected);
-                                        }}>
-                                            {users.filter(u => u.id !== currentUserId && !['admin', 'supervisor', 'manager'].includes(u.role)).map(u => (
-                                                <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                                          }}
+                                        >
+                                            {departmentDoctors.map(u => (
+                                                <option key={u.id} value={u.id} className="py-1 px-2 rounded hover:bg-slate-100">
+                                                  {formatDoctorDisplayName(u.name || u.email)} {u.employeeNumber ? `(${u.employeeNumber})` : ''}
+                                                </option>
                                             ))}
                                         </select>
                                         <p className="text-[10px] text-slate-400 mt-1">{t('user.req.holdCtrl')}</p>
@@ -1303,7 +2180,7 @@ const DoctorDashboard: React.FC = () => {
                                         ) : (
                                             <select className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={selectedManagerId} onChange={e => setSelectedManagerId(e.target.value)}>
                                                 <option value="">Select Manager...</option>
-                                                {users.filter(u => u.role === 'supervisor' || u.role === 'admin' || u.role === 'manager').map(u => (
+                                                {departmentManagers.map(u => (
                                                     <option key={u.id} value={u.id}>{u.name || u.email}</option>
                                                 ))}
                                             </select>
@@ -1319,7 +2196,7 @@ const DoctorDashboard: React.FC = () => {
                                         ) : (
                                             <select className="w-full bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-600 py-2.5 focus:ring-2 focus:ring-rose-100" value={selectedSupervisorId} onChange={e => setSelectedSupervisorId(e.target.value)}>
                                                 <option value="">Select Supervisor...</option>
-                                                {users.filter(u => u.role === 'supervisor' || u.role === 'admin' || u.role === 'manager').map(u => (
+                                                {departmentManagers.map(u => (
                                                     <option key={u.id} value={u.id}>{u.name || u.email}</option>
                                                 ))}
                                             </select>
@@ -1593,7 +2470,51 @@ const DoctorDashboard: React.FC = () => {
         </div>
 
         </div>
-</div>
+
+        {/* 6-Month Rotation History Modal */}
+        {staffHistoryModal.isOpen && (
+            <StaffSixMonthHistoryModal 
+                isOpen={staffHistoryModal.isOpen}
+                onClose={() => setStaffHistoryModal({ isOpen: false, staffName: '' })}
+                user={staffHistoryModal.userObj || users.find(u => u.name === staffHistoryModal.staffName || u.email === staffHistoryModal.staffName || u.id === staffHistoryModal.staffName) || currentUserData}
+                allUsers={users}
+                locations={locations.map(l => ({ ...l, id: l.id, name: l.name || '' })) as any}
+                monthlyPublishes={allMonthlyPublishes}
+                schedules={currentSchedules}
+                leaveRequests={leaveHistory}
+                selectedDepartmentId={selectedDepartmentId}
+                initialReferenceMonth={selectedMonth}
+                isDark={false}
+                dir={dir}
+            />
+        )}
+
+        {/* Confirm Modal */}
+        {confirmModal.isOpen && (
+            <Modal isOpen={confirmModal.isOpen} onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))} title={confirmModal.title}>
+                <div className="p-4 space-y-4">
+                    <p className="text-slate-600 font-bold">{confirmModal.message}</p>
+                    <div className="flex justify-end gap-2 pt-2">
+                        <button 
+                            onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            onClick={() => {
+                                confirmModal.onConfirm();
+                                setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                            }}
+                            className="px-4 py-2 rounded-xl text-xs font-bold bg-red-600 text-white hover:bg-red-700 shadow-md"
+                        >
+                            Confirm
+                        </button>
+                    </div>
+                </div>
+            </Modal>
+        )}
+    </div>
   );
 };
 

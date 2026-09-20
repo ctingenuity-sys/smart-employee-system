@@ -340,11 +340,14 @@ export const filterUsersByVisualStaff = (
     }
 
     // 3. Operational users explicitly assigned to this department
-    const deptAssignedUsers = operationalUsers.filter(u => 
-        u.departmentId === targetDeptId ||
-        (Array.isArray(u.departments) && u.departments.includes(targetDeptId)) ||
-        (targetDeptId === 'legacy_radiology' && !u.departmentId)
-    );
+    const deptAssignedUsers = operationalUsers.filter(u => {
+        return (
+            u.departmentId === targetDeptId ||
+            (Array.isArray(u.departments) && u.departments.includes(targetDeptId)) ||
+            (targetDeptId === 'legacy_radiology' && (!u.departmentId || u.departmentId === 'radiology' || u.departmentId === 'legacy_radiology')) ||
+            (targetDeptId === 'radiology' && (!u.departmentId || u.departmentId === 'radiology' || u.departmentId === 'legacy_radiology'))
+        );
+    });
 
     // 4. If no visual staff found for this department, return the assigned operational users
     if (!visualStaff || visualStaff.length === 0) {
@@ -386,6 +389,18 @@ export const filterUsersByVisualStaff = (
         });
 
         if (foundUser && !seenIds.has(foundUser.id)) {
+            // If targetDeptId is specified, ensure doctors belong to targetDeptId
+            const isDoc = (foundUser.role && foundUser.role.toLowerCase() === 'doctor') || 
+                          (foundUser.jobCategory && foundUser.jobCategory.toLowerCase() === 'doctor') ||
+                          (foundUser.name && (foundUser.name.toLowerCase().startsWith('dr.') || foundUser.name.toLowerCase().startsWith('dr ') || foundUser.name.includes('د.')));
+            if (isDoc && targetDeptId) {
+                const matchesDept = foundUser.departmentId === targetDeptId ||
+                                    (Array.isArray(foundUser.departments) && foundUser.departments.includes(targetDeptId)) ||
+                                    (targetDeptId === 'legacy_radiology' && (!foundUser.departmentId || foundUser.departmentId === 'radiology' || foundUser.departmentId === 'legacy_radiology')) ||
+                                    (targetDeptId === 'radiology' && (!foundUser.departmentId || foundUser.departmentId === 'radiology' || foundUser.departmentId === 'legacy_radiology'));
+                if (!matchesDept) return;
+            }
+
             seenIds.add(foundUser.id);
             matchedUsers.push(foundUser);
         }

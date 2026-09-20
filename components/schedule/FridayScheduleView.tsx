@@ -85,6 +85,18 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
         return Object.values(staffFridayStats).map(s => s.originalName);
     }, [staffFridayStats]);
 
+    // All available staff suggestions for autocomplete
+    const allStaffSuggestions = useMemo(() => {
+        const namesSet = new Set<string>();
+        allUsers.forEach(u => {
+            if (u.name && u.name.trim()) namesSet.add(u.name.trim());
+        });
+        uniqueStaffNames.forEach(n => {
+            if (n && n.trim()) namesSet.add(n.trim());
+        });
+        return Array.from(namesSet).sort((a, b) => a.localeCompare(b));
+    }, [allUsers, uniqueStaffNames]);
+
     // Helper to toggle staff selection
     const handleStaffClick = useCallback((name: string) => {
         const trimmed = (name || '').trim();
@@ -295,7 +307,7 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
         if (isEditing) {
             return (
                 <div 
-                    className="space-y-2 p-1 min-w-[140px] min-h-[60px] transition-colors rounded"
+                    className="space-y-2.5 p-1 min-w-[160px] min-h-[60px] transition-colors rounded"
                     onDragOver={onEditDragOver}
                     onDrop={(e) => onEditDrop(e, rowIndex, columnId)}
                 >
@@ -317,7 +329,7 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                                     backgroundColor: isSelected ? '#fef08a' : colorInfo.bg,
                                     borderColor: isSelected ? '#eab308' : colorInfo.border,
                                 }}
-                                className={`flex flex-col gap-1 group border-2 p-1.5 rounded-lg shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md transition-all relative ${
+                                className={`flex flex-col gap-1.5 group border-2 p-2 rounded-xl shadow-xs cursor-grab active:cursor-grabbing hover:shadow-md transition-all relative ${
                                     isSelected 
                                         ? 'ring-4 ring-amber-400 ring-offset-1 !bg-amber-100 text-amber-950 font-black shadow-lg scale-[1.02] z-20' 
                                         : hasSelection 
@@ -325,80 +337,90 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                                             : ''
                                 }`}
                             >
-                                <div className="flex items-center gap-1 w-full">
-                                    <div className="p-1 rounded-md bg-black/5 cursor-grab">
-                                        <i className="fas fa-grip-vertical text-slate-500 text-[10px]"></i>
-                                    </div>
-                                    <input
-                                        value={s.name}
-                                        onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'name', e.target.value)}
-                                        className="w-full text-xs font-bold p-1 bg-white/70 focus:bg-white rounded border border-transparent focus:border-blue-400 outline-none text-gray-900"
-                                        placeholder="Name"
-                                    />
-                                    {(() => {
-                                        const g = s.gender || resolveUserGender(s.name, allUsers);
-                                        return g ? <GenderBadge gender={g} variant="mini" isAr={true} className="shrink-0" /> : null;
-                                    })()}
-                                    {/* Quick Check & Count Button */}
-                                    {trimmed && trimmed !== 'New Staff' && (
-                                        <div className="flex items-center gap-0.5">
+                                {/* Top Control Row: Grip, Gender, Friday Count, History & Remove */}
+                                <div className="flex items-center justify-between gap-1 w-full border-b border-black/5 pb-1">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                        <div className="p-1 rounded bg-black/5 cursor-grab text-slate-500 hover:text-slate-700">
+                                            <i className="fas fa-grip-vertical text-[10px]"></i>
+                                        </div>
+                                        {(() => {
+                                            const g = s.gender || resolveUserGender(s.name, allUsers);
+                                            return g ? <GenderBadge gender={g} variant="mini" isAr={true} className="shrink-0 text-[10px]" /> : null;
+                                        })()}
+                                        {trimmed && trimmed !== 'New Staff' && (
                                             <button
                                                 type="button"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     handleStaffClick(trimmed);
                                                 }}
-                                                className={`px-1.5 py-0.5 rounded text-[10px] font-black border transition-all flex items-center gap-0.5 whitespace-nowrap ${
+                                                className={`px-1.5 py-0.5 rounded text-[10px] font-black border transition-all flex items-center gap-1 whitespace-nowrap ${
                                                     isSelected 
                                                         ? 'bg-amber-500 text-white border-amber-600 shadow' 
-                                                        : 'bg-white/80 text-slate-700 hover:bg-white border-slate-300'
+                                                        : 'bg-white/90 text-slate-700 hover:bg-white border-slate-300'
                                                 }`}
                                                 title="فحص وتتبع عدد الجمعات لهذا الموظف"
                                             >
                                                 <i className="fas fa-eye text-[9px]"></i>
-                                                <span>{count}</span>
+                                                <span>{count} ج</span>
                                             </button>
-                                            {onOpenStaffHistory && (
-                                                <button
-                                                    type="button"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        onOpenStaffHistory(trimmed);
-                                                    }}
-                                                    className="p-1 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-[10px] transition-colors"
-                                                    title="سجل روتيشن آخر 6 شهور (6-Month History)"
-                                                >
-                                                    <i className="fas fa-history text-[10px]"></i>
-                                                </button>
-                                            )}
-                                        </div>
-                                    )}
-                                    <button 
-                                        onClick={() => removeStaffMember(rowIndex, columnId, i)}
-                                        className="text-slate-400 hover:text-red-500 p-1 transition-all"
-                                    >
-                                        <i className="fas fa-times text-xs"></i>
-                                    </button>
+                                        )}
+                                    </div>
+
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        {trimmed && trimmed !== 'New Staff' && onOpenStaffHistory && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onOpenStaffHistory(trimmed);
+                                                }}
+                                                className="p-1 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-[10px] transition-colors"
+                                                title="سجل روتيشن آخر 6 شهور"
+                                            >
+                                                <i className="fas fa-history text-[10px]"></i>
+                                            </button>
+                                        )}
+                                        <button 
+                                            type="button"
+                                            onClick={() => removeStaffMember(rowIndex, columnId, i)}
+                                            className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-1 rounded transition-all"
+                                            title="حذف من الشفت"
+                                        >
+                                            <i className="fas fa-times text-xs"></i>
+                                        </button>
+                                    </div>
                                 </div>
                                 
-                                {/* Extra Fields in Edit Mode */}
-                                <div className="flex flex-col gap-1 pl-5">
-                                    <div className="flex gap-1">
+                                {/* Staff Name Field (Full Width & Autocomplete) */}
+                                <div className="w-full">
+                                    <input
+                                        value={s.name}
+                                        onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'name', e.target.value)}
+                                        className="w-full text-xs font-black px-2.5 py-1.5 bg-white border border-slate-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 rounded-lg outline-none text-slate-900 shadow-xs transition-all placeholder:text-slate-400 placeholder:font-normal"
+                                        placeholder="اسم الموظف / Staff Name"
+                                        list="friday-all-staff-datalist"
+                                    />
+                                </div>
+                                
+                                {/* Extra Fields in Edit Mode (Time & Shift Type) */}
+                                <div className="flex flex-col gap-1.5 w-full">
+                                    <div className="flex gap-1.5">
                                         <input
                                             value={s.time || ''}
                                             onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'time', e.target.value)}
-                                            className="w-1/2 text-[10px] p-1 bg-white/80 border border-slate-200 rounded outline-none focus:border-blue-300"
-                                            placeholder="Time"
+                                            className="w-1/2 text-xs font-bold px-2 py-1 bg-white border border-slate-300 rounded-md outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-400 text-slate-800 placeholder:text-slate-400 shadow-xs"
+                                            placeholder="الوقت (Time)"
                                         />
                                         <select
                                             value={s.shiftType || 'morning'}
                                             onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'shiftType', e.target.value)}
-                                            className="w-1/2 text-[10px] p-1 bg-white/80 border border-slate-200 rounded outline-none focus:border-blue-300 font-bold"
+                                            className="w-1/2 text-xs font-bold px-1.5 py-1 bg-white border border-slate-300 rounded-md outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-400 text-slate-800 shadow-xs"
                                         >
-                                            <option value="morning">Morning</option>
-                                            <option value="evening">Evening</option>
-                                            <option value="night">Night</option>
-                                            <option value="broken">Broken</option>
+                                            <option value="morning">Morning (صباحي)</option>
+                                            <option value="evening">Evening (مسائي)</option>
+                                            <option value="night">Night (ليلي)</option>
+                                            <option value="broken">Broken (مقسم)</option>
                                             <option value="high_broken">High Broken</option>
                                             <option value="long_duty">Long Duty</option>
                                         </select>
@@ -406,18 +428,18 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                                     <input
                                         value={s.note || ''}
                                         onChange={(e) => handleStaffChange(rowIndex, columnId, i, 'note', e.target.value)}
-                                        className="w-full text-[10px] p-1 bg-yellow-50 border border-yellow-200 rounded outline-none focus:border-yellow-400 text-yellow-800"
-                                        placeholder="Note"
+                                        className="w-full text-xs font-bold px-2 py-1 bg-amber-50/90 border border-amber-300 rounded-md outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-400 text-amber-950 placeholder:text-amber-700/60 shadow-xs"
+                                        placeholder="ملاحظة (Note)"
                                     />
 
                                     {/* Quick Reorder Buttons */}
                                     <div className="flex items-center justify-between gap-1 pt-1 mt-0.5 border-t border-slate-200/80 w-full" onMouseDown={(e) => e.stopPropagation()}>
-                                        <span className="text-[9px] font-bold text-slate-400">#{i + 1}</span>
+                                        <span className="text-[10px] font-black text-slate-400">#{i + 1}</span>
                                         <div className="flex items-center gap-0.5">
                                             <button
                                                 type="button"
                                                 onClick={(e) => { e.stopPropagation(); moveFridayStaff(rowIndex, columnId, i, 'top'); }}
-                                                className="p-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[9px] font-bold cursor-pointer"
+                                                className="p-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[10px] font-bold cursor-pointer"
                                                 title="Move to Top"
                                             >
                                                 <i className="fas fa-angle-double-up"></i>
@@ -426,7 +448,7 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                                                 type="button"
                                                 disabled={i === 0}
                                                 onClick={(e) => { e.stopPropagation(); moveFridayStaff(rowIndex, columnId, i, 'up'); }}
-                                                className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 text-[9px] cursor-pointer"
+                                                className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 text-[10px] cursor-pointer"
                                                 title="Move Up"
                                             >
                                                 <i className="fas fa-arrow-up"></i>
@@ -434,7 +456,7 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                                             <button
                                                 type="button"
                                                 onClick={(e) => { e.stopPropagation(); moveFridayStaff(rowIndex, columnId, i, 'middle'); }}
-                                                className="p-1 rounded bg-purple-50 hover:bg-purple-100 text-purple-700 text-[9px] font-bold cursor-pointer"
+                                                className="p-1 rounded bg-purple-50 hover:bg-purple-100 text-purple-700 text-[10px] font-bold cursor-pointer"
                                                 title="Move to Middle"
                                             >
                                                 <i className="fas fa-arrows-alt-v"></i>
@@ -443,7 +465,7 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                                                 type="button"
                                                 disabled={i === list.length - 1}
                                                 onClick={(e) => { e.stopPropagation(); moveFridayStaff(rowIndex, columnId, i, 'down'); }}
-                                                className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 text-[9px] cursor-pointer"
+                                                className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 text-[10px] cursor-pointer"
                                                 title="Move Down"
                                             >
                                                 <i className="fas fa-arrow-down"></i>
@@ -451,7 +473,7 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                                             <button
                                                 type="button"
                                                 onClick={(e) => { e.stopPropagation(); moveFridayStaff(rowIndex, columnId, i, 'bottom'); }}
-                                                className="p-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[9px] font-bold cursor-pointer"
+                                                className="p-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[10px] font-bold cursor-pointer"
                                                 title="Move to Bottom"
                                             >
                                                 <i className="fas fa-angle-double-down"></i>
@@ -463,10 +485,12 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
                         );
                     })}
                     <button
+                        type="button"
                         onClick={() => handleAddNewStaff(rowIndex, columnId)}
-                        className="w-full mt-2 py-1.5 text-blue-700 bg-blue-50 hover:bg-blue-100 border border-dashed border-blue-300 rounded-md text-xs font-bold flex items-center justify-center gap-1 transition-colors"
+                        className="w-full mt-2 py-2 text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
                     >
-                        <i className="fas fa-plus text-xs mr-1"></i> Add
+                        <i className="fas fa-plus text-[10px]"></i>
+                        <span>إضافة موظف (+ Add)</span>
                     </button>
                 </div>
             );
@@ -806,6 +830,13 @@ const FridayScheduleView: React.FC<FridayScheduleViewProps> = ({
             </div>
             
             <PrintFooter themeColor={headerColor} />
+
+            {/* Datalist for Staff Autocomplete */}
+            <datalist id="friday-all-staff-datalist">
+                {allStaffSuggestions.map((name, i) => (
+                    <option key={i} value={name} />
+                ))}
+            </datalist>
         </div>
     );
 };

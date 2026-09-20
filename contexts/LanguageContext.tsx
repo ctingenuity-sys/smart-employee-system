@@ -58,7 +58,7 @@ const translations: Record<string, { ar: string; en: string }> = {
   'role.doctor': { ar: 'طبيب', en: 'Doctor' },
   'role.manager':{ar:'المدير',en:'maneger'},  
   // --- Doctor Station ---
-  'doc.station': { ar: 'محطة طبيب الأشعة', en: 'Radiologist Station' },
+  'doc.station': { ar: ' لوحة المعلومات ', en: 'dashboard' },
   
   // --- Staff Rotation & Turn Assistant ---
   'nav.rotation': { ar: 'تدوير الجدول والأدوار', en: 'Staff Rotation & Turns' },
@@ -627,7 +627,7 @@ const translations: Record<string, { ar: string; en: string }> = {
   'user.tab.schedule.subtitle': { ar: 'عرض الورديات الخاصة بي', en: 'View my shifts' },
   'user.tab.market': { ar: 'تغطية وردية (أوفر تايم)', en: 'Cover Shift' },
   'user.tab.market.subtitle': { ar: 'الورديات المتاحة للتغطية', en: 'Available shifts to cover' },
-  'user.tab.requests': { ar: 'البصمه', en: 'Fingerprint' },
+  'user.tab.requests': { ar: 'تقديم الطلبات', en: 'Requests & Leaves' },
   'user.tab.leaveSwap': { ar: 'إجازة / تبديل', en: 'Leave / Swap' },
   'user.tab.incoming': { ar: 'الطلبات الواردة', en: 'Incoming' },
   'user.tab.incoming.subtitle': { ar: 'طلبات التبديل الواردة', en: 'Incoming swap requests' },

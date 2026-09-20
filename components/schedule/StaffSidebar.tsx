@@ -15,29 +15,55 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({ users, onOpenStaffHistory }
 
     const [search, setSearch] = useState('');
     const [genderFilter, setGenderFilter] = useState<'all' | 'male' | 'female'>('all');
+    const [roleFilter, setRoleFilter] = useState<'all' | 'doctor' | 'staff'>('all');
 
     // Filter out supervisors and administrators unless desired
     const staffPool = useMemo(() => {
         return users.filter(u => !['admin', 'supervisor', 'manager'].includes(u.role));
     }, [users]);
 
+    // Check if user is a doctor
+    const checkIsDoctor = (u: User) => {
+        const r = (u.role || '').toLowerCase();
+        const cat = (u.jobCategory || '').toLowerCase();
+        const n = (u.name || '').toLowerCase();
+        return r === 'doctor' || cat === 'doctor' || cat.includes('طبيب') || n.startsWith('dr.') || n.startsWith('dr ') || n.includes('د.') || n.includes('د /');
+    };
+
     // Count statistics
     const counts = useMemo(() => {
         let male = 0;
         let female = 0;
+        let doctors = 0;
+        let staff = 0;
+
         staffPool.forEach(u => {
             if (u.gender === 'female') female++;
             else if (u.gender === 'male') male++;
+
+            if (checkIsDoctor(u)) {
+                doctors++;
+            } else {
+                staff++;
+            }
         });
         return {
             all: staffPool.length,
             male,
-            female
+            female,
+            doctors,
+            staff
         };
     }, [staffPool]);
 
     const filteredUsers = useMemo(() => {
         return staffPool.filter(u => {
+            const isDoc = checkIsDoctor(u);
+
+            // Role / category filter
+            if (roleFilter === 'doctor' && !isDoc) return false;
+            if (roleFilter === 'staff' && isDoc) return false;
+
             // Gender match
             if (genderFilter === 'male' && u.gender !== 'male') return false;
             if (genderFilter === 'female' && u.gender !== 'female') return false;
@@ -51,7 +77,7 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({ users, onOpenStaffHistory }
             const catMatch = u.jobCategory && String(u.jobCategory).toLowerCase().includes(q);
             return Boolean(nameMatch || emailMatch || numMatch || catMatch);
         });
-    }, [staffPool, genderFilter, search]);
+    }, [staffPool, genderFilter, roleFilter, search]);
 
     const handleDragStart = (e: React.DragEvent, user: User) => {
         // Send JSON data with ID, Name, and Gender
@@ -87,6 +113,44 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({ users, onOpenStaffHistory }
                     <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
                         {filteredUsers.length} / {counts.all}
                     </span>
+                </div>
+
+                {/* Role / Category Quick Selector */}
+                <div className="mb-2 flex items-center justify-center p-0.5 bg-slate-200/70 rounded-xl gap-1">
+                    <button
+                        type="button"
+                        onClick={() => setRoleFilter('all')}
+                        className={`flex-1 py-1 text-[11px] font-bold rounded-lg transition-all text-center ${
+                            roleFilter === 'all'
+                                ? 'bg-white text-slate-800 shadow-xs'
+                                : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        {isAr ? 'الكل' : 'All'} ({counts.all})
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setRoleFilter('doctor')}
+                        className={`flex-1 py-1 text-[11px] font-bold rounded-lg transition-all text-center flex items-center justify-center gap-1 ${
+                            roleFilter === 'doctor'
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'text-indigo-700 hover:bg-indigo-50/50'
+                        }`}
+                    >
+                        <span>🩺 {isAr ? 'الأطباء' : 'Doctors'}</span>
+                        <span className="text-[9px] opacity-80">({counts.doctors})</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setRoleFilter('staff')}
+                        className={`flex-1 py-1 text-[11px] font-bold rounded-lg transition-all text-center ${
+                            roleFilter === 'staff'
+                                ? 'bg-white text-slate-800 shadow-xs'
+                                : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        {isAr ? 'الكادر' : 'Staff'} ({counts.staff})
+                    </button>
                 </div>
 
                 {/* Gender Quick Selector */}
@@ -163,9 +227,16 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({ users, onOpenStaffHistory }
                             {/* Staff Info */}
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center justify-between gap-1">
-                                    <h4 className="text-xs font-bold text-slate-800 truncate">
-                                        {user.name || (isAr ? 'بدون اسم' : 'Unnamed')}
-                                    </h4>
+                                    <div className="flex items-center gap-1 min-w-0">
+                                        <h4 className="text-xs font-bold text-slate-800 truncate">
+                                            {user.name || (isAr ? 'بدون اسم' : 'Unnamed')}
+                                        </h4>
+                                        {checkIsDoctor(user) && (
+                                            <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                                🩺 {isAr ? 'طبيب' : 'Dr'}
+                                            </span>
+                                        )}
+                                    </div>
                                     {onOpenStaffHistory && (
                                         <button
                                             type="button"

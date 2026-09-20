@@ -221,6 +221,7 @@ const ScheduleBuilder: React.FC = () => {
     const [globalEndDate, setGlobalEndDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().slice(0, 10));
     const [mergeMode, setMergeMode] = useState(false); 
     const [scheduleNote, setScheduleNote] = useState(''); 
+    const [doctorScheduleNote, setDoctorScheduleNote] = useState('');
     const [ramadanScheduleNote, setRamadanScheduleNote] = useState('');
     const [holidayScheduleNote, setHolidayScheduleNote] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
@@ -285,7 +286,8 @@ const ScheduleBuilder: React.FC = () => {
                         return (
                             u.departmentId === selectedDepartmentId ||
                             (Array.isArray(u.departments) && u.departments.includes(selectedDepartmentId)) ||
-                            (selectedDepartmentId === 'legacy_radiology' && !u.departmentId)
+                            (selectedDepartmentId === 'legacy_radiology' && (!u.departmentId || u.departmentId === 'radiology' || u.departmentId === 'legacy_radiology')) ||
+                            (selectedDepartmentId === 'radiology' && (!u.departmentId || u.departmentId === 'radiology' || u.departmentId === 'legacy_radiology'))
                         );
                     }
                     return true;
@@ -1254,14 +1256,23 @@ const ScheduleBuilder: React.FC = () => {
                         )}
                         {visualSubTab === 'doctor' && (
                             <DoctorScheduleView 
-                                data={doctorData} isEditing={isEditingVisual} allUsers={employees} publishMonth={publishMonth}
+                                data={doctorData} 
+                                isEditing={isEditingVisual} 
+                                allUsers={employees} 
+                                publishMonth={publishMonth}
+                                onOpenStaffHistory={handleOpenStaffHistory}
                                 onUpdateRow={(i, d) => { const n = [...doctorData]; n[i] = d; setDoctorData(n); }}
                                 onAddRow={() => setDoctorData([...doctorData, { id: Date.now().toString(), dateRange: '' }])}
                                 onRemoveRow={(i) => setDoctorData(doctorData.filter((_, idx) => idx !== i))}
                                 columns={doctorColumns}
                                 onUpdateColumn={(idx, col) => handleUpdateColumn('doctor', idx, col)}
                                 onRemoveColumn={(id) => handleRemoveColumn('doctor', id)}
+                                onAddColumn={() => handleAddColumn('doctor')}
                                 searchTerm={searchTerm}
+                                scheduleNote={doctorScheduleNote}
+                                setScheduleNote={setDoctorScheduleNote}
+                                globalStartDate={globalStartDate}
+                                globalEndDate={globalEndDate}
                             />
                         )}
                         {visualSubTab === 'doctor_friday' && (

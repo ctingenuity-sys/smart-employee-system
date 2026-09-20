@@ -509,17 +509,39 @@ export const QuickStaffRotationPopover: React.FC<QuickStaffRotationPopoverProps>
 
                                                 {/* Shift Timing (التوقيت وساعات الدوام) */}
                                                 {m.timeStr ? (
-                                                    <div className={`px-2.5 py-1 rounded-xl text-xs font-black border flex items-center gap-1.5 shrink-0 shadow-2xs ${
-                                                        isDark
-                                                            ? `${shiftStyle.timeBgDark} ${shiftStyle.timeTextDark} ${shiftStyle.timeBorderDark}`
-                                                            : `${shiftStyle.timeBgLight} ${shiftStyle.timeTextLight} ${shiftStyle.timeBorderLight}`
-                                                    }`} title={shiftStyle.timeParsed.formattedAr || m.timeStr}>
-                                                        <i className="fas fa-clock text-[10px] opacity-75"></i>
-                                                        <span>{isAr ? shiftStyle.timeParsed.formattedAr : shiftStyle.timeParsed.formattedEn}</span>
-                                                        <span className="text-[10px] font-mono opacity-70 font-bold px-1 rounded bg-black/5 dark:bg-white/10" dir="ltr">
-                                                            {m.timeStr}
-                                                        </span>
-                                                    </div>
+                                                    shiftStyle.timeParsed.intervals && shiftStyle.timeParsed.intervals.length > 1 ? (
+                                                        <div className="flex flex-wrap items-center gap-1.5">
+                                                            {shiftStyle.timeParsed.intervals.map((interval, intIdx) => (
+                                                                <div
+                                                                    key={intIdx}
+                                                                    className={`px-2 py-0.5 rounded-lg text-xs font-black border flex items-center gap-1.5 shadow-2xs ${
+                                                                        isDark
+                                                                            ? `${interval.cardBgDark} ${interval.cardBorderDark}`
+                                                                            : `${interval.cardBgLight} ${interval.cardBorderLight}`
+                                                                    }`}
+                                                                    title={isAr ? interval.formattedAr : interval.formattedEn}
+                                                                >
+                                                                    <i className={`fas ${interval.icon} text-[10px]`}></i>
+                                                                    <span>{isAr ? interval.periodLabelAr : interval.periodLabelEn}</span>
+                                                                    <span className="text-[10px] font-mono opacity-80 font-bold px-1 rounded bg-black/5 dark:bg-white/10" dir="ltr">
+                                                                        {interval.raw}
+                                                                    </span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <div className={`px-2.5 py-1 rounded-xl text-xs font-black border flex items-center gap-1.5 shrink-0 shadow-2xs ${
+                                                            isDark
+                                                                ? `${shiftStyle.timeBgDark} ${shiftStyle.timeTextDark} ${shiftStyle.timeBorderDark}`
+                                                                : `${shiftStyle.timeBgLight} ${shiftStyle.timeTextLight} ${shiftStyle.timeBorderLight}`
+                                                        }`} title={shiftStyle.timeParsed.formattedAr || m.timeStr}>
+                                                            <i className="fas fa-clock text-[10px] opacity-75"></i>
+                                                            <span>{isAr ? shiftStyle.timeParsed.formattedAr : shiftStyle.timeParsed.formattedEn}</span>
+                                                            <span className="text-[10px] font-mono opacity-70 font-bold px-1 rounded bg-black/5 dark:bg-white/10" dir="ltr">
+                                                                {m.timeStr}
+                                                            </span>
+                                                        </div>
+                                                    )
                                                 ) : (
                                                     <div className={`hidden sm:flex px-2 py-0.5 rounded-lg text-[10px] font-bold border items-center gap-1 ${
                                                         shiftStyle.badgeBg

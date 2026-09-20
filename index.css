@@ -211,6 +211,35 @@
     box-shadow: none !important;
     text-shadow: none !important;
   }
+
+  /* Doctor Schedule Table Grid & Print Separators */
+  table.doctor-schedule-table,
+  .doctor-schedule-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+  table.doctor-schedule-table tbody tr,
+  .doctor-schedule-table tbody tr {
+    border-bottom: 2px solid #0f172a !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  table.doctor-schedule-table tbody td,
+  .doctor-schedule-table tbody td {
+    border-bottom: 2px solid #0f172a !important;
+    background-color: transparent !important;
+    position: static !important;
+  }
+}
+
+/* Screen Doctor Schedule Table Separators */
+table.doctor-schedule-table tbody tr,
+.doctor-schedule-table tbody tr {
+  border-bottom: 2px solid #334155;
+}
+table.doctor-schedule-table tbody td,
+.doctor-schedule-table tbody td {
+  border-bottom: 2px solid #334155;
 }
 
 /* =========================================================

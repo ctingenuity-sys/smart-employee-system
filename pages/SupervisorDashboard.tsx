@@ -80,7 +80,12 @@ const SupervisorDashboard: React.FC = () => {
 
   const canAccess = (feature: string) => {
       if (isAdmin) return true;
-      if (!permissions) return true; // Legacy users
+      if (authRole === UserRole.SUPERVISOR || authRole === UserRole.MANAGER) {
+          if (feature.startsWith('sup_') || feature === 'attendance') return true;
+          if (!permissions || permissions.length === 0) return true;
+          return permissions.includes(feature);
+      }
+      if (!permissions || permissions.length === 0) return true; // Legacy users
       return permissions.includes(feature);
   };
 
@@ -645,6 +650,17 @@ const SupervisorDashboard: React.FC = () => {
 
       // Analytics & Intelligence Category
       { 
+          id: 'payroll', 
+          title: dir === 'rtl' ? 'مسير الرواتب (إكسل)' : 'Payroll & Timesheet', 
+          subtitle: dir === 'rtl' ? 'كشف رواتب تفاعلي، احتساب الجمعات والأعياد والإجازات' : 'Interactive payroll sheet, Friday & Eid calculations',
+          icon: 'fa-file-invoice-dollar', 
+          path: '/supervisor/payroll', 
+          gradient: 'from-emerald-500 to-teal-700',
+          shadowColor: 'shadow-emerald-500/20',
+          category: 'analytics', 
+          permission: 'sup_payroll' 
+      },
+      { 
           id: 'attendance', 
           title: dir === 'rtl' ? 'المحلل الذكي' : 'Smart Analyzer', 
           subtitle: dir === 'rtl' ? 'تحليل ساعات العمل والغياب والتأخير' : 'Attendance insights & punch logs',
@@ -832,7 +848,13 @@ const SupervisorDashboard: React.FC = () => {
                         <p className={`text-xs md:text-sm mt-0.5 font-medium flex items-center gap-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                             <span>{t('welcome')}, <strong className={isDark ? 'text-white' : 'text-slate-800'}>{currentAdminName}</strong></span>
                             <span className={isDark ? 'text-slate-600' : 'text-slate-300'}>•</span>
-                            <span className={isDark ? 'text-indigo-400 font-semibold' : 'text-indigo-600 font-semibold'}>{authRole === UserRole.ADMIN ? (dir === 'rtl' ? 'مدير النظام العام' : 'System Administrator') : (dir === 'rtl' ? 'مشرف القسم' : 'Department Supervisor')}</span>
+                            <span className={isDark ? 'text-indigo-400 font-semibold' : 'text-indigo-600 font-semibold'}>
+                                {authRole === UserRole.ADMIN 
+                                    ? (dir === 'rtl' ? 'مدير النظام العام' : 'System Administrator') 
+                                    : (authRole === UserRole.MANAGER || String(authRole).toLowerCase() === 'manager')
+                                    ? (dir === 'rtl' ? 'مدير القسم (Manager)' : 'Department Manager')
+                                    : (dir === 'rtl' ? 'مشرف القسم (Supervisor)' : 'Department Supervisor')}
+                            </span>
                         </p>
                     </div>
                 </div>
@@ -856,6 +878,17 @@ const SupervisorDashboard: React.FC = () => {
                     >
                         <i className="fas fa-sync-alt text-teal-500"></i>
                         <span>{t('nav.rotation')}</span>
+                    </button>
+
+                    <button 
+                        onClick={() => navigate('/supervisor/payroll')}
+                        className={`px-3.5 py-2 rounded-2xl transition-all text-xs font-bold flex items-center gap-1.5 shadow-2xs hover:scale-105 border ${
+                            isDark ? 'bg-emerald-950/60 border-emerald-800/80 text-emerald-300 hover:bg-emerald-900/80' : 'bg-emerald-50 border-emerald-200/80 text-emerald-700 hover:bg-emerald-100'
+                        }`}
+                        title="مسير الرواتب التفاعلي وحساب البدلات"
+                    >
+                        <i className="fas fa-file-invoice-dollar text-emerald-500"></i>
+                        <span>{dir === 'rtl' ? 'مسير الرواتب' : 'Payroll'}</span>
                     </button>
 
                     <button 

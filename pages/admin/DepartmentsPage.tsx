@@ -449,8 +449,8 @@ const DepartmentsPage: React.FC = () => {
                             onChange={e => setFormManager(e.target.value)}
                         >
                             <option value="">-- اختر مشرفاً --</option>
-                            {users.filter(u => u.role === 'supervisor' || u.role === 'admin').map(u => (
-                                <option key={u.id} value={u.id}>{u.name || u.email} ({u.role})</option>
+                            {users.filter(u => ['supervisor', 'manager', 'admin'].includes(String(u.role || '').toLowerCase()) || (u as any).isSupervisor).map(u => (
+                                <option key={u.id} value={u.id}>{u.name || u.email} ({u.role === 'supervisor' ? 'مشرف' : u.role === 'manager' ? 'مدير' : u.role})</option>
                             ))}
                         </select>
                     </div>

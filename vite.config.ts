@@ -7,7 +7,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 const currentBuildTime = new Date().toISOString();
 
-function versionPlugin() {
+function versionPlugin(): any {
   return {
     name: 'version-generator',
     buildStart() {
@@ -21,16 +21,18 @@ function versionPlugin() {
         fs.writeFileSync('public/version.json', payload);
       } catch (e) {}
     },
-    generateBundle() {
-      this.emitFile({
-        type: 'asset',
-        fileName: 'version.json',
-        source: JSON.stringify({
-          buildTime: currentBuildTime,
-          timestamp: Date.now(),
-          version: '1.2.0'
-        }, null, 2)
-      });
+    generateBundle(this: any) {
+      if (typeof this?.emitFile === 'function') {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'version.json',
+          source: JSON.stringify({
+            buildTime: currentBuildTime,
+            timestamp: Date.now(),
+            version: '1.2.0'
+          }, null, 2)
+        });
+      }
     }
   };
 }
@@ -55,8 +57,7 @@ export default defineConfig({
       registerType: 'prompt',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg', 'sw-push-handler.js'],
       devOptions: {
-        enabled: true,
-        type: 'module'
+        enabled: false
       },
       workbox: {
         importScripts: ['/sw-push-handler.js'],

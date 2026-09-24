@@ -532,6 +532,10 @@ export const detectShiftPeriod = (timeInput?: string | string[], dutyName?: stri
     rawDuty.includes('مجزء') ||
     rawDuty.includes('مقسم') ||
     rawDuty.includes('فترتين') ||
+    rawTime.includes('BROKEN') ||
+    rawTime.includes('مجزء') ||
+    rawTime.includes('مقسم') ||
+    rawTime.includes('فترتين') ||
     parsed.isSplit ||
     (parsed.intervals && parsed.intervals.length > 1);
 

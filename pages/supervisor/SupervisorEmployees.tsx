@@ -63,10 +63,12 @@ const ALL_PERMISSIONS = [
     { key: 'sup_rooms', label: 'الغرف (Rooms)' },
     { key: 'sup_logbooks', label: 'السجلات (Logbooks)' },
     { key: 'sup_penalties', label: 'الجزاءات (Penalties)' },
+    { key: 'sup_payroll', label: 'مسير الرواتب (Payroll & Timesheet)' },
 ];
 
 // Mapped to match the specific CSS classes requested
 const JOB_CATEGORIES = [
+    { id: 'supervisor', title: 'Supervisors & Admins (مشرفين وإدارة)', cssClass: 'supervisors', icon: 'fa-user-tie', cardTheme: 'bg-gradient-to-br from-indigo-600 to-purple-700 text-white border-indigo-400' },
     { id: 'doctor', title: 'Doctors (أطباء)', cssClass: 'doctors', icon: 'fa-user-md', cardTheme: 'bg-gradient-to-br from-rose-500 to-pink-600 text-white border-rose-400' },
     { id: 'technologist', title: 'Specialists (أخصائيين)', cssClass: 'technologists', icon: 'fa-user-graduate', cardTheme: 'bg-gradient-to-br from-cyan-500 to-blue-600 text-white border-cyan-400' },
     { id: 'technician', title: 'Technicians (فنيين)', cssClass: 'technicians', icon: 'fa-cogs', cardTheme: 'bg-gradient-to-br from-amber-400 to-orange-500 text-white border-amber-400' },
@@ -112,6 +114,7 @@ const styles = `
 }
 
 /* Circle Colors */
+.supervisors { background: linear-gradient(135deg, #4338ca, #6366f1); }
 .doctors { background: linear-gradient(135deg, #ff416c, #ff4b2b); }
 .technologists { background: linear-gradient(135deg, #36d1dc, #5b86e5); }
 .technicians { background: linear-gradient(135deg, #fbc7aa, #f5af19); color: #333; text-shadow: none; }
@@ -277,21 +280,27 @@ const SupervisorEmployees: React.FC = () => {
     console.log('AuthRole:', authRole, 'UserRole.ADMIN:', UserRole.ADMIN);
     const [users, setUsers] = useState<User[]>([]);
     const [selectedDepartmentFilter, setSelectedDepartmentFilter] = useState<string>(
-        () => location.state?.departmentId || selectedDepartmentId || 'all'
+        () => location.state?.departmentId || (authRole === UserRole.ADMIN ? 'all' : (selectedDepartmentId || 'all'))
     );
 
     useEffect(() => {
         if (location.state?.departmentId) {
             setSelectedDepartmentFilter(location.state.departmentId);
+        } else if (authRole === UserRole.ADMIN) {
+            // Keep user's chosen filter if admin explicitly chose, or sync with selectedDepartmentId if it was set
+            if (selectedDepartmentId && selectedDepartmentFilter !== 'all') {
+                setSelectedDepartmentFilter(selectedDepartmentId);
+            }
         } else if (selectedDepartmentId) {
             setSelectedDepartmentFilter(selectedDepartmentId);
         }
-    }, [selectedDepartmentId, location.state?.departmentId]);
+    }, [selectedDepartmentId, location.state?.departmentId, authRole]);
 
-    // Effective department ID to filter by: priority to selectedDepartmentFilter if explicitly chosen, otherwise selectedDepartmentId
-    const effectiveDepartmentId = (selectedDepartmentFilter && selectedDepartmentFilter !== 'all')
-        ? selectedDepartmentFilter
-        : (selectedDepartmentId || null);
+    // When selectedDepartmentFilter is 'all', effectiveDepartmentId is null (shows ALL departments)
+    const effectiveDepartmentId = useMemo(() => {
+        if (!selectedDepartmentFilter || selectedDepartmentFilter === 'all') return null;
+        return selectedDepartmentFilter;
+    }, [selectedDepartmentFilter]);
 
     const activeDepartmentObj = useMemo(() => {
         if (!effectiveDepartmentId || effectiveDepartmentId === 'all') return null;
@@ -309,6 +318,7 @@ const SupervisorEmployees: React.FC = () => {
 
     const [searchQuery, setSearchQuery] = useState('');
     const [sortBy, setSortBy] = useState<'name' | 'role' | 'category'>('name');
+    const [roleFilter, setRoleFilter] = useState<'all' | 'staff' | 'supervisors'>('all');
     const [toast, setToast] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
     const [loading, setLoading] = useState(false);
     
@@ -328,12 +338,7 @@ const SupervisorEmployees: React.FC = () => {
         const nextVal = !hiddenEmployeesVisible;
         setHiddenEmployeesVisible(nextVal);
         localStorage.setItem('show_hidden_employees', String(nextVal));
-        setToast({
-            msg: nextVal 
-                ? (dir === 'rtl' ? 'تم إظهار الموظفين المخفيين في القوائم' : 'Hidden employees are now visible') 
-                : (dir === 'rtl' ? 'تم إخفاء الموظفين المخفيين من القوائم' : 'Hidden employees are now hidden'),
-            type: nextVal ? 'info' : 'success'
-        });
+
     };
 
     const [offlineResult, setOfflineResult] = useState<any>(null);
@@ -1057,9 +1062,21 @@ const SupervisorEmployees: React.FC = () => {
     };
 
     const filteredUsers = useMemo(() => {
+        const q = searchQuery.toLowerCase().trim();
         return users.filter(u => {
-            // Include operational staff - respect hiddenEmployeesVisible toggle
-            if (!isOperationalStaff(u, departments, hiddenEmployeesVisible)) return false;
+            const roleS = String(u.role || '').toLowerCase();
+            const catS = String(u.jobCategory || '').toLowerCase();
+            const isManagementUser = roleS === 'supervisor' || roleS === 'manager' || roleS === 'admin' || catS === 'supervisor' || (u as any).isSupervisor || (u as any).isAdmin || (u as any).isManager;
+
+            if (roleFilter === 'supervisors') {
+                if (!isManagementUser) return false;
+            } else if (roleFilter === 'staff') {
+                if (isManagementUser) return false;
+                if (!isOperationalStaff(u, departments, hiddenEmployeesVisible)) return false;
+            } else {
+                // 'all': Show both operational staff and management (respecting hidden toggle)
+                if (!isManagementUser && !isOperationalStaff(u, departments, hiddenEmployeesVisible)) return false;
+            }
 
             // Supervisor/Manager Isolation: Can only see users in their department or users assigned to them
             if (authRole === UserRole.SUPERVISOR) {
@@ -1074,14 +1091,23 @@ const SupervisorEmployees: React.FC = () => {
                 }
             }
 
-            // Department Filter Logic
-            if (!isUserInDepartment(u, effectiveDepartmentId)) return false;
+            // Department Filter Logic:
+            // If admin is actively searching by text, search across all departments so they never lose an account!
+            if (!q && !isUserInDepartment(u, effectiveDepartmentId)) return false;
 
-            return (
-                (u.name && u.name.toLowerCase().includes(searchQuery.toLowerCase())) || 
-                (u.email && u.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                (u.employeeNumber && u.employeeNumber.toLowerCase().includes(searchQuery.toLowerCase()))
-            );
+            if (!q) return true;
+
+            const nameMatch = u.name && u.name.toLowerCase().includes(q);
+            const emailMatch = u.email && u.email.toLowerCase().includes(q);
+            const empNumMatch = u.employeeNumber && u.employeeNumber.toLowerCase().includes(q);
+            const roleMatch = (u.role && u.role.toLowerCase().includes(q)) ||
+                              (q === 'مشرف' && isManagementUser) ||
+                              (q === 'ادمن' && roleS === 'admin') ||
+                              (q.includes('super') && isManagementUser);
+            const deptName = departments.find(d => d.id === u.departmentId)?.name || '';
+            const deptMatch = deptName.toLowerCase().includes(q);
+
+            return nameMatch || emailMatch || empNumMatch || roleMatch || deptMatch;
         }).sort((a, b) => {
             if (sortBy === 'role') {
                 return (a.role || '').localeCompare(b.role || '');
@@ -1091,7 +1117,7 @@ const SupervisorEmployees: React.FC = () => {
                 return (a.name || '').localeCompare(b.name || '');
             }
         });
-    }, [users, hiddenEmployeesVisible, departments, authRole, currentUser?.uid, selectedDepartmentId, effectiveDepartmentId, isUserInDepartment, searchQuery, sortBy]);
+    }, [users, roleFilter, hiddenEmployeesVisible, departments, authRole, currentUser?.uid, selectedDepartmentId, effectiveDepartmentId, isUserInDepartment, searchQuery, sortBy]);
 
     const openEditModal = (user: User) => {
         const perms = user.permissions && user.permissions.length > 0 
@@ -1255,8 +1281,18 @@ const SupervisorEmployees: React.FC = () => {
 
     const derivedCategoryUsers = useMemo(() => {
         return users.filter(u => {
-            // Exclude Admin, Supervisor, Manager and individual accounts from employee categories
-            // Respect hiddenEmployeesVisible toggle
+            const roleS = String(u.role || '').toLowerCase();
+            const catS = String(u.jobCategory || '').toLowerCase();
+            const isManagementUser = roleS === 'supervisor' || roleS === 'manager' || roleS === 'admin' || catS === 'supervisor' || (u as any).isSupervisor || (u as any).isAdmin || (u as any).isManager;
+
+            if (selectedCategoryId === 'supervisor') {
+                if (!isManagementUser) return false;
+                if (!isUserInDepartment(u, effectiveDepartmentId)) return false;
+                return true;
+            }
+
+            // Strictly exclude Admin, Supervisor, Manager and non-operational accounts from employee categories
+            if (isManagementUser) return false;
             if (!isOperationalStaff(u, departments, hiddenEmployeesVisible)) return false;
 
             // Supervisor/Manager Isolation
@@ -1278,6 +1314,22 @@ const SupervisorEmployees: React.FC = () => {
         });
     }, [users, departments, authRole, currentUser?.uid, selectedDepartmentId, effectiveDepartmentId, isUserInDepartment, selectedCategoryId, hiddenEmployeesVisible]);
 
+    const deptManager = useMemo(() => {
+        if (!activeDepartmentObj) return null;
+        return users.find(u => 
+            (u.departmentId === activeDepartmentObj.id && String(u.role || '').toLowerCase() === 'manager') ||
+            ((u.id === activeDepartmentObj.managerId || u.uid === activeDepartmentObj.managerId) && String(u.role || '').toLowerCase() === 'manager')
+        );
+    }, [activeDepartmentObj, users]);
+
+    const deptSupervisor = useMemo(() => {
+        if (!activeDepartmentObj) return null;
+        return users.find(u => 
+            (u.departmentId === activeDepartmentObj.id && String(u.role || '').toLowerCase() === 'supervisor') ||
+            ((u.id === activeDepartmentObj.managerId || u.uid === activeDepartmentObj.managerId) && String(u.role || '').toLowerCase() === 'supervisor')
+        );
+    }, [activeDepartmentObj, users]);
+
     return (
         <div className={`min-h-screen py-8 px-4 transition-colors duration-300 ${isDark ? 'dark-theme bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-800'}`} dir={dir}>
             <div className="max-w-7xl mx-auto animate-fade-in">
@@ -1295,6 +1347,32 @@ const SupervisorEmployees: React.FC = () => {
                                     <i className="fas fa-building text-[10px] mr-1"></i>
                                     {activeDepartmentObj.name}
                                 </span>
+                            )}
+                            {deptManager && (
+                                <button 
+                                    onClick={() => openEditModal(deptManager)}
+                                    className={`px-2.5 py-0.5 rounded-full text-xs font-black border transition-all hover:scale-105 flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                                        isDark ? 'bg-blue-950/80 text-blue-300 border-blue-700/60 hover:bg-blue-900/80' : 'bg-blue-50 text-blue-900 border-blue-300 hover:bg-blue-100'
+                                    }`}
+                                    title="فتح وتعديل حساب المدير والصلاحيات"
+                                >
+                                    <i className="fas fa-user-tie text-[10px] text-blue-500"></i>
+                                    <span>{dir === 'rtl' ? `مدير القسم: ${deptManager.name}` : `Manager: ${deptManager.name}`}</span>
+                                    <i className="fas fa-pen text-[9px] opacity-70"></i>
+                                </button>
+                            )}
+                            {deptSupervisor && (
+                                <button 
+                                    onClick={() => openEditModal(deptSupervisor)}
+                                    className={`px-2.5 py-0.5 rounded-full text-xs font-black border transition-all hover:scale-105 flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                                        isDark ? 'bg-amber-950/80 text-amber-300 border-amber-700/60 hover:bg-amber-900/80' : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                                    }`}
+                                    title="فتح وتعديل حساب المشرف والصلاحيات"
+                                >
+                                    <i className="fas fa-crown text-[10px] text-amber-500"></i>
+                                    <span>{dir === 'rtl' ? `مشرف القسم: ${deptSupervisor.name}` : `Supervisor: ${deptSupervisor.name}`}</span>
+                                    <i className="fas fa-pen text-[9px] opacity-70"></i>
+                                </button>
                             )}
                             <span className={`px-2.5 py-0.5 rounded-full text-xs font-black border ${isDark ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
                                 <i className="fas fa-user-check text-[10px] mr-1"></i>
@@ -1596,6 +1674,51 @@ const SupervisorEmployees: React.FC = () => {
                                     </select>
                                 </div>
                             </div>
+
+                            {/* Role Filter Tabs */}
+                            <div className={`p-3 ${isDark ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-gray-100'} border-b flex items-center gap-2 overflow-x-auto`}>
+                                <button
+                                    type="button"
+                                    onClick={() => setRoleFilter('all')}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                        roleFilter === 'all' 
+                                            ? 'bg-blue-600 text-white shadow-md' 
+                                            : (isDark ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100')
+                                    }`}
+                                >
+                                    <i className="fas fa-users"></i>
+                                    <span>{dir === 'rtl' ? 'الكل' : 'All Accounts'}</span>
+                                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 font-black">{users.length}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setRoleFilter('supervisors')}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                        roleFilter === 'supervisors' 
+                                            ? 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-400' 
+                                            : (isDark ? 'bg-indigo-950/60 text-indigo-300 border border-indigo-800 hover:bg-indigo-900/60' : 'bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100')
+                                    }`}
+                                >
+                                    <i className="fas fa-user-shield text-amber-300"></i>
+                                    <span>{dir === 'rtl' ? 'المشرفين والإدارة' : 'Supervisors & Admins'}</span>
+                                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 font-black">
+                                        {users.filter(u => ['supervisor','manager','admin'].includes(String(u.role||'').toLowerCase()) || (u as any).isSupervisor).length}
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setRoleFilter('staff')}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                        roleFilter === 'staff' 
+                                            ? 'bg-emerald-600 text-white shadow-md' 
+                                            : (isDark ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100')
+                                    }`}
+                                >
+                                    <i className="fas fa-user-check text-emerald-400"></i>
+                                    <span>{dir === 'rtl' ? 'الكادر والموظفين' : 'Staff Only'}</span>
+                                </button>
+                            </div>
+
                             <div className="overflow-x-auto">
                                 <table className={`w-full ${dir === 'rtl' ? 'text-right' : 'text-left'}`}>
                                     <thead className={`${isDark ? 'bg-slate-800/80 text-slate-400 border-slate-700' : 'bg-gray-50 text-gray-500 border-gray-100'} font-bold text-xs uppercase border-b`}>
@@ -1634,16 +1757,22 @@ const SupervisorEmployees: React.FC = () => {
                                                 </td>
                                                 <td className="p-4">
                                                     <div className="flex flex-wrap gap-1 items-center">
-                                                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
-                                                            user.role === 'admin' ? 'bg-purple-100 text-purple-700' :
-                                                            user.role === 'supervisor' ? 'bg-indigo-100 text-indigo-700' :
-                                                            user.role === 'manager' ? 'bg-blue-100 text-blue-700' :
+                                                        <span className={`px-2.5 py-1 rounded-md text-[11px] font-black uppercase flex items-center gap-1 shadow-sm ${
+                                                            user.role === 'admin' ? 'bg-purple-600 text-white ring-1 ring-purple-400' :
+                                                            user.role === 'supervisor' ? 'bg-indigo-600 text-white ring-1 ring-indigo-400' :
+                                                            user.role === 'manager' ? 'bg-blue-600 text-white ring-1 ring-blue-400' :
                                                             user.role === 'custody_clerk' ? 'bg-teal-100 text-teal-800 border border-teal-200' :
                                                             user.role === 'doctor' ? 'bg-rose-100 text-rose-700' :
                                                             user.role === 'cath_lab' ? 'bg-amber-100 text-amber-800' :
                                                             (isDark ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-700')
                                                         }`}>
-                                                            {user.role === 'custody_clerk' ? 'توزيع العهد' : user.role}
+                                                            {user.role === 'supervisor' && <i className="fas fa-crown text-amber-300"></i>}
+                                                            {user.role === 'manager' && <i className="fas fa-user-tie text-cyan-200"></i>}
+                                                            {user.role === 'admin' && <i className="fas fa-shield-alt text-yellow-300"></i>}
+                                                            {user.role === 'supervisor' ? (dir === 'rtl' ? 'مشرف' : 'SUPERVISOR') : 
+                                                             user.role === 'manager' ? (dir === 'rtl' ? 'مدير' : 'MANAGER') :
+                                                             user.role === 'admin' ? (dir === 'rtl' ? 'مسؤول' : 'ADMIN') :
+                                                             user.role === 'custody_clerk' ? 'توزيع العهد' : user.role}
                                                         </span>
                                                         {user.isHidden && (
                                                             <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-0.5" title="هذا الموظف مخفي من القوائم العامة">
@@ -1699,8 +1828,18 @@ const SupervisorEmployees: React.FC = () => {
                     <div className="flex flex-wrap gap-8 justify-center pb-20 pt-10">
                         {JOB_CATEGORIES.filter(c => !(c as any).isHidden).map(cat => {
                             const catUsers = users.filter(u => {
-                                 // Exclude Admin, Supervisor, Manager and non-operational accounts
-                                 // Respect hiddenEmployeesVisible toggle
+                                 const roleS = String(u.role || '').toLowerCase();
+                                 const catS = String(u.jobCategory || '').toLowerCase();
+                                 const isManagementUser = roleS === 'supervisor' || roleS === 'manager' || roleS === 'admin' || catS === 'supervisor' || (u as any).isSupervisor || (u as any).isAdmin || (u as any).isManager;
+
+                                 if (cat.id === 'supervisor') {
+                                     if (!isManagementUser) return false;
+                                     if (!isUserInDepartment(u, effectiveDepartmentId)) return false;
+                                     return true;
+                                 }
+
+                                 // Strictly exclude Admin, Supervisor, Manager and non-operational accounts from employee categories
+                                 if (isManagementUser) return false;
                                  if (!isOperationalStaff(u, departments, hiddenEmployeesVisible)) return false;
 
                                  // Supervisor/Manager Isolation
@@ -1721,7 +1860,8 @@ const SupervisorEmployees: React.FC = () => {
                                  return cat.id === 'technician';
                             });
                             
-                            if (catUsers.length === 0) return null;
+                            // Never hide the Supervisors circle for Admin
+                            if (catUsers.length === 0 && (cat.id !== 'supervisor' || authRole !== UserRole.ADMIN)) return null;
                             
                             const warningCounts = getWarningCounts(catUsers, cat.id);
                             const hasDanger = warningCounts.expired > 0;
@@ -2206,9 +2346,23 @@ const SupervisorEmployees: React.FC = () => {
                                             </span>
 
                                             {/* Role Pill */}
-                                            <span className="flex items-center gap-1 text-[11px] font-black px-3 py-1 bg-white/20 text-white rounded-full border border-white/30 backdrop-blur-md shadow-sm">
-                                                <i className="fas fa-user-tag"></i> {user.role === 'custody_clerk' ? 'توزيع العهد' : user.role}
-                                            </span>
+                                            {user.role === 'manager' ? (
+                                                <span className="flex items-center gap-1 text-[11px] font-black px-3 py-1 bg-blue-500 text-white rounded-full border border-blue-300 shadow-md">
+                                                    <i className="fas fa-user-tie text-cyan-200"></i> {dir === 'rtl' ? 'مدير القسم (Manager)' : 'Department Manager'}
+                                                </span>
+                                            ) : (user.role === 'supervisor' || (user as any).isSupervisor) ? (
+                                                <span className="flex items-center gap-1 text-[11px] font-black px-3 py-1 bg-amber-400 text-slate-900 rounded-full border border-amber-300 shadow-md">
+                                                    <i className="fas fa-crown text-amber-900"></i> {dir === 'rtl' ? 'مشرف القسم (Supervisor)' : 'Department Supervisor'}
+                                                </span>
+                                            ) : user.role === 'admin' ? (
+                                                <span className="flex items-center gap-1 text-[11px] font-black px-3 py-1 bg-purple-600 text-white rounded-full border border-purple-300 shadow-md">
+                                                    <i className="fas fa-shield-alt text-yellow-300"></i> {dir === 'rtl' ? 'مسؤول النظام (Admin)' : 'System Admin'}
+                                                </span>
+                                            ) : (
+                                                <span className="flex items-center gap-1 text-[11px] font-black px-3 py-1 bg-white/20 text-white rounded-full border border-white/30 backdrop-blur-md shadow-sm">
+                                                    <i className="fas fa-user-tag"></i> {user.role === 'custody_clerk' ? 'توزيع العهد' : user.role}
+                                                </span>
+                                            )}
 
                                             {/* Individual Account Pill */}
                                             {(user.isIndividualAccount || user.excludeFromCount || user.role === 'cath_lab') && (

@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { auth, db } from '../firebase';
 // @ts-ignore
-import { doc, getDoc, collection, addDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, serverTimestamp, Timestamp, updateDoc, arrayUnion, query, where, getDocs, setDoc } from 'firebase/firestore';
 import { UserRole } from '../types';
 
 // --- Offline Punch Sync Logic ---
@@ -90,17 +90,92 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         try {
           const userRef = doc(db, 'users', currentUser.uid);
-          const userSnap = await getDoc(userRef);
-          
+          let userSnap = await getDoc(userRef);
+          let data: any = null;
+          let activeDocRef = userRef;
+
           if (userSnap.exists()) {
-            const data: any = userSnap.data();
+            data = userSnap.data();
+          } else if (currentUser.email) {
+            // Fallback: search by email if document UID doesn't match auth UID
+            try {
+              const qEmail = query(collection(db, 'users'), where('email', '==', currentUser.email));
+              const emailSnap = await getDocs(qEmail);
+              if (!emailSnap.empty) {
+                const foundDoc = emailSnap.docs[0];
+                data = foundDoc.data();
+                activeDocRef = doc(db, 'users', foundDoc.id);
+                // Also link to currentUser.uid for fast subsequent lookups
+                setDoc(userRef, { ...data, uid: currentUser.uid }, { merge: true }).catch(() => {});
+              } else {
+                // Case-insensitive search across users
+                const allSnap = await getDocs(collection(db, 'users'));
+                const matched = allSnap.docs.find(d => (d.data().email || '').toLowerCase() === (currentUser.email || '').toLowerCase());
+                if (matched) {
+                  data = matched.data();
+                  activeDocRef = doc(db, 'users', matched.id);
+                  setDoc(userRef, { ...data, uid: currentUser.uid }, { merge: true }).catch(() => {});
+                }
+              }
+            } catch (err) {
+              console.warn("Error in fallback user lookup:", err);
+            }
+          }
+          
+          if (data) {
             const userRole = data?.role || null;
             const name = data?.name || data?.email;
             
+            let userPerms = data?.permissions || [];
+            
+            // If user is a Supervisor or Manager, ensure all supervisor tools (including sup_payroll, sup_attendance) are granted
+            const isManagement = userRole === UserRole.SUPERVISOR || userRole === UserRole.MANAGER || userRole === UserRole.ADMIN || String(userRole).toLowerCase().includes('supervisor');
+            if (isManagement) {
+              const essentialSupervisorPerms = [
+                'sup_payroll', 
+                'sup_attendance', 
+                'sup_employees', 
+                'sup_schedule_builder', 
+                'sup_reports', 
+                'sup_leaves', 
+                'sup_swaps', 
+                'sup_rotation', 
+                'sup_history', 
+                'sup_performance',
+                'sup_market',
+                'sup_locations',
+                'sup_devices',
+                'sup_fms',
+                'sup_rooms',
+                'sup_logbooks',
+                'sup_penalties',
+                'sup_archive',
+                'radiology_log',
+                'communications',
+                'inventory',
+                'tasks',
+                'tech_support',
+                'appointments',
+                'handover'
+              ];
+              const missing = essentialSupervisorPerms.filter(k => !userPerms.includes(k));
+              if (missing.length > 0) {
+                userPerms = [...userPerms, ...missing];
+                try {
+                  updateDoc(activeDocRef, { permissions: arrayUnion(...missing) });
+                  if (activeDocRef.id !== userRef.id) {
+                    updateDoc(userRef, { permissions: arrayUnion(...missing) }).catch(() => {});
+                  }
+                } catch (err) {
+                  console.warn("Could not auto-update supervisor permissions in Firestore:", err);
+                }
+              }
+            }
+
             setRole(userRole);
             setUserName(name);
             setDepartmentId(data?.departmentId);
-            setPermissions(data?.permissions || []); 
+            setPermissions(userPerms); 
             
             localStorage.setItem("role", userRole);
             localStorage.setItem("username", name);

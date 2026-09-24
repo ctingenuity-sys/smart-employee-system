@@ -1,9 +1,11 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
+// @ts-ignore
+import { useNavigate } from 'react-router-dom';
 import { GoogleGenAI } from '@google/genai';
 import { db } from '../firebase'; 
 // @ts-ignore
-import { collection, addDoc, getDocs, deleteDoc, doc } from 'firebase/firestore'; 
+import { collection, addDoc, getDocs, deleteDoc, doc, setDoc } from 'firebase/firestore'; 
 import type { EmployeeSummary, ProcessedRecord } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { PrintHeader, PrintFooter } from '../components/PrintLayout';
@@ -289,6 +291,7 @@ const formatTime = (time: string | null): string => {
 
 const AttendanceAnalyzer: React.FC = () => {
   const { t, dir } = useLanguage();
+  const navigate = useNavigate();
   const [stage, setStage] = useState<'upload' | 'analysis'>('upload');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -712,9 +715,42 @@ const AttendanceAnalyzer: React.FC = () => {
         summary.records.sort((a, b) => a.date.localeCompare(b.date));
     });
 
-    setAnalysisResult(Array.from(summaryMap.values()));
+    const summaries = Array.from(summaryMap.values());
+    setAnalysisResult(summaries);
     setStage('analysis');
     setIsLoading(false);
+
+    // Auto-save analysis results to Firestore and localStorage so SupervisorPayroll can pull Overtime, Absences, and Lateness
+    try {
+        const yearMonth = sortedDates[0]?.slice(0, 7) || new Date().toISOString().slice(0, 7);
+        const docId = `analysis_${yearMonth}`;
+        const payload = {
+            month: yearMonth,
+            startDate: sortedDates[0] || '',
+            endDate: sortedDates[sortedDates.length - 1] || '',
+            totalEmployees: summaries.length,
+            summaries: summaries.map(s => ({
+                employeeName: s.employeeName,
+                totalWorkDays: s.totalWorkDays,
+                fridaysWorked: s.fridaysWorked,
+                absentDays: s.absentDays,
+                totalOvertimeHours: s.totalOvertimeHours,
+                totalLatenessHours: s.totalLatenessHours,
+                totalShortfallHours: s.totalShortfallHours
+            })),
+            updatedAt: new Date().toISOString(),
+            timestamp: Date.now()
+        };
+
+        setDoc(doc(db, 'attendance_analysis', docId), payload);
+        setDoc(doc(db, 'attendance_analysis', 'analysis_latest'), payload);
+        localStorage.setItem('smart_attendance_analysis', JSON.stringify({
+            month: yearMonth,
+            summaries: payload.summaries
+        }));
+    } catch (saveErr) {
+        console.warn("Could not auto-save attendance analysis to Firestore:", saveErr);
+    }
   };
 
   const handlePrint = () => {
@@ -817,9 +853,18 @@ const AttendanceAnalyzer: React.FC = () => {
              <div className="space-y-8 animate-fade-in print:space-y-4">
                 <div className="flex flex-col md:flex-row justify-between items-center gap-4 print:hidden">
                     <h2 className="text-2xl font-black text-slate-800">{t('att.step3')}</h2>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
+                        {/* Go to Payroll / Synchronize */}
+                        <button 
+                            onClick={() => navigate('/supervisor/payroll')}
+                            className="bg-yellow-500 hover:bg-yellow-600 text-black px-5 py-2 rounded-xl font-black text-sm shadow-lg flex items-center gap-2 transition-all hover:scale-105"
+                            title="الانتقال إلى كشف الدوام والرواتب وسحب الأوفر تايم والغياب والتأخير"
+                        >
+                            <i className="fas fa-file-invoice-dollar"></i> كشف الدوام والرواتب (Payroll)
+                        </button>
+
                         {/* Import JSON Button in Analysis View */}
-                        <label className="bg-slate-700 text-white px-6 py-2 rounded-xl font-bold text-sm hover:bg-slate-600 shadow-lg flex items-center gap-2 cursor-pointer">
+                        <label className="bg-slate-700 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-slate-600 shadow-lg flex items-center gap-2 cursor-pointer">
                             <i className="fas fa-file-code"></i> Import JSON
                             <input type="file" accept=".json" className="hidden" onChange={onJsonInputChange} />
                         </label>

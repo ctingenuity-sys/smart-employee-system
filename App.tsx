@@ -29,6 +29,7 @@ const SupervisorRotation = React.lazy(() => import('./pages/supervisor/Superviso
 const PanicReportsPage = React.lazy(() => import('./pages/supervisor/PanicReportsPage'));
 const SupervisorPenalties = React.lazy(() => import('./pages/supervisor/SupervisorPenalties'));
 const OnCallManagement = React.lazy(() => import('./pages/supervisor/OnCallManagement'));
+const SupervisorPayroll = React.lazy(() => import('./pages/supervisor/SupervisorPayroll'));
 
 // NEW ADMIN PAGE
 const DepartmentsPage = React.lazy(() => import('./pages/admin/DepartmentsPage'));
@@ -81,33 +82,49 @@ const ProtectedRoute = ({ children, allowedRoles, requiredPermission }: Protecte
 
     if (!user) return <Navigate to="/login" replace />;
     
-    const normalizedRole = role?.toLowerCase();
+    // Robust role normalization
+    const normalizedRole = (role || '').trim().toLowerCase();
+    const isAdmin = normalizedRole === 'admin' || normalizedRole === UserRole.ADMIN.toLowerCase();
+    const isSupervisorOrManager = normalizedRole === 'supervisor' || normalizedRole === 'manager' || 
+                                  normalizedRole === UserRole.SUPERVISOR.toLowerCase() || normalizedRole === UserRole.MANAGER.toLowerCase() ||
+                                  normalizedRole.includes('supervisor') || normalizedRole.includes('manager');
 
     // FIX: Strictly check if role exists when allowedRoles are defined
     if (allowedRoles) {
-        if (!normalizedRole || !allowedRoles.map(r => r.toLowerCase()).includes(normalizedRole)) {
+        const allowed = allowedRoles.map(r => r.toLowerCase());
+        const hasRoleAccess = isAdmin || (isSupervisorOrManager && (allowed.includes('supervisor') || allowed.includes('manager'))) || allowed.includes(normalizedRole);
+        
+        if (!hasRoleAccess) {
             if (normalizedRole === UserRole.USER.toLowerCase()) return <Navigate to="/user" replace />;
             if (normalizedRole === UserRole.DOCTOR.toLowerCase()) return <Navigate to="/doctor" replace />;
-            if (normalizedRole === UserRole.MANAGER.toLowerCase() || normalizedRole === UserRole.SUPERVISOR.toLowerCase()) return <Navigate to="/supervisor" replace />;
+            if (isSupervisorOrManager) return <Navigate to="/supervisor" replace />;
             return <Navigate to="/login" replace />;
         }
     }
 
-    if ((normalizedRole === UserRole.USER.toLowerCase() || normalizedRole === UserRole.SUPERVISOR.toLowerCase() || normalizedRole === UserRole.MANAGER.toLowerCase()) && requiredPermission && permissions) {
-        const requiredPerms = Array.isArray(requiredPermission) ? requiredPermission : [requiredPermission];
-        const hasAnyPerm = requiredPerms.some(p => permissions.includes(p));
-        if (!hasAnyPerm) {
-             return (
-                 <Layout userRole={role || ''} userName={userName} permissions={permissions}>
-                    <div className="flex flex-col items-center justify-center h-[60vh] text-center p-6">
-                        <div className="w-20 h-20 bg-slate-200 rounded-full flex items-center justify-center mb-4">
-                            <i className="fas fa-lock text-3xl text-slate-400"></i>
+    // Permission verification
+    if (requiredPermission && !isAdmin) {
+        // Supervisors and Managers have default access to all operational & supervisor tools
+        if (isSupervisorOrManager) {
+            // Unconditionally allow supervisor/manager to access all supervisor pages and tools
+            // (e.g. sup_payroll, sup_attendance, radiology_log, inventory, appointments, communications, etc.)
+        } else {
+            const requiredPerms = Array.isArray(requiredPermission) ? requiredPermission : [requiredPermission];
+            const hasAnyPerm = Array.isArray(permissions) && requiredPerms.some(p => permissions.includes(p));
+
+            if (!hasAnyPerm) {
+                 return (
+                     <Layout userRole={role || ''} userName={userName} permissions={permissions}>
+                        <div className="flex flex-col items-center justify-center h-[60vh] text-center p-6">
+                            <div className="w-20 h-20 bg-slate-200 rounded-full flex items-center justify-center mb-4">
+                                <i className="fas fa-lock text-3xl text-slate-400"></i>
+                            </div>
+                            <h2 className="text-xl font-bold text-slate-700">Access Restricted</h2>
+                            <p className="text-slate-500 mt-2">You do not have permission to view this page. Contact your administrator.</p>
                         </div>
-                        <h2 className="text-xl font-bold text-slate-700">Access Restricted</h2>
-                        <p className="text-slate-500 mt-2">You do not have permission to view this page. Contact your administrator.</p>
-                    </div>
-                 </Layout>
-             );
+                     </Layout>
+                 );
+            }
         }
     }
 
@@ -172,7 +189,8 @@ const AppRoutes: React.FC = () => {
           <Route path="/supervisor/panic-reports" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_panic"><PanicReportsPage /></ProtectedRoute>} />
           <Route path="/supervisor/rotation" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_rotation"><SupervisorRotation /></ProtectedRoute>} />
           <Route path="/supervisor/penalties" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_penalties"><SupervisorPenalties /></ProtectedRoute>} />
-                        <Route path="/supervisor/oncall" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER, UserRole.USER, UserRole.DOCTOR]}><OnCallManagement /></ProtectedRoute>} />
+          <Route path="/supervisor/payroll" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER]} requiredPermission="sup_payroll"><SupervisorPayroll /></ProtectedRoute>} />
+          <Route path="/supervisor/oncall" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER, UserRole.USER, UserRole.DOCTOR]}><OnCallManagement /></ProtectedRoute>} />
 
           {/* --- Departments Management (ADMIN ONLY) --- */}
           <Route path="/admin/departments" element={<ProtectedRoute allowedRoles={[UserRole.ADMIN]}><DepartmentsPage /></ProtectedRoute>} />

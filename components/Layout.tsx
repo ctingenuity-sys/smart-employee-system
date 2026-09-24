@@ -282,7 +282,21 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
   const desktopWidthClass = isDesktopCollapsed ? 'lg:w-20' : 'lg:w-64';
 
   const canAccess = (feature: string) => {
-      if (userRole === UserRole.ADMIN) return true;
+      const roleStr = String(userRole || '').trim().toLowerCase();
+      const isAdmin = roleStr === 'admin' || roleStr.includes('admin') || userRole === UserRole.ADMIN;
+      if (isAdmin) return true;
+
+      const isManagement = roleStr === 'supervisor' || roleStr === 'manager' || 
+                           roleStr.includes('supervisor') || roleStr.includes('manager') ||
+                           userRole === UserRole.SUPERVISOR || userRole === UserRole.MANAGER;
+
+      if (isManagement) {
+          if (feature.startsWith('sup_') || feature === 'attendance' || feature === 'radiology_log' || 
+              feature === 'communications' || feature === 'inventory' || feature === 'custody_distribution' || 
+              feature === 'appointments' || feature === 'handover' || feature === 'evaluations') return true;
+          if (!permissions || permissions.length === 0) return true;
+          return permissions.includes(feature);
+      }
       if (userRole === UserRole.CUSTODY_CLERK) {
           return feature === 'inventory' || feature === 'custody_distribution';
       }
@@ -295,7 +309,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
               permissions?.includes('custody_distribution')
           );
       }
-      if (!permissions) return true; // Legacy users
+      if (!permissions || permissions.length === 0) return true; // Legacy users
       return permissions.includes(feature);
   };
 
@@ -436,6 +450,12 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
                   <Link to="/reports" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/reports')}`} title={t('nav.reports')}>
                     <i className="fas fa-file-contract w-5 text-center text-blue-400"></i>
                     {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.reports')}</span>}
+                  </Link>
+              )}
+              {canAccess('sup_payroll') && (
+                  <Link to="/supervisor/payroll" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/supervisor/payroll')}`} title={language === 'ar' ? 'مسير الرواتب (إكسل)' : 'Payroll & Timesheet'}>
+                    <i className="fas fa-file-invoice-dollar w-5 text-center text-emerald-400"></i>
+                    {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{language === 'ar' ? 'مسير الرواتب (إكسل)' : 'Payroll & Timesheet'}</span>}
                   </Link>
               )}
               {canAccess('sup_attendance') && (

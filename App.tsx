@@ -88,13 +88,22 @@ const ProtectedRoute = ({ children, allowedRoles, requiredPermission }: Protecte
     const isSupervisorOrManager = normalizedRole === 'supervisor' || normalizedRole === 'manager' || 
                                   normalizedRole === UserRole.SUPERVISOR.toLowerCase() || normalizedRole === UserRole.MANAGER.toLowerCase() ||
                                   normalizedRole.includes('supervisor') || normalizedRole.includes('manager');
+    const isCathLab = normalizedRole === UserRole.CATH_LAB.toLowerCase() || 
+                      normalizedRole === 'cath_lab' || 
+                      normalizedRole === 'cath' || 
+                      normalizedRole === 'cathlab' || 
+                      (user?.email || '').toLowerCase().includes('cath');
 
     // FIX: Strictly check if role exists when allowedRoles are defined
     if (allowedRoles) {
-        const allowed = allowedRoles.map(r => r.toLowerCase());
-        const hasRoleAccess = isAdmin || (isSupervisorOrManager && (allowed.includes('supervisor') || allowed.includes('manager'))) || allowed.includes(normalizedRole);
+        const allowed = allowedRoles.map(r => String(r).toLowerCase());
+        const hasRoleAccess = isAdmin || 
+                              (isSupervisorOrManager && (allowed.includes('supervisor') || allowed.includes('manager'))) || 
+                              (isCathLab && (allowed.includes('cath_lab') || allowed.includes('cath') || allowed.includes('cathlab'))) ||
+                              allowed.includes(normalizedRole);
         
         if (!hasRoleAccess) {
+            if (isCathLab) return <Navigate to="/cath-lab-usage" replace />;
             if (normalizedRole === UserRole.USER.toLowerCase()) return <Navigate to="/user" replace />;
             if (normalizedRole === UserRole.DOCTOR.toLowerCase()) return <Navigate to="/doctor" replace />;
             if (isSupervisorOrManager) return <Navigate to="/supervisor" replace />;
@@ -108,6 +117,8 @@ const ProtectedRoute = ({ children, allowedRoles, requiredPermission }: Protecte
         if (isSupervisorOrManager) {
             // Unconditionally allow supervisor/manager to access all supervisor pages and tools
             // (e.g. sup_payroll, sup_attendance, radiology_log, inventory, appointments, communications, etc.)
+        } else if (isCathLab && (requiredPermission === 'catheter_supplies' || (Array.isArray(requiredPermission) && requiredPermission.includes('catheter_supplies')))) {
+            // Unconditionally allow cath_lab to access catheter supplies page
         } else {
             const requiredPerms = Array.isArray(requiredPermission) ? requiredPermission : [requiredPermission];
             const hasAnyPerm = Array.isArray(permissions) && requiredPerms.some(p => permissions.includes(p));
@@ -158,7 +169,7 @@ const AppRoutes: React.FC = () => {
                   {!user ? <Login /> : 
                   normalizedRole === UserRole.DOCTOR.toLowerCase() ? <Navigate to="/doctor" replace /> :
                   normalizedRole === UserRole.USER.toLowerCase() ? <Navigate to="/user" replace /> :
-                  normalizedRole === UserRole.CATH_LAB.toLowerCase() ? <Navigate to="/cath-lab-usage" replace /> :
+                  (normalizedRole === UserRole.CATH_LAB.toLowerCase() || normalizedRole === 'cath_lab' || normalizedRole === 'cath' || normalizedRole === 'cathlab' || (user?.email || '').toLowerCase().includes('cath')) ? <Navigate to="/cath-lab-usage" replace /> :
                   normalizedRole === UserRole.CUSTODY_CLERK.toLowerCase() ? <Navigate to="/inventory" replace /> :
                   normalizedRole === UserRole.ADMIN.toLowerCase() || normalizedRole === UserRole.SUPERVISOR.toLowerCase() || normalizedRole === UserRole.MANAGER.toLowerCase() ? <Navigate to="/supervisor" replace /> :
                   <div className="flex items-center justify-center h-screen bg-slate-100">
@@ -237,7 +248,7 @@ const AppRoutes: React.FC = () => {
           <Route path="/radiology-logbook" element={<ProtectedRoute requiredPermission="radiology_log"><StandaloneRadiologyLogbook /></ProtectedRoute>} />
           <Route path="/communications" element={<ProtectedRoute requiredPermission="communications"><CommunicationPage /></ProtectedRoute>} />
           <Route path="/inventory" element={<ProtectedRoute requiredPermission={['inventory', 'custody_distribution', 'my_custody']}><InventoryPage /></ProtectedRoute>} />
-          <Route path="/cath-lab-usage" element={<ProtectedRoute requiredPermission="catheter_supplies"><CathLabUsage /></ProtectedRoute>} />
+          <Route path="/cath-lab-usage" element={<ProtectedRoute allowedRoles={[UserRole.CATH_LAB, UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER, 'cath_lab', 'cath', 'cathlab']} requiredPermission="catheter_supplies"><CathLabUsage /></ProtectedRoute>} />
           <Route path="/tasks" element={<ProtectedRoute requiredPermission="tasks"><TasksPage /></ProtectedRoute>} />
           <Route path="/tech-support" element={<ProtectedRoute requiredPermission="tech_support"><TechSupportPage /></ProtectedRoute>} />
           <Route path="/hr-assistant" element={<ProtectedRoute requiredPermission="hr_assistant"><HRAssistantPage /></ProtectedRoute>} />

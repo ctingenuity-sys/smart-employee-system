@@ -99,23 +99,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } else if (currentUser.email) {
             // Fallback: search by email if document UID doesn't match auth UID
             try {
-              const qEmail = query(collection(db, 'users'), where('email', '==', currentUser.email));
-              const emailSnap = await getDocs(qEmail);
-              if (!emailSnap.empty) {
-                const foundDoc = emailSnap.docs[0];
-                data = foundDoc.data();
-                activeDocRef = doc(db, 'users', foundDoc.id);
+              const currentEmailLower = (currentUser.email || '').toLowerCase().trim();
+              const emailsToMatch = [currentEmailLower];
+              if (currentEmailLower === 'cath@gmail.com') emailsToMatch.push('cathlab@gmail.com');
+              if (currentEmailLower === 'cathlab@gmail.com') emailsToMatch.push('cath@gmail.com');
+
+              // Case-insensitive search across users
+              const allSnap = await getDocs(collection(db, 'users'));
+              const matched = allSnap.docs.find(d => {
+                const docEmail = (d.data().email || '').toLowerCase().trim();
+                const docRole = (d.data().role || '').toLowerCase().trim();
+                return emailsToMatch.includes(docEmail) || 
+                       (currentEmailLower.includes('cath') && docRole === 'cath_lab');
+              });
+
+              if (matched) {
+                data = matched.data();
+                activeDocRef = doc(db, 'users', matched.id);
                 // Also link to currentUser.uid for fast subsequent lookups
                 setDoc(userRef, { ...data, uid: currentUser.uid }, { merge: true }).catch(() => {});
-              } else {
-                // Case-insensitive search across users
-                const allSnap = await getDocs(collection(db, 'users'));
-                const matched = allSnap.docs.find(d => (d.data().email || '').toLowerCase() === (currentUser.email || '').toLowerCase());
-                if (matched) {
-                  data = matched.data();
-                  activeDocRef = doc(db, 'users', matched.id);
-                  setDoc(userRef, { ...data, uid: currentUser.uid }, { merge: true }).catch(() => {});
-                }
               }
             } catch (err) {
               console.warn("Error in fallback user lookup:", err);
@@ -123,10 +125,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           
           if (data) {
-            const userRole = data?.role || null;
+            let userRole = data?.role || null;
+            if (userRole === 'cath' || userRole === 'cathlab') {
+              userRole = UserRole.CATH_LAB;
+            }
             const name = data?.name || data?.email;
             
             let userPerms = data?.permissions || [];
+
+            // If user is Cath-Lab, ensure catheter_supplies permission is ALWAYS granted
+            const isCathLab = userRole === UserRole.CATH_LAB || userRole === 'cath_lab' || 
+                              String(userRole).toLowerCase().includes('cath') || 
+                              (currentUser.email || '').toLowerCase().includes('cath');
+            if (isCathLab) {
+              userRole = UserRole.CATH_LAB;
+              if (!userPerms.includes('catheter_supplies')) {
+                userPerms = [...userPerms, 'catheter_supplies'];
+                try {
+                  updateDoc(activeDocRef, { permissions: arrayUnion('catheter_supplies') }).catch(() => {});
+                  if (activeDocRef.id !== userRef.id) {
+                    updateDoc(userRef, { permissions: arrayUnion('catheter_supplies') }).catch(() => {});
+                  }
+                } catch (err) {
+                  console.warn("Could not auto-update cath permissions in Firestore:", err);
+                }
+              }
+            }
             
             // If user is a Supervisor or Manager, ensure all supervisor tools (including sup_payroll, sup_attendance) are granted
             const isManagement = userRole === UserRole.SUPERVISOR || userRole === UserRole.MANAGER || userRole === UserRole.ADMIN || String(userRole).toLowerCase().includes('supervisor');

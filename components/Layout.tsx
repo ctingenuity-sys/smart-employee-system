@@ -297,6 +297,9 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
           if (!permissions || permissions.length === 0) return true;
           return permissions.includes(feature);
       }
+      const isCath = roleStr === 'cath_lab' || roleStr === 'cath' || roleStr === 'cathlab' || userRole === UserRole.CATH_LAB;
+      if (isCath && feature === 'catheter_supplies') return true;
+
       if (userRole === UserRole.CUSTODY_CLERK) {
           return feature === 'inventory' || feature === 'custody_distribution';
       }
@@ -554,8 +557,8 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userName, permissio
             </div>
           )}
 
-          {userRole !== UserRole.CUSTODY_CLERK && canAccess('catheter_supplies') && (
-          <div className={userRole === UserRole.CATH_LAB ? "pt-2 mt-2 border-t border-slate-700/80" : ""}>
+          {userRole !== UserRole.CUSTODY_CLERK && (userRole === UserRole.CATH_LAB || userRole === 'cath_lab' || canAccess('catheter_supplies')) && (
+          <div className={userRole === UserRole.CATH_LAB || userRole === 'cath_lab' ? "pt-2 mt-2 border-t border-slate-700/80" : ""}>
             <Link to="/cath-lab-usage" className={`flex items-center ${isDesktopCollapsed ? 'lg:justify-center px-2' : 'px-3'} py-2.5 rounded-lg transition-colors text-xs ${isActive('/cath-lab-usage')}`} title={t('nav.cathLabUsage')}>
                <i className="fas fa-heartbeat w-5 text-center text-rose-400"></i>
                {!isDesktopCollapsed && <span className="font-medium mr-2 ml-2">{t('nav.cathLabUsage')}</span>}

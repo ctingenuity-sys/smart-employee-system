@@ -4,6 +4,7 @@ import { db, auth } from '../firebase';
 import { collection, addDoc, doc, updateDoc, deleteDoc, onSnapshot, query, where, orderBy, Timestamp, getDocs, getDoc } from 'firebase/firestore';
 import { useDepartment } from '../contexts/DepartmentContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../contexts/AuthContext';
 import Toast from '../components/Toast';
 import { PrintHeader, PrintFooter } from '../components/PrintLayout';
 
@@ -50,22 +51,15 @@ const CathLabUsage: React.FC = () => {
 
     const [activeTab, setActiveTab] = useState<'form' | 'report' | 'manage'>('form');
 
-    // User State
-    const [userRole, setUserRole] = useState('user');
-    const [userName, setUserName] = useState('');
+    // User State from AuthContext with fallback
+    const { user, role: authRole, userName: authUserName } = useAuth();
+    const [userRole, setUserRole] = useState(authRole || 'user');
+    const [userName, setUserName] = useState(authUserName || '');
 
     useEffect(() => {
-        const fetchUser = async () => {
-            if (auth.currentUser) {
-                const snap = await getDoc(doc(db, 'users', auth.currentUser.uid));
-                if (snap.exists()) {
-                    setUserRole(snap.data().role);
-                    setUserName(snap.data().name || 'User');
-                }
-            }
-        };
-        fetchUser();
-    }, []);
+        if (authRole) setUserRole(authRole);
+        if (authUserName) setUserName(authUserName);
+    }, [authRole, authUserName]);
 
     // Management State
     const [newSupplyName, setNewSupplyName] = useState('');
@@ -108,31 +102,35 @@ const CathLabUsage: React.FC = () => {
     const [reportSearch, setReportSearch] = useState('');
 
     useEffect(() => {
-        if (!selectedDepartmentId) return;
-
         const unsubSupplies = onSnapshot(query(collection(db, 'cath_lab_supplies')), (snap: any) => {
             setSupplies(snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as Supply)));
+        }, (err: any) => {
+            console.warn("Cath supplies listener error:", err);
         });
 
         return () => {
             unsubSupplies();
         };
-    }, [selectedDepartmentId]);
+    }, []);
 
     useEffect(() => {
-        if (!selectedDepartmentId || activeTab !== 'report') return;
+        if (activeTab !== 'report') return;
         
         const fetchRecords = async () => {
-            const q = query(
-                collection(db, 'cath_lab_records'), 
-                ... (selectedDepartmentId ? [where('departmentId', '==', selectedDepartmentId)] : []),
-                where('date', '>=', reportStart),
-                where('date', '<=', reportEnd)
-            );
-            const snap = await getDocs(q);
-            let fetched = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as CathLabRecord));
-            fetched.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            setRecords(fetched);
+            try {
+                const q = query(
+                    collection(db, 'cath_lab_records'), 
+                    ... (selectedDepartmentId ? [where('departmentId', '==', selectedDepartmentId)] : []),
+                    where('date', '>=', reportStart),
+                    where('date', '<=', reportEnd)
+                );
+                const snap = await getDocs(q);
+                let fetched = snap.docs.map((d: any) => ({ ...d.data(), id: d.id } as CathLabRecord));
+                fetched.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                setRecords(fetched);
+            } catch (err: any) {
+                console.warn("Cath records fetch error:", err);
+            }
         };
         fetchRecords();
     }, [selectedDepartmentId, reportStart, reportEnd, activeTab]);

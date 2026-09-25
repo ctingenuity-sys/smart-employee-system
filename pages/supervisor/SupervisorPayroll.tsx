@@ -71,6 +71,8 @@ export interface PayrollRow {
   vacationDaysCount: number; // عدد أيام الإجازة
   sickLeaveDaysCount: number; // عدد أيام الإجازة المرضية
   lateHoursCount: number; // ساعات التأخير (مسحوبة من محلل الحضور)
+  permissionCount?: number; // عدد الأذونات المعتمدة في الفترة المحددة
+  permissionHours?: number; // إجمالي ساعات الإذن في الفترة المحددة
   isFullMonthLeave?: boolean; // إجازة كامل الشهر (تستبعد تلقائياً من الكشف)
 
   isCustomRow?: boolean;
@@ -86,6 +88,8 @@ interface PayrollConfig {
   customHolidayName: string; // e.g. "NATIONAL DAY" or "EID" or "EID AL-FITR"
   customHolidayEnabled: boolean;
   tillDateText: string; // e.g. "Till 24.09.2026"
+  periodStartDate?: string; // بداية فترة الاحتساب
+  periodEndDate?: string; // نهاية فترة الاحتساب
   medicalDirectorTitle: string;
   departmentHeadTitle: string;
   showDaysForAll: boolean; // إظهار أيام الشهر (30/31) للجميع أو للاستثناءات فقط
@@ -170,8 +174,13 @@ const formatVacationText = (days: number, startStr?: string, endStr?: string): s
   return base;
 };
 
-// Helper: Formatter for Absence & Lateness text: e.g. "1 (One) Day Absent + 2 Hours Late"
-const formatAbsentText = (absentDays: number, lateHours: number = 0): string => {
+// Helper: Formatter for Absence, Lateness & Permissions text: e.g. "1 (One) Day Absent + 2 Hours Late + 1 Permit"
+const formatAbsentText = (
+  absentDays: number, 
+  lateHours: number = 0, 
+  permissionCount: number = 0, 
+  permissionHours: number = 0
+): string => {
   const parts: string[] = [];
   if (absentDays > 0) {
     const word = getWordForNumber(absentDays);
@@ -180,6 +189,15 @@ const formatAbsentText = (absentDays: number, lateHours: number = 0): string => 
   }
   if (lateHours > 0) {
     parts.push(`${lateHours} Hours Late`);
+  }
+  if (permissionCount > 0 || permissionHours > 0) {
+    if (permissionHours > 0) {
+      const word = getWordForNumber(permissionHours);
+      parts.push(`${permissionHours} (${word}) ${permissionHours === 1 ? 'Hour' : 'Hours'} Permit`);
+    } else {
+      const word = getWordForNumber(permissionCount);
+      parts.push(`${permissionCount} (${word}) ${permissionCount === 1 ? 'Permit' : 'Permits'}`);
+    }
   }
   return parts.join(' + ');
 };
@@ -231,6 +249,45 @@ const SupervisorPayroll: React.FC = () => {
   }, []);
 
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthStr);
+  const [periodStartDate, setPeriodStartDate] = useState<string>(() => `${currentMonthStr}-01`);
+  const [periodEndDate, setPeriodEndDate] = useState<string>(() => {
+    const [y, m] = currentMonthStr.split('-').map(Number);
+    const d = new Date(y, m, 0).getDate();
+    return `${currentMonthStr}-${String(d).padStart(2, '0')}`;
+  });
+
+  const handleMonthChange = (newMonth: string) => {
+    setSelectedMonth(newMonth);
+    const [y, m] = newMonth.split('-').map(Number);
+    const d = new Date(y, m, 0).getDate();
+    const newStart = `${newMonth}-01`;
+    const newEnd = `${newMonth}-${String(d).padStart(2, '0')}`;
+    setPeriodStartDate(newStart);
+    setPeriodEndDate(newEnd);
+    loadPayrollData(true, newStart, newEnd);
+  };
+
+  const applyPreset = (preset: 'full' | 'cutoff24' | 'cycle20') => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    const d = new Date(y, m, 0).getDate();
+    let newStart = '';
+    let newEnd = '';
+    if (preset === 'full') {
+      newStart = `${selectedMonth}-01`;
+      newEnd = `${selectedMonth}-${String(d).padStart(2, '0')}`;
+    } else if (preset === 'cutoff24') {
+      newStart = `${selectedMonth}-01`;
+      newEnd = `${selectedMonth}-24`;
+    } else if (preset === 'cycle20') {
+      const prevDate = new Date(y, m - 2, 21);
+      newStart = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}-21`;
+      newEnd = `${selectedMonth}-20`;
+    }
+    setPeriodStartDate(newStart);
+    setPeriodEndDate(newEnd);
+    loadPayrollData(true, newStart, newEnd);
+  };
+
   const [activeTab, setActiveTab] = useState<'staff' | 'doctor' | 'hidden' | 'all'>('staff');
   const [showFullMonthLeaveStaff, setShowFullMonthLeaveStaff] = useState<boolean>(false);
   
@@ -281,9 +338,11 @@ const SupervisorPayroll: React.FC = () => {
   }, [selectedMonth]);
 
   // Load data from Firebase or auto-scan
-  const loadPayrollData = async (forceAutoScan: boolean = false) => {
+  const loadPayrollData = async (forceAutoScan: boolean = false, customStart?: string, customEnd?: string) => {
     setLoading(true);
     try {
+      const pStart = customStart || periodStartDate;
+      const pEnd = customEnd || periodEndDate;
       const deptKey = selectedDepartmentId || 'all_departments';
       const docId = `payroll_${deptKey}_${selectedMonth}`;
       const docRef = doc(db, 'monthly_payrolls', docId);
@@ -319,22 +378,25 @@ const SupervisorPayroll: React.FC = () => {
         }
       }
 
-      // Auto scan data from schedules, leaves, and Smart Attendance Analyzer
-      const autoPulled = await scanMonthData(selectedMonth, filteredStaff, monthInfo.daysInMonth);
+      // Auto scan data from schedules, leaves, and Smart Attendance Analyzer with the specified period
+      const autoPulled = await scanMonthData(selectedMonth, filteredStaff, monthInfo.daysInMonth, pStart, pEnd);
       setRows(autoPulled.rows);
       
-      // Update config customHoliday if detected
-      if (autoPulled.detectedHolidayName) {
-        setConfig(prev => ({
-          ...prev,
+      // Update config tillDateText and holiday if detected
+      const [ey, em, ed] = pEnd.split('-');
+      const formattedTill = (ey && em && ed) ? `Till ${ed}.${em}.${ey}` : `Till ${pEnd}`;
+      setConfig(prev => ({
+        ...prev,
+        ...(autoPulled.detectedHolidayName ? {
           customHolidayName: autoPulled.detectedHolidayName,
-          customHolidayEnabled: true
-        }));
-      }
+          customHolidayEnabled: true,
+        } : {}),
+        tillDateText: formattedTill
+      }));
 
       if (forceAutoScan) {
         setToast({ 
-          msg: `تم سحب وتحديث كشف الشهر ومحلل الحضور: تم سحب الغياب والتأخير والأوفر تايم بدقة!`, 
+          msg: `تم سحب وتحديث الكشف للفترة (${pStart} إلى ${pEnd}): الجمع كاملة للشهر والغياب والأوفر تايم والسيكليف والأذونات دقيقة!`, 
           type: 'success' 
         });
       }
@@ -346,14 +408,37 @@ const SupervisorPayroll: React.FC = () => {
     }
   };
 
-  // Deep scanner: Pulls Fridays, Leaves, and SMART ATTENDANCE ANALYZER (Absences, Lateness, Overtime)
-  const scanMonthData = async (monthKey: string, staffList: User[], totalDaysInMonth: number) => {
+  // Deep scanner: Pulls Fridays (full month), Leaves & Permissions, and SMART ATTENDANCE ANALYZER (Absences, Lateness, Overtime) for the specified period
+  const scanMonthData = async (
+    monthKey: string, 
+    staffList: User[], 
+    totalDaysInMonth: number,
+    pStartStr: string = `${monthKey}-01`,
+    pEndStr: string = `${monthKey}-${totalDaysInMonth}`
+  ) => {
     const fridaysMap: Record<string, number> = {};
     const holidaysMap: Record<string, number> = {};
     const sickLeavesMap: Record<string, number> = {};
     const vacationsMap: Record<string, number> = {};
     const vacationDetailsMap: Record<string, string> = {};
     const cleanerMap: Record<string, boolean> = {};
+    const permissionsMap: Record<string, number> = {};
+    const permissionHoursMap: Record<string, number> = {};
+
+    // Calculate full month Fridays count according to the calendar
+    const [yStr, mStr] = monthKey.split('-');
+    const yVal = parseInt(yStr, 10) || new Date().getFullYear();
+    const mVal = parseInt(mStr, 10) || (new Date().getMonth() + 1);
+    let calendarFridaysCount = 0;
+    for (let day = 1; day <= totalDaysInMonth; day++) {
+      if (new Date(yVal, mVal - 1, day).getDay() === 5) {
+        calendarFridaysCount++;
+      }
+    }
+    calendarFridaysCount = calendarFridaysCount || 4;
+
+    // Track dates covered by approved leaves to avoid false absences
+    const coveredDatesByUser: Record<string, Set<string>> = {};
 
     // Smart Attendance Analyzer data maps
     const analyzerOvertimeMap: Record<string, number> = {};
@@ -363,11 +448,15 @@ const SupervisorPayroll: React.FC = () => {
     let detectedHolidayName = monthKey.endsWith('-09') ? 'NATIONAL DAY' : '';
 
     staffList.forEach(s => {
-      fridaysMap[s.id] = 0;
+      // Default to full month's Fridays: "بس الجمع تكون زي ما هيا اللي في الشهر"
+      fridaysMap[s.id] = calendarFridaysCount;
       holidaysMap[s.id] = monthKey.endsWith('-09') ? 1 : 0; // September default 1 day national day
       sickLeavesMap[s.id] = 0;
       vacationsMap[s.id] = 0;
       vacationDetailsMap[s.id] = '';
+      permissionsMap[s.id] = 0;
+      permissionHoursMap[s.id] = 0;
+      coveredDatesByUser[s.id] = new Set<string>();
       
       const roleStr = `${s.name || ''} ${s.jobCategory || ''} ${s.role || ''}`.toLowerCase();
       if (roleStr.includes('نظافة') || roleStr.includes('cleaner') || roleStr.includes('عامل')) {
@@ -409,6 +498,8 @@ const SupervisorPayroll: React.FC = () => {
 
     try {
       // 1. Scan monthly_publishes for Friday and Holiday schedules
+      // CRITICAL REQUIREMENT: "بس الجمع تكون زي ما هيا اللي في الشهر"
+      // Fridays are scanned for the ENTIRE MONTH (monthKey) without being sliced by the period cutoff!
       const pubSnap = await getDocs(collection(db, 'monthly_publishes'));
       pubSnap.docs.forEach((docSnap: any) => {
         const pData = docSnap.data();
@@ -476,12 +567,14 @@ const SupervisorPayroll: React.FC = () => {
         }
       });
 
-      // 2. Scan leaveRequests for Sick Leaves & Annual/Casual Vacations
+      // 2. Scan leaveRequests for Sick Leaves, Vacations, and Permissions
+      // Strictly filtered by overlap with the specified calculation period [pStartStr, pEndStr]!
       try {
         const leavesSnap = await getDocs(collection(db, 'leaveRequests'));
-        const [yearNum, monthNum] = monthKey.split('-').map(Number);
-        const monthStart = new Date(yearNum, monthNum - 1, 1);
-        const monthEnd = new Date(yearNum, monthNum, 0); // last day of month
+        const pStart = new Date(pStartStr);
+        const pEnd = new Date(pEndStr);
+        pStart.setHours(0, 0, 0, 0);
+        pEnd.setHours(23, 59, 59, 999);
 
         leavesSnap.docs.forEach((d: any) => {
           const lData = d.data();
@@ -495,17 +588,29 @@ const SupervisorPayroll: React.FC = () => {
           const lEndDate = lData.endDate ? new Date(lData.endDate) : lStartDate;
 
           if (lStartDate) {
-            // Calculate overlap with this specific month
-            const effStart = lStartDate > monthStart ? lStartDate : monthStart;
-            const effEnd = (lEndDate && lEndDate < monthEnd) ? lEndDate : monthEnd;
+            // Calculate overlap with the specified period
+            const effStart = lStartDate > pStart ? lStartDate : pStart;
+            const effEnd = (lEndDate && lEndDate < pEnd) ? lEndDate : pEnd;
 
             if (effEnd >= effStart) {
               const overlapDays = Math.round((effEnd.getTime() - effStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
               const leaveType = (lData.typeOfLeave || lData.leaveType || '').toLowerCase();
 
+              // Track dates covered so they aren't counted as absences
+              for (let cur = new Date(effStart); cur <= effEnd; cur.setDate(cur.getDate() + 1)) {
+                coveredDatesByUser[uId].add(cur.toISOString().split('T')[0]);
+              }
+
               if (leaveType.includes('sick') || leaveType.includes('مرض')) {
+                // Sick Leave (السيكليف في الفترة)
                 sickLeavesMap[uId] = (sickLeavesMap[uId] || 0) + overlapDays;
+              } else if (leaveType.includes('permission') || leaveType.includes('exit') || leaveType.includes('إذن') || leaveType.includes('ساعي')) {
+                // Permissions (الأذونات في الفترة)
+                permissionsMap[uId] = (permissionsMap[uId] || 0) + 1;
+                const hrs = Number(lData.duration) || 1;
+                permissionHoursMap[uId] = (permissionHoursMap[uId] || 0) + hrs;
               } else {
+                // Regular vacation
                 vacationsMap[uId] = (vacationsMap[uId] || 0) + overlapDays;
                 
                 // Format date string for reason note (e.g. 01/09 - 05/09)
@@ -520,151 +625,131 @@ const SupervisorPayroll: React.FC = () => {
         console.warn("Error scanning leaves:", err);
       }
 
-      // 3. PULL FROM SMART ATTENDANCE ANALYZER (محلل الحضور الذكي)
-      // Extracts: Overtime (>9h), Absent Days, Late Hours
-      let analyzerFound = false;
-
-      // A. Check Firestore 'attendance_analysis' collection for this month or latest
+      // 3. Scan 'actions' collection for permissions, time permits, and hourly excuses
       try {
-        const checkDoc = async (id: string) => {
-          try {
-            const snap = await getDoc(doc(db, 'attendance_analysis', id));
-            return snap.exists() ? snap.data() : null;
-          } catch (e) {
-            return null;
+        const actionsSnap = await getDocs(collection(db, 'actions'));
+        actionsSnap.docs.forEach((d: any) => {
+          const act = d.data();
+          const actDate = act.date || (act.timestamp?.toDate ? act.timestamp.toDate().toISOString().split('T')[0] : null);
+          if (!actDate || actDate < pStartStr || actDate > pEndStr) return;
+
+          const uId = act.employeeId || act.userId;
+          if (!uId || fridaysMap[uId] === undefined) return;
+
+          const actType = (act.type || '').toLowerCase();
+          const actTitle = (act.title || act.description || '').toLowerCase();
+
+          if (actType.includes('permission') || actType.includes('إذن') || actType.includes('hourly') ||
+              actTitle.includes('إذن') || actTitle.includes('permission') || actTitle.includes('ساعي')) {
+            permissionsMap[uId] = (permissionsMap[uId] || 0) + 1;
+            const hrs = Number(act.hours || act.permissionHours || act.duration) || 1;
+            permissionHoursMap[uId] = (permissionHoursMap[uId] || 0) + hrs;
           }
-        };
-
-        let analysisDoc = await checkDoc(`analysis_${monthKey}`);
-        if (!analysisDoc) analysisDoc = await checkDoc('analysis_latest');
-
-        // B. Fallback to localStorage if available
-        if (!analysisDoc) {
-          try {
-            const localRaw = localStorage.getItem('smart_attendance_analysis');
-            if (localRaw) {
-              const parsed = JSON.parse(localRaw);
-              if (parsed && Array.isArray(parsed.summaries)) {
-                analysisDoc = parsed;
-              }
-            }
-          } catch (e) {}
-        }
-
-        if (analysisDoc && Array.isArray(analysisDoc.summaries) && analysisDoc.summaries.length > 0) {
-          analyzerFound = true;
-          analysisDoc.summaries.forEach((emp: any) => {
-            const mId = matchStaff(emp.employeeName);
-            if (mId) {
-              analyzerOvertimeMap[mId] = Math.round(Number(emp.totalOvertimeHours) || 0);
-              analyzerAbsenceMap[mId] = Math.round(Number(emp.absentDays) || 0);
-              analyzerLateMap[mId] = Math.round(Number(emp.totalLatenessHours) || 0);
-            }
-          });
-        }
+        });
       } catch (err) {
-        console.warn("Error fetching attendance_analysis doc:", err);
+        console.warn("Error scanning actions for permissions:", err);
       }
 
-      // C. If no Smart Attendance Analyzer document exists yet, run the Smart Attendance Analyzer algorithm on attendance_logs
-      if (!analyzerFound) {
-        try {
-          const attSnap = await getDocs(collection(db, 'attendance_logs'));
-          const logsByUserDate: Record<string, any[]> = {};
-          const userWorkedDates: Record<string, Set<string>> = {};
+      // 4. SCAN ATTENDANCE LOGS: Overtime, Absences, and Lateness strictly in [pStartStr, pEndStr]
+      try {
+        const attSnap = await getDocs(collection(db, 'attendance_logs'));
+        const logsByUserDate: Record<string, any[]> = {};
+        const userWorkedDates: Record<string, Set<string>> = {};
 
-          attSnap.docs.forEach((d: any) => {
-            const att = d.data();
-            if (att.date && att.date.startsWith(monthKey)) {
-              const uId = att.userId;
-              if (uId && fridaysMap[uId] !== undefined) {
-                const key = `${uId}_${att.date}`;
-                if (!logsByUserDate[key]) logsByUserDate[key] = [];
-                logsByUserDate[key].push(att);
-                if (!userWorkedDates[uId]) userWorkedDates[uId] = new Set();
-                userWorkedDates[uId].add(att.date);
-              }
+        attSnap.docs.forEach((d: any) => {
+          const att = d.data();
+          if (att.date && att.date >= pStartStr && att.date <= pEndStr) {
+            const uId = att.userId;
+            if (uId && fridaysMap[uId] !== undefined) {
+              const key = `${uId}_${att.date}`;
+              if (!logsByUserDate[key]) logsByUserDate[key] = [];
+              logsByUserDate[key].push(att);
+              if (!userWorkedDates[uId]) userWorkedDates[uId] = new Set();
+              userWorkedDates[uId].add(att.date);
+            }
+          }
+        });
+
+        // Compute daily hours, overtime, lateness, and absences per user
+        staffList.forEach(s => {
+          let totalOvertime = 0;
+          let totalLateness = 0;
+
+          const workedDates = userWorkedDates[s.id] || new Set();
+
+          workedDates.forEach(dateStr => {
+            const logs = logsByUserDate[`${s.id}_${dateStr}`] || [];
+            if (logs.length === 0) return;
+
+            // Sort chronologically
+            logs.sort((a, b) => {
+              const tA = a.timestamp?.seconds || (new Date(a.timestamp || 0).getTime() / 1000);
+              const tB = b.timestamp?.seconds || (new Date(b.timestamp || 0).getTime() / 1000);
+              return tA - tB;
+            });
+
+            const ins = logs.filter(l => l.type === 'IN');
+            const outs = logs.filter(l => l.type === 'OUT');
+
+            const getHours = (l: any) => {
+              if (!l) return 0;
+              if (l.time && typeof l.time === 'string') return timeToHours(l.time);
+              const d = l.timestamp?.seconds ? new Date(l.timestamp.seconds * 1000) : new Date(l.timestamp);
+              return d.getHours() + d.getMinutes() / 60;
+            };
+
+            let dailyHours = 0;
+            let firstIn = ins.length > 0 ? getHours(ins[0]) : 0;
+            let lastOut = outs.length > 0 ? getHours(outs[outs.length - 1]) : 0;
+
+            if (firstIn > 0 && lastOut > 0) {
+              let dur = lastOut - firstIn;
+              if (dur < 0) dur += 24;
+              dailyHours = dur;
+            } else if (firstIn > 0 && ins.length > 1) {
+              let dur = getHours(ins[ins.length - 1]) - firstIn;
+              if (dur < 0) dur += 24;
+              dailyHours = dur;
+            }
+
+            // Overtime: daily hours > 9 hours
+            if (dailyHours > 9) {
+              totalOvertime += (dailyHours - 9);
+            }
+
+            // Lateness: arrival after 8:15 AM
+            if (firstIn > 8.25 && firstIn < 12) {
+              totalLateness += (firstIn - 8);
             }
           });
 
-          // Compute daily hours, overtime, and lateness per user
-          staffList.forEach(s => {
-            let totalOvertime = 0;
-            let totalLateness = 0;
+          // Calculate absences strictly within the specified period [pStartStr, pEndStr]
+          const pStart = new Date(pStartStr);
+          const pEnd = new Date(pEndStr);
+          pStart.setHours(0, 0, 0, 0);
+          pEnd.setHours(23, 59, 59, 999);
 
-            const workedDates = userWorkedDates[s.id] || new Set();
-
-            workedDates.forEach(dateStr => {
-              const logs = logsByUserDate[`${s.id}_${dateStr}`] || [];
-              if (logs.length === 0) return;
-
-              // Sort chronologically
-              logs.sort((a, b) => {
-                const tA = a.timestamp?.seconds || (new Date(a.timestamp || 0).getTime() / 1000);
-                const tB = b.timestamp?.seconds || (new Date(b.timestamp || 0).getTime() / 1000);
-                return tA - tB;
-              });
-
-              const ins = logs.filter(l => l.type === 'IN');
-              const outs = logs.filter(l => l.type === 'OUT');
-
-              const getHours = (l: any) => {
-                if (!l) return 0;
-                if (l.time && typeof l.time === 'string') return timeToHours(l.time);
-                const d = l.timestamp?.seconds ? new Date(l.timestamp.seconds * 1000) : new Date(l.timestamp);
-                return d.getHours() + d.getMinutes() / 60;
-              };
-
-              let dailyHours = 0;
-              let firstIn = ins.length > 0 ? getHours(ins[0]) : 0;
-              let lastOut = outs.length > 0 ? getHours(outs[outs.length - 1]) : 0;
-
-              if (firstIn > 0 && lastOut > 0) {
-                let dur = lastOut - firstIn;
-                if (dur < 0) dur += 24;
-                dailyHours = dur;
-              } else if (firstIn > 0 && ins.length > 1) {
-                let dur = getHours(ins[ins.length - 1]) - firstIn;
-                if (dur < 0) dur += 24;
-                dailyHours = dur;
-              }
-
-              // Overtime: daily hours > 9 hours
-              if (dailyHours > 9) {
-                totalOvertime += (dailyHours - 9);
-              }
-
-              // Lateness: arrival after 8:15 AM
-              if (firstIn > 8.25 && firstIn < 12) {
-                totalLateness += (firstIn - 8);
-              }
-            });
-
-            // Calculate absences: weekdays without attendance and without approved vacation
-            const [yN, mN] = monthKey.split('-').map(Number);
-            let absentDaysCount = 0;
-            for (let day = 1; day <= totalDaysInMonth; day++) {
-              const curDate = new Date(yN, mN - 1, day);
-              const curDayOfWeek = curDate.getDay();
-              const dStr = `${yN}-${mN.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
-              // Skip Fridays (Friday is 5)
-              if (curDayOfWeek !== 5 && !workedDates.has(dStr)) {
+          const todayStr = new Date().toISOString().split('T')[0];
+          let absentDaysCount = 0;
+          for (let cur = new Date(pStart); cur <= pEnd; cur.setDate(cur.getDate() + 1)) {
+            const curDateStr = cur.toISOString().split('T')[0];
+            const curDayOfWeek = cur.getDay();
+            // Skip Fridays (Friday is 5) - Fridays are not regular work days
+            // Skip future dates beyond today (cannot be marked absent for tomorrow or future days)
+            if (curDayOfWeek !== 5 && curDateStr <= todayStr && !workedDates.has(curDateStr)) {
+              if (!coveredDatesByUser[s.id]?.has(curDateStr)) {
                 absentDaysCount++;
               }
             }
+          }
 
-            // Deduct approved vacation days from absent count
-            const userVac = vacationsMap[s.id] || 0;
-            const netAbsent = Math.max(0, absentDaysCount - userVac);
+          analyzerOvertimeMap[s.id] = Math.round(totalOvertime);
+          analyzerLateMap[s.id] = Math.round(totalLateness);
+          analyzerAbsenceMap[s.id] = absentDaysCount;
+        });
 
-            analyzerOvertimeMap[s.id] = Math.round(totalOvertime);
-            analyzerLateMap[s.id] = Math.round(totalLateness);
-            analyzerAbsenceMap[s.id] = netAbsent;
-          });
-
-        } catch (err) {
-          console.warn("Fallback attendance scan error:", err);
-        }
+      } catch (err) {
+        console.warn("Fallback attendance scan error:", err);
       }
 
     } catch (err) {
@@ -677,7 +762,8 @@ const SupervisorPayroll: React.FC = () => {
       const isHidden = !!s.isHidden;
       const category: 'doctor' | 'staff' | 'hidden' = isDoc ? 'doctor' : (isHidden ? 'hidden' : 'staff');
 
-      const fridays = fridaysMap[s.id] || (s.name?.includes('ناجي') || s.name?.includes('Tarek') ? 4 : 4);
+      // CRITICAL: Full month Fridays are preserved ("بس الجمع تكون زي ما هيا اللي في الشهر")
+      const fridays = (fridaysMap[s.id] !== undefined && fridaysMap[s.id] > 0) ? fridaysMap[s.id] : calendarFridaysCount;
       const holiday = holidaysMap[s.id] !== undefined ? holidaysMap[s.id] : 1;
       const sickDays = sickLeavesMap[s.id] || 0;
       const vacationDays = vacationsMap[s.id] || 0;
@@ -724,14 +810,17 @@ const SupervisorPayroll: React.FC = () => {
         calcDisplay = config.showDaysForAll ? `${actualDaysWorked}` : '';
       }
 
-      // RULE 4: Notes (ABSENT and LATE) - "وفي الملاحظات ليه":
+      const userPerms = permissionsMap[s.id] || 0;
+      const userPermHours = permissionHoursMap[s.id] || 0;
+
+      // RULE 4: Notes (ABSENT, LATE, and PERMISSIONS)
       let absentAndLateText = '';
       if (isCleaner) {
         absentAndLateText = 'CLEANER';
       } else if (vacationDays > 0) {
         absentAndLateText = vacationDetailsMap[s.id] || formatVacationText(vacationDays);
-      } else if (absentDays > 0 || lateHours > 0) {
-        absentAndLateText = formatAbsentText(absentDays, lateHours);
+      } else if (absentDays > 0 || lateHours > 0 || userPerms > 0 || userPermHours > 0) {
+        absentAndLateText = formatAbsentText(absentDays, lateHours, userPerms, userPermHours);
       }
 
       // RULE 5: Sick Leave column
@@ -772,6 +861,8 @@ const SupervisorPayroll: React.FC = () => {
         vacationDaysCount: vacationDays,
         sickLeaveDaysCount: sickDays,
         lateHoursCount: lateHours,
+        permissionCount: userPerms,
+        permissionHours: userPermHours,
         isFullMonthLeave: isFullMonth
       };
     });
@@ -860,8 +951,8 @@ const SupervisorPayroll: React.FC = () => {
           let absentLate = '';
           if (r.vacationDaysCount > 0) {
             absentLate = formatVacationText(r.vacationDaysCount);
-          } else if (abs > 0 || late > 0) {
-            absentLate = formatAbsentText(abs, late);
+          } else if (abs > 0 || late > 0 || (r.permissionCount || 0) > 0 || (r.permissionHours || 0) > 0) {
+            absentLate = formatAbsentText(abs, late, r.permissionCount || 0, r.permissionHours || 0);
           }
 
           let calcDisplay = r.calculatedDaysDisplay;
@@ -1087,8 +1178,8 @@ const SupervisorPayroll: React.FC = () => {
           let absentLate = '';
           if (r.vacationDaysCount > 0) {
             absentLate = formatVacationText(r.vacationDaysCount);
-          } else if (abs > 0 || late > 0) {
-            absentLate = formatAbsentText(abs, late);
+          } else if (abs > 0 || late > 0 || (r.permissionCount || 0) > 0 || (r.permissionHours || 0) > 0) {
+            absentLate = formatAbsentText(abs, late, r.permissionCount || 0, r.permissionHours || 0);
           }
 
           let calcDisplay = r.calculatedDaysDisplay;
@@ -1366,7 +1457,7 @@ const SupervisorPayroll: React.FC = () => {
             <input 
               type="month" 
               value={selectedMonth} 
-              onChange={(e) => setSelectedMonth(e.target.value)} 
+              onChange={(e) => handleMonthChange(e.target.value)} 
               className={`text-xs font-bold py-2 px-3 rounded-xl border focus:ring-2 focus:ring-emerald-500 outline-none transition-colors shadow-2xs ${
                 isDark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-800'
               }`}
@@ -1633,6 +1724,100 @@ const SupervisorPayroll: React.FC = () => {
       {/* ========================================================================= */}
       <main className="max-w-[1400px] mx-auto px-2 sm:px-6 py-6">
         
+        {/* CALCULATION PERIOD BAR (من - إلى) WITH FULL MONTH FRIDAYS GUARANTEE */}
+        <div className={`mb-4 p-4 rounded-2xl border transition-all print:hidden shadow-xs ${
+          isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-white border-slate-200'
+        }`}>
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            
+            {/* Left: Heading and inputs */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center font-bold">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                    <span>{isAr ? 'فترة احتساب الغياب والإضافي والأذونات' : 'Absence, Overtime & Permits Calculation Period'}</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                      {isAr ? 'الجمع ثابتة للشهر' : 'Fridays Full Month'}
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    {isAr ? 'الجمع تظل محسوبة للشهر كاملاً • الفترة المحددة تطبق فقط على الغياب والأوفر تايم والسيكليف والأذونات' : 'Fridays remain for the full month • Period only determines Absences, Overtime, Sick Leave & Permissions'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Date pickers (من - إلى) */}
+              <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-950 p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
+                <span className="font-bold text-slate-500 px-1">{isAr ? 'من:' : 'From:'}</span>
+                <input 
+                  type="date"
+                  value={periodStartDate}
+                  onChange={(e) => setPeriodStartDate(e.target.value)}
+                  className="bg-white dark:bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 font-mono font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+
+                <span className="font-bold text-slate-500 px-1">{isAr ? 'إلى:' : 'To:'}</span>
+                <input 
+                  type="date"
+                  value={periodEndDate}
+                  onChange={(e) => setPeriodEndDate(e.target.value)}
+                  className="bg-white dark:bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 font-mono font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+
+                <button
+                  onClick={() => loadPayrollData(true)}
+                  className="px-3.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs"
+                  title={isAr ? 'تطبيق الفترة وإعادة حساب الغياب والإضافي والسيكليف والأذونات' : 'Apply period & recalculate'}
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>{isAr ? 'تطبيق الفترة' : 'Apply Period'}</span>
+                </button>
+              </div>
+
+              {/* Quick Presets */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => applyPreset('full')}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 transition-all"
+                  title={isAr ? 'احتساب كامل الشهر' : 'Full Month'}
+                >
+                  {isAr ? 'كامل الشهر' : 'Full Month'}
+                </button>
+                <button
+                  onClick={() => applyPreset('cutoff24')}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 transition-all"
+                  title={isAr ? 'حتى 24 في الشهر' : 'Cutoff 24th'}
+                >
+                  {isAr ? 'حتى 24 الشهر' : 'Till 24th'}
+                </button>
+                <button
+                  onClick={() => applyPreset('cycle20')}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 transition-all"
+                  title={isAr ? 'دورة الرواتب (21 السابق إلى 20 الحالي)' : 'Cycle (21st - 20th)'}
+                >
+                  {isAr ? 'دورة الرواتب (21 - 20)' : '21st - 20th'}
+                </button>
+              </div>
+            </div>
+
+            {/* Right: Badges */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300 font-bold flex items-center gap-1.5">
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                <span>{isAr ? `الجمع: كاملة لشهر ${monthInfo.monthNameAr}` : `Fridays: Full Month ${monthInfo.monthNameEn}`}</span>
+              </div>
+              <div className="px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-xs text-blue-800 dark:text-blue-300 font-bold flex items-center gap-1.5 font-mono">
+                <Clock className="w-3.5 h-3.5 text-blue-600" />
+                <span>{periodStartDate} ➜ {periodEndDate}</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
         {/* Notice Info banner with Smart Analyzer integration */}
         <div className="mb-4 bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-300 dark:border-yellow-800/60 rounded-xl p-3 text-xs text-yellow-900 dark:text-yellow-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 print:hidden">
           <div className="flex items-center gap-2">

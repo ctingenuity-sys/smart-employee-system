@@ -181,12 +181,14 @@ interface EmployeeAttendanceSummary {
     exceptionalDays: number; // NEW
     sickLeaveDays: number; // NEW
     specialDays: Record<string, number>; // NEW: Map of day name -> count
+    permissionCount: number; // NEW
+    permissionHours: number; // NEW
     riskCount: number;
     details: DailyDetail[];
 }
 
 const SupervisorAttendance: React.FC = () => {
-    const { t, dir } = useLanguage();
+    const { language, t, dir } = useLanguage();
     const { isDark } = useTheme();
     const navigate = useNavigate();
     const { selectedDepartmentId, departments, filterVisualUsers } = useDepartment();
@@ -223,6 +225,13 @@ const SupervisorAttendance: React.FC = () => {
             setUsers(filterVisualUsers(fetchedUsers, selectedDepartmentId));
         });
     }, [selectedDepartmentId, filterVisualUsers]);
+
+    // Auto-calculate on initial load when users are populated
+    useEffect(() => {
+        if (users.length > 0 && attendanceSummaries.length === 0 && !isCalculatingAtt) {
+            calculateAttendance();
+        }
+    }, [users]);
 
     const handleImportArchive = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -289,9 +298,64 @@ const SupervisorAttendance: React.FC = () => {
             exceptionalDays: 0, // NEW
             sickLeaveDays: 0, // NEW
             specialDays: {}, // NEW
+            permissionCount: 0, // NEW
+            permissionHours: 0, // NEW
             riskCount: 0,
             details: []
         }));
+
+        // --- FULL MONTH FRIDAYS SCANNER ("بس الجمع تكون زي ما هيا اللي في الشهر") ---
+        // Pre-calculate full month Fridays so Friday duties remain complete for the whole month regardless of cutoff period!
+        const monthOfFilter = attFilterStart.slice(0, 7);
+        const [yFilterStr, mFilterStr] = monthOfFilter.split('-');
+        const yFilter = parseInt(yFilterStr, 10) || new Date().getFullYear();
+        const mFilter = parseInt(mFilterStr, 10) || (new Date().getMonth() + 1);
+        const daysInFilterMonth = new Date(yFilter, mFilter, 0).getDate();
+        let defaultCalendarFridays = 0;
+        for (let day = 1; day <= daysInFilterMonth; day++) {
+            if (new Date(yFilter, mFilter - 1, day).getDay() === 5) {
+                defaultCalendarFridays++;
+            }
+        }
+        defaultCalendarFridays = defaultCalendarFridays || 4;
+
+        const fullMonthFridaysMap: Record<string, number> = {};
+        usersToProcess.forEach(u => fullMonthFridaysMap[u.id] = defaultCalendarFridays);
+        
+        try {
+            const pubSnap = await getDocs(collection(db, 'monthly_publishes'));
+            pubSnap.docs.forEach((docSnap: any) => {
+                const pData = docSnap.data();
+                const docId = docSnap.id;
+                if (!docId.includes(monthOfFilter) && pData.targetMonth !== monthOfFilter && pData.month !== monthOfFilter) return;
+
+                const fridayRows = [...(pData.fridayData || pData.fridaySchedule || []), ...(pData.doctorFridayData || pData.doctorFridaySchedule || [])];
+                if (Array.isArray(fridayRows)) {
+                    fridayRows.forEach((row: any) => {
+                        Object.keys(row).forEach(key => {
+                            if (key !== 'date' && key !== 'id' && key !== 'note' && key !== 'title') {
+                                const staffItems = row[key];
+                                const list = Array.isArray(staffItems) ? staffItems : (staffItems ? [staffItems] : []);
+                                list.forEach((st: any) => {
+                                    const rawName = (typeof st === 'string' ? st : (st?.name || st?.staffName || st?.employeeName || '')).trim().toLowerCase();
+                                    const rawId = typeof st === 'object' ? (st?.id || st?.userId) : '';
+                                    const matchedUser = usersToProcess.find(u => {
+                                        if (rawId && u.id === rawId) return true;
+                                        const uName = (u.name || '').trim().toLowerCase();
+                                        return uName && rawName && (uName === rawName || uName.includes(rawName) || rawName.includes(uName));
+                                    });
+                                    if (matchedUser) {
+                                        fullMonthFridaysMap[matchedUser.id] = (fullMonthFridaysMap[matchedUser.id] || 0) + 1;
+                                    }
+                                });
+                            }
+                        });
+                    });
+                }
+            });
+        } catch (err) {
+            console.warn("Could not scan monthly_publishes for full month Fridays in SupervisorAttendance:", err);
+        }
 
         // --- 1. OPTIMIZED SCHEDULE FETCHING ---
         const withDept = (baseQuery: any) => selectedDepartmentId ? query(baseQuery, where('departmentId', '==', selectedDepartmentId)) : baseQuery;
@@ -363,6 +427,41 @@ const SupervisorAttendance: React.FC = () => {
         const qLeaves = withDept(query(collection(db, 'leaveRequests'), where('status', '==', 'approved')));
         const snapLeaves = await getDocs(qLeaves);
         const leaves = snapLeaves.docs.map(d => d.data());
+
+        // Scan approved permissions in the selected period [attFilterStart, attFilterEnd]
+        const permissionsMap: Record<string, { count: number; hours: number }> = {};
+        usersToProcess.forEach(u => permissionsMap[u.id] = { count: 0, hours: 0 });
+
+        leaves.forEach((lData: any) => {
+            const uId = lData.userId || lData.from;
+            if (!uId || !permissionsMap[uId]) return;
+            const lType = (lData.typeOfLeave || lData.leaveType || '').toLowerCase();
+            if (lType.includes('permission') || lType.includes('exit') || lType.includes('إذن') || lType.includes('ساعي')) {
+                const sDate = lData.startDate || '';
+                if (sDate >= attFilterStart && sDate <= attFilterEnd) {
+                    permissionsMap[uId].count += 1;
+                    permissionsMap[uId].hours += Number(lData.duration) || 1;
+                }
+            }
+        });
+
+        try {
+            const actionsSnap = await getDocs(collection(db, 'actions'));
+            actionsSnap.docs.forEach((d: any) => {
+                const act = d.data();
+                const actDate = act.date || (act.timestamp?.toDate ? act.timestamp.toDate().toISOString().split('T')[0] : null);
+                if (!actDate || actDate < attFilterStart || actDate > attFilterEnd) return;
+                const uId = act.employeeId || act.userId;
+                if (!uId || !permissionsMap[uId]) return;
+                const actType = (act.type || '').toLowerCase();
+                const actTitle = (act.title || act.description || '').toLowerCase();
+                if (actType.includes('permission') || actType.includes('إذن') || actType.includes('hourly') ||
+                    actTitle.includes('إذن') || actTitle.includes('permission') || actTitle.includes('ساعي')) {
+                    permissionsMap[uId].count += 1;
+                    permissionsMap[uId].hours += Number(act.hours || act.permissionHours || act.duration) || 1;
+                }
+            });
+        } catch(e) {}
 
         // Overtime Threshold in Minutes
         const otThresholdMins = overtimeThreshold * 60;
@@ -610,13 +709,23 @@ const SupervisorAttendance: React.FC = () => {
                         if (!in1 && !out1) shiftsMissed += 0.5;
                         if (!in2 && !out2) shiftsMissed += 0.5;
 
-                        absentValue = shiftsMissed;
-                        if (absentValue === 0) status = 'Present';
-                        else if (absentValue === 0.5) status = 'Partial Absent';
-                        else status = 'Absent';
+                        const todayStr = new Date().toISOString().split('T')[0];
+                        if (dateStr > todayStr) {
+                            absentValue = 0;
+                            status = 'Off';
+                        } else {
+                            absentValue = shiftsMissed;
+                            if (absentValue === 0) status = 'Present';
+                            else if (absentValue === 0.5) status = 'Partial Absent';
+                            else status = 'Absent';
+                        }
 
                     } else {
-                        if (!in1 && !out1) {
+                        const todayStr = new Date().toISOString().split('T')[0];
+                        if (dateStr > todayStr) {
+                            absentValue = 0;
+                            status = 'Off';
+                        } else if (!in1 && !out1) {
                             absentValue = 1.0;
                             status = 'Absent';
                         } else {
@@ -741,6 +850,18 @@ const SupervisorAttendance: React.FC = () => {
                 });
             });
         }
+        // Ensure Fridays represent the full month as required ("بس الجمع تكون زي ما هيا اللي في الشهر")
+        usersToProcess.forEach(user => {
+            const summary = summaryMap.get(user.id);
+            if (summary) {
+                summary.fridaysWorked = (fullMonthFridaysMap[user.id] !== undefined && fullMonthFridaysMap[user.id] > 0)
+                    ? fullMonthFridaysMap[user.id]
+                    : defaultCalendarFridays;
+                summary.permissionCount = permissionsMap[user.id]?.count || 0;
+                summary.permissionHours = permissionsMap[user.id]?.hours || 0;
+            }
+        });
+
         setAttendanceSummaries(Array.from(summaryMap.values()));
     } catch(e) { 
         console.error(e); 
@@ -1161,6 +1282,27 @@ const SupervisorAttendance: React.FC = () => {
                     </div>
                 </div>
 
+                {/* Period & Friday rule information badge */}
+                <div className={`mb-6 p-3 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs print:hidden ${
+                    isDark ? 'bg-slate-800/80 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                }`}>
+                    <div className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-500 font-bold flex items-center justify-center text-xs">🕌</span>
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                            {language === 'ar' ? 'الجمع محسوبة لكامل الشهر تلقائياً' : 'Fridays calculated for full month'}
+                        </span>
+                        <span className="opacity-40">|</span>
+                        <span>
+                            {language === 'ar' 
+                                ? `الفترة المحددة (${attFilterStart} إلى ${attFilterEnd}) تحدد الغياب، الأوفر تايم، السيكليف، والأذونات فقط.` 
+                                : `Selected period (${attFilterStart} to ${attFilterEnd}) only determines Absences, Overtime, Sick Leave, and Permits.`}
+                        </span>
+                    </div>
+                    <div className="font-mono text-[11px] font-bold text-slate-500">
+                        {attFilterStart} ➜ {attFilterEnd}
+                    </div>
+                </div>
+
                 {/* Summary Cards (Screen Only) */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 print:hidden">
                     <div className="bg-gradient-to-br from-rose-500 to-pink-600 rounded-2xl p-6 text-white shadow-lg">
@@ -1202,18 +1344,20 @@ const SupervisorAttendance: React.FC = () => {
                                         <tr>
                                             <th className="p-3">Employee</th>
                                             <th className="p-3 text-center">Work Days</th>
-                                            <th className="p-3 text-center">Fridays</th>
+                                            <th className="p-3 text-center text-emerald-700 dark:text-emerald-400">Fridays (Month)</th>
                                             <th className="p-3 text-center text-red-600">Absent Days</th>
                                             <th className="p-3 text-center text-amber-600">Late (Hrs)</th>
                                             <th className="p-3 text-center text-orange-600">Early (Hrs)</th>
                                             <th className="p-3 text-center text-emerald-600">Overtime (Hrs)</th>
+                                            <th className="p-3 text-center text-blue-600">Sick Leave</th>
+                                            <th className="p-3 text-center text-indigo-600">Permissions</th>
                                             <th className="p-3 text-center text-purple-600">Risks</th>
                                             <th className="p-3 text-center print:hidden">Details</th>
                                         </tr>
                                     </thead>
                                     <tbody className={`divide-y transition-colors ${isDark ? 'divide-slate-700/60' : 'divide-slate-100'} print:divide-slate-300`}>
                                         {attendanceSummaries.length === 0 ? (
-                                            <tr><td colSpan={10} className="p-8 text-center text-slate-400">Click 'Refresh' to calculate.</td></tr>
+                                            <tr><td colSpan={11} className="p-8 text-center text-slate-400">Click 'Refresh' to calculate.</td></tr>
                                         ) : (
                                             attendanceSummaries
                                             .filter(s => showOnlySuspicious ? s.riskCount > 0 : true)
@@ -1222,11 +1366,15 @@ const SupervisorAttendance: React.FC = () => {
                                                     <tr className={`transition-colors print:break-inside-avoid ${isDark ? 'hover:bg-slate-700/40 text-slate-200' : 'hover:bg-slate-50/50 text-slate-800'}`}>
                                                         <td className={`p-3 font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>{summary.userName}</td>
                                                         <td className="p-3 text-center font-mono">{summary.totalWorkDays}</td>
-                                                        <td className="p-3 text-center font-mono">{summary.fridaysWorked}</td>
+                                                        <td className="p-3 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400">{summary.fridaysWorked}</td>
                                                         <td className="p-3 text-center font-bold text-red-600">{summary.absentDays}</td>
                                                         <td className="p-3 text-center font-bold text-amber-600">{formatAsDotMinutes(summary.totalLateHours)}</td>
                                                         <td className="p-3 text-center font-bold text-orange-600">{formatAsDotMinutes(summary.totalEarlyHours)}</td>
                                                         <td className="p-3 text-center font-bold text-emerald-600">{summary.totalOvertimeHours > 0 ? formatAsDotMinutes(summary.totalOvertimeHours) : '-'}</td>
+                                                        <td className="p-3 text-center font-bold text-blue-600">{summary.sickLeaveDays > 0 ? `${summary.sickLeaveDays} d` : '-'}</td>
+                                                        <td className="p-3 text-center font-bold text-indigo-600">
+                                                            {summary.permissionCount > 0 ? `${summary.permissionCount} (${summary.permissionHours}h)` : '-'}
+                                                        </td>
                                                         <td className="p-3 text-center font-bold text-purple-600">
                                                             {summary.riskCount > 0 ? <span className="bg-red-500 text-white px-2 py-0.5 rounded-full shadow-sm animate-pulse text-[10px]">{summary.riskCount} ALERTS</span> : '-'}
                                                         </td>

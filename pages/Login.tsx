@@ -26,17 +26,39 @@ const Login: React.FC = () => {
 
     setLoading(true);
 
-    try {
-      await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
-      // Success - App.tsx or Layout will handle redirection/device check
-    } catch (err: any) {
-      console.error("Login Error:", err);
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+    const lowerEmail = cleanEmail.toLowerCase();
+    const candidateEmails = [cleanEmail];
+    if (lowerEmail === 'cath@gmail.com') {
+      candidateEmails.push('cathlab@gmail.com');
+    } else if (lowerEmail === 'cathlab@gmail.com') {
+      candidateEmails.push('cath@gmail.com');
+    } else if (lowerEmail === 'cath') {
+      candidateEmails.push('cathlab@gmail.com', 'cath@gmail.com');
+    } else if (lowerEmail === 'cathlab') {
+      candidateEmails.push('cathlab@gmail.com', 'cath@gmail.com');
+    }
+
+    let lastError: any = null;
+    let signedIn = false;
+
+    for (const emailToTry of candidateEmails) {
+      try {
+        await signInWithEmailAndPassword(auth, emailToTry, cleanPassword);
+        signedIn = true;
+        break;
+      } catch (err: any) {
+        lastError = err;
+      }
+    }
+
+    if (!signedIn && lastError) {
+      console.error("Login Error:", lastError);
+      if (lastError.code === 'auth/invalid-credential' || lastError.code === 'auth/user-not-found' || lastError.code === 'auth/wrong-password') {
         setError(t('login.error'));
-      } else if (err.code === 'auth/too-many-requests') {
+      } else if (lastError.code === 'auth/too-many-requests') {
         setError('Too many failed attempts. Please try again later.');
       } else {
-        setError('Error: ' + err.message);
+        setError('Error: ' + lastError.message);
       }
       setLoading(false);
     }

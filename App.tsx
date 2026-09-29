@@ -121,7 +121,8 @@ const ProtectedRoute = ({ children, allowedRoles, requiredPermission }: Protecte
             // Unconditionally allow cath_lab to access catheter supplies page
         } else {
             const requiredPerms = Array.isArray(requiredPermission) ? requiredPermission : [requiredPermission];
-            const hasAnyPerm = Array.isArray(permissions) && requiredPerms.some(p => permissions.includes(p));
+            const isLegacyUser = !permissions || permissions.length === 0;
+            const hasAnyPerm = isLegacyUser || (Array.isArray(permissions) && requiredPerms.some(p => permissions.includes(p)));
 
             if (!hasAnyPerm) {
                  return (
@@ -248,7 +249,7 @@ const AppRoutes: React.FC = () => {
           <Route path="/radiology-logbook" element={<ProtectedRoute requiredPermission="radiology_log"><StandaloneRadiologyLogbook /></ProtectedRoute>} />
           <Route path="/communications" element={<ProtectedRoute requiredPermission="communications"><CommunicationPage /></ProtectedRoute>} />
           <Route path="/inventory" element={<ProtectedRoute requiredPermission={['inventory', 'custody_distribution', 'my_custody']}><InventoryPage /></ProtectedRoute>} />
-          <Route path="/cath-lab-usage" element={<ProtectedRoute allowedRoles={[UserRole.CATH_LAB, UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER, 'cath_lab', 'cath', 'cathlab']} requiredPermission="catheter_supplies"><CathLabUsage /></ProtectedRoute>} />
+          <Route path="/cath-lab-usage" element={<ProtectedRoute allowedRoles={[UserRole.CATH_LAB, UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.MANAGER, UserRole.USER, UserRole.DOCTOR, 'cath_lab', 'cath', 'cathlab']} requiredPermission="catheter_supplies"><CathLabUsage /></ProtectedRoute>} />
           <Route path="/tasks" element={<ProtectedRoute requiredPermission="tasks"><TasksPage /></ProtectedRoute>} />
           <Route path="/tech-support" element={<ProtectedRoute requiredPermission="tech_support"><TechSupportPage /></ProtectedRoute>} />
           <Route path="/hr-assistant" element={<ProtectedRoute requiredPermission="hr_assistant"><HRAssistantPage /></ProtectedRoute>} />

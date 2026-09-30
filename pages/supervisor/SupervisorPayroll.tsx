@@ -25,7 +25,14 @@ import {
   Sparkles,
   Clock,
   HelpCircle,
-  FileCheck
+  FileCheck,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUpDown,
+  Columns,
+  GripVertical
 } from 'lucide-react';
 import { User, UserRole, EmployeeSummary } from '../../types';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -35,6 +42,13 @@ import { useAuth } from '../../contexts/AuthContext';
 import Toast from '../../components/Toast';
 import Modal from '../../components/Modal';
 import { isOperationalStaff } from '../../utils/staffUtils';
+
+export interface PayrollCustomColumn {
+  id: string;
+  titleTop: string;
+  titleBottom?: string;
+  highlightYellow?: boolean;
+}
 
 export interface PayrollRow {
   id: string;
@@ -76,6 +90,7 @@ export interface PayrollRow {
   isFullMonthLeave?: boolean; // إجازة كامل الشهر (تستبعد تلقائياً من الكشف)
 
   isCustomRow?: boolean;
+  customColumnValues?: Record<string, string>;
 }
 
 interface PayrollConfig {
@@ -93,7 +108,11 @@ interface PayrollConfig {
   medicalDirectorTitle: string;
   departmentHeadTitle: string;
   showDaysForAll: boolean; // إظهار أيام الشهر (30/31) للجميع أو للاستثناءات فقط
+  customColumns?: PayrollCustomColumn[];
+  columnOrder?: string[]; // ترتيب أعمدة الجدول بما فيها الأعمدة المضافة
 }
+
+const DEFAULT_STANDARD_COLUMNS = ['calcDays', 'name', 'fridays', 'holiday', 'overtime', 'absentLate', 'sickLeave'];
 
 const DEFAULT_CONFIG: PayrollConfig = {
   hospitalNameAr: 'مستشفى الجدعاني - بحي الصفا',
@@ -107,7 +126,9 @@ const DEFAULT_CONFIG: PayrollConfig = {
   tillDateText: 'Till 24.09.2026',
   medicalDirectorTitle: 'المدير الطبي',
   departmentHeadTitle: 'صديق مدير القسم',
-  showDaysForAll: false // default: show *2 for Nazim/Winnie, days worked for partial vacation/absentee
+  showDaysForAll: false, // default: show *2 for Nazim/Winnie, days worked for partial vacation/absentee
+  customColumns: [],
+  columnOrder: DEFAULT_STANDARD_COLUMNS
 };
 
 // Helper: Number to English words converter
@@ -314,12 +335,66 @@ const SupervisorPayroll: React.FC = () => {
     jobTitle: '',
     category: 'staff',
     calculatedDaysDisplay: '',
-    fridayDuties: 4,
+    fridayDuties: 0,
     holidayDuties: 1,
     overtimeHours: 0,
     absentAndLateText: '',
     sickLeaveText: ''
   });
+
+  // Custom columns modal & state
+  const [isColumnsModalOpen, setIsColumnsModalOpen] = useState(false);
+  const [newColTitleTop, setNewColTitleTop] = useState('');
+  const [newColTitleBottom, setNewColTitleBottom] = useState('');
+  const [newColYellow, setNewColYellow] = useState(false);
+  const [newColPosition, setNewColPosition] = useState<string>('end');
+
+  // Employee sorting & drag-and-drop reordering state
+  const [sortBy, setSortBy] = useState<string>('custom');
+  const [draggedRowId, setDraggedRowId] = useState<string | null>(null);
+
+  // Compute the active ordered list of table columns (standard + custom)
+  const orderedTableColumns = useMemo(() => {
+    const customCols = config.customColumns || [];
+    const customIds = customCols.map(c => c.id);
+    const validKeys = new Set<string>([
+      'calcDays',
+      'name',
+      'fridays',
+      ...(config.customHolidayEnabled ? ['holiday'] : []),
+      'overtime',
+      'absentLate',
+      'sickLeave',
+      ...customIds
+    ]);
+
+    const savedOrder = Array.isArray(config.columnOrder) && config.columnOrder.length > 0
+      ? config.columnOrder
+      : [...DEFAULT_STANDARD_COLUMNS, ...customIds];
+
+    const result: string[] = [];
+    savedOrder.forEach(k => {
+      if (validKeys.has(k) && !result.includes(k)) {
+        result.push(k);
+      }
+    });
+    // Append any missing valid keys (e.g. newly enabled holiday or newly added custom column)
+    DEFAULT_STANDARD_COLUMNS.forEach(k => {
+      if (validKeys.has(k) && !result.includes(k)) {
+        if (k === 'holiday') {
+          const friIdx = result.indexOf('fridays');
+          if (friIdx !== -1) result.splice(friIdx + 1, 0, 'holiday');
+          else result.push('holiday');
+        } else {
+          result.push(k);
+        }
+      }
+    });
+    customIds.forEach(id => {
+      if (!result.includes(id)) result.push(id);
+    });
+    return result;
+  }, [config.customColumns, config.columnOrder, config.customHolidayEnabled]);
 
   // Calculate real days in the selected month (e.g. September = 30, August = 31, February = 28/29)
   const monthInfo = useMemo(() => {
@@ -366,21 +441,55 @@ const SupervisorPayroll: React.FC = () => {
       });
       setAllUsers(filteredStaff);
 
-      // If saved data exists and not forcing auto-scan, load it
-      if (snapshot.exists() && !forceAutoScan) {
-        const data = snapshot.data();
-        if (data.config) setConfig(prev => ({ ...prev, ...data.config }));
-        if (data.updatedAt) setLastSavedAt(data.updatedAt);
-        if (Array.isArray(data.rows) && data.rows.length > 0) {
-          setRows(data.rows);
+      // If saved data exists (with latest calculationVersion === 3) and not forcing auto-scan, load it
+      const existingData = snapshot.exists() ? snapshot.data() : null;
+      if (existingData && !forceAutoScan && existingData?.calculationVersion === 3) {
+        if (existingData.config) setConfig(prev => ({ ...prev, ...existingData.config }));
+        if (existingData.updatedAt) setLastSavedAt(existingData.updatedAt);
+        if (Array.isArray(existingData.rows) && existingData.rows.length > 0) {
+          setRows(existingData.rows);
           setLoading(false);
           return;
         }
       }
 
+      // Preserve any custom columns from saved config if we are auto-scanning
+      if (existingData?.config?.customColumns && (!config.customColumns || config.customColumns.length === 0)) {
+        setConfig(prev => ({ ...prev, ...existingData.config }));
+      }
+
       // Auto scan data from schedules, leaves, and Smart Attendance Analyzer with the specified period
       const autoPulled = await scanMonthData(selectedMonth, filteredStaff, monthInfo.daysInMonth, pStart, pEnd);
-      setRows(autoPulled.rows);
+
+      // Preserve existing row ordering and customColumnValues if available
+      const referenceRows: PayrollRow[] = rows.length > 0 ? rows : (Array.isArray(existingData?.rows) ? existingData.rows : []);
+      let finalRows = autoPulled.rows;
+      if (referenceRows.length > 0) {
+        const orderMap = new Map<string, number>();
+        const customValuesMap = new Map<string, Record<string, string>>();
+        referenceRows.forEach((r, idx) => {
+          orderMap.set(r.id, idx);
+          if (r.customColumnValues) {
+            customValuesMap.set(r.id, r.customColumnValues);
+          }
+        });
+        finalRows = finalRows.map(r => ({
+          ...r,
+          customColumnValues: customValuesMap.get(r.id) || r.customColumnValues || {}
+        }));
+        finalRows.sort((a, b) => {
+          const idxA = orderMap.has(a.id) ? orderMap.get(a.id)! : 99999;
+          const idxB = orderMap.has(b.id) ? orderMap.get(b.id)! : 99999;
+          return idxA - idxB;
+        });
+        // Keep any manual custom rows that were added previously
+        const manualRows = referenceRows.filter(r => r.isCustomRow && !finalRows.some(fr => fr.id === r.id));
+        if (manualRows.length > 0) {
+          finalRows = [...finalRows, ...manualRows];
+        }
+      }
+
+      setRows(finalRows);
       
       // Update config tillDateText and holiday if detected
       const [ey, em, ed] = pEnd.split('-');
@@ -396,7 +505,7 @@ const SupervisorPayroll: React.FC = () => {
 
       if (forceAutoScan) {
         setToast({ 
-          msg: `تم سحب وتحديث الكشف للفترة (${pStart} إلى ${pEnd}): الجمع كاملة للشهر والغياب والأوفر تايم والسيكليف والأذونات دقيقة!`, 
+          msg: `تم سحب وتحديث الكشف للفترة (${pStart} إلى ${pEnd}): الجمع بالبصمة فقط، وحساب السكاليف والغياب والأوفر تايم والأذونات بدقة!`, 
           type: 'success' 
         });
       }
@@ -408,7 +517,7 @@ const SupervisorPayroll: React.FC = () => {
     }
   };
 
-  // Deep scanner: Pulls Fridays (full month), Leaves & Permissions, and SMART ATTENDANCE ANALYZER (Absences, Lateness, Overtime) for the specified period
+  // Deep scanner: Pulls Fridays (ONLY from schedule and biometric punches), Sick Leaves (السكاليف), Vacations, Permissions, and Attendance
   const scanMonthData = async (
     monthKey: string, 
     staffList: User[], 
@@ -417,25 +526,76 @@ const SupervisorPayroll: React.FC = () => {
     pEndStr: string = `${monthKey}-${totalDaysInMonth}`
   ) => {
     const fridaysMap: Record<string, number> = {};
+    const fridayDatesByUser: Record<string, Set<string>> = {};
     const holidaysMap: Record<string, number> = {};
     const sickLeavesMap: Record<string, number> = {};
+    const sickDatesByUser: Record<string, Set<string>> = {};
     const vacationsMap: Record<string, number> = {};
+    const vacationDatesByUser: Record<string, Set<string>> = {};
     const vacationDetailsMap: Record<string, string> = {};
     const cleanerMap: Record<string, boolean> = {};
     const permissionsMap: Record<string, number> = {};
     const permissionHoursMap: Record<string, number> = {};
 
-    // Calculate full month Fridays count according to the calendar
+    // Collect the calendar Friday dates (YYYY-MM-DD) in the target month to map schedule rows accurately
     const [yStr, mStr] = monthKey.split('-');
     const yVal = parseInt(yStr, 10) || new Date().getFullYear();
     const mVal = parseInt(mStr, 10) || (new Date().getMonth() + 1);
-    let calendarFridaysCount = 0;
+    const monthFridayDates: string[] = [];
     for (let day = 1; day <= totalDaysInMonth; day++) {
       if (new Date(yVal, mVal - 1, day).getDay() === 5) {
-        calendarFridaysCount++;
+        monthFridayDates.push(`${yVal}-${String(mVal).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
       }
     }
-    calendarFridaysCount = calendarFridaysCount || 4;
+
+    const normalizeDigitsLocal = (str: string) => str.replace(/[٠-٩]/g, d => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
+
+    const normalizeFridayRowDate = (rawDate: any, rowIdx: number): string => {
+      if (rawDate && typeof rawDate === 'string') {
+        const clean = normalizeDigitsLocal(rawDate.trim());
+        const ymd = clean.match(/(\d{4})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})/);
+        if (ymd) {
+          return `${ymd[1]}-${ymd[2].padStart(2, '0')}-${ymd[3].padStart(2, '0')}`;
+        }
+        const dmy = clean.match(/(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{4})/);
+        if (dmy) {
+          return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+        }
+        const dm = clean.match(/(\d{1,2})\s*[-/.]\s*(\d{1,2})/);
+        if (dm) {
+          const d = parseInt(dm[1], 10);
+          const m = parseInt(dm[2], 10);
+          if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+            return `${yVal}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          }
+        }
+      }
+      return monthFridayDates[rowIdx] || `${monthKey}-friday-${rowIdx + 1}`;
+    };
+
+    const normalizeAnyDateStr = (val: any): string | null => {
+      if (!val) return null;
+      if (typeof val === 'string') {
+        const clean = normalizeDigitsLocal(val.trim());
+        if (/^\d{4}-\d{2}-\d{2}/.test(clean)) return clean.slice(0, 10);
+        const dmy = clean.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+        if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+        const parsed = new Date(clean);
+        if (!isNaN(parsed.getTime())) return parsed.toISOString().split('T')[0];
+        return null;
+      }
+      if (val.toDate && typeof val.toDate === 'function') {
+        return val.toDate().toISOString().split('T')[0];
+      }
+      if (val.seconds) {
+        return new Date(val.seconds * 1000).toISOString().split('T')[0];
+      }
+      return null;
+    };
+
+    const isSickText = (txt: string): boolean => {
+      return /sick|مرض|مرضية|مرضي|سكليف|سيكليف|طبي|طبية|medical/i.test(txt);
+    };
 
     // Track dates covered by approved leaves to avoid false absences
     const coveredDatesByUser: Record<string, Set<string>> = {};
@@ -448,11 +608,14 @@ const SupervisorPayroll: React.FC = () => {
     let detectedHolidayName = monthKey.endsWith('-09') ? 'NATIONAL DAY' : '';
 
     staffList.forEach(s => {
-      // Default to full month's Fridays: "بس الجمع تكون زي ما هيا اللي في الشهر"
-      fridaysMap[s.id] = calendarFridaysCount;
+      // Initialize Fridays to 0 (ONLY count Fridays in schedule or with biometric punch!)
+      fridaysMap[s.id] = 0;
+      fridayDatesByUser[s.id] = new Set<string>();
       holidaysMap[s.id] = monthKey.endsWith('-09') ? 1 : 0; // September default 1 day national day
       sickLeavesMap[s.id] = 0;
+      sickDatesByUser[s.id] = new Set<string>();
       vacationsMap[s.id] = 0;
+      vacationDatesByUser[s.id] = new Set<string>();
       vacationDetailsMap[s.id] = '';
       permissionsMap[s.id] = 0;
       permissionHoursMap[s.id] = 0;
@@ -472,34 +635,39 @@ const SupervisorPayroll: React.FC = () => {
       if (typeof rawItem === 'string') {
         targetName = rawItem.trim().toLowerCase();
       } else if (typeof rawItem === 'object') {
-        if (rawItem.id && fridaysMap[rawItem.id] !== undefined) return rawItem.id;
-        if (rawItem.userId && fridaysMap[rawItem.userId] !== undefined) return rawItem.userId;
-        targetName = (rawItem.name || rawItem.staffName || rawItem.employeeName || '').trim().toLowerCase();
-        targetId = rawItem.id || rawItem.userId || '';
+        const possibleIds = [rawItem.id, rawItem.userId, rawItem.employeeId, rawItem.from, rawItem.uid].filter(Boolean);
+        for (const pid of possibleIds) {
+          if (fridaysMap[pid] !== undefined) return pid;
+          const byUid = staffList.find(s => (s as any).uid === pid || s.id === pid);
+          if (byUid) return byUid.id;
+        }
+        targetName = (rawItem.name || rawItem.staffName || rawItem.employeeName || rawItem.userName || '').trim().toLowerCase();
+        targetId = possibleIds[0] || '';
       }
 
       if (targetId && fridaysMap[targetId] !== undefined) return targetId;
 
+      // Clean any parentheses/notes in name e.g. "Ahmed (MRI)"
+      const cleanTarget = targetName.replace(/[（(].*?[）)]/g, '').trim();
+      if (!cleanTarget) return null;
+
       // Exact or partial name match
       const found = staffList.find(s => {
         const sName = (s.name || '').trim().toLowerCase();
-        if (!sName || !targetName) return false;
-        if (sName === targetName) return true;
-        // Split names (e.g. "Tarek" or "Shabaka")
+        if (!sName) return false;
+        if (sName === cleanTarget || sName === targetName) return true;
         const sParts = sName.split(/\s+/);
-        const tParts = targetName.split(/\s+/);
+        const tParts = cleanTarget.split(/\s+/);
         if (sParts.length > 0 && tParts.length > 0) {
           if (sParts[0] === tParts[0] && (sParts[1] === tParts[1] || sParts.length === 1 || tParts.length === 1)) return true;
         }
-        return sName.includes(targetName) || targetName.includes(sName);
+        return sName.includes(cleanTarget) || cleanTarget.includes(sName);
       });
       return found ? found.id : null;
     };
 
     try {
-      // 1. Scan monthly_publishes for Friday and Holiday schedules
-      // CRITICAL REQUIREMENT: "بس الجمع تكون زي ما هيا اللي في الشهر"
-      // Fridays are scanned for the ENTIRE MONTH (monthKey) without being sliced by the period cutoff!
+      // 1. Scan monthly_publishes for Friday and Holiday schedules + Exception Sick Leaves
       const pubSnap = await getDocs(collection(db, 'monthly_publishes'));
       pubSnap.docs.forEach((docSnap: any) => {
         const pData = docSnap.data();
@@ -507,37 +675,71 @@ const SupervisorPayroll: React.FC = () => {
         const matchMonth = docId.includes(monthKey) || pData.targetMonth === monthKey || pData.month === monthKey;
         if (!matchMonth) return;
 
-        // Technician/Staff Friday schedules
-        const fridayRows = pData.fridayData || pData.fridaySchedule || [];
-        if (Array.isArray(fridayRows)) {
-          fridayRows.forEach((row: any) => {
+        // If department filter is active, ensure publish belongs to department (or has no department)
+        if (selectedDepartmentId && pData.departmentId && pData.departmentId !== selectedDepartmentId) {
+          return;
+        }
+
+        const processFridayRows = (fridayRows: any[]) => {
+          if (!Array.isArray(fridayRows)) return;
+          fridayRows.forEach((row: any, rowIdx: number) => {
+            const friDateKey = normalizeFridayRowDate(row.date, rowIdx);
             Object.keys(row).forEach(key => {
               if (key !== 'date' && key !== 'id' && key !== 'note' && key !== 'title') {
                 const staffItems = row[key];
                 const list = Array.isArray(staffItems) ? staffItems : (staffItems ? [staffItems] : []);
                 list.forEach((st: any) => {
                   const mId = matchStaff(st);
-                  if (mId) fridaysMap[mId] = (fridaysMap[mId] || 0) + 1;
+                  if (!mId) return;
+                  const stNote = typeof st === 'object' ? `${st.note || ''} ${st.name || ''}` : String(st || '');
+                  if (isSickText(stNote)) {
+                    if (friDateKey >= pStartStr && friDateKey <= pEndStr) {
+                      sickDatesByUser[mId].add(friDateKey);
+                      coveredDatesByUser[mId].add(friDateKey);
+                    }
+                  }
+                  // NOTE: Do NOT add scheduled Fridays here - user requested ONLY Fridays with actual biometric punches!
                 });
               }
             });
           });
-        }
+        };
 
-        // Doctor Friday schedules
-        const docFridayRows = pData.doctorFridayData || pData.doctorFridaySchedule || [];
-        if (Array.isArray(docFridayRows)) {
-          docFridayRows.forEach((row: any) => {
-            Object.keys(row).forEach(key => {
-              if (key !== 'date' && key !== 'id' && key !== 'note' && key !== 'title') {
-                const staffItems = row[key];
-                const list = Array.isArray(staffItems) ? staffItems : (staffItems ? [staffItems] : []);
-                list.forEach((st: any) => {
+        // Technician/Staff, Doctor, and Ramadan Friday schedules
+        processFridayRows(pData.fridayData || pData.fridaySchedule || []);
+        processFridayRows(pData.doctorFridayData || pData.doctorFridaySchedule || []);
+        processFridayRows(pData.ramadanFridayData || []);
+
+        // Check exceptions in monthly_publishes for sick leaves ("سكليف")
+        if (Array.isArray(pData.exceptions)) {
+          pData.exceptions.forEach((ex: any) => {
+            const exDate = normalizeAnyDateStr(ex.date);
+            if (!exDate || exDate < pStartStr || exDate > pEndStr) return;
+            const exNote = String(ex.note || '');
+            if (Array.isArray(ex.columns)) {
+              ex.columns.forEach((col: any) => {
+                const colTitle = `${exNote} ${col.title || ''}`;
+                (col.staff || []).forEach((st: any) => {
                   const mId = matchStaff(st);
-                  if (mId) fridaysMap[mId] = (fridaysMap[mId] || 0) + 1;
+                  if (mId && isSickText(`${colTitle} ${st?.note || ''} ${st?.name || ''}`)) {
+                    sickDatesByUser[mId].add(exDate);
+                    coveredDatesByUser[mId].add(exDate);
+                  }
                 });
-              }
-            });
+              });
+            }
+            if (Array.isArray(ex.commonDuties)) {
+              ex.commonDuties.forEach((duty: any) => {
+                const dutyTitle = `${exNote} ${duty.section || ''}`;
+                (duty.staff || []).forEach((st: any) => {
+                  const mId = matchStaff(st);
+                  if (mId && isSickText(`${dutyTitle} ${st?.note || ''} ${st?.name || ''}`)) {
+                    sickDatesByUser[mId].add(exDate);
+                    coveredDatesByUser[mId].add(exDate);
+                  }
+                });
+              });
+            }
           });
         }
 
@@ -567,56 +769,91 @@ const SupervisorPayroll: React.FC = () => {
         }
       });
 
-      // 2. Scan leaveRequests for Sick Leaves, Vacations, and Permissions
+      // 1b. Scan 'schedules' collection for individual Friday shifts and Sick Leave notes ("سكليف")
+      try {
+        const schSnap = await getDocs(collection(db, 'schedules'));
+        schSnap.docs.forEach((d: any) => {
+          const sData = d.data();
+          if (selectedDepartmentId && sData.departmentId && sData.departmentId !== selectedDepartmentId) return;
+          const mId = matchStaff({ userId: sData.userId, name: sData.staffName });
+          if (!mId) return;
+
+          const sDate = normalizeAnyDateStr(sData.date);
+          const combinedNote = `${sData.note || ''} ${sData.locationId || ''} ${sData.periodName || ''}`;
+
+          if (sDate) {
+            // Check if it's a sick leave on this specific date
+            if (sDate >= pStartStr && sDate <= pEndStr && isSickText(combinedNote)) {
+              sickDatesByUser[mId].add(sDate);
+              coveredDatesByUser[mId].add(sDate);
+              return;
+            }
+            // NOTE: Scheduled Fridays without biometric punch are intentionally NOT added to fridayDatesByUser
+          }
+        });
+      } catch (err) {
+        console.warn("Error scanning schedules collection:", err);
+      }
+
+      // 2. Scan leaveRequests for Sick Leaves (السكاليف), Vacations, and Permissions
       // Strictly filtered by overlap with the specified calculation period [pStartStr, pEndStr]!
       try {
         const leavesSnap = await getDocs(collection(db, 'leaveRequests'));
-        const pStart = new Date(pStartStr);
-        const pEnd = new Date(pEndStr);
-        pStart.setHours(0, 0, 0, 0);
-        pEnd.setHours(23, 59, 59, 999);
+        const pStart = new Date(pStartStr + 'T00:00:00');
+        const pEnd = new Date(pEndStr + 'T23:59:59');
 
         leavesSnap.docs.forEach((d: any) => {
           const lData = d.data();
-          const isApproved = lData.status === 'approved';
+          const statusStr = String(lData.status || '').toLowerCase();
+          const isApproved =
+            statusStr === 'approved' ||
+            statusStr === 'approvedbymanager' ||
+            statusStr === 'approvedbysupervisor' ||
+            statusStr === 'accepted' ||
+            lData.managerApproval?.approved === true ||
+            (lData.supervisorApproval?.approved === true && !lData.hasManagers);
           if (!isApproved) return;
 
-          const uId = lData.userId || lData.from;
+          const uId = matchStaff(lData);
           if (!uId || fridaysMap[uId] === undefined) return;
 
-          const lStartDate = lData.startDate ? new Date(lData.startDate) : null;
-          const lEndDate = lData.endDate ? new Date(lData.endDate) : lStartDate;
+          const startStr = normalizeAnyDateStr(lData.startDate || lData.fromDate);
+          const endStr = normalizeAnyDateStr(lData.endDate || lData.toDate) || startStr;
 
-          if (lStartDate) {
+          if (startStr && endStr) {
+            const lStartDate = new Date(startStr + 'T00:00:00');
+            const lEndDate = new Date(endStr + 'T00:00:00');
+
             // Calculate overlap with the specified period
             const effStart = lStartDate > pStart ? lStartDate : pStart;
-            const effEnd = (lEndDate && lEndDate < pEnd) ? lEndDate : pEnd;
+            const effEnd = lEndDate < pEnd ? lEndDate : pEnd;
 
             if (effEnd >= effStart) {
-              const overlapDays = Math.round((effEnd.getTime() - effStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-              const leaveType = (lData.typeOfLeave || lData.leaveType || '').toLowerCase();
+              const combinedLeaveText = `${lData.typeOfLeave || ''} ${lData.leaveType || ''} ${lData.type || ''} ${lData.reason || ''} ${lData.description || ''}`.toLowerCase();
 
-              // Track dates covered so they aren't counted as absences
-              for (let cur = new Date(effStart); cur <= effEnd; cur.setDate(cur.getDate() + 1)) {
-                coveredDatesByUser[uId].add(cur.toISOString().split('T')[0]);
-              }
-
-              if (leaveType.includes('sick') || leaveType.includes('مرض')) {
-                // Sick Leave (السيكليف في الفترة)
-                sickLeavesMap[uId] = (sickLeavesMap[uId] || 0) + overlapDays;
-              } else if (leaveType.includes('permission') || leaveType.includes('exit') || leaveType.includes('إذن') || leaveType.includes('ساعي')) {
-                // Permissions (الأذونات في الفترة)
+              if (/permission|exit|إذن|ساعي|استئذان/i.test(combinedLeaveText)) {
                 permissionsMap[uId] = (permissionsMap[uId] || 0) + 1;
-                const hrs = Number(lData.duration) || 1;
+                const hrs = Number(lData.duration || lData.hours) || 1;
                 permissionHoursMap[uId] = (permissionHoursMap[uId] || 0) + hrs;
+              } else if (isSickText(combinedLeaveText)) {
+                // Sick Leave (السكاليف في الفترة)
+                for (let cur = new Date(effStart); cur <= effEnd; cur.setDate(cur.getDate() + 1)) {
+                  const dStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+                  sickDatesByUser[uId].add(dStr);
+                  coveredDatesByUser[uId].add(dStr);
+                }
               } else {
                 // Regular vacation
-                vacationsMap[uId] = (vacationsMap[uId] || 0) + overlapDays;
-                
-                // Format date string for reason note (e.g. 01/09 - 05/09)
+                let overlapDays = 0;
+                for (let cur = new Date(effStart); cur <= effEnd; cur.setDate(cur.getDate() + 1)) {
+                  const dStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+                  vacationDatesByUser[uId].add(dStr);
+                  coveredDatesByUser[uId].add(dStr);
+                  overlapDays++;
+                }
                 const sStr = `${effStart.getDate().toString().padStart(2, '0')}/${(effStart.getMonth() + 1).toString().padStart(2, '0')}`;
                 const eStr = `${effEnd.getDate().toString().padStart(2, '0')}/${(effEnd.getMonth() + 1).toString().padStart(2, '0')}`;
-                vacationDetailsMap[uId] = formatVacationText(overlapDays, sStr, eStr);
+                vacationDetailsMap[uId] = formatVacationText(vacationDatesByUser[uId].size || overlapDays, sStr, eStr);
               }
             }
           }
@@ -625,49 +862,136 @@ const SupervisorPayroll: React.FC = () => {
         console.warn("Error scanning leaves:", err);
       }
 
-      // 3. Scan 'actions' collection for permissions, time permits, and hourly excuses
+      // 3. Scan 'actions' collection for Sick Leaves (السكاليف), Vacations, and Permissions
       try {
         const actionsSnap = await getDocs(collection(db, 'actions'));
+        const pStart = new Date(pStartStr + 'T00:00:00');
+        const pEnd = new Date(pEndStr + 'T23:59:59');
+
         actionsSnap.docs.forEach((d: any) => {
           const act = d.data();
-          const actDate = act.date || (act.timestamp?.toDate ? act.timestamp.toDate().toISOString().split('T')[0] : null);
-          if (!actDate || actDate < pStartStr || actDate > pEndStr) return;
-
-          const uId = act.employeeId || act.userId;
+          const uId = matchStaff(act);
           if (!uId || fridaysMap[uId] === undefined) return;
 
-          const actType = (act.type || '').toLowerCase();
-          const actTitle = (act.title || act.description || '').toLowerCase();
+          const startStr = normalizeAnyDateStr(act.fromDate || act.startDate || act.date || act.timestamp || act.createdAt);
+          const endStr = normalizeAnyDateStr(act.toDate || act.endDate) || startStr;
+          if (!startStr || !endStr) return;
 
+          const actType = String(act.type || '').toLowerCase();
+          const combinedActText = `${act.type || ''} ${act.title || ''} ${act.description || ''} ${act.note || ''}`.toLowerCase();
+
+          // Check Permissions
           if (actType.includes('permission') || actType.includes('إذن') || actType.includes('hourly') ||
-              actTitle.includes('إذن') || actTitle.includes('permission') || actTitle.includes('ساعي')) {
-            permissionsMap[uId] = (permissionsMap[uId] || 0) + 1;
-            const hrs = Number(act.hours || act.permissionHours || act.duration) || 1;
-            permissionHoursMap[uId] = (permissionHoursMap[uId] || 0) + hrs;
+              /permission|إذن|ساعي|استئذان/i.test(combinedActText)) {
+            if (startStr >= pStartStr && startStr <= pEndStr) {
+              permissionsMap[uId] = (permissionsMap[uId] || 0) + 1;
+              const hrs = Number(act.hours || act.permissionHours || act.duration) || 1;
+              permissionHoursMap[uId] = (permissionHoursMap[uId] || 0) + hrs;
+            }
+            return;
+          }
+
+          const aStartDate = new Date(startStr + 'T00:00:00');
+          const aEndDate = new Date(endStr + 'T00:00:00');
+          const effStart = aStartDate > pStart ? aStartDate : pStart;
+          const effEnd = aEndDate < pEnd ? aEndDate : pEnd;
+
+          if (effEnd >= effStart) {
+            // Check Sick Leave (السكاليف)
+            if (actType === 'sick_leave' || isSickText(combinedActText)) {
+              for (let cur = new Date(effStart); cur <= effEnd; cur.setDate(cur.getDate() + 1)) {
+                const dStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+                sickDatesByUser[uId].add(dStr);
+                coveredDatesByUser[uId].add(dStr);
+              }
+            } else if (actType === 'annual_leave' || /annual_leave|إجازة سنوية|اجازة سنوية|إجازة اعتيادية/i.test(combinedActText)) {
+              for (let cur = new Date(effStart); cur <= effEnd; cur.setDate(cur.getDate() + 1)) {
+                const dStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+                vacationDatesByUser[uId].add(dStr);
+                coveredDatesByUser[uId].add(dStr);
+              }
+              if (!vacationDetailsMap[uId]) {
+                const sStr = `${effStart.getDate().toString().padStart(2, '0')}/${(effStart.getMonth() + 1).toString().padStart(2, '0')}`;
+                const eStr = `${effEnd.getDate().toString().padStart(2, '0')}/${(effEnd.getMonth() + 1).toString().padStart(2, '0')}`;
+                vacationDetailsMap[uId] = formatVacationText(vacationDatesByUser[uId].size, sStr, eStr);
+              }
+            }
           }
         });
       } catch (err) {
-        console.warn("Error scanning actions for permissions:", err);
+        console.warn("Error scanning actions for sick leaves & permissions:", err);
       }
 
-      // 4. SCAN ATTENDANCE LOGS: Overtime, Absences, and Lateness strictly in [pStartStr, pEndStr]
+      // 4. SCAN ATTENDANCE LOGS: Friday Biometric Punches, Overtime, Absences, and Lateness
       try {
         const attSnap = await getDocs(collection(db, 'attendance_logs'));
         const logsByUserDate: Record<string, any[]> = {};
         const userWorkedDates: Record<string, Set<string>> = {};
+        const monthStartStr = `${monthKey}-01`;
+        const monthEndStr = `${monthKey}-${String(totalDaysInMonth).padStart(2, '0')}`;
 
         attSnap.docs.forEach((d: any) => {
           const att = d.data();
-          if (att.date && att.date >= pStartStr && att.date <= pEndStr) {
-            const uId = att.userId;
-            if (uId && fridaysMap[uId] !== undefined) {
-              const key = `${uId}_${att.date}`;
-              if (!logsByUserDate[key]) logsByUserDate[key] = [];
-              logsByUserDate[key].push(att);
-              if (!userWorkedDates[uId]) userWorkedDates[uId] = new Set();
-              userWorkedDates[uId].add(att.date);
+          const attDate = normalizeAnyDateStr(att.date || att.timestamp || att.clientTimestamp);
+          if (!attDate) return;
+
+          const uId = matchStaff({ userId: att.userId || att.employeeId, name: att.userName || att.name });
+          if (!uId || fridaysMap[uId] === undefined) return;
+
+          // If this punch is on a Friday within the month or calculation period, count it as a fingerprinted Friday!
+          if ((attDate >= monthStartStr && attDate <= monthEndStr) || (attDate >= pStartStr && attDate <= pEndStr)) {
+            if (new Date(attDate + 'T00:00:00').getDay() === 5) {
+              fridayDatesByUser[uId].add(attDate);
             }
           }
+
+          if (attDate >= pStartStr && attDate <= pEndStr) {
+            const key = `${uId}_${attDate}`;
+            if (!logsByUserDate[key]) logsByUserDate[key] = [];
+            logsByUserDate[key].push(att);
+            if (!userWorkedDates[uId]) userWorkedDates[uId] = new Set();
+            userWorkedDates[uId].add(attDate);
+          }
+        });
+
+        // Also check saved attendance_analysis for this month in case biometric punches were uploaded via Excel/JSON
+        try {
+          let analysisData: any = null;
+          const analysisSnap = await getDoc(doc(db, 'attendance_analysis', `analysis_${monthKey}`));
+          if (analysisSnap.exists()) {
+            analysisData = analysisSnap.data();
+          } else {
+            const localRaw = localStorage.getItem('smart_attendance_analysis');
+            if (localRaw) {
+              const parsed = JSON.parse(localRaw);
+              if (!parsed.month || parsed.month === monthKey) analysisData = parsed;
+            }
+          }
+          if (analysisData && Array.isArray(analysisData.summaries)) {
+            analysisData.summaries.forEach((empSum: any) => {
+              const uId = matchStaff({ name: empSum.employeeName, userId: empSum.userId });
+              if (!uId) return;
+              if (Array.isArray(empSum.records) && empSum.records.length > 0) {
+                empSum.records.forEach((rec: any) => {
+                  const rDate = normalizeAnyDateStr(rec.date);
+                  if (rDate && new Date(rDate + 'T00:00:00').getDay() === 5 && (rec.totalHours > 0 || rec.status === 'Present' || rec.clockIn || rec.clockOut)) {
+                    fridayDatesByUser[uId].add(rDate);
+                  }
+                });
+              } else if (empSum.fridaysWorked && Number(empSum.fridaysWorked) > 0 && fridayDatesByUser[uId].size === 0) {
+                for (let fIdx = 0; fIdx < Number(empSum.fridaysWorked); fIdx++) {
+                  fridayDatesByUser[uId].add(`${monthKey}-punched-fri-${fIdx + 1}`);
+                }
+              }
+            });
+          }
+        } catch (e) {}
+
+        // Finalize deduplicated counts for Fridays, Sick Leaves, and Vacations
+        staffList.forEach(s => {
+          fridaysMap[s.id] = fridayDatesByUser[s.id].size;
+          sickLeavesMap[s.id] = sickDatesByUser[s.id].size;
+          vacationsMap[s.id] = vacationDatesByUser[s.id].size;
         });
 
         // Compute daily hours, overtime, lateness, and absences per user
@@ -756,14 +1080,14 @@ const SupervisorPayroll: React.FC = () => {
       console.warn("Scan month data error:", err);
     }
 
-    // Build the processed rows with pulled Overtime, Absences, and Lateness
+    // Build the processed rows with pulled Fridays (schedule + punch only), Sick Leaves, Overtime, Absences, and Lateness
     const generatedRows: PayrollRow[] = staffList.map(s => {
       const isDoc = s.jobCategory === 'doctor' || s.role === UserRole.DOCTOR || (s.name || '').toLowerCase().includes('د.');
       const isHidden = !!s.isHidden;
       const category: 'doctor' | 'staff' | 'hidden' = isDoc ? 'doctor' : (isHidden ? 'hidden' : 'staff');
 
-      // CRITICAL: Full month Fridays are preserved ("بس الجمع تكون زي ما هيا اللي في الشهر")
-      const fridays = (fridaysMap[s.id] !== undefined && fridaysMap[s.id] > 0) ? fridaysMap[s.id] : calendarFridaysCount;
+      // CRITICAL: Count ONLY Fridays from the schedule and biometric punches (NO full month calendar fallback!)
+      const fridays = fridaysMap[s.id] || 0;
       const holiday = holidaysMap[s.id] !== undefined ? holidaysMap[s.id] : 1;
       const sickDays = sickLeavesMap[s.id] || 0;
       const vacationDays = vacationsMap[s.id] || 0;
@@ -945,6 +1269,8 @@ const SupervisorPayroll: React.FC = () => {
           const ot = Math.round(Number(emp.totalOvertimeHours) || 0);
           const abs = Math.round(Number(emp.absentDays) || 0);
           const late = Math.round(Number(emp.totalLatenessHours) || 0);
+          const syncedFridays = emp.fridaysWorked !== undefined ? (Number(emp.fridaysWorked) || 0) : r.fridayDuties;
+          const syncedSick = emp.sickLeaveDays !== undefined ? Math.max(r.sickLeaveDaysCount || 0, Number(emp.sickLeaveDays) || 0) : r.sickLeaveDaysCount;
 
           const actualDays = Math.max(0, r.totalMonthDays - (r.vacationDaysCount || 0) - abs);
 
@@ -960,12 +1286,18 @@ const SupervisorPayroll: React.FC = () => {
             calcDisplay = `${actualDays}`;
           }
 
+          const updatedSickText = syncedSick > 0 ? formatSickLeaveText(syncedSick) : r.sickLeaveText;
+
           return {
             ...r,
+            fridayDuties: syncedFridays,
+            fridayDisplay: formatCountToText(syncedFridays, 'day', 'days'),
             overtimeHours: ot,
             overtimeDisplay: ot > 0 ? `${ot} Hours` : '',
             absentDaysCount: abs,
             lateHoursCount: late,
+            sickLeaveDaysCount: syncedSick,
+            sickLeaveText: updatedSickText,
             actualDaysWorked: actualDays,
             calculatedDaysDisplay: calcDisplay,
             absentAndLateText: absentLate || r.absentAndLateText
@@ -1036,12 +1368,19 @@ const SupervisorPayroll: React.FC = () => {
         });
 
         Object.keys(userDates).forEach(name => {
-          const daysCount = userDates[name].size;
+          const datesSet = userDates[name];
+          const daysCount = datesSet.size;
+          let fridaysWithPunch = 0;
+          datesSet.forEach(dStr => {
+            if (new Date(dStr + 'T00:00:00').getDay() === 5) {
+              fridaysWithPunch++;
+            }
+          });
           const absent = Math.max(0, monthInfo.daysInMonth - daysCount - 4); // rough non-fridays
           extractedSummaries.push({
             employeeName: name,
             totalWorkDays: daysCount,
-            fridaysWorked: 0,
+            fridaysWorked: fridaysWithPunch,
             absentDays: absent,
             holidayDays: 0,
             exceptionalDays: 0,
@@ -1124,12 +1463,18 @@ const SupervisorPayroll: React.FC = () => {
             if (inTime > 8.25 && inTime < 12) lateH += (inTime - 8);
           });
 
+          let fridaysWithPunch = 0;
+          workedDates.forEach(dStr => {
+            if (new Date(dStr + 'T00:00:00').getDay() === 5) {
+              fridaysWithPunch++;
+            }
+          });
           const absents = Math.max(0, monthInfo.daysInMonth - workedDates.size - 4);
 
           extractedSummaries.push({
             employeeName: empName,
             totalWorkDays: workedDates.size,
-            fridaysWorked: 0,
+            fridaysWorked: fridaysWithPunch,
             absentDays: absents,
             holidayDays: 0,
             exceptionalDays: 0,
@@ -1173,6 +1518,7 @@ const SupervisorPayroll: React.FC = () => {
           const ot = Math.round(emp.totalOvertimeHours);
           const abs = Math.round(emp.absentDays);
           const late = Math.round(emp.totalLatenessHours);
+          const syncedFridays = emp.fridaysWorked !== undefined ? (Number(emp.fridaysWorked) || 0) : r.fridayDuties;
           const actualDays = Math.max(0, r.totalMonthDays - (r.vacationDaysCount || 0) - abs);
 
           let absentLate = '';
@@ -1189,6 +1535,8 @@ const SupervisorPayroll: React.FC = () => {
 
           return {
             ...r,
+            fridayDuties: syncedFridays,
+            fridayDisplay: formatCountToText(syncedFridays, 'day', 'days'),
             overtimeHours: ot,
             overtimeDisplay: ot > 0 ? `${ot} Hours` : '',
             absentDaysCount: abs,
@@ -1267,6 +1615,7 @@ const SupervisorPayroll: React.FC = () => {
         month: selectedMonth,
         config,
         rows,
+        calculationVersion: 3,
         updatedAt: timestampNow,
         savedBy: user?.displayName || user?.email || 'Supervisor'
       });
@@ -1289,18 +1638,33 @@ const SupervisorPayroll: React.FC = () => {
       const formatForExcel = (r: PayrollRow, idx: number) => {
         const item: any = {
           'م': idx + 1,
-          'حساب أيام': r.calculatedDaysDisplay || '',
-          'اسم الموظف / Employee Name': r.name,
-          'الجمع / Fridays': r.fridayDisplay || (r.fridayDuties > 0 ? `${r.fridayDuties} days` : ''),
         };
 
-        if (config.customHolidayEnabled) {
-          item[config.customHolidayName || 'NATIONAL DAY'] = r.holidayDisplay || (r.holidayDuties > 0 ? `${r.holidayDuties} day` : '');
-        }
-
-        item[`${monthInfo.monthNameEn} Overtime`] = r.overtimeDisplay || (r.overtimeHours > 0 ? `${r.overtimeHours} Hours` : '');
-        item['ملاحظات: ABSENT and LATE'] = r.absentAndLateText || '';
-        item['Sick Leave Not Including absentee'] = r.sickLeaveText || '';
+        orderedTableColumns.forEach(colKey => {
+          if (colKey === 'calcDays') {
+            item['حساب أيام'] = r.calculatedDaysDisplay || '';
+          } else if (colKey === 'name') {
+            item['اسم الموظف / Employee Name'] = r.name;
+          } else if (colKey === 'fridays') {
+            item['الجمع / Fridays'] = r.fridayDisplay || (r.fridayDuties > 0 ? `${r.fridayDuties} days` : '');
+          } else if (colKey === 'holiday') {
+            if (config.customHolidayEnabled) {
+              item[config.customHolidayName || 'NATIONAL DAY'] = r.holidayDisplay || (r.holidayDuties > 0 ? `${r.holidayDuties} day` : '');
+            }
+          } else if (colKey === 'overtime') {
+            item[`${monthInfo.monthNameEn} Overtime`] = r.overtimeDisplay || (r.overtimeHours > 0 ? `${r.overtimeHours} Hours` : '');
+          } else if (colKey === 'absentLate') {
+            item['ملاحظات: ABSENT and LATE'] = r.absentAndLateText || '';
+          } else if (colKey === 'sickLeave') {
+            item['Sick Leave Not Including absentee'] = r.sickLeaveText || '';
+          } else {
+            const col = (config.customColumns || []).find(c => c.id === colKey);
+            if (col) {
+              const colHeader = col.titleBottom ? `${col.titleTop} - ${col.titleBottom}` : col.titleTop;
+              item[colHeader] = r.customColumnValues?.[col.id] || '';
+            }
+          }
+        });
 
         return item;
       };
@@ -1344,8 +1708,8 @@ const SupervisorPayroll: React.FC = () => {
       jobTitle: newRowData.jobTitle || 'Technician',
       category: newRowData.category || 'staff',
       calculatedDaysDisplay: newRowData.calculatedDaysDisplay || '',
-      fridayDuties: newRowData.fridayDuties || 4,
-      fridayDisplay: formatCountToText(newRowData.fridayDuties || 4, 'day', 'days'),
+      fridayDuties: newRowData.fridayDuties || 0,
+      fridayDisplay: formatCountToText(newRowData.fridayDuties || 0, 'day', 'days'),
       holidayDuties: newRowData.holidayDuties || 1,
       holidayDisplay: (newRowData.holidayDuties || 1) > 0 ? formatCountToText(newRowData.holidayDuties || 1, 'day', 'days') : '',
       overtimeHours: newRowData.overtimeHours || 0,
@@ -1358,7 +1722,8 @@ const SupervisorPayroll: React.FC = () => {
       vacationDaysCount: 0,
       sickLeaveDaysCount: 0,
       lateHoursCount: 0,
-      isCustomRow: true
+      isCustomRow: true,
+      customColumnValues: {}
     };
 
     setRows(prev => [...prev, newRow]);
@@ -1369,13 +1734,207 @@ const SupervisorPayroll: React.FC = () => {
       jobTitle: '',
       category: 'staff',
       calculatedDaysDisplay: '',
-      fridayDuties: 4,
+      fridayDuties: 0,
       holidayDuties: 1,
       overtimeHours: 0,
       absentAndLateText: '',
       sickLeaveText: ''
     });
     setToast({ msg: 'تم إضافة الموظف للكشف بنجاح', type: 'success' });
+  };
+
+  // Custom column value handler
+  const handleCustomColValueChange = (rowId: string, colId: string, val: string) => {
+    setRows(prev => prev.map(r => {
+      if (r.id !== rowId) return r;
+      return {
+        ...r,
+        customColumnValues: {
+          ...(r.customColumnValues || {}),
+          [colId]: val
+        }
+      };
+    }));
+  };
+
+  // Add custom column with chosen position in the table
+  const handleAddCustomColumn = () => {
+    if (!newColTitleTop.trim()) {
+      setToast({ msg: isAr ? 'يرجى كتابة عنوان العمود' : 'Please enter column title', type: 'error' });
+      return;
+    }
+    const newColId = `col_${Date.now()}`;
+    const newCol: PayrollCustomColumn = {
+      id: newColId,
+      titleTop: newColTitleTop.trim(),
+      titleBottom: newColTitleBottom.trim() || undefined,
+      highlightYellow: newColYellow
+    };
+    setConfig(prev => {
+      const nextCustomCols = [...(prev.customColumns || []), newCol];
+      const baseOrder = [...orderedTableColumns];
+      if (newColPosition === 'start') {
+        baseOrder.unshift(newColId);
+      } else if (newColPosition.startsWith('after_')) {
+        const anchorKey = newColPosition.replace('after_', '');
+        const anchorIdx = baseOrder.indexOf(anchorKey);
+        if (anchorIdx !== -1) {
+          baseOrder.splice(anchorIdx + 1, 0, newColId);
+        } else {
+          baseOrder.push(newColId);
+        }
+      } else {
+        baseOrder.push(newColId);
+      }
+      return {
+        ...prev,
+        customColumns: nextCustomCols,
+        columnOrder: baseOrder
+      };
+    });
+    setNewColTitleTop('');
+    setNewColTitleBottom('');
+    setNewColYellow(false);
+    setToast({ msg: isAr ? 'تم إضافة العمود إلى المسير بنجاح' : 'Column added successfully', type: 'success' });
+  };
+
+  // Move any column (especially added custom columns) right or left in the table order
+  // Note: In RTL table, moving earlier in orderedTableColumns moves the column to the RIGHT, and moving later moves it to the LEFT
+  const handleMoveColumnOrder = (colKey: string, direction: 'earlier' | 'later') => {
+    const currentOrder = [...orderedTableColumns];
+    const idx = currentOrder.indexOf(colKey);
+    if (idx === -1) return;
+    const targetIdx = direction === 'earlier' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= currentOrder.length) return;
+    const temp = currentOrder[idx];
+    currentOrder[idx] = currentOrder[targetIdx];
+    currentOrder[targetIdx] = temp;
+    setConfig(prev => ({
+      ...prev,
+      columnOrder: currentOrder
+    }));
+  };
+
+  // Set exact position of a column relative to another column or index
+  const handleSetColumnIndex = (colKey: string, newIdx: number) => {
+    const currentOrder = [...orderedTableColumns];
+    const oldIdx = currentOrder.indexOf(colKey);
+    if (oldIdx === -1 || newIdx < 0 || newIdx >= currentOrder.length) return;
+    const [moved] = currentOrder.splice(oldIdx, 1);
+    currentOrder.splice(newIdx, 0, moved);
+    setConfig(prev => ({
+      ...prev,
+      columnOrder: currentOrder
+    }));
+  };
+
+  // Helper to get human-readable name for any column key
+  const getColumnLabel = (colKey: string): string => {
+    if (colKey === 'calcDays') return isAr ? 'حساب أيام' : 'Days Calc';
+    if (colKey === 'name') return isAr ? 'اسم الموظف' : 'Employee Name';
+    if (colKey === 'fridays') return isAr ? 'الجمع (Fridays)' : 'Fridays';
+    if (colKey === 'holiday') return config.customHolidayName || 'Holiday';
+    if (colKey === 'overtime') return `${monthInfo.monthNameEn} Overtime`;
+    if (colKey === 'absentLate') return isAr ? 'ملاحظات (الغياب والتأخير)' : 'ABSENT & LATE';
+    if (colKey === 'sickLeave') return isAr ? 'الإجازة المرضية (Sick Leave)' : 'Sick Leave';
+    const customCol = (config.customColumns || []).find(c => c.id === colKey);
+    if (customCol) return customCol.titleBottom ? `${customCol.titleTop} (${customCol.titleBottom})` : customCol.titleTop;
+    return colKey;
+  };
+
+  // Delete custom column
+  const handleDeleteCustomColumn = (colId: string) => {
+    setConfig(prev => ({
+      ...prev,
+      customColumns: (prev.customColumns || []).filter(c => c.id !== colId),
+      columnOrder: (prev.columnOrder || []).filter(k => k !== colId)
+    }));
+    setToast({ msg: isAr ? 'تم حذف العمود من المسير' : 'Column removed', type: 'info' });
+  };
+
+  // Update custom column title
+  const handleUpdateCustomColumn = (colId: string, field: keyof PayrollCustomColumn, val: any) => {
+    setConfig(prev => ({
+      ...prev,
+      customColumns: (prev.customColumns || []).map(c => c.id === colId ? { ...c, [field]: val } : c)
+    }));
+  };
+
+  // Move row up or down within the current visible list
+  const handleMoveRow = (rowId: string, direction: 'up' | 'down') => {
+    const currentIdxInDisplay = displayRows.findIndex(r => r.id === rowId);
+    if (currentIdxInDisplay === -1) return;
+    const targetIdxInDisplay = direction === 'up' ? currentIdxInDisplay - 1 : currentIdxInDisplay + 1;
+    if (targetIdxInDisplay < 0 || targetIdxInDisplay >= displayRows.length) return;
+    const targetRowId = displayRows[targetIdxInDisplay].id;
+
+    setSortBy('custom');
+    setRows(prev => {
+      const next = [...prev];
+      const idxA = next.findIndex(r => r.id === rowId);
+      const idxB = next.findIndex(r => r.id === targetRowId);
+      if (idxA === -1 || idxB === -1) return prev;
+      const temp = next[idxA];
+      next[idxA] = next[idxB];
+      next[idxB] = temp;
+      return next;
+    });
+  };
+
+  // Drag & Drop Row Reordering
+  const handleDropRow = (targetRowId: string) => {
+    if (!draggedRowId || draggedRowId === targetRowId) {
+      setDraggedRowId(null);
+      return;
+    }
+    setSortBy('custom');
+    setRows(prev => {
+      const next = [...prev];
+      const fromIdx = next.findIndex(r => r.id === draggedRowId);
+      const toIdx = next.findIndex(r => r.id === targetRowId);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+    setDraggedRowId(null);
+  };
+
+  // Sort rows by criterion (including custom columns!)
+  const handleApplySort = (criterion: string) => {
+    setSortBy(criterion);
+    if (criterion === 'custom') return;
+    setRows(prev => {
+      const next = [...prev];
+      next.sort((a, b) => {
+        if (criterion === 'name_asc') return (a.name || '').localeCompare(b.name || '', 'ar');
+        if (criterion === 'name_desc') return (b.name || '').localeCompare(a.name || '', 'ar');
+        if (criterion === 'emp_num') return (a.employeeNumber || '').localeCompare(b.employeeNumber || '', undefined, { numeric: true });
+        if (criterion === 'overtime_desc') return (b.overtimeHours || 0) - (a.overtimeHours || 0);
+        if (criterion === 'fridays_desc') return (b.fridayDuties || 0) - (a.fridayDuties || 0);
+        if (criterion === 'absent_desc') return (b.absentDaysCount || 0) - (a.absentDaysCount || 0);
+        if (criterion.startsWith('customcol_')) {
+          const isAsc = criterion.endsWith('_asc');
+          const colId = criterion.replace('customcol_', '').replace(/_(asc|desc)$/, '');
+          const valA = (a.customColumnValues?.[colId] || '').trim();
+          const valB = (b.customColumnValues?.[colId] || '').trim();
+          // Put non-empty values first when sorting
+          if (!valA && valB) return 1;
+          if (valA && !valB) return -1;
+          const numA = parseFloat(valA);
+          const numB = parseFloat(valB);
+          if (!isNaN(numA) && !isNaN(numB)) {
+            return isAsc ? numA - numB : numB - numA;
+          }
+          return isAsc
+            ? valA.localeCompare(valB, 'ar', { numeric: true })
+            : valB.localeCompare(valA, 'ar', { numeric: true });
+        }
+        return 0;
+      });
+      return next;
+    });
+    setToast({ msg: isAr ? 'تم ترتيب الموظفين بنجاح (اضغط حفظ لتثبيت الترتيب)' : 'Employees sorted successfully', type: 'info' });
   };
 
   // Delete row
@@ -1522,6 +2081,21 @@ const SupervisorPayroll: React.FC = () => {
             >
               <Plus className="w-3.5 h-3.5" />
               <span>{isAr ? 'إضافة صف' : 'Add Row'}</span>
+            </button>
+
+            {/* Add / Manage Custom Columns Button */}
+            <button
+              onClick={() => setIsColumnsModalOpen(true)}
+              className="text-xs font-bold py-2 px-3 rounded-xl bg-violet-600 hover:bg-violet-700 text-white flex items-center gap-1.5 transition-all shadow-md shadow-violet-600/20"
+              title={isAr ? 'إضافة أو تعديل أعمدة إضافية في مسير الرواتب' : 'Add or manage custom columns in payroll'}
+            >
+              <Columns className="w-3.5 h-3.5" />
+              <span>{isAr ? 'إضافة عمود' : 'Add Column'}</span>
+              {(config.customColumns?.length || 0) > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-white/20 text-[10px] font-black">
+                  {config.customColumns?.length}
+                </span>
+              )}
             </button>
 
             {/* Save Button */}
@@ -1702,6 +2276,38 @@ const SupervisorPayroll: React.FC = () => {
               <span>{isAr ? `إجازة كامل الشهر (${fullMonthLeaveCount})` : `Full Month Leave (${fullMonthLeaveCount})`}</span>
             </button>
 
+            {/* Employee Sort Selector */}
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs ${
+              isDark ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-700'
+            }`}>
+              <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+              <span className="font-bold text-[11px]">{isAr ? 'ترتيب:' : 'Sort:'}</span>
+              <select
+                value={sortBy}
+                onChange={(e) => handleApplySort(e.target.value)}
+                className="bg-transparent font-bold text-xs outline-none cursor-pointer"
+                title={isAr ? 'ترتيب الموظفين (أو اسحب الصفوف وحرك الأسهم ▲▼ للترتيب اليدوي)' : 'Sort employees or use arrows/drag to reorder'}
+              >
+                <option value="custom" className="text-slate-900">{isAr ? 'ترتيب يدوي (مخصص ▲▼)' : 'Custom Order (Manual)'}</option>
+                <option value="name_asc" className="text-slate-900">{isAr ? 'الاسم (أ - ي / A-Z)' : 'Name (A - Z)'}</option>
+                <option value="name_desc" className="text-slate-900">{isAr ? 'الاسم (ي - أ / Z-A)' : 'Name (Z - A)'}</option>
+                <option value="emp_num" className="text-slate-900">{isAr ? 'الرقم الوظيفي' : 'Employee ID'}</option>
+                <option value="overtime_desc" className="text-slate-900">{isAr ? 'الأوفر تايم (الأعلى)' : 'Overtime (High-Low)'}</option>
+                <option value="fridays_desc" className="text-slate-900">{isAr ? 'الجمع بالبصمة (الأعلى)' : 'Fridays (High-Low)'}</option>
+                <option value="absent_desc" className="text-slate-900">{isAr ? 'الغياب (الأعلى)' : 'Absence (High-Low)'}</option>
+                {(config.customColumns || []).map(col => (
+                  <React.Fragment key={col.id}>
+                    <option value={`customcol_${col.id}_desc`} className="text-slate-900">
+                      {isAr ? `العمود: ${col.titleTop} (تنازلي)` : `${col.titleTop} (Desc)`}
+                    </option>
+                    <option value={`customcol_${col.id}_asc`} className="text-slate-900">
+                      {isAr ? `العمود: ${col.titleTop} (تصاعدي)` : `${col.titleTop} (Asc)`}
+                    </option>
+                  </React.Fragment>
+                ))}
+              </select>
+            </div>
+
             {/* Search */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute right-2.5 top-2.5 text-slate-400" />
@@ -1738,13 +2344,13 @@ const SupervisorPayroll: React.FC = () => {
                 </div>
                 <div>
                   <h4 className="text-xs font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                    <span>{isAr ? 'فترة احتساب الغياب والإضافي والأذونات' : 'Absence, Overtime & Permits Calculation Period'}</span>
+                    <span>{isAr ? 'فترة احتساب الغياب والإضافي والأذونات والسكاليف' : 'Absence, Overtime, Sick Leave & Permits Period'}</span>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                      {isAr ? 'الجمع ثابتة للشهر' : 'Fridays Full Month'}
+                      {isAr ? 'الجمع: بالبصمة فقط' : 'Fridays: Biometric Punch Only'}
                     </span>
                   </h4>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                    {isAr ? 'الجمع تظل محسوبة للشهر كاملاً • الفترة المحددة تطبق فقط على الغياب والأوفر تايم والسيكليف والأذونات' : 'Fridays remain for the full month • Period only determines Absences, Overtime, Sick Leave & Permissions'}
+                    {isAr ? 'يتم احتساب الجمع التي بصم فيها الموظف فعلياً فقط • مع احتساب السكاليف والغياب والأوفر تايم والأذونات' : 'Counts ONLY Fridays where the employee has an actual biometric punch • Plus Sick Leaves, Absences, Overtime & Permits'}
                   </p>
                 </div>
               </div>
@@ -1807,7 +2413,7 @@ const SupervisorPayroll: React.FC = () => {
             <div className="flex items-center gap-2 flex-wrap">
               <div className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300 font-bold flex items-center gap-1.5">
                 <Check className="w-3.5 h-3.5 text-emerald-600" />
-                <span>{isAr ? `الجمع: كاملة لشهر ${monthInfo.monthNameAr}` : `Fridays: Full Month ${monthInfo.monthNameEn}`}</span>
+                <span>{isAr ? 'الجمع: التي بها بصمة فقط' : 'Fridays: Punched Only'}</span>
               </div>
               <div className="px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-xs text-blue-800 dark:text-blue-300 font-bold flex items-center gap-1.5 font-mono">
                 <Clock className="w-3.5 h-3.5 text-blue-600" />
@@ -1891,68 +2497,166 @@ const SupervisorPayroll: React.FC = () => {
 
           {/* Table Container with exact excel grid borders and colors */}
           <table className="w-full border-collapse border-2 border-black text-black font-sans text-xs sm:text-[13px] excel-table">
-            {/* Header Rows matching exact 2-row layout from image */}
+            {/* Header Rows matching exact 2-row layout and dynamic columnOrder */}
             <thead>
               {/* Row 1 of Header */}
               <tr className="bg-[#e6e6e6] text-center font-bold border-b border-black text-black excel-header-gray">
-                {/* 1. م (Serial Number) */}
+                {/* 1. م (Serial Number - always first) */}
                 <th className="border border-black px-1.5 py-1.5 w-9 text-center font-bold" rowSpan={2}>
                   م
                 </th>
 
-                {/* 2. حساب أيام (Yellow Background - #ffff00) */}
-                <th className="border border-black px-1.5 py-1.5 w-16 bg-[#ffff00] text-black font-black text-center excel-yellow-cell" rowSpan={2}>
-                  <div className="leading-tight">حساب</div>
-                  <div className="leading-tight">أيام</div>
-                </th>
+                {orderedTableColumns.map((colKey, colIdx) => {
+                  if (colKey === 'calcDays') {
+                    return (
+                      <th key={colKey} className="border border-black px-1.5 py-1.5 w-16 bg-[#ffff00] text-black font-black text-center excel-yellow-cell" rowSpan={2}>
+                        <div className="leading-tight">حساب</div>
+                        <div className="leading-tight">أيام</div>
+                      </th>
+                    );
+                  }
+                  if (colKey === 'name') {
+                    return (
+                      <th key={colKey} className="border border-black px-3 py-1.5 min-w-[190px] text-center" rowSpan={2}>
+                        <div>اسم الموظف</div>
+                        <div className="font-normal text-[11px]">Employee Name</div>
+                      </th>
+                    );
+                  }
+                  if (colKey === 'fridays') {
+                    return (
+                      <th key={colKey} className="border border-black px-2.5 py-1.5 w-28 text-center" rowSpan={2}>
+                        <div>الجمع</div>
+                        <div className="font-normal text-[11px]">Fridays</div>
+                      </th>
+                    );
+                  }
+                  if (colKey === 'holiday') {
+                    return (
+                      <th key={colKey} className="border border-black px-2.5 py-1.5 w-28 text-center" rowSpan={2}>
+                        <div>{config.customHolidayName}</div>
+                        <div className="font-normal text-[11px]">DAY</div>
+                      </th>
+                    );
+                  }
+                  if (colKey === 'overtime') {
+                    return (
+                      <th key={colKey} className="border border-black px-2.5 py-1.5 w-24 text-center">
+                        {monthInfo.monthNameEn}
+                      </th>
+                    );
+                  }
+                  if (colKey === 'absentLate') {
+                    return (
+                      <th key={colKey} className="border border-black px-3 py-1.5 min-w-[190px] text-center">
+                        ملاحظات:
+                      </th>
+                    );
+                  }
+                  if (colKey === 'sickLeave') {
+                    return (
+                      <th key={colKey} className="border border-black px-3 py-1.5 min-w-[190px] text-center">
+                        Sick Leave
+                      </th>
+                    );
+                  }
 
-                {/* 3. اسم الموظف / Employee Name */}
-                <th className="border border-black px-3 py-1.5 min-w-[190px] text-center" rowSpan={2}>
-                  <div>اسم الموظف</div>
-                  <div className="font-normal text-[11px]">Employee Name</div>
-                </th>
-
-                {/* 4. الجمع / Fridays */}
-                <th className="border border-black px-2.5 py-1.5 w-28 text-center" rowSpan={2}>
-                  <div>الجمع</div>
-                  <div className="font-normal text-[11px]">Fridays</div>
-                </th>
-
-                {/* 5. Holiday column (e.g. NATIONAL DAY or EID) */}
-                {config.customHolidayEnabled && (
-                  <th className="border border-black px-2.5 py-1.5 w-28 text-center" rowSpan={2}>
-                    <div>{config.customHolidayName}</div>
-                    <div className="font-normal text-[11px]">DAY</div>
-                  </th>
-                )}
-
-                {/* 6. Overtime Month Name (top) */}
-                <th className="border border-black px-2.5 py-1.5 w-24 text-center">
-                  {monthInfo.monthNameEn}
-                </th>
-
-                {/* 7. ملاحظات: (top) */}
-                <th className="border border-black px-3 py-1.5 min-w-[190px] text-center">
-                  ملاحظات:
-                </th>
-
-                {/* 8. Sick Leave (top) */}
-                <th className="border border-black px-3 py-1.5 min-w-[190px] text-center">
-                  Sick Leave
-                </th>
+                  // Custom Column
+                  const col = (config.customColumns || []).find(c => c.id === colKey);
+                  if (!col) return null;
+                  const isSortedDesc = sortBy === `customcol_${col.id}_desc`;
+                  return (
+                    <th
+                      key={col.id}
+                      rowSpan={col.titleBottom ? 1 : 2}
+                      className={`border border-black px-2 py-1.5 min-w-[125px] text-center relative group ${
+                        col.highlightYellow ? 'bg-[#ffff00] text-black font-black excel-yellow-cell' : ''
+                      }`}
+                    >
+                      <div className="flex flex-col items-center justify-center gap-0.5">
+                        <span>{col.titleTop}</span>
+                        {/* Column Reorder & Sort Controls (Hidden in Print) */}
+                        <div className="flex items-center justify-center gap-1 print:hidden mt-0.5 bg-black/5 rounded-md px-1 py-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleMoveColumnOrder(col.id, 'earlier')}
+                            disabled={colIdx === 0}
+                            className="text-slate-700 hover:text-indigo-700 disabled:opacity-25 p-0.5"
+                            title={isAr ? 'تحريك العمود لليمين' : 'Move column right'}
+                          >
+                            <ArrowRight className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleMoveColumnOrder(col.id, 'later')}
+                            disabled={colIdx === orderedTableColumns.length - 1}
+                            className="text-slate-700 hover:text-indigo-700 disabled:opacity-25 p-0.5"
+                            title={isAr ? 'تحريك العمود لليسار' : 'Move column left'}
+                          >
+                            <ArrowLeft className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleApplySort(isSortedDesc ? `customcol_${col.id}_asc` : `customcol_${col.id}_desc`)}
+                            className="text-indigo-700 hover:text-indigo-900 p-0.5"
+                            title={isAr ? 'ترتيب الموظفين حسب هذا العمود' : 'Sort employees by this column'}
+                          >
+                            <ArrowUpDown className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCustomColumn(col.id)}
+                            className="text-rose-600 hover:text-rose-800 p-0.5"
+                            title={isAr ? 'حذف هذا العمود' : 'Delete column'}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    </th>
+                  );
+                })}
               </tr>
 
-              {/* Row 2 of Header */}
+              {/* Row 2 of Header (in exact orderedTableColumns sequence for columns that have 2 header rows) */}
               <tr className="bg-[#e6e6e6] text-center font-bold border-b-2 border-black text-black excel-header-gray">
-                <th className="border border-black px-2 py-1.5 text-center">
-                  Overtime
-                </th>
-                <th className="border border-black px-2 py-1.5 text-center">
-                  ABSENT and LATE
-                </th>
-                <th className="border border-black px-2 py-1.5 text-center">
-                  Not Including absentee
-                </th>
+                {orderedTableColumns.map(colKey => {
+                  if (colKey === 'overtime') {
+                    return (
+                      <th key="overtime_sub" className="border border-black px-2 py-1.5 text-center">
+                        Overtime
+                      </th>
+                    );
+                  }
+                  if (colKey === 'absentLate') {
+                    return (
+                      <th key="absentLate_sub" className="border border-black px-2 py-1.5 text-center">
+                        ABSENT and LATE
+                      </th>
+                    );
+                  }
+                  if (colKey === 'sickLeave') {
+                    return (
+                      <th key="sickLeave_sub" className="border border-black px-2 py-1.5 text-center">
+                        Not Including absentee
+                      </th>
+                    );
+                  }
+                  const col = (config.customColumns || []).find(c => c.id === colKey);
+                  if (col && col.titleBottom) {
+                    return (
+                      <th
+                        key={`${col.id}_sub`}
+                        className={`border border-black px-2 py-1.5 text-center ${
+                          col.highlightYellow ? 'bg-[#ffff00] text-black font-black excel-yellow-cell' : ''
+                        }`}
+                      >
+                        {col.titleBottom}
+                      </th>
+                    );
+                  }
+                  return null;
+                })}
               </tr>
             </thead>
 
@@ -1960,129 +2664,207 @@ const SupervisorPayroll: React.FC = () => {
             <tbody>
               {displayRows.length === 0 ? (
                 <tr>
-                  <td colSpan={config.customHolidayEnabled ? 8 : 7} className="border border-black py-8 text-center text-slate-500 font-bold">
+                  <td colSpan={1 + orderedTableColumns.length} className="border border-black py-8 text-center text-slate-500 font-bold">
                     {isAr ? 'لا توجد بيانات مطابقة للعرض في هذا التبويب' : 'No matching employee records found in this tab'}
                   </td>
                 </tr>
               ) : (
                 displayRows.map((row, idx) => (
-                  <tr key={row.id} className="hover:bg-yellow-50/30 transition-colors">
+                  <tr
+                    key={row.id}
+                    draggable
+                    onDragStart={() => setDraggedRowId(row.id)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => handleDropRow(row.id)}
+                    className={`hover:bg-yellow-50/30 transition-colors ${
+                      draggedRowId === row.id ? 'opacity-50 bg-indigo-50' : ''
+                    }`}
+                  >
                     
-                    {/* 1. م (Serial Number) */}
+                    {/* 1. م (Serial Number + Reorder Controls on Screen) */}
                     <td className="border border-black text-center font-bold py-1.5 px-1 bg-white text-black">
-                      {idx + 1}
-                    </td>
-
-                    {/* 2. حساب أيام (Yellow Background - #ffff00 in header and all rows!) */}
-                    <td className="border border-black text-center font-black py-1.5 px-1 bg-[#ffff00] text-black excel-yellow-cell" dir="ltr">
-                      <span className="payroll-print-val font-black text-black text-sm text-center" dir="ltr">
-                        {row.calculatedDaysDisplay || ''}
-                      </span>
-                      <input 
-                        type="text"
-                        dir="ltr"
-                        value={row.calculatedDaysDisplay || ''}
-                        onChange={(e) => handleCellChange(row.id, 'calculatedDaysDisplay', e.target.value)}
-                        className="payroll-screen-input w-full text-center font-black bg-transparent outline-none border-none p-0 text-black text-sm"
-                        placeholder=""
-                      />
-                    </td>
-
-                    {/* 3. اسم الموظف / Employee Name */}
-                    <td className="border border-black text-right font-bold py-1.5 px-2 bg-white text-black">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="font-extrabold text-[13px] text-black" dir="auto">{row.name}</span>
-                        {row.calculatedDaysDisplay === '*2' && (
-                          <span className="text-amber-700 font-black text-xs print:hidden" dir="ltr">*2</span>
-                        )}
-                        {row.isCustomRow && (
-                          <button 
-                            onClick={() => handleDeleteRow(row.id)}
-                            className="text-rose-500 hover:text-rose-700 p-0.5 print:hidden"
-                            title="حذف هذا الصف"
+                      <div className="flex items-center justify-center gap-0.5">
+                        <span
+                          className="text-slate-400 cursor-grab active:cursor-grabbing print:hidden shrink-0 inline-flex"
+                          title={isAr ? 'اسحب لترتيب الصف' : 'Drag to reorder'}
+                        >
+                          <GripVertical className="w-3 h-3" />
+                        </span>
+                        <span>{idx + 1}</span>
+                        <div className="flex flex-col print:hidden ml-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleMoveRow(row.id, 'up')}
+                            disabled={idx === 0}
+                            className="text-slate-500 hover:text-indigo-600 disabled:opacity-20 p-0 leading-none"
+                            title={isAr ? 'تحريك لأعلى' : 'Move up'}
                           >
-                            <Trash2 className="w-3 h-3" />
+                            <ArrowUp className="w-2.5 h-2.5" />
                           </button>
-                        )}
+                          <button
+                            type="button"
+                            onClick={() => handleMoveRow(row.id, 'down')}
+                            disabled={idx === displayRows.length - 1}
+                            className="text-slate-500 hover:text-indigo-600 disabled:opacity-20 p-0 leading-none"
+                            title={isAr ? 'تحريك لأسفل' : 'Move down'}
+                          >
+                            <ArrowDown className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
                       </div>
                     </td>
 
-                    {/* 4. الجمع / Fridays */}
-                    <td className="border border-black text-center font-bold py-1.5 px-1.5 bg-white text-black" dir="ltr">
-                      <span className="payroll-print-val font-bold text-black text-xs sm:text-[13px] text-center" dir="ltr">
-                        {row.fridayDisplay || ''}
-                      </span>
-                      <input 
-                        type="text"
-                        dir="ltr"
-                        value={row.fridayDisplay || ''}
-                        onChange={(e) => handleCellChange(row.id, 'fridayDisplay', e.target.value)}
-                        className="payroll-screen-input w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
-                        placeholder="4 (Four) Days"
-                      />
-                    </td>
+                    {/* Render cells in exact orderedTableColumns order */}
+                    {orderedTableColumns.map(colKey => {
+                      if (colKey === 'calcDays') {
+                        return (
+                          <td key={colKey} className="border border-black text-center font-black py-1.5 px-1 bg-[#ffff00] text-black excel-yellow-cell" dir="ltr">
+                            <span className="payroll-print-val font-black text-black text-sm text-center" dir="ltr">
+                              {row.calculatedDaysDisplay || ''}
+                            </span>
+                            <input 
+                              type="text"
+                              dir="ltr"
+                              value={row.calculatedDaysDisplay || ''}
+                              onChange={(e) => handleCellChange(row.id, 'calculatedDaysDisplay', e.target.value)}
+                              className="payroll-screen-input w-full text-center font-black bg-transparent outline-none border-none p-0 text-black text-sm"
+                              placeholder=""
+                            />
+                          </td>
+                        );
+                      }
+                      if (colKey === 'name') {
+                        return (
+                          <td key={colKey} className="border border-black text-right font-bold py-1.5 px-2 bg-white text-black">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-extrabold text-[13px] text-black" dir="auto">{row.name}</span>
+                              {row.calculatedDaysDisplay === '*2' && (
+                                <span className="text-amber-700 font-black text-xs print:hidden" dir="ltr">*2</span>
+                              )}
+                              {row.isCustomRow && (
+                                <button 
+                                  onClick={() => handleDeleteRow(row.id)}
+                                  className="text-rose-500 hover:text-rose-700 p-0.5 print:hidden"
+                                  title="حذف هذا الصف"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        );
+                      }
+                      if (colKey === 'fridays') {
+                        return (
+                          <td key={colKey} className="border border-black text-center font-bold py-1.5 px-1.5 bg-white text-black" dir="ltr">
+                            <span className="payroll-print-val font-bold text-black text-xs sm:text-[13px] text-center" dir="ltr">
+                              {row.fridayDisplay || ''}
+                            </span>
+                            <input 
+                              type="text"
+                              dir="ltr"
+                              value={row.fridayDisplay || ''}
+                              onChange={(e) => handleCellChange(row.id, 'fridayDisplay', e.target.value)}
+                              className="payroll-screen-input w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
+                              placeholder="4 (Four) Days"
+                            />
+                          </td>
+                        );
+                      }
+                      if (colKey === 'holiday') {
+                        return (
+                          <td key={colKey} className="border border-black text-center font-bold py-1.5 px-1.5 bg-white text-black" dir="ltr">
+                            <span className="payroll-print-val font-bold text-black text-xs sm:text-[13px] text-center" dir="ltr">
+                              {row.holidayDisplay || ''}
+                            </span>
+                            <input 
+                              type="text"
+                              dir="ltr"
+                              value={row.holidayDisplay || ''}
+                              onChange={(e) => handleCellChange(row.id, 'holidayDisplay', e.target.value)}
+                              className="payroll-screen-input w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
+                              placeholder="1 (One) Day"
+                            />
+                          </td>
+                        );
+                      }
+                      if (colKey === 'overtime') {
+                        return (
+                          <td key={colKey} className="border border-black text-center font-bold py-1.5 px-1.5 bg-white text-black" dir="ltr">
+                            <span className="payroll-print-val font-bold text-black text-xs sm:text-[13px] text-center" dir="ltr">
+                              {row.overtimeDisplay || ''}
+                            </span>
+                            <input 
+                              type="text"
+                              dir="ltr"
+                              value={row.overtimeDisplay || ''}
+                              onChange={(e) => handleCellChange(row.id, 'overtimeDisplay', e.target.value)}
+                              className="payroll-screen-input w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
+                              placeholder="57 Hours"
+                            />
+                          </td>
+                        );
+                      }
+                      if (colKey === 'absentLate') {
+                        return (
+                          <td key={colKey} className="border border-black text-center font-bold py-1.5 px-2 bg-white text-black" dir="ltr">
+                            <span className="payroll-print-val font-bold text-black text-xs sm:text-[13px] text-center" dir="ltr">
+                              {row.absentAndLateText || ''}
+                            </span>
+                            <input 
+                              type="text"
+                              dir="ltr"
+                              value={row.absentAndLateText || ''}
+                              onChange={(e) => handleCellChange(row.id, 'absentAndLateText', e.target.value)}
+                              className="payroll-screen-input w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
+                              placeholder="-"
+                            />
+                          </td>
+                        );
+                      }
+                      if (colKey === 'sickLeave') {
+                        return (
+                          <td key={colKey} className="border border-black text-center font-bold py-1.5 px-2 bg-white text-black" dir="ltr">
+                            <span className="payroll-print-val font-bold text-black text-xs sm:text-[13px] text-center" dir="ltr">
+                              {row.sickLeaveText || ''}
+                            </span>
+                            <input 
+                              type="text"
+                              dir="ltr"
+                              value={row.sickLeaveText || ''}
+                              onChange={(e) => handleCellChange(row.id, 'sickLeaveText', e.target.value)}
+                              className="payroll-screen-input w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
+                              placeholder="-"
+                            />
+                          </td>
+                        );
+                      }
 
-                    {/* 5. National Day / Eid / Occasion */}
-                    {config.customHolidayEnabled && (
-                      <td className="border border-black text-center font-bold py-1.5 px-1.5 bg-white text-black" dir="ltr">
-                        <span className="payroll-print-val font-bold text-black text-xs sm:text-[13px] text-center" dir="ltr">
-                          {row.holidayDisplay || ''}
-                        </span>
-                        <input 
-                          type="text"
+                      // Custom Column Cell
+                      const col = (config.customColumns || []).find(c => c.id === colKey);
+                      if (!col) return null;
+                      return (
+                        <td
+                          key={col.id}
+                          className={`border border-black text-center font-bold py-1.5 px-2 text-black ${
+                            col.highlightYellow ? 'bg-[#ffff00] font-black excel-yellow-cell' : 'bg-white'
+                          }`}
                           dir="ltr"
-                          value={row.holidayDisplay || ''}
-                          onChange={(e) => handleCellChange(row.id, 'holidayDisplay', e.target.value)}
-                          className="payroll-screen-input w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
-                          placeholder="1 (One) Day"
-                        />
-                      </td>
-                    )}
-
-                    {/* 6. Overtime (مسحوب من محلل الحضور) */}
-                    <td className="border border-black text-center font-bold py-1.5 px-1.5 bg-white text-black" dir="ltr">
-                      <span className="payroll-print-val font-bold text-black text-xs sm:text-[13px] text-center" dir="ltr">
-                        {row.overtimeDisplay || ''}
-                      </span>
-                      <input 
-                        type="text"
-                        dir="ltr"
-                        value={row.overtimeDisplay || ''}
-                        onChange={(e) => handleCellChange(row.id, 'overtimeDisplay', e.target.value)}
-                        className="payroll-screen-input w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
-                        placeholder="57 Hours"
-                      />
-                    </td>
-
-                    {/* 7. ملاحظات: ABSENT and LATE (مسحوب من محلل الحضور) */}
-                    <td className="border border-black text-center font-bold py-1.5 px-2 bg-white text-black" dir="ltr">
-                      <span className="payroll-print-val font-bold text-black text-xs sm:text-[13px] text-center" dir="ltr">
-                        {row.absentAndLateText || ''}
-                      </span>
-                      <input 
-                        type="text"
-                        dir="ltr"
-                        value={row.absentAndLateText || ''}
-                        onChange={(e) => handleCellChange(row.id, 'absentAndLateText', e.target.value)}
-                        className="payroll-screen-input w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
-                        placeholder="-"
-                      />
-                    </td>
-
-                    {/* 8. Sick Leave Not Including absentee */}
-                    <td className="border border-black text-center font-bold py-1.5 px-2 bg-white text-black" dir="ltr">
-                      <span className="payroll-print-val font-bold text-black text-xs sm:text-[13px] text-center" dir="ltr">
-                        {row.sickLeaveText || ''}
-                      </span>
-                      <input 
-                        type="text"
-                        dir="ltr"
-                        value={row.sickLeaveText || ''}
-                        onChange={(e) => handleCellChange(row.id, 'sickLeaveText', e.target.value)}
-                        className="payroll-screen-input w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
-                        placeholder="-"
-                      />
-                    </td>
+                        >
+                          <span className="payroll-print-val font-bold text-black text-xs sm:text-[13px] text-center" dir="ltr">
+                            {row.customColumnValues?.[col.id] || ''}
+                          </span>
+                          <input
+                            type="text"
+                            dir="ltr"
+                            value={row.customColumnValues?.[col.id] || ''}
+                            onChange={(e) => handleCustomColValueChange(row.id, col.id, e.target.value)}
+                            className="payroll-screen-input w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
+                            placeholder="-"
+                          />
+                        </td>
+                      );
+                    })}
 
                   </tr>
                 ))
@@ -2355,6 +3137,196 @@ const SupervisorPayroll: React.FC = () => {
               className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold"
             >
               {isAr ? 'حفظ وتطبيق' : 'Save & Apply'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* 6. MANAGE & ADD CUSTOM COLUMNS MODAL */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={isColumnsModalOpen}
+        onClose={() => setIsColumnsModalOpen(false)}
+        title={isAr ? "إضافة وإدارة أعمدة مسير الرواتب" : "Add & Manage Custom Columns"}
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-4 text-xs sm:text-sm">
+          <div className="p-3.5 rounded-xl border border-violet-200 dark:border-violet-900 bg-violet-50/50 dark:bg-violet-950/30 space-y-3">
+            <h4 className="font-black text-violet-900 dark:text-violet-200 flex items-center gap-1.5">
+              <Plus className="w-4 h-4 text-violet-600" />
+              <span>{isAr ? 'إضافة عمود جديد في المسير' : 'Add New Column to Payroll'}</span>
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <label className="block font-bold text-xs mb-1">
+                  {isAr ? 'عنوان العمود الرئيسي (الصف الأول) *' : 'Main Header Title (Row 1) *'}
+                </label>
+                <input
+                  type="text"
+                  value={newColTitleTop}
+                  onChange={(e) => setNewColTitleTop(e.target.value)}
+                  placeholder={isAr ? 'مثال: بدل / مكافأة / جزاءات' : 'e.g. Bonus / Deduction'}
+                  className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 font-bold"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-xs mb-1">
+                  {isAr ? 'عنوان فرعي (الصف الثاني - اختياري)' : 'Sub Header (Row 2 - Optional)'}
+                </label>
+                <input
+                  type="text"
+                  value={newColTitleBottom}
+                  onChange={(e) => setNewColTitleBottom(e.target.value)}
+                  placeholder={isAr ? 'مثال: Extra / Notes' : 'e.g. Extra / Notes'}
+                  className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 font-bold"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block font-bold text-xs mb-1">
+                {isAr ? 'مكان ظهور العمود في الجدول:' : 'Column Position in Table:'}
+              </label>
+              <select
+                value={newColPosition}
+                onChange={(e) => setNewColPosition(e.target.value)}
+                className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 font-bold text-xs"
+              >
+                <option value="end">{isAr ? 'في نهاية الجدول (بعد الإجازة المرضية)' : 'At the end of table'}</option>
+                <option value="start">{isAr ? 'في بداية الجدول (قبل حساب أيام)' : 'At the start (before Days Calc)'}</option>
+                <option value="after_calcDays">{isAr ? 'بعد عمود (حساب أيام) مباشرة' : 'After Days Calc'}</option>
+                <option value="after_name">{isAr ? 'بعد عمود (اسم الموظف) مباشرة' : 'After Employee Name'}</option>
+                <option value="after_fridays">{isAr ? 'بعد عمود (الجمع / Fridays) مباشرة' : 'After Fridays'}</option>
+                {config.customHolidayEnabled && (
+                  <option value="after_holiday">{isAr ? `بعد عمود (${config.customHolidayName}) مباشرة` : 'After Holiday'}</option>
+                )}
+                <option value="after_overtime">{isAr ? 'بعد عمود (الأوفر تايم / Overtime) مباشرة' : 'After Overtime'}</option>
+                <option value="after_absentLate">{isAr ? 'بعد عمود (ملاحظات الغياب والتأخير) مباشرة' : 'After Absent & Late'}</option>
+              </select>
+            </div>
+            <div className="flex items-center justify-between pt-1">
+              <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
+                <input
+                  type="checkbox"
+                  checked={newColYellow}
+                  onChange={(e) => setNewColYellow(e.target.checked)}
+                  className="rounded text-yellow-500"
+                />
+                <span>{isAr ? 'تمييز العمود باللون الأصفر (#ffff00)' : 'Highlight column in yellow'}</span>
+              </label>
+              <button
+                type="button"
+                onClick={handleAddCustomColumn}
+                className="px-4 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold flex items-center gap-1.5 shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>{isAr ? 'إضافة العمود' : 'Add Column'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Existing Custom Columns List */}
+          <div className="space-y-2">
+            <h5 className="font-bold text-xs text-slate-500 dark:text-slate-400">
+              {isAr ? `الأعمدة المضافة حالياً (${config.customColumns?.length || 0}) وترتيب مكانها:` : `Current Custom Columns (${config.customColumns?.length || 0}) & Position:`}
+            </h5>
+            {(!config.customColumns || config.customColumns.length === 0) ? (
+              <div className="p-4 rounded-xl border border-dashed text-center text-slate-400 font-medium text-xs">
+                {isAr ? 'لا توجد أعمدة إضافية حالياً. يمكنك إضافة أي عدد من الأعمدة أعلاه.' : 'No custom columns added yet.'}
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {config.customColumns.map((col, idx) => {
+                  const posInTable = orderedTableColumns.indexOf(col.id);
+                  return (
+                    <div
+                      key={col.id}
+                      className="flex flex-col gap-2 p-2.5 rounded-xl border bg-slate-50 dark:bg-slate-800/60 dark:border-slate-700"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-1">
+                          <span className="w-5 h-5 rounded-full bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300 font-black text-[11px] flex items-center justify-center shrink-0">
+                            {idx + 1}
+                          </span>
+                          <input
+                            type="text"
+                            value={col.titleTop}
+                            onChange={(e) => handleUpdateCustomColumn(col.id, 'titleTop', e.target.value)}
+                            className="p-1.5 rounded-lg border dark:bg-slate-900 dark:border-slate-700 font-bold text-xs flex-1"
+                            placeholder={isAr ? 'العنوان الرئيسي' : 'Main Title'}
+                          />
+                          <input
+                            type="text"
+                            value={col.titleBottom || ''}
+                            onChange={(e) => handleUpdateCustomColumn(col.id, 'titleBottom', e.target.value || undefined)}
+                            className="p-1.5 rounded-lg border dark:bg-slate-900 dark:border-slate-700 font-bold text-xs flex-1"
+                            placeholder={isAr ? 'عنوان فرعي (اختياري)' : 'Sub Title'}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCustomColumn(col.id)}
+                          className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400"
+                          title={isAr ? 'حذف العمود' : 'Delete column'}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      {/* Column Position & Move Controls */}
+                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200 dark:border-slate-700/60 text-[11px]">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-slate-500">{isAr ? 'ترتيب العمود في الجدول:' : 'Column Order:'}</span>
+                          <select
+                            value={posInTable}
+                            onChange={(e) => handleSetColumnIndex(col.id, Number(e.target.value))}
+                            className="px-2 py-1 rounded-lg border bg-white dark:bg-slate-900 dark:border-slate-700 font-bold"
+                          >
+                            {orderedTableColumns.map((k, kIdx) => (
+                              <option key={k} value={kIdx}>
+                                {isAr ? `المركز ${kIdx + 1} (${k === col.id ? 'مكانه الحالي' : `مكان: ${getColumnLabel(k)}`})` : `Position ${kIdx + 1}`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleMoveColumnOrder(col.id, 'earlier')}
+                            disabled={posInTable <= 0}
+                            className="px-2 py-1 rounded-lg border bg-white dark:bg-slate-900 hover:bg-violet-50 disabled:opacity-30 font-bold flex items-center gap-1"
+                            title={isAr ? 'تحريك العمود لليمين' : 'Move Right'}
+                          >
+                            <ArrowRight className="w-3 h-3 text-violet-600" />
+                            <span>{isAr ? 'يمين' : 'Right'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleMoveColumnOrder(col.id, 'later')}
+                            disabled={posInTable === -1 || posInTable >= orderedTableColumns.length - 1}
+                            className="px-2 py-1 rounded-lg border bg-white dark:bg-slate-900 hover:bg-violet-50 disabled:opacity-30 font-bold flex items-center gap-1"
+                            title={isAr ? 'تحريك العمود لليسار' : 'Move Left'}
+                          >
+                            <span>{isAr ? 'يسار' : 'Left'}</span>
+                            <ArrowLeft className="w-3 h-3 text-violet-600" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end pt-3 border-t">
+            <button
+              type="button"
+              onClick={() => setIsColumnsModalOpen(false)}
+              className="px-5 py-2 rounded-xl bg-emerald-600 text-white font-bold"
+            >
+              {isAr ? 'تم' : 'Done'}
             </button>
           </div>
         </div>

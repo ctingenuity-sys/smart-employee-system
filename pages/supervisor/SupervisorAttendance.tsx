@@ -304,57 +304,92 @@ const SupervisorAttendance: React.FC = () => {
             details: []
         }));
 
-        // --- FULL MONTH FRIDAYS SCANNER ("بس الجمع تكون زي ما هيا اللي في الشهر") ---
-        // Pre-calculate full month Fridays so Friday duties remain complete for the whole month regardless of cutoff period!
+        // --- FRIDAYS & SICK LEAVES SCANNER (ONLY FROM SCHEDULE AND BIOMETRIC PUNCHES) ---
         const monthOfFilter = attFilterStart.slice(0, 7);
         const [yFilterStr, mFilterStr] = monthOfFilter.split('-');
         const yFilter = parseInt(yFilterStr, 10) || new Date().getFullYear();
         const mFilter = parseInt(mFilterStr, 10) || (new Date().getMonth() + 1);
         const daysInFilterMonth = new Date(yFilter, mFilter, 0).getDate();
-        let defaultCalendarFridays = 0;
+        const monthFridayDates: string[] = [];
         for (let day = 1; day <= daysInFilterMonth; day++) {
             if (new Date(yFilter, mFilter - 1, day).getDay() === 5) {
-                defaultCalendarFridays++;
+                monthFridayDates.push(`${yFilter}-${String(mFilter).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
             }
         }
-        defaultCalendarFridays = defaultCalendarFridays || 4;
 
-        const fullMonthFridaysMap: Record<string, number> = {};
-        usersToProcess.forEach(u => fullMonthFridaysMap[u.id] = defaultCalendarFridays);
-        
+        const fridayDatesByUser: Record<string, Set<string>> = {};
+        const sickDatesByUser: Record<string, Set<string>> = {};
+        usersToProcess.forEach(u => {
+            fridayDatesByUser[u.id] = new Set<string>();
+            sickDatesByUser[u.id] = new Set<string>();
+        });
+
+        const isSickNote = (txt: string) => /sick|مرض|مرضية|مرضي|سكليف|سيكليف|طبي|طبية|medical/i.test(txt);
+
+        const normalizeFridayRowDate = (rawDate: any, rowIdx: number): string => {
+            if (rawDate && typeof rawDate === 'string') {
+                const clean = rawDate.trim().replace(/[٠-٩]/g, d => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
+                const ymd = clean.match(/(\d{4})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})/);
+                if (ymd) return `${ymd[1]}-${ymd[2].padStart(2, '0')}-${ymd[3].padStart(2, '0')}`;
+                const dmy = clean.match(/(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{4})/);
+                if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+                const dm = clean.match(/(\d{1,2})\s*[-/.]\s*(\d{1,2})/);
+                if (dm) {
+                    const d = parseInt(dm[1], 10);
+                    const m = parseInt(dm[2], 10);
+                    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+                        return `${yFilter}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    }
+                }
+            }
+            return monthFridayDates[rowIdx] || `${monthOfFilter}-friday-${rowIdx + 1}`;
+        };
+
         try {
             const pubSnap = await getDocs(collection(db, 'monthly_publishes'));
             pubSnap.docs.forEach((docSnap: any) => {
                 const pData = docSnap.data();
                 const docId = docSnap.id;
                 if (!docId.includes(monthOfFilter) && pData.targetMonth !== monthOfFilter && pData.month !== monthOfFilter) return;
+                if (selectedDepartmentId && pData.departmentId && pData.departmentId !== selectedDepartmentId) return;
 
-                const fridayRows = [...(pData.fridayData || pData.fridaySchedule || []), ...(pData.doctorFridayData || pData.doctorFridaySchedule || [])];
-                if (Array.isArray(fridayRows)) {
-                    fridayRows.forEach((row: any) => {
+                const processFridayRows = (fridayRows: any[]) => {
+                    if (!Array.isArray(fridayRows)) return;
+                    fridayRows.forEach((row: any, rIdx: number) => {
+                        const friDateKey = normalizeFridayRowDate(row.date, rIdx);
                         Object.keys(row).forEach(key => {
                             if (key !== 'date' && key !== 'id' && key !== 'note' && key !== 'title') {
                                 const staffItems = row[key];
                                 const list = Array.isArray(staffItems) ? staffItems : (staffItems ? [staffItems] : []);
                                 list.forEach((st: any) => {
-                                    const rawName = (typeof st === 'string' ? st : (st?.name || st?.staffName || st?.employeeName || '')).trim().toLowerCase();
-                                    const rawId = typeof st === 'object' ? (st?.id || st?.userId) : '';
+                                    const rawName = (typeof st === 'string' ? st : (st?.name || st?.staffName || st?.employeeName || '')).replace(/[（(].*?[）)]/g, '').trim().toLowerCase();
+                                    const rawId = typeof st === 'object' ? (st?.id || st?.userId || st?.employeeId) : '';
                                     const matchedUser = usersToProcess.find(u => {
                                         if (rawId && u.id === rawId) return true;
                                         const uName = (u.name || '').trim().toLowerCase();
                                         return uName && rawName && (uName === rawName || uName.includes(rawName) || rawName.includes(uName));
                                     });
                                     if (matchedUser) {
-                                        fullMonthFridaysMap[matchedUser.id] = (fullMonthFridaysMap[matchedUser.id] || 0) + 1;
+                                        const stNote = typeof st === 'object' ? `${st.note || ''} ${st.name || ''}` : String(st || '');
+                                        if (isSickNote(stNote)) {
+                                            if (friDateKey >= attFilterStart && friDateKey <= attFilterEnd) {
+                                                sickDatesByUser[matchedUser.id].add(friDateKey);
+                                            }
+                                        }
+                                        // NOTE: Do NOT add scheduled Fridays without biometric punches
                                     }
                                 });
                             }
                         });
                     });
-                }
+                };
+
+                processFridayRows(pData.fridayData || pData.fridaySchedule || []);
+                processFridayRows(pData.doctorFridayData || pData.doctorFridaySchedule || []);
+                processFridayRows(pData.ramadanFridayData || []);
             });
         } catch (err) {
-            console.warn("Could not scan monthly_publishes for full month Fridays in SupervisorAttendance:", err);
+            console.warn("Could not scan monthly_publishes for Fridays in SupervisorAttendance:", err);
         }
 
         // --- 1. OPTIMIZED SCHEDULE FETCHING ---
@@ -435,12 +470,25 @@ const SupervisorAttendance: React.FC = () => {
         leaves.forEach((lData: any) => {
             const uId = lData.userId || lData.from;
             if (!uId || !permissionsMap[uId]) return;
-            const lType = (lData.typeOfLeave || lData.leaveType || '').toLowerCase();
+            const lType = `${lData.typeOfLeave || ''} ${lData.leaveType || ''} ${lData.type || ''} ${lData.reason || ''}`.toLowerCase();
             if (lType.includes('permission') || lType.includes('exit') || lType.includes('إذن') || lType.includes('ساعي')) {
                 const sDate = lData.startDate || '';
                 if (sDate >= attFilterStart && sDate <= attFilterEnd) {
                     permissionsMap[uId].count += 1;
                     permissionsMap[uId].hours += Number(lData.duration) || 1;
+                }
+            } else if (isSickNote(lType)) {
+                const sStr = lData.startDate || lData.fromDate || '';
+                const eStr = lData.endDate || lData.toDate || sStr;
+                if (sStr && eStr) {
+                    const lStart = new Date(sStr + 'T00:00:00');
+                    const lEnd = new Date(eStr + 'T00:00:00');
+                    const effStart = lStart > startD ? lStart : startD;
+                    const effEnd = lEnd < endD ? lEnd : endD;
+                    for (let cur = new Date(effStart); cur <= effEnd; cur.setDate(cur.getDate() + 1)) {
+                        const dKey = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+                        sickDatesByUser[uId]?.add(dKey);
+                    }
                 }
             }
         });
@@ -449,16 +497,30 @@ const SupervisorAttendance: React.FC = () => {
             const actionsSnap = await getDocs(collection(db, 'actions'));
             actionsSnap.docs.forEach((d: any) => {
                 const act = d.data();
-                const actDate = act.date || (act.timestamp?.toDate ? act.timestamp.toDate().toISOString().split('T')[0] : null);
-                if (!actDate || actDate < attFilterStart || actDate > attFilterEnd) return;
                 const uId = act.employeeId || act.userId;
                 if (!uId || !permissionsMap[uId]) return;
                 const actType = (act.type || '').toLowerCase();
-                const actTitle = (act.title || act.description || '').toLowerCase();
+                const actTitle = `${act.title || ''} ${act.description || ''} ${act.note || ''}`.toLowerCase();
+                const actDate = act.fromDate || act.startDate || act.date || (act.timestamp?.toDate ? act.timestamp.toDate().toISOString().split('T')[0] : null);
+                const actEndDate = act.toDate || act.endDate || actDate;
+
                 if (actType.includes('permission') || actType.includes('إذن') || actType.includes('hourly') ||
                     actTitle.includes('إذن') || actTitle.includes('permission') || actTitle.includes('ساعي')) {
-                    permissionsMap[uId].count += 1;
-                    permissionsMap[uId].hours += Number(act.hours || act.permissionHours || act.duration) || 1;
+                    if (actDate && actDate >= attFilterStart && actDate <= attFilterEnd) {
+                        permissionsMap[uId].count += 1;
+                        permissionsMap[uId].hours += Number(act.hours || act.permissionHours || act.duration) || 1;
+                    }
+                } else if (actType === 'sick_leave' || isSickNote(`${actType} ${actTitle}`)) {
+                    if (actDate && actEndDate) {
+                        const aStart = new Date(actDate + 'T00:00:00');
+                        const aEnd = new Date(actEndDate + 'T00:00:00');
+                        const effStart = aStart > startD ? aStart : startD;
+                        const effEnd = aEnd < endD ? aEnd : endD;
+                        for (let cur = new Date(effStart); cur <= effEnd; cur.setDate(cur.getDate() + 1)) {
+                            const dKey = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+                            sickDatesByUser[uId]?.add(dKey);
+                        }
+                    }
                 }
             });
         } catch(e) {}
@@ -514,7 +576,10 @@ const SupervisorAttendance: React.FC = () => {
 
                 if (specialDayCategory === 'holiday') summary.holidayDays++;
                 else if (specialDayCategory === 'exceptional') summary.exceptionalDays++;
-                else if (specialDayCategory === 'sick') summary.sickLeaveDays++;
+                else if (specialDayCategory === 'sick') {
+                    summary.sickLeaveDays++;
+                    sickDatesByUser[user.id]?.add(dateStr);
+                }
 
                 // Track special day by name
                 if (specialDayName) {
@@ -739,9 +804,16 @@ const SupervisorAttendance: React.FC = () => {
                     status = 'Off';
                 }
 
+                // Count Friday ONLY if the employee actually punched in on this Friday
+                if (dayOfWeek === 5 && (in1 || out1 || dayLogs.length > 0)) {
+                    fridayDatesByUser[user.id]?.add(dateStr);
+                }
+
                 if (status === 'Present' || status === 'Partial Absent' || status === 'Incomplete') {
                     summary.totalWorkDays++;
-                    if (dayOfWeek === 5) summary.fridaysWorked++;
+                    if (dayOfWeek === 5) {
+                        summary.fridaysWorked++;
+                    }
                     
                     if (in1 && out1) workMinutes += Math.round((getLogSeconds(out1) - getLogSeconds(in1)) / 60);
                     if (in2 && out2) workMinutes += Math.round((getLogSeconds(out2) - getLogSeconds(in2)) / 60);
@@ -850,13 +922,12 @@ const SupervisorAttendance: React.FC = () => {
                 });
             });
         }
-        // Ensure Fridays represent the full month as required ("بس الجمع تكون زي ما هيا اللي في الشهر")
+        // Finalize Fridays (ONLY from schedule and biometric punches) and Sick Leaves (السكاليف)
         usersToProcess.forEach(user => {
             const summary = summaryMap.get(user.id);
             if (summary) {
-                summary.fridaysWorked = (fullMonthFridaysMap[user.id] !== undefined && fullMonthFridaysMap[user.id] > 0)
-                    ? fullMonthFridaysMap[user.id]
-                    : defaultCalendarFridays;
+                summary.fridaysWorked = fridayDatesByUser[user.id]?.size || 0;
+                summary.sickLeaveDays = Math.max(summary.sickLeaveDays, sickDatesByUser[user.id]?.size || 0);
                 summary.permissionCount = permissionsMap[user.id]?.count || 0;
                 summary.permissionHours = permissionsMap[user.id]?.hours || 0;
             }

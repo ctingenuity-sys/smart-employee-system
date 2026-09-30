@@ -99,6 +99,7 @@ const CathLabUsage: React.FC = () => {
     const [reportEnd, setReportEnd] = useState(new Date().toISOString().split('T')[0]);
     const [reportMode, setReportMode] = useState<'records' | 'summary'>('records');
     const [reportProcedureType, setReportProcedureType] = useState('all');
+    const [reportDoctorName, setReportDoctorName] = useState('all');
     const [reportSearch, setReportSearch] = useState('');
 
     useEffect(() => {
@@ -269,10 +270,26 @@ const CathLabUsage: React.FC = () => {
         return Array.from(setOfProcs);
     }, [records, procedures]);
 
+    const uniqueDoctors = React.useMemo(() => {
+        const setOfDocs = new Set<string>();
+        doctors.forEach(d => {
+            if (d.name) {
+                setOfDocs.add(d.name);
+            }
+        });
+        records.forEach(r => {
+            if (r.doctorName) {
+                setOfDocs.add(r.doctorName);
+            }
+        });
+        return Array.from(setOfDocs);
+    }, [records, doctors]);
+
     const filteredRecords = records.filter(r => {
         const typeMatch = reportProcedureType === 'all' || r.procedureType === reportProcedureType;
-        const searchMatch = !reportSearch || r.patientFileNumber.toLowerCase().includes(reportSearch.toLowerCase());
-        return typeMatch && searchMatch;
+        const doctorMatch = reportDoctorName === 'all' || r.doctorName === reportDoctorName;
+        const searchMatch = !reportSearch || r.patientFileNumber.toLowerCase().includes(reportSearch.toLowerCase()) || (r.patientName && r.patientName.toLowerCase().includes(reportSearch.toLowerCase()));
+        return typeMatch && doctorMatch && searchMatch;
     });
 
     const getSummaryData = () => {
@@ -780,17 +797,31 @@ const CathLabUsage: React.FC = () => {
 
             {activeTab === 'report' && (
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 animate-fade-in-up">
-                    <PrintHeader compact={true} useOldLogo={true} title={t('cath.repTitle')} subtitle={`${t('cath.repFrom')} ${reportStart} ${t('cath.repTo')} ${reportEnd}`} />
+                    <PrintHeader
+                        compact={true}
+                        useOldLogo={true}
+                        title={t('cath.repTitle')}
+                        subtitle={`${t('cath.repFrom')} ${reportStart} ${t('cath.repTo')} ${reportEnd}${reportDoctorName !== 'all' ? ` | ${t('cath.doctorName')}: ${reportDoctorName}` : ''}${reportProcedureType !== 'all' ? ` | ${t('cath.procedureType')}: ${reportProcedureType}` : ''} | ${language === 'en' ? 'Total Cases' : 'إجمالي الحالات'}: ${filteredRecords.length}`}
+                    />
                     
-                    <div className="flex justify-between items-center mb-6 print:hidden bg-slate-50 p-4 rounded-xl border border-slate-200">
-                        <div className="flex flex-wrap items-center gap-4">
-                            <div className="flex bg-white rounded-lg p-1 border border-slate-300">
+                    <div className="flex flex-wrap justify-between items-center gap-4 mb-6 print:hidden bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <div className="flex flex-wrap items-end gap-4">
+                            <div className="flex bg-white rounded-lg p-1 border border-slate-300 self-center">
                                 <button onClick={() => setReportMode('records')} className={`px-4 py-1.5 rounded-md text-sm font-bold ${reportMode === 'records' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'}`}>{t('cath.repModeRecords')}</button>
                                 <button onClick={() => setReportMode('summary')} className={`px-4 py-1.5 rounded-md text-sm font-bold ${reportMode === 'summary' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'}`}>{t('cath.repModeSummary')}</button>
                             </div>
                             <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">{t('cath.doctorName')}</label>
+                                <select className="border border-slate-300 rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-indigo-500 font-bold bg-white min-w-[160px]" value={reportDoctorName} onChange={e => setReportDoctorName(e.target.value)}>
+                                    <option value="all">{language === 'en' ? 'All Doctors' : 'كل الأطباء'}</option>
+                                    {uniqueDoctors.map(docName => (
+                                        <option key={docName} value={docName}>{docName}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1">{t('cath.procedureType')}</label>
-                                <select className="border border-slate-300 rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500 font-bold" value={reportProcedureType} onChange={e => setReportProcedureType(e.target.value)}>
+                                <select className="border border-slate-300 rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500 font-bold bg-white" value={reportProcedureType} onChange={e => setReportProcedureType(e.target.value)}>
                                     <option value="all">{t('cath.procAll')}</option>
                                     {uniqueProcedures.map(p => (
                                         <option key={p} value={p}>{p}</option>
@@ -799,11 +830,11 @@ const CathLabUsage: React.FC = () => {
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1">{t('cath.repFrom')}</label>
-                                <input type="date" className="border border-slate-300 rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500" value={reportStart} onChange={e => setReportStart(e.target.value)} />
+                                <input type="date" className="border border-slate-300 rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500 bg-white" value={reportStart} onChange={e => setReportStart(e.target.value)} />
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1">{t('cath.repTo')}</label>
-                                <input type="date" className="border border-slate-300 rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500" value={reportEnd} onChange={e => setReportEnd(e.target.value)} />
+                                <input type="date" className="border border-slate-300 rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500 bg-white" value={reportEnd} onChange={e => setReportEnd(e.target.value)} />
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1">{t('cath.searchFileId')}</label>
@@ -813,9 +844,16 @@ const CathLabUsage: React.FC = () => {
                                 </div>
                             </div>
                         </div>
-                        <button onClick={() => window.print()} className="bg-slate-800 text-white px-6 py-2 rounded-xl font-bold hover:bg-slate-700 flex items-center gap-2">
-                            <i className="fas fa-print"></i> {t('cath.repPrint')}
-                        </button>
+                        <div className="flex items-center gap-3">
+                            <div className="px-3.5 py-2 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-sm flex items-center gap-2">
+                                <i className="fas fa-user-md"></i>
+                                <span>{language === 'en' ? 'Cases:' : 'عدد الحالات:'}</span>
+                                <span className="font-black text-base">{filteredRecords.length}</span>
+                            </div>
+                            <button onClick={() => window.print()} className="bg-slate-800 text-white px-6 py-2 rounded-xl font-bold hover:bg-slate-700 flex items-center gap-2">
+                                <i className="fas fa-print"></i> {t('cath.repPrint')}
+                            </button>
+                        </div>
                     </div>
 
                     <div className="overflow-x-auto">

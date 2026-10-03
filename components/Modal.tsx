@@ -30,10 +30,10 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, maxWidt
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 backdrop-blur-sm transition-opacity">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 backdrop-blur-sm transition-opacity print:hidden modal-backdrop">
       <div 
         ref={modalRef}
-        className={`rounded-2xl shadow-2xl w-full ${maxWidth} mx-4 transform transition-all scale-100 overflow-hidden border ${
+        className={`rounded-2xl shadow-2xl w-full ${maxWidth} mx-4 transform transition-all scale-100 overflow-hidden border print:hidden ${
           isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
         }`}
       >

@@ -32,7 +32,12 @@ import {
   ArrowRight,
   ArrowUpDown,
   Columns,
-  GripVertical
+  GripVertical,
+  PlaneTakeoff,
+  UserMinus,
+  UserCheck,
+  FileText,
+  AlertTriangle
 } from 'lucide-react';
 import { User, UserRole, EmployeeSummary } from '../../types';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -110,6 +115,8 @@ interface PayrollConfig {
   showDaysForAll: boolean; // إظهار أيام الشهر (30/31) للجميع أو للاستثناءات فقط
   customColumns?: PayrollCustomColumn[];
   columnOrder?: string[]; // ترتيب أعمدة الجدول بما فيها الأعمدة المضافة
+  excludedRowIds?: string[]; // معرّفات الموظفين المستبعدين من المسير الرئيسي (صرف مفرد / إجازة)
+  excludedRows?: PayrollRow[]; // بيانات الموظفين المستبعدين لإمكانية استعادتهم أو طباعة بيانهم المفرد
 }
 
 const DEFAULT_STANDARD_COLUMNS = ['calcDays', 'name', 'fridays', 'holiday', 'overtime', 'absentLate', 'sickLeave'];
@@ -124,11 +131,13 @@ const DEFAULT_CONFIG: PayrollConfig = {
   customHolidayName: 'NATIONAL DAY',
   customHolidayEnabled: true,
   tillDateText: 'Till 24.09.2026',
-  medicalDirectorTitle: 'المدير الطبي',
-  departmentHeadTitle: 'صديق مدير القسم',
+  medicalDirectorTitle: 'MEDICAL DIRECTOR',
+  departmentHeadTitle: 'H.O.D',
   showDaysForAll: false, // default: show *2 for Nazim/Winnie, days worked for partial vacation/absentee
   customColumns: [],
-  columnOrder: DEFAULT_STANDARD_COLUMNS
+  columnOrder: DEFAULT_STANDARD_COLUMNS,
+  excludedRowIds: [],
+  excludedRows: []
 };
 
 // Helper: Number to English words converter
@@ -309,7 +318,7 @@ const SupervisorPayroll: React.FC = () => {
     loadPayrollData(true, newStart, newEnd);
   };
 
-  const [activeTab, setActiveTab] = useState<'staff' | 'doctor' | 'hidden' | 'all'>('staff');
+  const [activeTab, setActiveTab] = useState<'staff' | 'doctor' | 'hidden' | 'all' | 'excluded'>('staff');
   const [showFullMonthLeaveStaff, setShowFullMonthLeaveStaff] = useState<boolean>(false);
   
   const [loading, setLoading] = useState<boolean>(true);
@@ -323,6 +332,32 @@ const SupervisorPayroll: React.FC = () => {
   const [isConfigModalOpen, setIsConfigModalOpen] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+
+  // Individual Vacation Pay Statement Modal state
+  const [isIndividualModalOpen, setIsIndividualModalOpen] = useState(false);
+  const [individualSlipRow, setIndividualSlipRow] = useState<PayrollRow | null>(null);
+  const [singlePrintRow, setSinglePrintRow] = useState<PayrollRow | null>(null);
+  const [individualTillDate, setIndividualTillDate] = useState<string>('');
+  const [individualSlipTitleAr, setIndividualSlipTitleAr] = useState<string>('');
+  const [individualSlipTitleEn, setIndividualSlipTitleEn] = useState<string>('Technician & Staff Over Time - Vacation Clearance');
+  const [individualSlipReason, setIndividualSlipReason] = useState<string>('تسوية مستحقات دوام وإضافي قبل المغادرة للإجازة السنوية وصرف الراتب مفرداً');
+  const [isPrintingIndividual, setIsPrintingIndividual] = useState(false);
+
+  // Reset singlePrintRow after printing completes
+  useEffect(() => {
+    const handleAfterPrint = () => {
+      setSinglePrintRow(null);
+      document.body.classList.remove('printing-individual');
+    };
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => window.removeEventListener('afterprint', handleAfterPrint);
+  }, []);
+
+  // Confirmation modal for deleting / excluding an employee from main payroll
+  const [confirmDeleteModal, setConfirmDeleteModal] = useState<{
+    isOpen: boolean;
+    row: PayrollRow | null;
+  }>({ isOpen: false, row: null });
 
   // Hidden File input for direct attendance Excel / JSON import
   const attendanceFileInputRef = useRef<HTMLInputElement>(null);
@@ -447,23 +482,43 @@ const SupervisorPayroll: React.FC = () => {
         if (existingData.config) setConfig(prev => ({ ...prev, ...existingData.config }));
         if (existingData.updatedAt) setLastSavedAt(existingData.updatedAt);
         if (Array.isArray(existingData.rows) && existingData.rows.length > 0) {
-          setRows(existingData.rows);
+          const activeExcluded = new Set([
+            ...(existingData.config?.excludedRowIds || []),
+            ...(config.excludedRowIds || [])
+          ]);
+          const filteredRows = existingData.rows.filter(
+            (r: PayrollRow) => !activeExcluded.has(r.id) && (!r.userId || !activeExcluded.has(r.userId))
+          );
+          setRows(filteredRows);
           setLoading(false);
           return;
         }
       }
 
-      // Preserve any custom columns from saved config if we are auto-scanning
-      if (existingData?.config?.customColumns && (!config.customColumns || config.customColumns.length === 0)) {
-        setConfig(prev => ({ ...prev, ...existingData.config }));
+      // Preserve any custom columns and excluded employees list from saved config if we are auto-scanning
+      if (existingData?.config) {
+        setConfig(prev => ({
+          ...prev,
+          ...existingData.config,
+          customColumns: existingData.config.customColumns || prev.customColumns || [],
+          columnOrder: existingData.config.columnOrder || prev.columnOrder || DEFAULT_STANDARD_COLUMNS,
+          excludedRowIds: existingData.config.excludedRowIds || prev.excludedRowIds || [],
+          excludedRows: existingData.config.excludedRows || prev.excludedRows || []
+        }));
       }
 
       // Auto scan data from schedules, leaves, and Smart Attendance Analyzer with the specified period
       const autoPulled = await scanMonthData(selectedMonth, filteredStaff, monthInfo.daysInMonth, pStart, pEnd);
 
+      // Filter out any employees that were excluded (e.g. took vacation salary individually)
+      const activeExcludedIds = new Set([
+        ...(config.excludedRowIds || []),
+        ...(existingData?.config?.excludedRowIds || [])
+      ]);
+      let finalRows = autoPulled.rows.filter(r => !activeExcludedIds.has(r.id) && (!r.userId || !activeExcludedIds.has(r.userId)));
+
       // Preserve existing row ordering and customColumnValues if available
       const referenceRows: PayrollRow[] = rows.length > 0 ? rows : (Array.isArray(existingData?.rows) ? existingData.rows : []);
-      let finalRows = autoPulled.rows;
       if (referenceRows.length > 0) {
         const orderMap = new Map<string, number>();
         const customValuesMap = new Map<string, Record<string, string>>();
@@ -482,8 +537,8 @@ const SupervisorPayroll: React.FC = () => {
           const idxB = orderMap.has(b.id) ? orderMap.get(b.id)! : 99999;
           return idxA - idxB;
         });
-        // Keep any manual custom rows that were added previously
-        const manualRows = referenceRows.filter(r => r.isCustomRow && !finalRows.some(fr => fr.id === r.id));
+        // Keep any manual custom rows that were added previously and not excluded
+        const manualRows = referenceRows.filter(r => r.isCustomRow && !activeExcludedIds.has(r.id) && !finalRows.some(fr => fr.id === r.id));
         if (manualRows.length > 0) {
           finalRows = [...finalRows, ...manualRows];
         }
@@ -1578,6 +1633,13 @@ const SupervisorPayroll: React.FC = () => {
   // Filtered rows for current tab
   // "ولو اجازه طول الشهر متكتبوش" -> isFullMonthLeave staff are hidden by default!
   const displayRows = useMemo(() => {
+    if (activeTab === 'excluded') {
+      const exList = config.excludedRows || [];
+      if (!searchTerm.trim()) return exList;
+      const q = searchTerm.toLowerCase();
+      return exList.filter(r => r.name.toLowerCase().includes(q) || r.employeeNumber.includes(q));
+    }
+
     return rows.filter(r => {
       if (r.isFullMonthLeave && !showFullMonthLeaveStaff) {
         return false;
@@ -1593,7 +1655,7 @@ const SupervisorPayroll: React.FC = () => {
       }
       return true;
     });
-  }, [rows, activeTab, showFullMonthLeaveStaff, searchTerm]);
+  }, [rows, activeTab, showFullMonthLeaveStaff, searchTerm, config.excludedRows]);
 
   // Full Month Leave count
   const fullMonthLeaveCount = useMemo(() => {
@@ -1937,19 +1999,185 @@ const SupervisorPayroll: React.FC = () => {
     setToast({ msg: isAr ? 'تم ترتيب الموظفين بنجاح (اضغط حفظ لتثبيت الترتيب)' : 'Employees sorted successfully', type: 'info' });
   };
 
-  // Delete row
-  const handleDeleteRow = (rowId: string) => {
-    setRows(prev => prev.filter(r => r.id !== rowId));
-    setToast({ msg: 'تم حذف الموظف من الكشف', type: 'info' });
+  // Open Individual Vacation Pay Statement Modal
+  const handleOpenIndividualSlip = (row: PayrollRow) => {
+    setIndividualSlipRow({ ...row });
+    setIndividualTillDate(config.tillDateText || '');
+    setIsIndividualModalOpen(true);
   };
 
-  // Trigger print
+  // Update a field in the individual slip preview/modal
+  const handleUpdateIndividualField = (field: keyof PayrollRow, val: any) => {
+    setIndividualSlipRow(prev => {
+      if (!prev) return null;
+      const updated = { ...prev, [field]: val };
+      if (field === 'fridayDuties') {
+        updated.fridayDisplay = formatCountToText(Number(val) || 0, 'day', 'days');
+      }
+      if (field === 'holidayDuties') {
+        updated.holidayDisplay = Number(val) > 0 ? formatCountToText(Number(val) || 0, 'day', 'days') : '';
+      }
+      if (field === 'overtimeHours') {
+        updated.overtimeDisplay = Number(val) > 0 ? `${val} Hours` : '';
+      }
+      return updated;
+    });
+  };
+
+  // Print Individual Vacation Pay Statement (Prints the exact master payroll sheet with only this employee)
+  const handlePrintIndividualSlip = () => {
+    if (!individualSlipRow) return;
+    setSinglePrintRow({ ...individualSlipRow });
+    document.body.classList.add('printing-individual');
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    // Small timeout to allow React to render the single row into the DOM before print dialog opens
+    setTimeout(() => {
+      window.print();
+    }, 120);
+    // Fallback cleanup in case afterprint isn't fired
+    setTimeout(() => {
+      setSinglePrintRow(null);
+      document.body.classList.remove('printing-individual');
+    }, 4000);
+  };
+
+  // Export Single Employee Excel Sheet
+  const handleExportSingleEmployeeExcel = (r: PayrollRow) => {
+    try {
+      const wb = XLSX.utils.book_new();
+      const item: any = {
+        'م': 1,
+      };
+
+      orderedTableColumns.forEach(colKey => {
+        if (colKey === 'calcDays') {
+          item['حساب أيام'] = r.calculatedDaysDisplay || '';
+        } else if (colKey === 'name') {
+          item['اسم الموظف / Employee Name'] = r.name;
+        } else if (colKey === 'fridays') {
+          item['الجمع / Fridays'] = r.fridayDisplay || (r.fridayDuties > 0 ? `${r.fridayDuties} days` : '');
+        } else if (colKey === 'holiday') {
+          if (config.customHolidayEnabled) {
+            item[config.customHolidayName || 'NATIONAL DAY'] = r.holidayDisplay || (r.holidayDuties > 0 ? `${r.holidayDuties} day` : '');
+          }
+        } else if (colKey === 'overtime') {
+          item[`${monthInfo.monthNameEn} Overtime`] = r.overtimeDisplay || (r.overtimeHours > 0 ? `${r.overtimeHours} Hours` : '');
+        } else if (colKey === 'absentLate') {
+          item['ملاحظات: ABSENT and LATE'] = r.absentAndLateText || '';
+        } else if (colKey === 'sickLeave') {
+          item['Sick Leave Not Including absentee'] = r.sickLeaveText || '';
+        } else {
+          const col = (config.customColumns || []).find(c => c.id === colKey);
+          if (col) {
+            const colHeader = col.titleBottom ? `${col.titleTop} - ${col.titleBottom}` : col.titleTop;
+            item[colHeader] = r.customColumnValues?.[col.id] || '';
+          }
+        }
+      });
+
+      const ws = XLSX.utils.json_to_sheet([item]);
+      XLSX.utils.book_append_sheet(wb, ws, 'تسوية إجازة');
+      const safeName = (r.name || 'موظف').replace(/[\\/:*?"<>|]/g, '_').trim();
+      const fileName = `تسوية_إجازة_${safeName}_${selectedMonth}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      setToast({ msg: `تم تصدير ملف إكسل المنفصل بنجاح: ${fileName}`, type: 'success' });
+    } catch (err: any) {
+      console.error(err);
+      setToast({ msg: 'خطأ في تصدير ملف الإكسل: ' + err.message, type: 'error' });
+    }
+  };
+
+  // Prompt to delete / exclude an employee from main payroll
+  const handlePromptDeleteRow = (row: PayrollRow) => {
+    setConfirmDeleteModal({ isOpen: true, row });
+  };
+
+  // Exclude employee from main payroll (saving to config.excludedRowIds & config.excludedRows)
+  const handleExcludeEmployee = (row: PayrollRow) => {
+    setConfig(prev => {
+      const currentExcludedIds = prev.excludedRowIds || [];
+      const currentExcludedRows = prev.excludedRows || [];
+      const nextIds = Array.from(new Set([...currentExcludedIds, row.id, ...(row.userId ? [row.userId] : [])]));
+      const nextRows = [...currentExcludedRows.filter(r => r.id !== row.id), row];
+      return {
+        ...prev,
+        excludedRowIds: nextIds,
+        excludedRows: nextRows
+      };
+    });
+
+    setRows(prev => prev.filter(r => r.id !== row.id));
+
+    setToast({
+      msg: `تم استبعاد الموظف (${row.name}) من المسير الرئيسي لصرف راتبه مفرداً! يمكنك استعادته في أي وقت من تبويب 'المستبعدين'`,
+      type: 'success'
+    });
+    setConfirmDeleteModal({ isOpen: false, row: null });
+    setIsIndividualModalOpen(false);
+  };
+
+  // Restore employee back to main payroll
+  const handleRestoreEmployee = (row: PayrollRow) => {
+    setConfig(prev => {
+      const nextIds = (prev.excludedRowIds || []).filter(id => id !== row.id && id !== row.userId);
+      const nextRows = (prev.excludedRows || []).filter(r => r.id !== row.id);
+      return {
+        ...prev,
+        excludedRowIds: nextIds,
+        excludedRows: nextRows
+      };
+    });
+
+    setRows(prev => {
+      if (prev.some(r => r.id === row.id)) return prev;
+      return [...prev, row];
+    });
+
+    setToast({
+      msg: `تمت استعادة الموظف (${row.name}) إلى المسير الرئيسي بنجاح!`,
+      type: 'success'
+    });
+  };
+
+  // Permanently delete from excluded list
+  const handlePermanentDeleteExcluded = (rowId: string) => {
+    setConfig(prev => ({
+      ...prev,
+      excludedRows: (prev.excludedRows || []).filter(r => r.id !== rowId)
+    }));
+    setToast({ msg: 'تم حذف الموظف نهائياً من قائمة المستبعدين', type: 'info' });
+  };
+
+  // Delete row directly
+  const handleDeleteRow = (rowId: string) => {
+    const target = rows.find(r => r.id === rowId);
+    if (target) {
+      handleExcludeEmployee(target);
+    } else {
+      setRows(prev => prev.filter(r => r.id !== rowId));
+      setToast({ msg: 'تم حذف الموظف من الكشف', type: 'info' });
+    }
+  };
+
+  // Trigger print main payroll
   const handlePrint = () => {
+    document.body.classList.remove('printing-individual');
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
     window.print();
   };
+
+  // Global listener to remove printing-individual class after printing
+  useEffect(() => {
+    const cleanup = () => {
+      document.body.classList.remove('printing-individual');
+    };
+    window.addEventListener('afterprint', cleanup);
+    return () => window.removeEventListener('afterprint', cleanup);
+  }, []);
 
   return (
     <div className={`min-h-screen pb-24 ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
@@ -2178,6 +2406,20 @@ const SupervisorPayroll: React.FC = () => {
             >
               <Users className="w-3.5 h-3.5" />
               <span>{isAr ? `الكل (${rows.length})` : `All (${rows.length})`}</span>
+            </button>
+
+            {/* Excluded Staff Tab (e.g. on vacation & received single settlement slip) */}
+            <button
+              onClick={() => setActiveTab('excluded')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-black transition-all border ${
+                activeTab === 'excluded'
+                  ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                  : isDark ? 'bg-slate-800 text-amber-400 border-amber-800/60 hover:bg-slate-700' : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+              }`}
+              title={isAr ? 'الموظفون المستبعدون من المسير لنزولهم إجازة وصرف رواتبهم مفرداً' : 'Staff excluded for vacation clearance'}
+            >
+              <UserX className="w-3.5 h-3.5" />
+              <span>{isAr ? `المستبعدين للإجازة (${(config.excludedRows || []).length})` : `Vacation Excluded (${(config.excludedRows || []).length})`}</span>
             </button>
           </div>
 
@@ -2460,45 +2702,82 @@ const SupervisorPayroll: React.FC = () => {
         </div>
 
         {/* Paper Container - Matching exact paper and Excel layout */}
-        <div className="bg-white text-black p-4 sm:p-8 rounded-2xl shadow-xl border border-slate-300 overflow-x-auto print:shadow-none print:border-none print:p-0 print:m-0 print:rounded-none print:w-full print-paper-container" dir="rtl">
-          
-          {/* Header section matching exact official document */}
-          <div className="flex items-start justify-between mb-3 border-b-2 border-black pb-2.5">
-            {/* Left Header in English */}
-            <div className="text-left font-sans" dir="ltr">
-              <div className="text-base sm:text-lg font-bold tracking-tight text-black">
-                {config.hospitalNameEn} - {config.departmentNameEn}
-              </div>
-              <div className="text-xs sm:text-sm font-semibold text-black mt-0.5">
-                {monthInfo.monthNameEn} {monthInfo.year} {config.statementTitleEn} {config.tillDateText}
-              </div>
-            </div>
+        <div id="payroll-sheet" className="bg-white text-black p-4 sm:p-8 rounded-2xl shadow-xl border border-slate-300 overflow-x-auto print:shadow-none print:border-none print:p-0 print:m-0 print:rounded-none print:w-full print-paper-container" dir="rtl">
 
-            {/* Center Title in Arabic & English for official report */}
-            <div className="text-center hidden md:block print:block">
-              <div className="text-base sm:text-lg font-black tracking-tight text-black">
-                {config.statementTitleAr}
+          {/* Excluded Staff Info Banner */}
+          {activeTab === 'excluded' && (
+            <div className="mb-4 p-3.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-900 flex items-center justify-between gap-3 text-xs sm:text-sm print:hidden">
+              <div className="flex items-center gap-2.5">
+                <UserX className="w-5 h-5 text-amber-600 shrink-0" />
+                <div>
+                  <span className="font-black text-sm">
+                    {isAr ? 'قائمة الموظفين المستبعدين من المسير الرئيسي (إجازات / صرف راتب مفرد):' : 'Vacation Settlement / Single Payout Excluded Staff:'}
+                  </span>
+                  <p className="text-xs text-amber-800 mt-0.5">
+                    {isAr
+                      ? 'هؤلاء الموظفون تم استبعادهم من كشف المسير المجمع لأنهم نزلوا إجازة وصرفوا رواتبهم بشكل مفرد. يمكنك طباعة ورقة تسوية الإجازة المنفصلة لأي منهم (أيقونة الملف 📄) أو استعادتهم للمسير الرئيسي (أيقونة الاسترجاع 🔄).'
+                      : 'These staff were excluded from the master payroll because they took leave and received individual payout. You can print their single settlement slip or restore them back.'}
+                  </p>
+                </div>
               </div>
-              <div className="text-xs font-bold text-slate-800">
-                {monthInfo.monthNameAr} {monthInfo.year}
+              <div className="font-extrabold text-xs bg-amber-200/90 text-amber-950 px-3 py-1.5 rounded-lg shrink-0">
+                {displayRows.length} {isAr ? 'موظف مستبعد' : 'Excluded'}
               </div>
             </div>
-
-            {/* Right Header in Arabic */}
-            <div className="text-right font-sans" dir="rtl">
-              <div className="text-base sm:text-lg font-bold tracking-tight text-black">
-                {config.hospitalNameAr} - {config.departmentNameAr}
-              </div>
-              <div className="text-xs sm:text-sm font-semibold text-black mt-0.5">
-                {config.statementTitleAr} - {monthInfo.monthNameAr} {monthInfo.year}
-              </div>
-            </div>
-          </div>
+          )}
 
           {/* Table Container with exact excel grid borders and colors */}
           <table className="w-full border-collapse border-2 border-black text-black font-sans text-xs sm:text-[13px] excel-table">
             {/* Header Rows matching exact 2-row layout and dynamic columnOrder */}
             <thead>
+              {/* Top Document Header Row - Placed inside thead so browser repeats it on every printed page */}
+              <tr className="print-doc-header-row bg-white border-0">
+                <th
+                  colSpan={1 + orderedTableColumns.length}
+                  className="print-doc-header-cell border-0 bg-white p-0 text-inherit font-normal text-right"
+                >
+                  <div className="flex items-start justify-between mb-2 border-b-2 border-black pb-2 w-full text-black">
+                    {/* Left Header in English */}
+                    <div className="text-left font-sans" dir="ltr">
+                      <div className="text-xs sm:text-sm font-bold tracking-tight text-black">
+                        {config.hospitalNameEn} - {config.departmentNameEn}
+                      </div>
+                      <div className="text-[10px] sm:text-xs font-semibold text-black mt-0.5">
+                        {monthInfo.monthNameEn} {monthInfo.year} {config.statementTitleEn} {singlePrintRow ? (individualTillDate || config.tillDateText) : config.tillDateText}
+                      </div>
+                    </div>
+
+                    {/* Center: Old Hospital Logo with statement title underneath */}
+                    <div className="text-center flex flex-col items-center justify-center px-2">
+                      <img 
+                        src="/old-logo.png" 
+                        alt="Hospital Logo" 
+                        className="h-10 sm:h-12 w-auto max-w-[130px] object-contain mx-auto"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = '/logo.png';
+                        }}
+                      />
+                      <div className="text-xs sm:text-sm font-black tracking-tight text-black mt-0.5 leading-snug">
+                        {config.statementTitleAr}
+                      </div>
+                      <div className="text-[10px] font-bold text-slate-800">
+                        {monthInfo.monthNameAr} {monthInfo.year}
+                      </div>
+                    </div>
+
+                    {/* Right Header in Arabic */}
+                    <div className="text-right font-sans" dir="rtl">
+                      <div className="text-xs sm:text-sm font-bold tracking-tight text-black">
+                        {config.hospitalNameAr} - {config.departmentNameAr}
+                      </div>
+                      <div className="text-[10px] sm:text-xs font-semibold text-black mt-0.5">
+                        {config.statementTitleAr} - {monthInfo.monthNameAr} {monthInfo.year}
+                      </div>
+                    </div>
+                  </div>
+                </th>
+              </tr>
+
               {/* Row 1 of Header */}
               <tr className="bg-[#e6e6e6] text-center font-bold border-b border-black text-black excel-header-gray">
                 {/* 1. م (Serial Number - always first) */}
@@ -2662,20 +2941,24 @@ const SupervisorPayroll: React.FC = () => {
 
             {/* Table Body */}
             <tbody>
-              {displayRows.length === 0 ? (
-                <tr>
-                  <td colSpan={1 + orderedTableColumns.length} className="border border-black py-8 text-center text-slate-500 font-bold">
-                    {isAr ? 'لا توجد بيانات مطابقة للعرض في هذا التبويب' : 'No matching employee records found in this tab'}
-                  </td>
-                </tr>
-              ) : (
-                displayRows.map((row, idx) => (
+              {(() => {
+                const activePayrollRows = singlePrintRow ? [singlePrintRow] : displayRows;
+                if (activePayrollRows.length === 0) {
+                  return (
+                    <tr>
+                      <td colSpan={1 + orderedTableColumns.length} className="border border-black py-8 text-center text-slate-500 font-bold">
+                        {isAr ? 'لا توجد بيانات مطابقة للعرض في هذا التبويب' : 'No matching employee records found in this tab'}
+                      </td>
+                    </tr>
+                  );
+                }
+                return activePayrollRows.map((row, idx) => (
                   <tr
                     key={row.id}
-                    draggable
-                    onDragStart={() => setDraggedRowId(row.id)}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={() => handleDropRow(row.id)}
+                    draggable={!singlePrintRow}
+                    onDragStart={() => !singlePrintRow && setDraggedRowId(row.id)}
+                    onDragOver={(e) => !singlePrintRow && e.preventDefault()}
+                    onDrop={() => !singlePrintRow && handleDropRow(row.id)}
                     className={`hover:bg-yellow-50/30 transition-colors ${
                       draggedRowId === row.id ? 'opacity-50 bg-indigo-50' : ''
                     }`}
@@ -2734,22 +3017,67 @@ const SupervisorPayroll: React.FC = () => {
                         );
                       }
                       if (colKey === 'name') {
+                        const isExcludedTab = activeTab === 'excluded';
                         return (
                           <td key={colKey} className="border border-black text-right font-bold py-1.5 px-2 bg-white text-black">
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="font-extrabold text-[13px] text-black" dir="auto">{row.name}</span>
-                              {row.calculatedDaysDisplay === '*2' && (
-                                <span className="text-amber-700 font-black text-xs print:hidden" dir="ltr">*2</span>
-                              )}
-                              {row.isCustomRow && (
-                                <button 
-                                  onClick={() => handleDeleteRow(row.id)}
-                                  className="text-rose-500 hover:text-rose-700 p-0.5 print:hidden"
-                                  title="حذف هذا الصف"
+                            <div className="flex items-center justify-between gap-1.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-extrabold text-[13px] text-black" dir="auto">{row.name}</span>
+                                {row.calculatedDaysDisplay === '*2' && (
+                                  <span className="text-amber-700 font-black text-xs print:hidden" dir="ltr">*2</span>
+                                )}
+                                {isExcludedTab && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-850 border border-amber-300 print:hidden shrink-0">
+                                    {isAr ? 'مستبعد للإجازة' : 'Vacation Clearance'}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Row action buttons for Supervisor (Hidden in print) */}
+                              <div className="flex items-center gap-1 print:hidden shrink-0">
+                                {/* 1. Open Individual Vacation Settlement Slip */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenIndividualSlip(row)}
+                                  className="p-1 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors cursor-pointer"
+                                  title={isAr ? 'طباعة كشف إجازة مفرد / ورقة منفصلة لهذا الموظف' : 'Print individual vacation clearance slip'}
                                 >
-                                  <Trash2 className="w-3 h-3" />
+                                  <FileText className="w-3.5 h-3.5" />
                                 </button>
-                              )}
+
+                                {isExcludedTab ? (
+                                  <>
+                                    {/* Restore employee back to main payroll */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRestoreEmployee(row)}
+                                      className="p-1 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition-colors cursor-pointer"
+                                      title={isAr ? 'استعادة الموظف إلى المسير الرئيسي' : 'Restore to main payroll'}
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5" />
+                                    </button>
+                                    {/* Permanently delete from excluded list */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handlePermanentDeleteExcluded(row.id)}
+                                      className="p-1 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-600 transition-colors cursor-pointer"
+                                      title={isAr ? 'حذف نهائي' : 'Permanent delete'}
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </>
+                                ) : (
+                                  /* Exclude / Delete from main payroll */
+                                  <button 
+                                    type="button"
+                                    onClick={() => handlePromptDeleteRow(row)}
+                                    className="p-1 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-600 transition-colors cursor-pointer"
+                                    title={isAr ? 'حذف / استبعاد الموظف من المسير الرئيسي (نظراً لنزوله إجازة وصرف راتبه مفرداً)' : 'Exclude employee from main payroll (vacation single payout)'}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </td>
                         );
@@ -2867,8 +3195,8 @@ const SupervisorPayroll: React.FC = () => {
                     })}
 
                   </tr>
-                ))
-              )}
+                ));
+              })()}
             </tbody>
           </table>
 
@@ -3324,12 +3652,472 @@ const SupervisorPayroll: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsColumnsModalOpen(false)}
-              className="px-5 py-2 rounded-xl bg-emerald-600 text-white font-bold"
+              className="px-5 py-2 rounded-xl bg-emerald-600 text-white font-bold cursor-pointer"
             >
               {isAr ? 'تم' : 'Done'}
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* 7. CONFIRMATION MODAL: DELETE / EXCLUDE EMPLOYEE FROM MAIN PAYROLL */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={confirmDeleteModal.isOpen}
+        onClose={() => setConfirmDeleteModal({ isOpen: false, row: null })}
+        title={isAr ? "حذف أو استبعاد موظف من المسير الرئيسي" : "Exclude or Delete Employee"}
+        maxWidth="max-w-md"
+      >
+        {confirmDeleteModal.row && (
+          <div className="space-y-4 text-xs sm:text-sm">
+            <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 space-y-2">
+              <div className="flex items-center gap-2 font-black text-sm">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>{confirmDeleteModal.row.name}</span>
+                {confirmDeleteModal.row.employeeNumber && (
+                  <span className="text-xs text-amber-700 dark:text-amber-300 font-mono">
+                    (#{confirmDeleteModal.row.employeeNumber})
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-amber-800 dark:text-amber-200 leading-relaxed font-semibold">
+                {isAr
+                  ? 'هل ترغب في استبعاد هذا الموظف من المسير الرئيسي نظراً لنزوله إجازة وصرف راتبه بشكل مفرد؟'
+                  : 'Do you want to exclude this employee from the main payroll because they took leave and received individual payout?'}
+              </p>
+              <div className="p-2.5 rounded-lg bg-amber-100/70 dark:bg-amber-900/50 text-[11px] text-amber-900 dark:text-amber-300 font-medium">
+                {isAr
+                  ? '💡 سيتم نقل الموظف فوراً إلى تبويب "المستبعدين للإجازة". يمكنك طباعة ورقة تسوية الإجازة المفردة له في أي وقت أو استعادته للمسير الرئيسي بنقرة واحدة.'
+                  : 'The employee will be moved to the "Vacation Excluded" tab. You can print their individual vacation clearance slip anytime or restore them back.'}
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirmDeleteModal.row) {
+                    handleExcludeEmployee(confirmDeleteModal.row);
+                  }
+                }}
+                className="w-full py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+              >
+                <UserMinus className="w-4 h-4" />
+                <span>{isAr ? 'نعم، استبعاد من المسير الرئيسي (صرف راتب مفرد)' : 'Yes, exclude from main payroll'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const target = confirmDeleteModal.row;
+                  setConfirmDeleteModal({ isOpen: false, row: null });
+                  if (target) {
+                    handleOpenIndividualSlip(target);
+                  }
+                }}
+                className="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+              >
+                <FileText className="w-4 h-4" />
+                <span>{isAr ? 'معاينة وطباعة ورقة تسوية الإجازة أولاً' : 'Preview & Print Vacation Slip First'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteModal({ isOpen: false, row: null })}
+                className="w-full py-2 px-4 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                {isAr ? 'إلغاء' : 'Cancel'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* 8. INDIVIDUAL VACATION SETTLEMENT & CLEARANCE SLIP MODAL */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={isIndividualModalOpen}
+        onClose={() => setIsIndividualModalOpen(false)}
+        title={isAr ? "كشف دوام وغياب منفصل للموظف (تسوية إجازة)" : "Individual Employee Payroll Statement"}
+        maxWidth="max-w-6xl"
+      >
+        {individualSlipRow && (
+          <div className="space-y-4 text-xs sm:text-sm">
+            
+            {/* Top Toolbar Actions inside Modal */}
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-slate-100 dark:bg-slate-800/80 border dark:border-slate-700">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handlePrintIndividualSlip}
+                  className="px-4 py-2 rounded-xl bg-yellow-400 hover:bg-yellow-500 text-black font-black flex items-center gap-1.5 shadow-xs transition-all cursor-pointer text-xs"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>{isAr ? 'طباعة الكشف A4' : 'Print Statement A4'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleExportSingleEmployeeExcel(individualSlipRow)}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer text-xs"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>{isAr ? 'تصدير إكسل' : 'Export Excel'}</span>
+                </button>
+
+                {/* Till date input right in the toolbar */}
+                <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-3 py-1.5 rounded-xl">
+                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300">{isAr ? 'تاريخ حتى:' : 'Till Date:'}</span>
+                  <input
+                    type="text"
+                    value={individualTillDate}
+                    onChange={(e) => setIndividualTillDate(e.target.value)}
+                    placeholder="Till 12.10.2026"
+                    className="w-32 text-xs font-bold bg-transparent outline-none border-none p-0 text-slate-800 dark:text-slate-200"
+                  />
+                </div>
+              </div>
+
+              <div>
+                {rows.some(r => r.id === individualSlipRow.id) ? (
+                  <button
+                    type="button"
+                    onClick={() => handleExcludeEmployee(individualSlipRow)}
+                    className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900 font-bold flex items-center gap-1.5 transition-all cursor-pointer text-xs"
+                    title={isAr ? 'استبعاد الموظف من المسير الرئيسي حتى لا يتكرر بعد صرف راتبه مفرداً' : 'Exclude from main payroll'}
+                  >
+                    <UserMinus className="w-4 h-4 text-rose-600" />
+                    <span>{isAr ? 'استبعاد من المسير الرئيسي (صرف راتب مفرد)' : 'Exclude from Main Payroll'}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleRestoreEmployee(individualSlipRow)}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900 font-bold flex items-center gap-1.5 transition-all cursor-pointer text-xs"
+                  >
+                    <RotateCcw className="w-4 h-4 text-emerald-600" />
+                    <span>{isAr ? 'استعادة الموظف للمسير الرئيسي' : 'Restore to Main Payroll'}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Official Document Sheet inside Modal - EXACT MATCH TO MASTER PAYROLL */}
+            <div className="bg-white text-black p-4 sm:p-8 rounded-xl border border-slate-300 overflow-x-auto shadow-sm" dir="rtl">
+              
+              {/* Header section matching exact official document */}
+              <div className="flex items-start justify-between mb-2 border-b-2 border-black pb-2">
+                {/* Left Header in English */}
+                <div className="text-left font-sans" dir="ltr">
+                  <div className="text-xs sm:text-sm font-bold tracking-tight text-black">
+                    {config.hospitalNameEn} - {config.departmentNameEn}
+                  </div>
+                  <div className="text-[10px] sm:text-xs font-semibold text-black mt-0.5">
+                    {monthInfo.monthNameEn} {monthInfo.year} {config.statementTitleEn} {individualTillDate || config.tillDateText}
+                  </div>
+                </div>
+
+                {/* Center: Old Hospital Logo with statement title underneath */}
+                <div className="text-center flex flex-col items-center justify-center px-2">
+                  <img 
+                    src="/old-logo.png" 
+                    alt="Hospital Logo" 
+                    className="h-10 sm:h-12 w-auto max-w-[130px] object-contain mx-auto"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = '/logo.png';
+                    }}
+                  />
+                  <div className="text-xs sm:text-sm font-black tracking-tight text-black mt-0.5 leading-snug">
+                    {config.statementTitleAr}
+                  </div>
+                  <div className="text-[10px] font-bold text-slate-800">
+                    {monthInfo.monthNameAr} {monthInfo.year}
+                  </div>
+                </div>
+
+                {/* Right Header in Arabic */}
+                <div className="text-right font-sans" dir="rtl">
+                  <div className="text-xs sm:text-sm font-bold tracking-tight text-black">
+                    {config.hospitalNameAr} - {config.departmentNameAr}
+                  </div>
+                  <div className="text-[10px] sm:text-xs font-semibold text-black mt-0.5">
+                    {config.statementTitleAr} - {monthInfo.monthNameAr} {monthInfo.year}
+                  </div>
+                </div>
+              </div>
+
+              {/* Table Container with exact excel grid borders and colors */}
+              <table className="w-full border-collapse border-2 border-black text-black font-sans text-xs sm:text-[13px] excel-table">
+                <thead>
+                  {/* Row 1 of Header */}
+                  <tr className="bg-[#e6e6e6] text-center font-bold border-b border-black text-black excel-header-gray">
+                    <th className="border border-black px-1.5 py-1.5 w-9 text-center font-bold" rowSpan={2}>
+                      م
+                    </th>
+                    {orderedTableColumns.map(colKey => {
+                      if (colKey === 'calcDays') {
+                        return (
+                          <th key={colKey} className="border border-black px-1.5 py-1.5 w-16 bg-[#ffff00] text-black font-black text-center excel-yellow-cell" rowSpan={2}>
+                            <div className="leading-tight">حساب</div>
+                            <div className="leading-tight">أيام</div>
+                          </th>
+                        );
+                      }
+                      if (colKey === 'name') {
+                        return (
+                          <th key={colKey} className="border border-black px-3 py-1.5 min-w-[190px] text-center" rowSpan={2}>
+                            <div>اسم الموظف</div>
+                            <div className="font-normal text-[11px]">Employee Name</div>
+                          </th>
+                        );
+                      }
+                      if (colKey === 'fridays') {
+                        return (
+                          <th key={colKey} className="border border-black px-2.5 py-1.5 w-28 text-center" rowSpan={2}>
+                            <div>الجمع</div>
+                            <div className="font-normal text-[11px]">Fridays</div>
+                          </th>
+                        );
+                      }
+                      if (colKey === 'holiday') {
+                        return (
+                          <th key={colKey} className="border border-black px-2.5 py-1.5 w-28 text-center" rowSpan={2}>
+                            <div>{config.customHolidayName}</div>
+                            <div className="font-normal text-[11px]">DAY</div>
+                          </th>
+                        );
+                      }
+                      if (colKey === 'overtime') {
+                        return (
+                          <th key={colKey} className="border border-black px-2.5 py-1.5 w-24 text-center">
+                            {monthInfo.monthNameEn}
+                          </th>
+                        );
+                      }
+                      if (colKey === 'absentLate') {
+                        return (
+                          <th key={colKey} className="border border-black px-3 py-1.5 min-w-[190px] text-center">
+                            ملاحظات:
+                          </th>
+                        );
+                      }
+                      if (colKey === 'sickLeave') {
+                        return (
+                          <th key={colKey} className="border border-black px-3 py-1.5 w-36 text-center" rowSpan={2}>
+                            <div>Sick Leave</div>
+                            <div className="font-normal text-[10px]">Not Including absentee</div>
+                          </th>
+                        );
+                      }
+                      const col = (config.customColumns || []).find(c => c.id === colKey);
+                      if (!col) return null;
+                      return (
+                        <th
+                          key={col.id}
+                          className={`border border-black px-3 py-1.5 min-w-[120px] text-center ${
+                            col.highlightYellow ? 'bg-[#ffff00] font-black excel-yellow-cell' : ''
+                          }`}
+                          rowSpan={col.titleBottom ? 1 : 2}
+                        >
+                          <div>{col.titleTop}</div>
+                          {col.titleBottom && <div className="font-normal text-[11px]">{col.titleBottom}</div>}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                  {/* Row 2 of Header */}
+                  <tr className="bg-[#e6e6e6] text-center font-bold border-b border-black text-black excel-header-gray">
+                    {orderedTableColumns.map(colKey => {
+                      if (colKey === 'overtime') {
+                        return (
+                          <th key={colKey} className="border border-black px-2 py-1 text-center font-bold text-[11px]">
+                            Over Time
+                          </th>
+                        );
+                      }
+                      if (colKey === 'absentLate') {
+                        return (
+                          <th key={colKey} className="border border-black px-2 py-1 text-center font-bold text-[11px]">
+                            ABSENT and LATE
+                          </th>
+                        );
+                      }
+                      return null;
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="border border-black text-center font-bold py-1.5 px-1 bg-white text-black">
+                      1
+                    </td>
+                    {orderedTableColumns.map(colKey => {
+                      if (colKey === 'calcDays') {
+                        return (
+                          <td key={colKey} className="border border-black text-center font-black py-1.5 px-1 bg-[#ffff00] text-black excel-yellow-cell" dir="ltr">
+                            <input 
+                              type="text"
+                              dir="ltr"
+                              value={individualSlipRow.calculatedDaysDisplay || ''}
+                              onChange={(e) => handleUpdateIndividualField('calculatedDaysDisplay', e.target.value)}
+                              className="w-full text-center font-black bg-transparent outline-none border-none p-0 text-black text-sm"
+                            />
+                          </td>
+                        );
+                      }
+                      if (colKey === 'name') {
+                        return (
+                          <td key={colKey} className="border border-black text-right font-bold py-1.5 px-2 bg-white text-black">
+                            <span className="font-extrabold text-[13px] text-black" dir="auto">{individualSlipRow.name}</span>
+                          </td>
+                        );
+                      }
+                      if (colKey === 'fridays') {
+                        return (
+                          <td key={colKey} className="border border-black text-center font-bold py-1.5 px-1.5 bg-white text-black" dir="ltr">
+                            <input 
+                              type="text"
+                              dir="ltr"
+                              value={individualSlipRow.fridayDisplay || ''}
+                              onChange={(e) => handleUpdateIndividualField('fridayDisplay', e.target.value)}
+                              className="w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
+                            />
+                          </td>
+                        );
+                      }
+                      if (colKey === 'holiday') {
+                        return (
+                          <td key={colKey} className="border border-black text-center font-bold py-1.5 px-1.5 bg-white text-black" dir="ltr">
+                            <input 
+                              type="text"
+                              dir="ltr"
+                              value={individualSlipRow.holidayDisplay || ''}
+                              onChange={(e) => handleUpdateIndividualField('holidayDisplay', e.target.value)}
+                              className="w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
+                            />
+                          </td>
+                        );
+                      }
+                      if (colKey === 'overtime') {
+                        return (
+                          <td key={colKey} className="border border-black text-center font-bold py-1.5 px-1.5 bg-white text-black" dir="ltr">
+                            <input 
+                              type="text"
+                              dir="ltr"
+                              value={individualSlipRow.overtimeDisplay || ''}
+                              onChange={(e) => handleUpdateIndividualField('overtimeDisplay', e.target.value)}
+                              className="w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
+                            />
+                          </td>
+                        );
+                      }
+                      if (colKey === 'absentLate') {
+                        return (
+                          <td key={colKey} className="border border-black text-center font-bold py-1.5 px-2 bg-white text-black" dir="ltr">
+                            <input 
+                              type="text"
+                              dir="ltr"
+                              value={individualSlipRow.absentAndLateText || ''}
+                              onChange={(e) => handleUpdateIndividualField('absentAndLateText', e.target.value)}
+                              className="w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
+                            />
+                          </td>
+                        );
+                      }
+                      if (colKey === 'sickLeave') {
+                        return (
+                          <td key={colKey} className="border border-black text-center font-bold py-1.5 px-2 bg-white text-black" dir="ltr">
+                            <input 
+                              type="text"
+                              dir="ltr"
+                              value={individualSlipRow.sickLeaveText || ''}
+                              onChange={(e) => handleUpdateIndividualField('sickLeaveText', e.target.value)}
+                              className="w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
+                            />
+                          </td>
+                        );
+                      }
+                      const col = (config.customColumns || []).find(c => c.id === colKey);
+                      if (!col) return null;
+                      return (
+                        <td
+                          key={col.id}
+                          className={`border border-black text-center font-bold py-1.5 px-2 text-black ${
+                            col.highlightYellow ? 'bg-[#ffff00] font-black excel-yellow-cell' : 'bg-white'
+                          }`}
+                          dir="ltr"
+                        >
+                          <input 
+                            type="text"
+                            dir="ltr"
+                            value={individualSlipRow.customColumnValues?.[col.id] || ''}
+                            onChange={(e) => {
+                              const nextVal = e.target.value;
+                              setIndividualSlipRow(prev => prev ? {
+                                ...prev,
+                                customColumnValues: {
+                                  ...(prev.customColumnValues || {}),
+                                  [col.id]: nextVal
+                                }
+                              } : null);
+                            }}
+                            className="w-full text-center font-bold bg-transparent outline-none border-none p-0 text-black text-xs sm:text-[13px]"
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+
+              {/* Official Signatures matching exact document */}
+              <div className="flex items-center justify-between mt-8 pt-4 px-8 text-black font-bold text-sm print-signatures">
+                {/* Left: Medical Director */}
+                <div className="text-center">
+                  <div className="text-base font-extrabold">{config.medicalDirectorTitle}</div>
+                  <div className="h-10"></div>
+                  <div className="text-xs text-slate-700 font-bold">التوقيع والاعتماد: ....................</div>
+                </div>
+
+                {/* Center Stamp Box for Official Hospital Document */}
+                <div className="text-center">
+                  <div className="w-28 h-16 border-2 border-dashed border-slate-400 rounded-lg flex items-center justify-center text-xs text-slate-500 font-bold">
+                    ختم القسم / الإدارة
+                  </div>
+                </div>
+
+                {/* Right: Department Head / Supervisor */}
+                <div className="text-center">
+                  <div className="text-base font-extrabold">{config.departmentHeadTitle}</div>
+                  <div className="h-10"></div>
+                  <div className="text-xs text-slate-700 font-bold">التوقيع: ....................</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center pt-3 border-t">
+              <button
+                type="button"
+                onClick={() => setIsIndividualModalOpen(false)}
+                className="px-5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                {isAr ? 'إغلاق' : 'Close'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handlePrintIndividualSlip}
+                className="px-5 py-2 rounded-xl bg-yellow-400 hover:bg-yellow-500 text-black font-black flex items-center gap-2 shadow-sm cursor-pointer"
+              >
+                <Printer className="w-4 h-4" />
+                <span>{isAr ? 'طباعة الكشف A4' : 'Print Statement A4'}</span>
+              </button>
+            </div>
+
+          </div>
+        )}
       </Modal>
 
       {/* Print Specific CSS to ensure authentic vector A4 table and exact Excel colors */}
@@ -3347,6 +4135,24 @@ const SupervisorPayroll: React.FC = () => {
         }
 
         @media print {
+          /* Always hide modals, overlays, sidebars, toolbars, buttons */
+          div[class*="fixed inset-0"], 
+          .modal-backdrop, 
+          .fixed, 
+          [role="dialog"],
+          header, aside, nav, .print\\:hidden, [class*="print:hidden"], 
+          .toast-container, button {
+            display: none !important;
+          }
+
+          /* Ensure master payroll sheet prints in full vector beauty for both full and single employee */
+          #payroll-sheet {
+            display: block !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+
           @page {
             size: A4 landscape;
             margin: 8mm 8mm 8mm 8mm;
@@ -3367,11 +4173,6 @@ const SupervisorPayroll: React.FC = () => {
             print-color-adjust: exact !important;
           }
 
-          header, aside, nav, .print\\:hidden, [class*="print:hidden"], 
-          .toast-container, button, .modal-backdrop {
-            display: none !important;
-          }
-
           main {
             max-width: 100% !important;
             margin: 0 !important;
@@ -3387,21 +4188,32 @@ const SupervisorPayroll: React.FC = () => {
             width: 100% !important;
             max-width: 100% !important;
             background: #ffffff !important;
+            overflow: visible !important;
           }
 
           table.excel-table {
             width: 100% !important;
             border-collapse: collapse !important;
             border: 2px solid #000000 !important;
-            margin-top: 4px !important;
-            font-size: 11px !important;
-            line-height: 1.3 !important;
+            margin-top: 0px !important;
+            font-size: 10px !important;
+            line-height: 1.25 !important;
             background-color: #ffffff !important;
             page-break-inside: auto !important;
           }
 
           table.excel-table thead {
             display: table-header-group !important;
+          }
+
+          table.excel-table th.print-doc-header-cell,
+          table.excel-table tr.print-doc-header-row th {
+            border: none !important;
+            background-color: #ffffff !important;
+            background: #ffffff !important;
+            padding: 0 0 3px 0 !important;
+            font-weight: normal !important;
+            text-align: inherit !important;
           }
 
           table.excel-table tr {
@@ -3414,7 +4226,8 @@ const SupervisorPayroll: React.FC = () => {
             background-color: #e6e6e6 !important;
             color: #000000 !important;
             font-weight: 800 !important;
-            padding: 4px 5px !important;
+            padding: 3px 4px !important;
+            font-size: 10px !important;
             text-align: center !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
@@ -3423,9 +4236,9 @@ const SupervisorPayroll: React.FC = () => {
           table.excel-table td {
             border: 1px solid #000000 !important;
             color: #000000 !important;
-            padding: 4.5px 6px !important;
+            padding: 3.5px 5px !important;
             vertical-align: middle !important;
-            font-size: 11px !important;
+            font-size: 10.5px !important;
             background-color: #ffffff !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;

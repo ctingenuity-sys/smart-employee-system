@@ -26,7 +26,10 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
 
   // Print mode: 'thermal' (70x50mm exact single label) or 'a4' (sheet with 8 labels)
   const [printMode, setPrintMode] = useState<'thermal' | 'a4'>('thermal');
+  // Visual theme: 'zebra_bw' (pure 100% monochrome black for Zebra / thermal printers) or 'color' (standard colored)
+  const [stickerTheme, setStickerTheme] = useState<'zebra_bw' | 'color'>('zebra_bw');
   const [copiesCount, setCopiesCount] = useState<number>(1);
+  const [showZebraGuide, setShowZebraGuide] = useState<boolean>(true);
 
   // Generated QR codes (Data URLs)
   const [ppmQrUrl, setPpmQrUrl] = useState<string>('');
@@ -102,47 +105,47 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
         const ppmContent = resolveReportQrPayload(device.maintUrl, 'PPM', device, roomNumber);
         const qcContent = resolveReportQrPayload(device.qualUrl, 'QC', device, roomNumber);
 
-        // Generate PPM QR Code client-side
+        // Generate PPM QR Code client-side (Pure #000000 black prevents dithering blur on Zebra thermal printheads)
         let ppmData = '';
         try {
           ppmData = await QRCode.toDataURL(ppmContent, {
-            width: 220,
+            width: 260,
             margin: 1,
             errorCorrectionLevel: 'M',
             color: {
-              dark: '#0369a1',
+              dark: '#000000',
               light: '#ffffff',
             },
           });
         } catch (ppmErr) {
           console.warn('Fallback PPM QR generation:', ppmErr);
           ppmData = await QRCode.toDataURL(`PPM:${device.name || 'ASSET'}\nSN:${device.serial || 'N/A'}`, {
-            width: 220,
+            width: 260,
             margin: 1,
             errorCorrectionLevel: 'L',
-            color: { dark: '#0369a1', light: '#ffffff' },
+            color: { dark: '#000000', light: '#ffffff' },
           });
         }
 
-        // Generate QC QR Code client-side
+        // Generate QC QR Code client-side (Pure #000000 black for thermal & optical scanner clarity)
         let qcData = '';
         try {
           qcData = await QRCode.toDataURL(qcContent, {
-            width: 220,
+            width: 260,
             margin: 1,
             errorCorrectionLevel: 'M',
             color: {
-              dark: '#7e22ce',
+              dark: '#000000',
               light: '#ffffff',
             },
           });
         } catch (qcErr) {
           console.warn('Fallback QC QR generation:', qcErr);
           qcData = await QRCode.toDataURL(`QC:${device.name || 'ASSET'}\nSN:${device.serial || 'N/A'}`, {
-            width: 220,
+            width: 260,
             margin: 1,
             errorCorrectionLevel: 'L',
-            color: { dark: '#7e22ce', light: '#ffffff' },
+            color: { dark: '#000000', light: '#ffffff' },
           });
         }
 
@@ -156,8 +159,16 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
         if (isMounted) {
           // Guaranteed client-side fallback with zero network dependencies
           try {
-            const fallbackPpm = await QRCode.toDataURL(`PPM:${device.name || 'ASSET'}`, { width: 220, margin: 1 });
-            const fallbackQc = await QRCode.toDataURL(`QC:${device.name || 'ASSET'}`, { width: 220, margin: 1 });
+            const fallbackPpm = await QRCode.toDataURL(`PPM:${device.name || 'ASSET'}`, {
+              width: 260,
+              margin: 1,
+              color: { dark: '#000000', light: '#ffffff' },
+            });
+            const fallbackQc = await QRCode.toDataURL(`QC:${device.name || 'ASSET'}`, {
+              width: 260,
+              margin: 1,
+              color: { dark: '#000000', light: '#ffffff' },
+            });
             setPpmQrUrl(fallbackPpm);
             setQcQrUrl(fallbackQc);
           } catch (e2) {
@@ -204,19 +215,20 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
   const generateStickerRawHtml = () => {
     const isPpmOverdue = ppmRemaining !== null && ppmRemaining <= 0;
     const isQcOverdue = qcRemaining !== null && qcRemaining <= 0;
+    const isZebra = stickerTheme === 'zebra_bw';
 
     return `
-      <div class="sticker-card" dir="${isAr ? 'rtl' : 'ltr'}">
+      <div class="sticker-card ${isZebra ? 'sticker-zebra-bw' : 'sticker-color-mode'}" dir="${isAr ? 'rtl' : 'ltr'}">
         <!-- Header: Hospital Name & Department -->
         <div class="sticker-header">
           <div class="header-logo-title">
-            <img src="/old-logo.png" onerror="this.src='/logo.png'" alt="Hospital Logo" class="hosp-logo" />
+            <img src="/old-logo.png" onerror="this.src='/logo.png'" alt="Hospital Logo" class="hosp-logo ${isZebra ? 'mono-logo' : ''}" />
             <div class="hosp-titles">
-              <div class="hosp-main">${isAr ? "مستشفي الجدعاني  -حي الصفا" : 'ALJEDAANI HOSPITAL - ALSAFA BRANCH'}</div>
+              <div class="hosp-main">${isAr ? "مستشفي الجدعاني -ح الصفا" : 'ALJEDAANI HOSPITAL -ALSFA'}</div>
               <div class="hosp-sub">${isAr ? 'قسم الأشعة والتصوير الطبي' : 'Radiology & Medical Imaging'}</div>
             </div>
           </div>
-          <div class="badge-tag">${device.category || 'ASSET'}</div>
+          <div class="${isZebra ? 'badge-tag-mono' : 'badge-tag'}">${device.category || 'ASSET'}</div>
         </div>
 
         <!-- Middle: Device Name, Serial, Room & Age -->
@@ -255,8 +267,8 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
             <div class="inspect-body">
               <div class="inspect-details">
                 <span class="detail-label">${isAr ? 'تاريخ الانتهاء:' : 'Expiry Date:'}</span>
-                <span class="detail-date ${isPpmOverdue ? 'text-danger' : ''}">${device.maintDate || (isAr ? 'غير مسجل' : 'Not set')}</span>
-                <span class="scan-tip">${isAr ? 'امسح لعرض تقرير PPM' : 'Scan for PPM Report'}</span>
+                <span class="detail-date ${isPpmOverdue && !isZebra ? 'text-danger' : ''}">${device.maintDate || (isAr ? 'غير مسجل' : 'Not set')}</span>
+                <span class="scan-tip">${isAr ? 'امسح لتقرير PPM' : 'Scan for PPM Report'}</span>
               </div>
               <div class="qr-wrapper">
                 <img src="${ppmQrUrl}" alt="PPM QR" class="qr-img" />
@@ -275,8 +287,8 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
             <div class="inspect-body">
               <div class="inspect-details">
                 <span class="detail-label">${isAr ? 'تاريخ الانتهاء:' : 'Expiry Date:'}</span>
-                <span class="detail-date ${isQcOverdue ? 'text-danger' : ''}">${device.enableQA ? (device.qualDate || (isAr ? 'غير مسجل' : 'Not set')) : (isAr ? 'غير مفعل' : 'Disabled')}</span>
-                <span class="scan-tip">${isAr ? 'امسح لعرض تقرير QC' : 'Scan for QC Report'}</span>
+                <span class="detail-date ${isQcOverdue && !isZebra ? 'text-danger' : ''}">${device.enableQA ? (device.qualDate || (isAr ? 'غير مسجل' : 'Not set')) : (isAr ? 'غير مفعل' : 'Disabled')}</span>
+                <span class="scan-tip">${isAr ? 'امسح لتقرير QC' : 'Scan for QC Report'}</span>
               </div>
               <div class="qr-wrapper">
                 <img src="${qcQrUrl}" alt="QC QR" class="qr-img" />
@@ -335,10 +347,11 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
               margin: 0;
               padding: 0;
               background: #ffffff;
-              color: #0f172a;
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", "Tajawal", Helvetica, Arial, sans-serif;
+              color: #000000;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", "Tajawal", "Arial", sans-serif;
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
+              text-rendering: geometricPrecision;
             }
 
             ${printMode === 'thermal' ? `
@@ -373,8 +386,7 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
               max-width: 67mm;
               max-height: 47mm;
               overflow: hidden;
-              border: 1.2px solid #0369a1;
-              border-radius: 3.5mm;
+              border-radius: 3mm;
               padding: 1.5mm 1.8mm;
               background: #ffffff;
               display: flex;
@@ -384,14 +396,415 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
               line-height: 1.15;
             }
 
-            /* Header Section */
-            .sticker-header {
+            /* --- ZEBRA / THERMAL B&W HIGH-CONTRAST MONOCHROME RULES --- */
+            .sticker-zebra-bw {
+              border: 1.8px solid #000000 !important;
+              background: #ffffff !important;
+              color: #000000 !important;
+              -webkit-font-smoothing: antialiased;
+              text-rendering: geometricPrecision;
+            }
+
+            .sticker-zebra-bw * {
+              color: #000000;
+              border-color: #000000;
+              box-shadow: none !important;
+              text-shadow: none !important;
+            }
+
+            .sticker-zebra-bw .sticker-header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              border-bottom: 1.2px solid #000000 !important;
+              padding-bottom: 0.8mm;
+              margin-bottom: 0.7mm;
+            }
+
+            .sticker-zebra-bw .mono-logo {
+              filter: grayscale(100%) contrast(300%) brightness(85%) !important;
+            }
+
+            .sticker-zebra-bw .hosp-main {
+              font-size: 6.2pt !important;
+              font-weight: 900 !important;
+              color: #000000 !important;
+              text-transform: uppercase;
+              letter-spacing: -0.1px;
+            }
+
+            .sticker-zebra-bw .hosp-sub {
+              font-size: 5.2pt !important;
+              font-weight: 800 !important;
+              color: #000000 !important;
+            }
+
+            .sticker-zebra-bw .badge-tag-mono {
+              font-size: 6pt !important;
+              font-weight: 900 !important;
+              background: #000000 !important;
+              color: #ffffff !important;
+              border: 1px solid #000000 !important;
+              padding: 0.4mm 1.6mm !important;
+              border-radius: 0.8mm !important;
+              text-transform: uppercase;
+            }
+
+            .sticker-zebra-bw .device-name-text {
+              font-size: 8.8pt !important;
+              font-weight: 900 !important;
+              color: #000000 !important;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              flex: 1;
+            }
+
+            .sticker-zebra-bw .device-sn-badge {
+              font-family: "SF Mono", "Courier New", Courier, monospace, Arial !important;
+              font-size: 6.8pt !important;
+              font-weight: 900 !important;
+              background: #ffffff !important;
+              color: #000000 !important;
+              border: 1.4px solid #000000 !important;
+              padding: 0.3mm 1.4mm !important;
+              border-radius: 0.8mm !important;
+              white-space: nowrap;
+            }
+
+            .sticker-zebra-bw .meta-row {
+              display: grid;
+              grid-template-columns: 1.3fr 1fr 1fr;
+              gap: 1mm;
+              background: #ffffff !important;
+              border: 1.2px solid #000000 !important;
+              border-radius: 1mm;
+              padding: 0.8mm 1.2mm !important;
+            }
+
+            .sticker-zebra-bw .meta-lbl {
+              font-size: 5.2pt !important;
+              font-weight: 800 !important;
+              color: #000000 !important;
+              text-transform: uppercase;
+            }
+
+            .sticker-zebra-bw .meta-val {
+              font-size: 7.2pt !important;
+              font-weight: 900 !important;
+              color: #000000 !important;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+            }
+
+            .sticker-zebra-bw .room-box {
+              border-inline-end: 1.2px solid #000000 !important;
+              padding-inline-end: 1mm;
+            }
+
+            .sticker-zebra-bw .room-val,
+            .sticker-zebra-bw .age-val {
+              color: #000000 !important;
+              font-weight: 900 !important;
+            }
+
+            .sticker-zebra-bw .inspect-box {
+              border-radius: 1.4mm;
+              padding: 0.8mm 1mm;
+              display: flex;
+              flex-direction: column;
+              justify-content: space-between;
+              border: 1.4px solid #000000 !important;
+              background: #ffffff !important;
+            }
+
+            .sticker-zebra-bw .inspect-header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              border-bottom: 1.2px solid #000000 !important;
+              padding-bottom: 0.4mm;
+              margin-bottom: 0.5mm;
+            }
+
+            .sticker-zebra-bw .inspect-title {
+              font-size: 6.4pt !important;
+              font-weight: 900 !important;
+              color: #000000 !important;
+              text-transform: uppercase;
+            }
+
+            .sticker-zebra-bw .badge-ok {
+              background: #ffffff !important;
+              color: #000000 !important;
+              border: 1.2px solid #000000 !important;
+              font-size: 5.4pt !important;
+              font-weight: 900 !important;
+              padding: 0.2mm 1mm !important;
+              border-radius: 0.6mm !important;
+            }
+
+            .sticker-zebra-bw .badge-overdue {
+              background: #000000 !important;
+              color: #ffffff !important;
+              border: 1.2px solid #000000 !important;
+              font-size: 5.4pt !important;
+              font-weight: 900 !important;
+              padding: 0.2mm 1mm !important;
+              border-radius: 0.6mm !important;
+            }
+
+            .sticker-zebra-bw .detail-label {
+              font-size: 5.2pt !important;
+              font-weight: 800 !important;
+              color: #000000 !important;
+            }
+
+            .sticker-zebra-bw .detail-date {
+              font-size: 7.2pt !important;
+              font-weight: 900 !important;
+              color: #000000 !important;
+              font-family: "SF Mono", "Courier New", Courier, monospace, Arial !important;
+              white-space: nowrap;
+            }
+
+            .sticker-zebra-bw .scan-tip {
+              font-size: 5.2pt !important;
+              font-weight: 800 !important;
+              color: #000000 !important;
+              margin-top: 0.3mm;
+              line-height: 1;
+            }
+
+            .sticker-zebra-bw .qr-wrapper {
+              width: 15.5mm !important;
+              height: 15.5mm !important;
+              min-width: 15.5mm !important;
+              min-height: 15.5mm !important;
+              background: #ffffff !important;
+              padding: 0.2mm !important;
+              border-radius: 0.8mm;
+              border: 1.2px solid #000000 !important;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            }
+
+            .sticker-zebra-bw .qr-img {
+              width: 100%;
+              height: 100%;
+              object-fit: contain;
+              display: block;
+              image-rendering: -moz-crisp-edges !important;
+              image-rendering: -webkit-optimize-contrast !important;
+              image-rendering: pixelated !important;
+              image-rendering: crisp-edges !important;
+            }
+
+            /* --- STANDARD COLOR PROFILE RULES (FOR COLOR PRINTERS) --- */
+            .sticker-color-mode {
+              border: 1.2px solid #0369a1;
+            }
+
+            .sticker-color-mode .sticker-header {
               display: flex;
               align-items: center;
               justify-content: space-between;
               border-bottom: 0.6px solid #cbd5e1;
               padding-bottom: 1mm;
               margin-bottom: 0.8mm;
+            }
+
+            .sticker-color-mode .hosp-main {
+              font-size: 5.5pt;
+              font-weight: 900;
+              color: #0369a1;
+              text-transform: uppercase;
+              letter-spacing: -0.1px;
+            }
+
+            .sticker-color-mode .hosp-sub {
+              font-size: 4.5pt;
+              font-weight: 700;
+              color: #64748b;
+            }
+
+            .sticker-color-mode .badge-tag {
+              font-size: 4.8pt;
+              font-weight: 900;
+              background: #f0f9ff;
+              color: #0369a1;
+              border: 0.5px solid #bae6fd;
+              padding: 0.3mm 1.2mm;
+              border-radius: 1mm;
+              text-transform: uppercase;
+            }
+
+            .sticker-color-mode .device-name-text {
+              font-size: 7.6pt;
+              font-weight: 900;
+              color: #0f172a;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              flex: 1;
+            }
+
+            .sticker-color-mode .device-sn-badge {
+              font-family: "SF Mono", "Courier New", Courier, monospace;
+              font-size: 5.4pt;
+              font-weight: 800;
+              background: #f1f5f9;
+              color: #334155;
+              border: 0.5px solid #cbd5e1;
+              padding: 0.3mm 1.2mm;
+              border-radius: 0.8mm;
+              white-space: nowrap;
+            }
+
+            .sticker-color-mode .meta-row {
+              display: grid;
+              grid-template-columns: 1.3fr 1fr 1fr;
+              gap: 1mm;
+              background: #f8fafc;
+              border: 0.5px solid #e2e8f0;
+              border-radius: 1.2mm;
+              padding: 0.6mm 1mm;
+            }
+
+            .sticker-color-mode .meta-lbl {
+              font-size: 4.2pt;
+              font-weight: 700;
+              color: #64748b;
+              text-transform: uppercase;
+            }
+
+            .sticker-color-mode .meta-val {
+              font-size: 5.5pt;
+              font-weight: 800;
+              color: #1e293b;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+            }
+
+            .sticker-color-mode .room-box {
+              border-inline-end: 0.5px solid #cbd5e1;
+              padding-inline-end: 1mm;
+            }
+
+            .sticker-color-mode .room-val {
+              color: #0284c7;
+              font-weight: 900;
+            }
+
+            .sticker-color-mode .age-val {
+              color: #0f766e;
+            }
+
+            .sticker-color-mode .inspect-box {
+              border-radius: 1.5mm;
+              padding: 0.8mm 1mm;
+              display: flex;
+              flex-direction: column;
+              justify-content: space-between;
+              border: 0.6px solid #cbd5e1;
+              background: #ffffff;
+            }
+
+            .sticker-color-mode .ppm-box {
+              border-color: #7dd3fc;
+              background: #f0f9ff;
+            }
+
+            .sticker-color-mode .qc-box {
+              border-color: #d8b4fe;
+              background: #faf5ff;
+            }
+
+            .sticker-color-mode .inspect-header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              border-bottom: 0.4px solid rgba(0,0,0,0.08);
+              padding-bottom: 0.4mm;
+              margin-bottom: 0.5mm;
+            }
+
+            .sticker-color-mode .inspect-title {
+              font-size: 4.8pt;
+              font-weight: 900;
+              text-transform: uppercase;
+            }
+
+            .sticker-color-mode .ppm-header .inspect-title {
+              color: #0369a1;
+            }
+
+            .sticker-color-mode .qc-header .inspect-title {
+              color: #7e22ce;
+            }
+
+            .sticker-color-mode .badge-ok {
+              background: #dcfce7;
+              color: #15803d;
+              font-size: 4pt;
+              font-weight: 800;
+              padding: 0.2mm 0.8mm;
+              border-radius: 0.6mm;
+            }
+
+            .sticker-color-mode .badge-overdue {
+              background: #fee2e2;
+              color: #b91c1c;
+              font-size: 4pt;
+              font-weight: 800;
+              padding: 0.2mm 0.8mm;
+              border-radius: 0.6mm;
+            }
+
+            .sticker-color-mode .detail-label {
+              font-size: 4pt;
+              font-weight: 700;
+              color: #64748b;
+            }
+
+            .sticker-color-mode .detail-date {
+              font-size: 5.4pt;
+              font-weight: 900;
+              color: #0f172a;
+              white-space: nowrap;
+            }
+
+            .sticker-color-mode .text-danger {
+              color: #b91c1c !important;
+            }
+
+            .sticker-color-mode .scan-tip {
+              font-size: 3.8pt;
+              font-weight: 700;
+              color: #0369a1;
+              margin-top: 0.4mm;
+              line-height: 1;
+            }
+
+            .sticker-color-mode .qc-box .scan-tip {
+              color: #7e22ce;
+            }
+
+            .sticker-color-mode .qr-wrapper {
+              width: 14.5mm;
+              height: 14.5mm;
+              min-width: 14.5mm;
+              min-height: 14.5mm;
+              background: #ffffff;
+              padding: 0.4mm;
+              border-radius: 0.8mm;
+              border: 0.4px solid #cbd5e1;
+              display: flex;
+              align-items: center;
+              justify-content: center;
             }
 
             .header-logo-title {
@@ -412,32 +825,6 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
               flex-direction: column;
             }
 
-            .hosp-main {
-              font-size: 5.5pt;
-              font-weight: 900;
-              color: #0369a1;
-              text-transform: uppercase;
-              letter-spacing: -0.1px;
-            }
-
-            .hosp-sub {
-              font-size: 4.5pt;
-              font-weight: 700;
-              color: #64748b;
-            }
-
-            .badge-tag {
-              font-size: 4.8pt;
-              font-weight: 900;
-              background: #f0f9ff;
-              color: #0369a1;
-              border: 0.5px solid #bae6fd;
-              padding: 0.3mm 1.2mm;
-              border-radius: 1mm;
-              text-transform: uppercase;
-            }
-
-            /* Device Name & Meta */
             .device-info-section {
               margin-bottom: 0.8mm;
             }
@@ -450,141 +837,18 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
               margin-bottom: 0.8mm;
             }
 
-            .device-name-text {
-              font-size: 7.6pt;
-              font-weight: 900;
-              color: #0f172a;
-              white-space: nowrap;
-              overflow: hidden;
-              text-overflow: ellipsis;
-              flex: 1;
-            }
-
-            .device-sn-badge {
-              font-family: "SF Mono", "Courier New", Courier, monospace;
-              font-size: 5.4pt;
-              font-weight: 800;
-              background: #f1f5f9;
-              color: #334155;
-              border: 0.5px solid #cbd5e1;
-              padding: 0.3mm 1.2mm;
-              border-radius: 0.8mm;
-              white-space: nowrap;
-            }
-
-            .meta-row {
-              display: grid;
-              grid-template-columns: 1.3fr 1fr 1fr;
-              gap: 1mm;
-              background: #f8fafc;
-              border: 0.5px solid #e2e8f0;
-              border-radius: 1.2mm;
-              padding: 0.6mm 1mm;
-            }
-
             .meta-item {
               display: flex;
               flex-direction: column;
               min-width: 0;
             }
 
-            .meta-lbl {
-              font-size: 4.2pt;
-              font-weight: 700;
-              color: #64748b;
-              text-transform: uppercase;
-            }
-
-            .meta-val {
-              font-size: 5.5pt;
-              font-weight: 800;
-              color: #1e293b;
-              white-space: nowrap;
-              overflow: hidden;
-              text-overflow: ellipsis;
-            }
-
-            .room-box {
-              border-inline-end: 0.5px solid #cbd5e1;
-              padding-inline-end: 1mm;
-            }
-
-            .room-val {
-              color: #0284c7;
-              font-weight: 900;
-            }
-
-            .age-val {
-              color: #0f766e;
-            }
-
-            /* Inspection Grid (PPM & QC) */
             .inspection-grid {
               display: grid;
               grid-template-columns: 1fr 1fr;
               gap: 1.2mm;
               flex: 1;
               min-height: 20mm;
-            }
-
-            .inspect-box {
-              border-radius: 1.5mm;
-              padding: 0.8mm 1mm;
-              display: flex;
-              flex-direction: column;
-              justify-content: space-between;
-              border: 0.6px solid #cbd5e1;
-              background: #ffffff;
-            }
-
-            .ppm-box {
-              border-color: #7dd3fc;
-              background: #f0f9ff;
-            }
-
-            .qc-box {
-              border-color: #d8b4fe;
-              background: #faf5ff;
-            }
-
-            .inspect-header {
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              border-bottom: 0.4px solid rgba(0,0,0,0.08);
-              padding-bottom: 0.4mm;
-              margin-bottom: 0.5mm;
-            }
-
-            .inspect-title {
-              font-size: 4.8pt;
-              font-weight: 900;
-              text-transform: uppercase;
-            }
-
-            .ppm-header .inspect-title {
-              color: #0369a1;
-            }
-
-            .qc-header .inspect-title {
-              color: #7e22ce;
-            }
-
-            .inspect-badge {
-              font-size: 4pt;
-              font-weight: 800;
-              padding: 0.2mm 0.8mm;
-              border-radius: 0.6mm;
-            }
-
-            .badge-ok {
-              background: #dcfce7;
-              color: #15803d;
-            }
-
-            .badge-overdue {
-              background: #fee2e2;
-              color: #b91c1c;
             }
 
             .inspect-body {
@@ -601,49 +865,6 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
               gap: 0.3mm;
               flex: 1;
               min-width: 0;
-            }
-
-            .detail-label {
-              font-size: 4pt;
-              font-weight: 700;
-              color: #64748b;
-            }
-
-            .detail-date {
-              font-size: 5.4pt;
-              font-weight: 900;
-              color: #0f172a;
-              white-space: nowrap;
-            }
-
-            .text-danger {
-              color: #b91c1c !important;
-            }
-
-            .scan-tip {
-              font-size: 3.8pt;
-              font-weight: 700;
-              color: #0369a1;
-              margin-top: 0.4mm;
-              line-height: 1;
-            }
-
-            .qc-box .scan-tip {
-              color: #7e22ce;
-            }
-
-            .qr-wrapper {
-              width: 14.5mm;
-              height: 14.5mm;
-              min-width: 14.5mm;
-              min-height: 14.5mm;
-              background: #ffffff;
-              padding: 0.4mm;
-              border-radius: 0.8mm;
-              border: 0.4px solid #cbd5e1;
-              display: flex;
-              align-items: center;
-              justify-content: center;
             }
 
             .qr-img {
@@ -816,20 +1037,28 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
           <div className="flex flex-col items-center">
             <div className="text-center mb-2">
               <span className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center justify-center gap-2">
-                <i className="fas fa-eye text-blue-600"></i>
-                {isAr ? 'معاينة الملصق المطبوع (أبعاد حقيقية 70 × 50 مم)' : 'Print Preview (Real 70mm × 50mm Ratio)'}
-              </span>
-              <p className="text-[10px] text-slate-400 mt-0.5">
+                <i className={`fas ${stickerTheme === 'zebra_bw' ? 'fa-barcode text-slate-900 dark:text-white' : 'fa-eye text-blue-600'}`}></i>
                 {isAr
-                  ? 'تصميم عالي الدقة متوافق مع طابعات الملصقات الحرارية (Zebra / TSC / Xprinter) وورق A4'
-                  : 'High resolution layout compatible with thermal roll printers and A4 sticker sheets'}
+                  ? (stickerTheme === 'zebra_bw' ? 'معاينة ملصق زيبرا الحراري (أبيض وأسود 100% عالي التباين)' : 'معاينة الملصق المطبوع (أبعاد حقيقية 70 × 50 مم)')
+                  : (stickerTheme === 'zebra_bw' ? 'Zebra Thermal Preview (100% Monochrome Black & White)' : 'Print Preview (Real 70mm × 50mm Ratio)')}
+              </span>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                {stickerTheme === 'zebra_bw'
+                  ? (isAr
+                      ? 'خطوط سوداء مصمتة بدون تدرجات رمادية لضمان وضوح فائق ومنع البهتان على طابعات Zebra'
+                      : 'Pure solid black fonts without gray dithering for razor-sharp legibility on thermal printheads')
+                  : (isAr
+                      ? 'تصميم ملون مناسب للطابعات العادية أو ورق ملصقات A4'
+                      : 'Full color design suitable for laser/inkjet and A4 sticker sheets')}
               </p>
             </div>
 
             {/* Sticker Preview Box */}
             <div className="relative p-2 bg-slate-200 dark:bg-slate-800 rounded-2xl shadow-inner border border-slate-300 dark:border-slate-700">
               <div
-                className="bg-white text-slate-900 rounded-[10px] border-2 border-sky-600 shadow-xl overflow-hidden p-3 flex flex-col justify-between"
+                className={`bg-white text-slate-900 rounded-[10px] shadow-xl overflow-hidden p-3 flex flex-col justify-between transition-all ${
+                  stickerTheme === 'zebra_bw' ? 'border-2 border-black' : 'border-2 border-sky-600'
+                }`}
                 style={{
                   width: '380px',
                   height: '270px',
@@ -837,7 +1066,9 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
                 }}
               >
                 {/* Header */}
-                <div className="flex items-center justify-between border-b border-slate-200 pb-1.5 mb-1">
+                <div className={`flex items-center justify-between pb-1.5 mb-1 ${
+                  stickerTheme === 'zebra_bw' ? 'border-b-2 border-black' : 'border-b border-slate-200'
+                }`}>
                   <div className="flex items-center gap-2">
                     <img
                       src="/old-logo.png"
@@ -845,18 +1076,28 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
                         (e.target as HTMLImageElement).src = '/logo.png';
                       }}
                       alt="Logo"
-                      className="h-6 w-auto object-contain"
+                      className={`h-6 w-auto object-contain ${
+                        stickerTheme === 'zebra_bw' ? 'grayscale contrast-200' : ''
+                      }`}
                     />
                     <div>
-                      <div className="text-[10px] font-black text-sky-800 leading-tight uppercase">
-                        {isAr ? "مستشفي الجدعاني  -حي الصفا" : 'ALJEDAANI HOSPITAL - ALSAFA BRANCH'}
+                      <div className={`text-[10px] font-black leading-tight uppercase ${
+                        stickerTheme === 'zebra_bw' ? 'text-black' : 'text-sky-800'
+                      }`}>
+                        {isAr ? "مستشفي الجدعاني -ح الصفا" : 'ALJEDAANI HOSPITAL -ALSFA'}
                       </div>
-                      <div className="text-[8px] font-bold text-slate-500">
+                      <div className={`text-[8px] font-bold ${
+                        stickerTheme === 'zebra_bw' ? 'text-black' : 'text-slate-500'
+                      }`}>
                         {isAr ? 'قسم الأشعة والتصوير الطبي' : 'Radiology & Medical Imaging'}
                       </div>
                     </div>
                   </div>
-                  <span className="text-[8px] font-black bg-sky-50 text-sky-800 border border-sky-200 px-1.5 py-0.5 rounded">
+                  <span className={`text-[8px] font-black px-1.5 py-0.5 rounded ${
+                    stickerTheme === 'zebra_bw'
+                      ? 'bg-black text-white'
+                      : 'bg-sky-50 text-sky-800 border border-sky-200'
+                  }`}>
                     {device.category || 'ASSET'}
                   </span>
                 </div>
@@ -864,38 +1105,64 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
                 {/* Device Name, SN, Room, Age */}
                 <div className="space-y-1 mb-1">
                   <div className="flex items-baseline justify-between gap-2">
-                    <h4 className="text-xs font-black text-slate-900 truncate flex-1">
+                    <h4 className="text-xs font-black text-black truncate flex-1">
                       {device.name}
                     </h4>
-                    <span className="font-mono text-[9px] font-bold bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200 whitespace-nowrap">
+                    <span className={`font-mono text-[9px] font-black px-1.5 py-0.5 rounded whitespace-nowrap ${
+                      stickerTheme === 'zebra_bw'
+                        ? 'bg-white text-black border-2 border-black'
+                        : 'bg-slate-100 text-slate-700 border border-slate-200'
+                    }`}>
                       SN: {device.serial || 'N/A'}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[9px]">
-                    <div className="border-l rtl:border-l-0 rtl:border-r border-slate-200 px-1">
-                      <span className="text-[7.5px] font-bold text-slate-400 block uppercase">
+                  <div className={`grid grid-cols-3 gap-1 rounded-lg p-1.5 text-[9px] ${
+                    stickerTheme === 'zebra_bw'
+                      ? 'bg-white border-2 border-black'
+                      : 'bg-slate-50 border border-slate-200'
+                  }`}>
+                    <div className={`px-1 ${
+                      stickerTheme === 'zebra_bw'
+                        ? 'border-l-2 rtl:border-l-0 rtl:border-r-2 border-black'
+                        : 'border-l rtl:border-l-0 rtl:border-r border-slate-200'
+                    }`}>
+                      <span className={`text-[7.5px] font-black block uppercase ${
+                        stickerTheme === 'zebra_bw' ? 'text-black' : 'text-slate-400'
+                      }`}>
                         {isAr ? 'الغرفة' : 'Room'}
                       </span>
-                      <span className="font-black text-sky-700 truncate block">
+                      <span className={`font-black truncate block ${
+                        stickerTheme === 'zebra_bw' ? 'text-black' : 'text-sky-700'
+                      }`}>
                         {roomNumber || (isAr ? 'غير محدد' : 'N/A')}
                       </span>
                     </div>
 
-                    <div className="border-l rtl:border-l-0 rtl:border-r border-slate-200 px-1">
-                      <span className="text-[7.5px] font-bold text-slate-400 block uppercase">
+                    <div className={`px-1 ${
+                      stickerTheme === 'zebra_bw'
+                        ? 'border-l-2 rtl:border-l-0 rtl:border-r-2 border-black'
+                        : 'border-l rtl:border-l-0 rtl:border-r border-slate-200'
+                    }`}>
+                      <span className={`text-[7.5px] font-black block uppercase ${
+                        stickerTheme === 'zebra_bw' ? 'text-black' : 'text-slate-400'
+                      }`}>
                         {isAr ? 'تاريخ التركيب' : 'Install'}
                       </span>
-                      <span className="font-bold text-slate-800 truncate block">
+                      <span className="font-black text-black truncate block">
                         {installDate || '—'}
                       </span>
                     </div>
 
                     <div className="px-1">
-                      <span className="text-[7.5px] font-bold text-slate-400 block uppercase">
+                      <span className={`text-[7.5px] font-black block uppercase ${
+                        stickerTheme === 'zebra_bw' ? 'text-black' : 'text-slate-400'
+                      }`}>
                         {isAr ? 'عمر الجهاز' : 'Age'}
                       </span>
-                      <span className="font-black text-teal-700 truncate block">
+                      <span className={`font-black truncate block ${
+                        stickerTheme === 'zebra_bw' ? 'text-black' : 'text-teal-700'
+                      }`}>
                         {deviceAge}
                       </span>
                     </div>
@@ -905,14 +1172,24 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
                 {/* Bottom Inspection Columns (PPM & QC with Barcodes) */}
                 <div className="grid grid-cols-2 gap-2 flex-1 pt-0.5">
                   {/* PPM Column */}
-                  <div className="border border-sky-200 bg-sky-50/70 rounded-lg p-1.5 flex flex-col justify-between">
-                    <div className="flex items-center justify-between border-b border-sky-200/80 pb-0.5 mb-1">
-                      <span className="text-[8.5px] font-black text-sky-900">
+                  <div className={`rounded-lg p-1.5 flex flex-col justify-between ${
+                    stickerTheme === 'zebra_bw'
+                      ? 'border-2 border-black bg-white'
+                      : 'border border-sky-200 bg-sky-50/70'
+                  }`}>
+                    <div className={`flex items-center justify-between pb-0.5 mb-1 ${
+                      stickerTheme === 'zebra_bw' ? 'border-b-2 border-black' : 'border-b border-sky-200/80'
+                    }`}>
+                      <span className={`text-[8.5px] font-black ${
+                        stickerTheme === 'zebra_bw' ? 'text-black' : 'text-sky-900'
+                      }`}>
                         {isAr ? 'الصيانة PPM' : 'PPM Maint.'}
                       </span>
                       <span
                         className={`text-[7px] font-black px-1 rounded ${
-                          isPpmOverdue ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'
+                          stickerTheme === 'zebra_bw'
+                            ? (isPpmOverdue ? 'bg-black text-white' : 'border border-black bg-white text-black')
+                            : (isPpmOverdue ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700')
                         }`}
                       >
                         {device.maintDate ? (isPpmOverdue ? (isAr ? 'منتهي' : 'Due') : (isAr ? 'سارٍ' : 'Valid')) : '—'}
@@ -921,21 +1198,31 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
 
                     <div className="flex items-center justify-between gap-1">
                       <div className="flex flex-col text-[8px] leading-tight flex-1">
-                        <span className="text-[7px] text-slate-500 font-bold">
+                        <span className={`text-[7px] font-bold ${
+                          stickerTheme === 'zebra_bw' ? 'text-black' : 'text-slate-500'
+                        }`}>
                           {isAr ? 'تاريخ الانتهاء:' : 'Expiry:'}
                         </span>
-                        <span className={`font-black ${isPpmOverdue ? 'text-rose-600' : 'text-slate-900'}`}>
+                        <span className={`font-black ${
+                          stickerTheme === 'zebra_bw'
+                            ? 'text-black'
+                            : (isPpmOverdue ? 'text-rose-600' : 'text-slate-900')
+                        }`}>
                           {device.maintDate || (isAr ? 'غير مسجل' : 'N/A')}
                         </span>
-                        <span className="text-[6.5px] text-sky-700 font-bold mt-1 flex items-center gap-0.5">
+                        <span className={`text-[6.5px] font-black mt-1 flex items-center gap-0.5 ${
+                          stickerTheme === 'zebra_bw' ? 'text-black' : 'text-sky-700'
+                        }`}>
                           <i className="fas fa-qrcode"></i>
-                          {isAr ? 'باركود التقرير' : 'Report Barcode'}
+                          {isAr ? 'امسح لتقرير PPM' : 'Scan PPM'}
                         </span>
                       </div>
 
-                      <div className="w-12 h-12 bg-white rounded border border-slate-300 p-0.5 flex items-center justify-center shadow-xs">
+                      <div className={`w-12 h-12 bg-white rounded p-0.5 flex items-center justify-center shadow-xs ${
+                        stickerTheme === 'zebra_bw' ? 'border-2 border-black' : 'border border-slate-300'
+                      }`}>
                         {isGeneratingQr ? (
-                          <i className="fas fa-spinner fa-spin text-sky-600 text-xs"></i>
+                          <i className="fas fa-spinner fa-spin text-slate-800 text-xs"></i>
                         ) : (
                           <img src={ppmQrUrl} alt="PPM QR" className="w-full h-full object-contain" />
                         )}
@@ -944,14 +1231,24 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
                   </div>
 
                   {/* QC Column */}
-                  <div className="border border-purple-200 bg-purple-50/70 rounded-lg p-1.5 flex flex-col justify-between">
-                    <div className="flex items-center justify-between border-b border-purple-200/80 pb-0.5 mb-1">
-                      <span className="text-[8.5px] font-black text-purple-900">
+                  <div className={`rounded-lg p-1.5 flex flex-col justify-between ${
+                    stickerTheme === 'zebra_bw'
+                      ? 'border-2 border-black bg-white'
+                      : 'border border-purple-200 bg-purple-50/70'
+                  }`}>
+                    <div className={`flex items-center justify-between pb-0.5 mb-1 ${
+                      stickerTheme === 'zebra_bw' ? 'border-b-2 border-black' : 'border-b border-purple-200/80'
+                    }`}>
+                      <span className={`text-[8.5px] font-black ${
+                        stickerTheme === 'zebra_bw' ? 'text-black' : 'text-purple-900'
+                      }`}>
                         {isAr ? 'الجودة QC' : 'Quality QC'}
                       </span>
                       <span
                         className={`text-[7px] font-black px-1 rounded ${
-                          isQcOverdue ? 'bg-rose-100 text-rose-700' : 'bg-purple-100 text-purple-700'
+                          stickerTheme === 'zebra_bw'
+                            ? (isQcOverdue ? 'bg-black text-white' : 'border border-black bg-white text-black')
+                            : (isQcOverdue ? 'bg-rose-100 text-rose-700' : 'bg-purple-100 text-purple-700')
                         }`}
                       >
                         {device.enableQA
@@ -962,21 +1259,31 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
 
                     <div className="flex items-center justify-between gap-1">
                       <div className="flex flex-col text-[8px] leading-tight flex-1">
-                        <span className="text-[7px] text-slate-500 font-bold">
+                        <span className={`text-[7px] font-bold ${
+                          stickerTheme === 'zebra_bw' ? 'text-black' : 'text-slate-500'
+                        }`}>
                           {isAr ? 'تاريخ الانتهاء:' : 'Expiry:'}
                         </span>
-                        <span className={`font-black ${isQcOverdue ? 'text-rose-600' : 'text-slate-900'}`}>
+                        <span className={`font-black ${
+                          stickerTheme === 'zebra_bw'
+                            ? 'text-black'
+                            : (isQcOverdue ? 'text-rose-600' : 'text-slate-900')
+                        }`}>
                           {device.enableQA ? (device.qualDate || (isAr ? 'غير مسجل' : 'N/A')) : (isAr ? 'غير مفعل' : 'Disabled')}
                         </span>
-                        <span className="text-[6.5px] text-purple-700 font-bold mt-1 flex items-center gap-0.5">
+                        <span className={`text-[6.5px] font-black mt-1 flex items-center gap-0.5 ${
+                          stickerTheme === 'zebra_bw' ? 'text-black' : 'text-purple-700'
+                        }`}>
                           <i className="fas fa-qrcode"></i>
-                          {isAr ? 'باركود التقرير' : 'Report Barcode'}
+                          {isAr ? 'امسح لتقرير QC' : 'Scan QC'}
                         </span>
                       </div>
 
-                      <div className="w-12 h-12 bg-white rounded border border-slate-300 p-0.5 flex items-center justify-center shadow-xs">
+                      <div className={`w-12 h-12 bg-white rounded p-0.5 flex items-center justify-center shadow-xs ${
+                        stickerTheme === 'zebra_bw' ? 'border-2 border-black' : 'border border-slate-300'
+                      }`}>
                         {isGeneratingQr ? (
-                          <i className="fas fa-spinner fa-spin text-purple-600 text-xs"></i>
+                          <i className="fas fa-spinner fa-spin text-slate-800 text-xs"></i>
                         ) : (
                           <img src={qcQrUrl} alt="QC QR" className="w-full h-full object-contain" />
                         )}
@@ -988,58 +1295,155 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
             </div>
           </div>
 
-          {/* Print Mode Selector */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                {isAr ? 'نوع الطابعة والورق:' : 'Printer Type:'}
-              </span>
-              <div className="inline-flex rounded-xl p-1 bg-slate-200 dark:bg-slate-700">
+          {/* Style & Printer Configuration Controls */}
+          <div className="space-y-2.5">
+            {/* 1. Theme Style Selector (Zebra Monochrome vs Color) */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+              <div className="flex items-center gap-2">
+                <i className="fas fa-palette text-amber-600 dark:text-amber-400 text-sm"></i>
+                <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+                  {isAr ? 'نمط وضوح الطباعة:' : 'Print Style & Theme:'}
+                </span>
+              </div>
+              <div className="inline-flex rounded-xl p-1 bg-slate-200 dark:bg-slate-700 w-full sm:w-auto">
                 <button
                   type="button"
-                  onClick={() => setPrintMode('thermal')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
-                    printMode === 'thermal'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                  onClick={() => setStickerTheme('zebra_bw')}
+                  className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+                    stickerTheme === 'zebra_bw'
+                      ? 'bg-slate-900 text-white shadow-sm ring-1 ring-white/20'
+                      : 'text-slate-700 dark:text-slate-300 hover:text-slate-900'
                   }`}
                 >
-                  <i className="fas fa-receipt mr-1 ml-1"></i>
-                  {isAr ? 'طابعة حرارية (7×5 سم)' : 'Thermal (70×50mm)'}
+                  <i className="fas fa-print text-amber-400"></i>
+                  <span>{isAr ? 'أبيض وأسود Zebra (أسود نقي 100%)' : 'Zebra Monochrome (Pure B&W)'}</span>
+                  <span className="text-[9px] bg-amber-500 text-black px-1 rounded font-black ml-1">
+                    {isAr ? 'موصى به' : 'Best'}
+                  </span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPrintMode('a4')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
-                    printMode === 'a4'
+                  onClick={() => setStickerTheme('color')}
+                  className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+                    stickerTheme === 'color'
                       ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                      : 'text-slate-700 dark:text-slate-300 hover:text-slate-900'
                   }`}
                 >
-                  <i className="fas fa-copy mr-1 ml-1"></i>
-                  {isAr ? 'ورقة A4 (ملصقات)' : 'A4 Sticker Sheet'}
+                  <i className="fas fa-palette text-sky-200"></i>
+                  <span>{isAr ? 'نمط ملون (طابعات عادية)' : 'Full Color'}</span>
                 </button>
               </div>
             </div>
 
-            {printMode === 'a4' && (
+            {/* 2. Paper / Media Mode Selector */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-500">
-                  {isAr ? 'عدد الملصقات في الصفحة:' : 'Stickers per sheet:'}
+                <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                  {isAr ? 'حجم الورق والمقاس:' : 'Paper Size:'}
                 </span>
-                <select
-                  value={copiesCount}
-                  onChange={(e) => setCopiesCount(Number(e.target.value))}
-                  className="p-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-black"
-                >
-                  <option value={1}>1</option>
-                  <option value={2}>2</option>
-                  <option value={4}>4</option>
-                  <option value={6}>6</option>
-                  <option value={8}>8 (صفحة كاملة)</option>
-                </select>
+                <div className="inline-flex rounded-xl p-1 bg-slate-200 dark:bg-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => setPrintMode('thermal')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
+                      printMode === 'thermal'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                    }`}
+                  >
+                    <i className="fas fa-receipt mr-1 ml-1"></i>
+                    {isAr ? 'رول حراري (7×5 سم فردي)' : 'Thermal Roll (70×50mm)'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPrintMode('a4')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
+                      printMode === 'a4'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                    }`}
+                  >
+                    <i className="fas fa-copy mr-1 ml-1"></i>
+                    {isAr ? 'ورقة A4 (ملصقات متعددة)' : 'A4 Sticker Sheet'}
+                  </button>
+                </div>
               </div>
-            )}
+
+              {printMode === 'a4' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500">
+                    {isAr ? 'عدد الملصقات في الصفحة:' : 'Stickers per sheet:'}
+                  </span>
+                  <select
+                    value={copiesCount}
+                    onChange={(e) => setCopiesCount(Number(e.target.value))}
+                    className="p-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-black"
+                  >
+                    <option value={1}>1</option>
+                    <option value={2}>2</option>
+                    <option value={4}>4</option>
+                    <option value={6}>6</option>
+                    <option value={8}>8 (صفحة كاملة)</option>
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {/* 3. Zebra Printer Optimization & Troubleshooting Guide */}
+            <div className="rounded-2xl border border-amber-300 dark:border-amber-700/60 bg-amber-50/70 dark:bg-amber-950/20 p-3 text-xs">
+              <button
+                type="button"
+                onClick={() => setShowZebraGuide(!showZebraGuide)}
+                className="w-full flex items-center justify-between font-black text-amber-950 dark:text-amber-200 text-right cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <i className="fas fa-lightbulb text-amber-600 text-sm"></i>
+                  <span>
+                    {isAr
+                      ? 'حل مشكلة بهتان أو عدم وضوح الكتابة على طابعة Zebra (نصائح هامة)'
+                      : 'Zebra Print Quality Tips: How to fix blurry/faint text'}
+                  </span>
+                </div>
+                <i className={`fas fa-chevron-${showZebraGuide ? 'up' : 'down'} text-amber-600 text-xs`}></i>
+              </button>
+
+              {showZebraGuide && (
+                <div className="mt-2.5 space-y-2 text-[11px] leading-relaxed text-amber-900 dark:text-amber-300/90 border-t border-amber-200 dark:border-amber-800/50 pt-2">
+                  <p className="font-semibold text-slate-700 dark:text-slate-300">
+                    {isAr
+                      ? 'طابعات زيبرا الحرارية لا تحتوي على حبر رمادي أو تدريج، لذلك عند طباعة نصوص رمادية أو ملونة تقوم الطابعة بتنقيط الخطوط (Dithering) فيظهر الكلام باهتاً ومشوشاً. تم حل هذه المشكلة بالكامل كالتالي:'
+                      : 'Thermal printers do not have gray ink; when printing colored or gray text, they use halftone dithering dots, causing text to look faint or fuzzy. Here is how to achieve razor-sharp prints:'}
+                  </p>
+                  <ul className="list-disc list-inside space-y-1.5 font-medium pr-1">
+                    <li>
+                      <strong>{isAr ? '1. نمط الأبيض والأسود المفعّل الآن:' : '1. Monochrome Mode (Enabled):'}</strong>{' '}
+                      {isAr
+                        ? 'يحول جميع النصوص والإطارات والباركودات إلى أسود مصمت 100% (#000000) بخطوط سميكة عريضة (Bold 900) لمنع التنقيط نهائياً.'
+                        : 'Converts all texts, borders, and barcodes to pure 100% black with heavy font weights to eliminate fuzzy dithering dots.'}
+                    </li>
+                    <li>
+                      <strong>{isAr ? '2. درجة السواد (Darkness / Density):' : '2. Head Darkness (18 - 22):'}</strong>{' '}
+                      {isAr
+                        ? 'من لوحة التحكم في الويندوز (Devices & Printers > Zebra Properties > Printing Preferences > Options)، ارفع قيمة الـ Darkness إلى 18 أو 22 لزيادة حرارة الرأس الحراري.'
+                        : 'In Windows Zebra Printing Preferences > Options, increase Darkness/Density from default 10 to 18-22.'}
+                    </li>
+                    <li>
+                      <strong>{isAr ? '3. سرعة الطباعة (Print Speed):' : '3. Print Speed (2.0 - 3.0 IPS):'}</strong>{' '}
+                      {isAr
+                        ? 'قلل سرعة الطباعة في إعدادات الطابعة إلى 2.0 أو 3.0 بوصة/ثانية؛ السرعة البطيئة تمنح الرأس الحراري وقتاً كافياً لحفر الخطوط بحدة عالية.'
+                        : 'Reduce print speed to 2.0 or 3.0 inches/sec to give the thermal head enough dwell time.'}
+                    </li>
+                    <li>
+                      <strong>{isAr ? '4. نوع الورق (Media Type):' : '4. Media Type:'}</strong>{' '}
+                      {isAr
+                        ? 'اختر Thermal Direct إذا كان الورق حرارياً بدون ريبون، أو Thermal Transfer إذا كنت تستخدم ريبون أسود.'
+                        : 'Select Thermal Direct if using thermal paper without ribbon, or Thermal Transfer with ribbon.'}
+                    </li>
+                  </ul>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

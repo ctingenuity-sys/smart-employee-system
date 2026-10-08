@@ -164,6 +164,8 @@ const AppRoutes: React.FC = () => {
           <Route path="/public/report/:deviceId/:reportType" element={<Suspense fallback={<Loading />}><PublicReportViewer /></Suspense>} />
           <Route path="/public/report/:deviceId" element={<Suspense fallback={<Loading />}><PublicReportViewer /></Suspense>} />
           <Route path="/public/device/:deviceId" element={<Suspense fallback={<Loading />}><PublicReportViewer /></Suspense>} />
+          <Route path="/public/room/:deviceId" element={<Suspense fallback={<Loading />}><PublicReportViewer /></Suspense>} />
+          <Route path="/public/room/:deviceId/:reportType" element={<Suspense fallback={<Loading />}><PublicReportViewer /></Suspense>} />
           <Route path="/public-report" element={<Suspense fallback={<Loading />}><PublicReportViewer /></Suspense>} />
           <Route path="/radiology-logbook" element={<Suspense fallback={<Loading />}><StandaloneRadiologyLogbook /></Suspense>} />
           <Route path="/standalone-logbook" element={<Suspense fallback={<Loading />}><StandaloneRadiologyLogbook /></Suspense>} />

@@ -224,7 +224,7 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
           <div class="header-logo-title">
             <img src="/old-logo.png" onerror="this.src='/logo.png'" alt="Hospital Logo" class="hosp-logo ${isZebra ? 'mono-logo' : ''}" />
             <div class="hosp-titles">
-              <div class="hosp-main">${isAr ? "مستشفي الجدعاني -ح الصفا" : 'ALJEDAANI HOSPITAL -ALSFA'}</div>
+              <div class="hosp-main">${isAr ? "مستشفي الجدعاني -حي الصفا" : 'ALJEDAANI HOSPITAL -ALSFA'}</div>
               <div class="hosp-sub">${isAr ? 'قسم الأشعة والتصوير الطبي' : 'Radiology & Medical Imaging'}</div>
             </div>
           </div>
@@ -1084,7 +1084,7 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
                       <div className={`text-[10px] font-black leading-tight uppercase ${
                         stickerTheme === 'zebra_bw' ? 'text-black' : 'text-sky-800'
                       }`}>
-                        {isAr ? "مستشفي الجدعاني -ح الصفا" : 'ALJEDAANI HOSPITAL -ALSFA'}
+                        {isAr ? "مستشفي الجدعاني حي الصفا" : 'ALJEDAANI HOSPITAL -ALSFA'}
                       </div>
                       <div className={`text-[8px] font-bold ${
                         stickerTheme === 'zebra_bw' ? 'text-black' : 'text-slate-500'

@@ -11,6 +11,7 @@ import Toast from '../../components/Toast';
 // @ts-ignore
 import { useNavigate } from 'react-router-dom';
 import DocumentScanner from '../../components/DocumentScanner';
+import RoomStickerModal from '../../components/rooms/RoomStickerModal';
 import * as XLSX from 'xlsx';
 
 export interface RoomReportItem {
@@ -49,6 +50,7 @@ const RoomReports: React.FC = () => {
     const [editingRoom, setEditingRoom] = useState<RoomReportItem | null>(null);
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
     const [previewPdfUrl, setPreviewPdfUrl] = useState<{ url: string; title: string } | null>(null);
+    const [selectedStickerRoom, setSelectedStickerRoom] = useState<RoomReportItem | null>(null);
     const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
     const [showScanner, setShowScanner] = useState(false);
 
@@ -420,6 +422,22 @@ const RoomReports: React.FC = () => {
                     {/* Right: Quick Action Buttons */}
                     <div className="flex items-center gap-2.5 w-full md:w-auto justify-end">
                         <button
+                            onClick={() => {
+                                if (filteredRooms.length > 0) {
+                                    setSelectedStickerRoom(filteredRooms[0]);
+                                } else if (rooms.length > 0) {
+                                    setSelectedStickerRoom(rooms[0]);
+                                }
+                            }}
+                            disabled={rooms.length === 0}
+                            className="px-3.5 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 text-xs font-black transition-all flex items-center gap-2 border border-amber-200/80 dark:border-amber-800/80 disabled:opacity-50 cursor-pointer shadow-xs"
+                            title={isAr ? 'طباعة ملصق وباركود المسح الإشعاعي للغرفة (مقاس كبير للأبواب)' : 'Print Room Barcode & Survey Sign'}
+                        >
+                            <i className="fas fa-qrcode text-amber-600 dark:text-amber-400"></i>
+                            <span className="hidden sm:inline">{isAr ? 'ملصق الباركود (كبير)' : 'Barcode Sign'}</span>
+                        </button>
+
+                        <button
                             onClick={handleExportExcel}
                             disabled={rooms.length === 0}
                             className="px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all flex items-center gap-2 border border-slate-200 dark:border-slate-700/80 disabled:opacity-50 cursor-pointer"
@@ -742,13 +760,24 @@ const RoomReports: React.FC = () => {
                                                 </div>
                                             </div>
 
-                                            {/* Status Badge */}
-                                            <span
-                                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black border ${status.badgeClass}`}
-                                            >
-                                                <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`}></span>
-                                                <span>{status.text}</span>
-                                            </span>
+                                            {/* Status Badge & Barcode Trigger */}
+                                            <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                                                <button
+                                                    onClick={() => setSelectedStickerRoom(room)}
+                                                    className="px-2 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 font-bold text-[10px] transition-colors flex items-center gap-1 border border-amber-200/80 dark:border-amber-800/80 cursor-pointer shadow-2xs"
+                                                    title={isAr ? 'طباعة باركود ولافتة الغرفة والمسح (مقاس كبير)' : 'Print Room Barcode & Survey Sign'}
+                                                >
+                                                    <i className="fas fa-qrcode text-amber-600 dark:text-amber-400"></i>
+                                                    <span>{isAr ? 'الباركود' : 'Barcode'}</span>
+                                                </button>
+
+                                                <span
+                                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black border ${status.badgeClass}`}
+                                                >
+                                                    <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`}></span>
+                                                    <span>{status.text}</span>
+                                                </span>
+                                            </div>
                                         </div>
 
                                         {/* Device / Modality Info */}
@@ -818,6 +847,14 @@ const RoomReports: React.FC = () => {
                                         )}
 
                                         <div className="flex items-center gap-1">
+                                            <button
+                                                onClick={() => setSelectedStickerRoom(room)}
+                                                className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-200/80 dark:border-amber-800/80 flex items-center justify-center text-xs transition-colors cursor-pointer"
+                                                title={isAr ? 'طباعة باركود ولافتة الغرفة (مقاس كبير للأبواب)' : 'Print Room Barcode & Survey Sign'}
+                                            >
+                                                <i className="fas fa-qrcode"></i>
+                                            </button>
+
                                             <button
                                                 onClick={() => handleOpenModal(room)}
                                                 className="w-8 h-8 rounded-xl bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-600 border border-slate-200 dark:border-slate-600 flex items-center justify-center text-xs transition-colors cursor-pointer"
@@ -906,6 +943,13 @@ const RoomReports: React.FC = () => {
                                                 </td>
                                                 <td className="py-3.5 px-4 text-end">
                                                     <div className="inline-flex items-center gap-1.5">
+                                                        <button
+                                                            onClick={() => setSelectedStickerRoom(room)}
+                                                            className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-300 hover:bg-amber-100 transition-colors cursor-pointer border border-amber-200/80 dark:border-amber-800/80"
+                                                            title={isAr ? 'طباعة باركود ولافتة الغرفة والمسح (مقاس كبير للأبواب)' : 'Print Room Barcode & Survey Sign'}
+                                                        >
+                                                            <i className="fas fa-qrcode"></i>
+                                                        </button>
                                                         <button
                                                             onClick={() => handleOpenModal(room)}
                                                             className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer"
@@ -1224,6 +1268,18 @@ const RoomReports: React.FC = () => {
                     onCancel={() => setShowScanner(false)}
                 />
             )}
+
+            {/* Room Radiation Survey Barcode & Plaque Modal */}
+            <RoomStickerModal
+                room={selectedStickerRoom}
+                isOpen={Boolean(selectedStickerRoom)}
+                onClose={() => setSelectedStickerRoom(null)}
+                isAr={isAr}
+                departmentName={currentDeptName}
+                onRoomUpdated={(updated) => {
+                    setRooms((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+                }}
+            />
         </div>
     );
 };

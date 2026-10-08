@@ -66,14 +66,14 @@ export const PublicReportViewer: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
 
-  // 1. Fetch device data from Firestore
+  // 1. Fetch device or room survey data from Firestore
   useEffect(() => {
     let isMounted = true;
 
     const fetchDeviceData = async () => {
       if (!deviceId) {
         if (isMounted) {
-          setError('معرف الجهاز غير محدد في الرابط');
+          setError('معرف السجل غير محدد في الرابط');
           setLoading(false);
         }
         return;
@@ -83,52 +83,97 @@ export const PublicReportViewer: React.FC = () => {
         setLoading(true);
         setError('');
 
-        const deviceDocRef = doc(db, 'inventory_devices', deviceId);
-        const deviceSnap = await getDoc(deviceDocRef);
+        const isSurveyRequested = reportType === 'survey' || reportType === 'room';
+        let foundData: PublicDeviceInfo | null = null;
+        let resolvedTargetUrl = '';
+        let resolvedType = reportType;
 
-        if (!deviceSnap.exists()) {
+        // 1. If not explicitly requested as survey, check inventory_devices first
+        if (!isSurveyRequested) {
+          const deviceDocRef = doc(db, 'inventory_devices', deviceId);
+          const deviceSnap = await getDoc(deviceDocRef);
+          if (deviceSnap.exists()) {
+            foundData = { id: deviceSnap.id, ...deviceSnap.data() } as PublicDeviceInfo;
+          }
+        }
+
+        // 2. If not found in devices or is explicitly a room survey, check room_reports
+        if (!foundData) {
+          const roomDocRef = doc(db, 'room_reports', deviceId);
+          const roomSnap = await getDoc(roomDocRef);
+          if (roomSnap.exists()) {
+            const rData = roomSnap.data();
+            foundData = {
+              id: roomSnap.id,
+              name: `غرفة ${rData.number || ''}`,
+              roomNumber: rData.number || '',
+              room: rData.number || '',
+              model: rData.device || '',
+              category: 'شهادة المسح الإشعاعي للغرفة',
+              maintDate: rData.surveyDate || '',
+              qualDate: rData.surveyDate || '',
+              maintUrl: rData.surveyUrl || '',
+              qualUrl: rData.surveyUrl || '',
+              notes: rData.notes || '',
+              isRoomSurvey: true,
+            };
+            resolvedTargetUrl = rData.surveyUrl || '';
+            resolvedType = 'survey';
+          }
+        }
+
+        // 3. Fallback: If still not found, try devices even if survey was requested
+        if (!foundData && isSurveyRequested) {
+          const deviceDocRef = doc(db, 'inventory_devices', deviceId);
+          const deviceSnap = await getDoc(deviceDocRef);
+          if (deviceSnap.exists()) {
+            foundData = { id: deviceSnap.id, ...deviceSnap.data() } as PublicDeviceInfo;
+          }
+        }
+
+        if (!foundData) {
           if (isMounted) {
-            setError('الجهاز غير مسجل أو تم حذفه من قاعدة البيانات');
+            setError('السجل غير موجود أو تم حذفه من قاعدة البيانات');
             setLoading(false);
           }
           return;
         }
 
-        const data = { id: deviceSnap.id, ...deviceSnap.data() } as PublicDeviceInfo;
         if (!isMounted) return;
-        setDevice(data);
+        setDevice(foundData);
 
         // Determine target report URL
-        let targetUrl = '';
-        let resolvedType = reportType;
-        if (reportType === 'qc' || reportType === 'quality') {
-          targetUrl = data.qualUrl || '';
+        if (foundData.isRoomSurvey) {
+          resolvedType = 'survey';
+          resolvedTargetUrl = foundData.maintUrl || '';
+        } else if (reportType === 'qc' || reportType === 'quality') {
+          resolvedTargetUrl = foundData.qualUrl || '';
           resolvedType = 'qc';
         } else if (reportType === 'device') {
-          if (data.maintUrl) {
-            targetUrl = data.maintUrl;
+          if (foundData.maintUrl) {
+            resolvedTargetUrl = foundData.maintUrl;
             resolvedType = 'ppm';
-          } else if (data.qualUrl) {
-            targetUrl = data.qualUrl;
+          } else if (foundData.qualUrl) {
+            resolvedTargetUrl = foundData.qualUrl;
             resolvedType = 'qc';
           }
         } else {
           // Default: PPM
-          if (data.maintUrl) {
-            targetUrl = data.maintUrl;
+          if (foundData.maintUrl) {
+            resolvedTargetUrl = foundData.maintUrl;
             resolvedType = 'ppm';
-          } else if (data.qualUrl) {
-            targetUrl = data.qualUrl;
+          } else if (foundData.qualUrl) {
+            resolvedTargetUrl = foundData.qualUrl;
             resolvedType = 'qc';
           }
         }
 
         setActiveReportType(resolvedType);
-        setRawReportUrl(targetUrl);
+        setRawReportUrl(resolvedTargetUrl);
       } catch (err: any) {
-        console.error('Error fetching public device report:', err);
+        console.error('Error fetching public report:', err);
         if (isMounted) {
-          setError('تعذر تحميل بيانات الجهاز. يرجى التحقق من اتصال الإنترنت.');
+          setError('تعذر تحميل بيانات السجل. يرجى التحقق من اتصال الإنترنت.');
         }
       } finally {
         if (isMounted) setLoading(false);
@@ -298,10 +343,19 @@ export const PublicReportViewer: React.FC = () => {
   }, [renderAllPages]);
 
   // Active Document Metadata
-  const isPpm = activeReportType !== 'qc' && activeReportType !== 'quality';
-  const reportTitleAr = isPpm ? 'تقرير الصيانة الوقائية السنوي (PPM)' : 'تقرير ضبط ومراقبة الجودة (QC)';
-  const reportTitleEn = isPpm ? 'PPM Maintenance Inspection Report' : 'Quality Control (QC) Certificate';
-  const dueDate = isPpm ? device?.maintDate : device?.qualDate;
+  const isRoomSurvey = Boolean(device?.isRoomSurvey || activeReportType === 'survey');
+  const isPpm = !isRoomSurvey && activeReportType !== 'qc' && activeReportType !== 'quality';
+  const reportTitleAr = isRoomSurvey
+    ? 'تقرير وشهادة المسح الإشعاعي للغرفة'
+    : isPpm
+    ? 'تقرير الصيانة الوقائية السنوي (PPM)'
+    : 'تقرير ضبط ومراقبة الجودة (QC)';
+  const reportTitleEn = isRoomSurvey
+    ? 'Room Radiation Survey & Safety Certificate'
+    : isPpm
+    ? 'PPM Maintenance Inspection Report'
+    : 'Quality Control (QC) Certificate';
+  const dueDate = isRoomSurvey ? (device?.surveyDate || device?.maintDate) : (isPpm ? device?.maintDate : device?.qualDate);
   const daysLeft = dueDate ? getDaysRemaining(dueDate) : null;
   const complianceInfo = device ? getDeviceComplianceStatus(device as any) : null;
 
@@ -312,7 +366,9 @@ export const PublicReportViewer: React.FC = () => {
     const a = document.createElement('a');
     a.href = target;
     const cleanDevName = (device?.name || 'Device').replace(/[^a-zA-Z0-9_\u0600-\u06FF-]/g, '_');
-    a.download = `${isPpm ? 'PPM_Report' : 'QC_Report'}_${cleanDevName}.pdf`;
+    a.download = isRoomSurvey
+      ? `Radiation_Survey_Room_${device?.roomNumber || 'Room'}.pdf`
+      : `${isPpm ? 'PPM_Report' : 'QC_Report'}_${cleanDevName}.pdf`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -367,9 +423,9 @@ export const PublicReportViewer: React.FC = () => {
           <div className="w-16 h-16 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto text-2xl border border-amber-500/20">
             <i className="fas fa-exclamation-triangle"></i>
           </div>
-          <h2 className="text-lg font-bold text-slate-100">{error || 'الجهاز غير موجود'}</h2>
+          <h2 className="text-lg font-bold text-slate-100">{error || 'السجل غير موجود'}</h2>
           <p className="text-xs text-slate-400 leading-relaxed">
-            تأكد من مسح الرمز الصحيح المطبوع على ملصق الجهاز الطبي.
+            تأكد من مسح الرمز الصحيح المطبوع على الملصق المعتمد.
           </p>
           <button
             onClick={() => window.location.reload()}
@@ -394,22 +450,32 @@ export const PublicReportViewer: React.FC = () => {
           {/* Document Brand & Title */}
           <div className="flex items-center gap-3 min-w-0">
             <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-white text-base sm:text-lg shadow-md shrink-0 ${
-              isPpm ? 'bg-gradient-to-br from-sky-500 to-blue-700' : 'bg-gradient-to-br from-purple-500 to-indigo-700'
+              isRoomSurvey
+                ? 'bg-gradient-to-br from-amber-500 to-yellow-600'
+                : isPpm
+                ? 'bg-gradient-to-br from-sky-500 to-blue-700'
+                : 'bg-gradient-to-br from-purple-500 to-indigo-700'
             }`}>
-              <i className={`fas ${isPpm ? 'fa-tools' : 'fa-certificate'}`}></i>
+              <i className={`fas ${isRoomSurvey ? 'fa-radiation' : isPpm ? 'fa-tools' : 'fa-certificate'}`}></i>
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
-                  isPpm ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                  isRoomSurvey
+                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                    : isPpm
+                    ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                    : 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
                 }`}>
-                  {isPpm ? 'PPM REPORT' : 'QC REPORT'}
+                  {isRoomSurvey ? 'RADIATION SURVEY' : isPpm ? 'PPM REPORT' : 'QC REPORT'}
                 </span>
                 <span className="text-xs sm:text-sm font-bold text-white truncate max-w-[150px] sm:max-w-[280px]">
-                  {device.name || 'Medical Device'}
+                  {isRoomSurvey ? `غرفة ${device.roomNumber}` : (device.name || 'Medical Device')}
                 </span>
                 <span className="text-[10px] text-slate-400 hidden md:inline">
-                  &bull; غرفة: <strong className="text-sky-300">{device.roomNumber || device.room || 'غير محدد'}</strong>
+                  {isRoomSurvey
+                    ? `• الجهاز: ${device.model || device.device || 'أجهزة الأشعة'}`
+                    : `• غرفة: ${device.roomNumber || device.room || 'غير محدد'}`}
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 truncate max-w-[260px] sm:max-w-md">
@@ -418,27 +484,29 @@ export const PublicReportViewer: React.FC = () => {
             </div>
           </div>
 
-          {/* Quick Switch (PPM / QC) */}
-          <div className="hidden sm:flex items-center bg-slate-800/80 p-0.5 rounded-lg border border-slate-700 text-xs">
-            <button
-              onClick={() => handleSwitchReport('ppm')}
-              className={`px-2.5 py-1 rounded-md font-bold transition-all ${
-                isPpm ? 'bg-sky-600 text-white shadow' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <i className="fas fa-tools ml-1"></i>
-              PPM
-            </button>
-            <button
-              onClick={() => handleSwitchReport('qc')}
-              className={`px-2.5 py-1 rounded-md font-bold transition-all ${
-                !isPpm ? 'bg-purple-600 text-white shadow' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <i className="fas fa-certificate ml-1"></i>
-              QC
-            </button>
-          </div>
+          {/* Quick Switch (PPM / QC) - Only show for Devices */}
+          {!isRoomSurvey && (
+            <div className="hidden sm:flex items-center bg-slate-800/80 p-0.5 rounded-lg border border-slate-700 text-xs">
+              <button
+                onClick={() => handleSwitchReport('ppm')}
+                className={`px-2.5 py-1 rounded-md font-bold transition-all ${
+                  isPpm ? 'bg-sky-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <i className="fas fa-tools ml-1"></i>
+                PPM
+              </button>
+              <button
+                onClick={() => handleSwitchReport('qc')}
+                className={`px-2.5 py-1 rounded-md font-bold transition-all ${
+                  !isPpm ? 'bg-purple-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <i className="fas fa-certificate ml-1"></i>
+                QC
+              </button>
+            </div>
+          )}
 
           {/* Viewer Tools & Actions */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -584,34 +652,44 @@ export const PublicReportViewer: React.FC = () => {
         {/* Case 1: Empty / No document attached yet */}
         {!rawReportUrl && (
           <div className="max-w-lg w-full my-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 text-center space-y-4 shadow-xl">
-            <div className="w-16 h-16 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center mx-auto text-slate-400 text-2xl">
-              <i className="fas fa-file-pdf"></i>
+            <div className={`w-16 h-16 rounded-2xl border flex items-center justify-center mx-auto text-2xl ${
+              isRoomSurvey
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                : 'bg-slate-800 border-slate-700 text-slate-400'
+            }`}>
+              <i className={`fas ${isRoomSurvey ? 'fa-radiation' : 'fa-file-pdf'}`}></i>
             </div>
             <div className="space-y-1">
               <h3 className="text-base sm:text-lg font-bold text-white">
-                لا يوجد تقرير PDF مرفق حالياً لـ ({isPpm ? 'PPM' : 'QC'})
+                {isRoomSurvey
+                  ? 'شهادة المسح الإشعاعي للغرفة قيد التحديث'
+                  : `لا يوجد تقرير PDF مرفق حالياً لـ (${isPpm ? 'PPM' : 'QC'})`}
               </h3>
               <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
-                الجهاز مسجل ومعتمد بالنظام، ولكن لم يتم إرفاق ملف الفحص الأخير بعد.
+                {isRoomSurvey
+                  ? 'الغرفة مسجلة ومعتمدة بالنظام، وجاري استكمال رفع ملف شهادة المسح الإشعاعي المعتمدة.'
+                  : 'الجهاز مسجل ومعتمد بالنظام، ولكن لم يتم إرفاق ملف الفحص الأخير بعد.'}
               </p>
             </div>
 
-            {/* Device Passport Summary Card */}
+            {/* Passport Summary Card */}
             <div className="bg-slate-950/80 rounded-2xl p-4 border border-slate-800 text-right space-y-2 text-xs">
               <div className="flex justify-between border-b border-slate-800/80 pb-2">
-                <span className="text-slate-400">اسم الجهاز:</span>
-                <span className="font-bold text-white">{device.name}</span>
+                <span className="text-slate-400">{isRoomSurvey ? 'رقم الغرفة:' : 'اسم الجهاز:'}</span>
+                <span className="font-bold text-white">{isRoomSurvey ? `غرفة ${device.roomNumber}` : device.name}</span>
               </div>
               <div className="flex justify-between border-b border-slate-800/80 pb-2">
-                <span className="text-slate-400">رقم الغرفة:</span>
-                <span className="font-mono text-sky-400">{device.roomNumber || device.room || 'N/A'}</span>
+                <span className="text-slate-400">{isRoomSurvey ? 'الجهاز / المعدة:' : 'رقم الغرفة:'}</span>
+                <span className="font-mono text-sky-400">{isRoomSurvey ? (device.model || 'أجهزة الأشعة والتصوير') : (device.roomNumber || device.room || 'N/A')}</span>
               </div>
+              {!isRoomSurvey && (
+                <div className="flex justify-between border-b border-slate-800/80 pb-2">
+                  <span className="text-slate-400">الرقم التسلسلي (SN):</span>
+                  <span className="font-mono text-white">{device.serial || 'N/A'}</span>
+                </div>
+              )}
               <div className="flex justify-between border-b border-slate-800/80 pb-2">
-                <span className="text-slate-400">الرقم التسلسلي (SN):</span>
-                <span className="font-mono text-white">{device.serial || 'N/A'}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-800/80 pb-2">
-                <span className="text-slate-400">تاريخ الاستحقاق المسجل:</span>
+                <span className="text-slate-400">تاريخ انتهاء الصلاحية:</span>
                 <span className={`font-mono font-bold ${
                   daysLeft === null ? 'text-slate-400' : daysLeft <= 0 ? 'text-rose-400' : daysLeft <= 30 ? 'text-amber-400' : 'text-emerald-400'
                 }`}>
@@ -619,7 +697,13 @@ export const PublicReportViewer: React.FC = () => {
                   {daysLeft !== null && ` (${daysLeft <= 0 ? `منتهي منذ ${Math.abs(daysLeft)} يوم` : `باقي ${daysLeft} يوم`})`}
                 </span>
               </div>
-              {complianceInfo && (
+              {device.notes && (
+                <div className="flex justify-between border-b border-slate-800/80 pb-2">
+                  <span className="text-slate-400">ملاحظات:</span>
+                  <span className="text-slate-300 max-w-xs truncate">{device.notes}</span>
+                </div>
+              )}
+              {complianceInfo && !isRoomSurvey && (
                 <div className="pt-1 flex items-center justify-between">
                   <span className="text-slate-400">حالة التفتيش والامتثال:</span>
                   <span className={`inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded text-[11px] ${complianceInfo.badgeClass}`}>
@@ -630,15 +714,17 @@ export const PublicReportViewer: React.FC = () => {
               )}
             </div>
 
-            {/* Quick Button to try the other report if available */}
-            <div className="pt-2 flex justify-center gap-2">
-              <button
-                onClick={() => handleSwitchReport(isPpm ? 'qc' : 'ppm')}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition"
-              >
-                عرض {isPpm ? 'تقرير الـ QC' : 'تقرير الـ PPM'} بدلاً من ذلك
-              </button>
-            </div>
+            {/* Quick Button to try the other report if available (Only for devices) */}
+            {!isRoomSurvey && (
+              <div className="pt-2 flex justify-center gap-2">
+                <button
+                  onClick={() => handleSwitchReport(isPpm ? 'qc' : 'ppm')}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition"
+                >
+                  عرض {isPpm ? 'تقرير الـ QC' : 'تقرير الـ PPM'} بدلاً من ذلك
+                </button>
+              </div>
+            )}
           </div>
         )}
 

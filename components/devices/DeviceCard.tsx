@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DeviceItem, getDeviceOverallStatus, getModalityTheme, getDaysRemaining } from './deviceTypes';
+import { DeviceItem, getDeviceOverallStatus, getModalityTheme, getDaysRemaining, getDeviceComplianceStatus } from './deviceTypes';
 import { DeviceVisualBadge } from './DeviceVisualBadge';
 import { openDocumentUrl } from '../../services/storageClient';
 
@@ -20,8 +20,10 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const status = getDeviceOverallStatus(device);
+  const compliance = getDeviceComplianceStatus(device);
   const theme = getModalityTheme(device.category);
   const ppmDays = getDaysRemaining(device.maintDate);
+  const qcDays = device.enableQA ? getDaysRemaining(device.qualDate) : null;
 
   const handleCopySerial = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -182,6 +184,27 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
               }`}
               style={{ width: ppmDays !== null && ppmDays > 0 ? `${healthPercent}%` : ppmDays !== null ? '100%' : '0%' }}
             />
+          </div>
+
+          {/* Inspection and Compliance Date Status Badge */}
+          <div className="pt-1 flex items-center justify-between">
+            <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
+              <i className={`fas ${compliance.icon} text-[9px] ${compliance.textColor}`}></i>
+              {isAr ? 'حالة التفتيش والامتثال' : 'Compliance'}:
+            </span>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${compliance.badgeClass}`}>
+              {isAr ? (
+                compliance.status === 'EXPIRED' ? 'غير ممتثل (منتهي)' :
+                compliance.status === 'WARNING' ? 'ممتثل مؤقتاً (قريب)' :
+                compliance.status === 'NA' ? 'غير محدد' :
+                'ممتثل وسارٍ'
+              ) : (
+                compliance.status === 'EXPIRED' ? 'Non-Compliant' :
+                compliance.status === 'WARNING' ? 'Due Soon' :
+                compliance.status === 'NA' ? 'Not Set' :
+                'Compliant'
+              )}
+            </span>
           </div>
         </div>
 

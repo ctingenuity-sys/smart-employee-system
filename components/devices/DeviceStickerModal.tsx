@@ -69,23 +69,23 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
     room: string
   ): string => {
     const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : '';
-    const appDirectUrl = origin && dev.id
-      ? `${origin}/supervisor/devices?deviceId=${encodeURIComponent(dev.id)}&report=${type.toLowerCase()}`
+    const publicReportUrl = origin && dev.id
+      ? `${origin}/#/public/report/${encodeURIComponent(dev.id)}/${type.toLowerCase()}`
       : '';
 
-    // 1. If it's a valid remote HTTP/HTTPS link that fits easily in a standard QR code (< 1200 chars)
+    // 1. Prioritize dedicated public report reader:
+    // Guarantees immediate high-DPI rendering across all mobile devices without login,
+    // and stays dynamically linked to the latest report even if updated later.
+    if (publicReportUrl) {
+      return publicReportUrl;
+    }
+
+    // 2. Direct remote URL fallback if dev.id is unavailable
     if (rawUrl && typeof rawUrl === 'string') {
       const trimmed = rawUrl.trim();
       if ((trimmed.startsWith('http://') || trimmed.startsWith('https://')) && trimmed.length < 1200) {
         return trimmed;
       }
-    }
-
-    // 2. If it's a Data URL (starts with data:) or local document:
-    // Standard QR codes physically cannot store base64 documents (exceeds ~2KB QR limit).
-    // Instead, route directly to the device report in the hospital management portal!
-    if (appDirectUrl) {
-      return appDirectUrl;
     }
 
     // 3. Fallback: Concise structured metadata tag for on-site scanning

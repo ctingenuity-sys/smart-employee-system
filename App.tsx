@@ -62,6 +62,7 @@ const DoctorDashboard = React.lazy(() => import('./pages/DoctorDashboard'));
 const AttendancePage = React.lazy(() => import('./pages/AttendancePage'));
 const AppointmentsPage = React.lazy(() => import('./pages/AppointmentsPage'));
 const PatientTicket = React.lazy(() => import('./pages/PatientTicket'));
+const PublicReportViewer = React.lazy(() => import('./pages/PublicReportViewer'));
 const DataArchiver = React.lazy(() => import('./pages/DataArchiver')); 
 const DepartmentBookings = React.lazy(() => import('./pages/DepartmentBookings'));
 const CTConsentPage = React.lazy(() => import('./pages/CTConsentPage'));
@@ -160,6 +161,10 @@ const AppRoutes: React.FC = () => {
         <Routes>
           {/* Public Routes */}
           <Route path="/ticket/:id" element={<Suspense fallback={<Loading />}><PatientTicket /></Suspense>} />
+          <Route path="/public/report/:deviceId/:reportType" element={<Suspense fallback={<Loading />}><PublicReportViewer /></Suspense>} />
+          <Route path="/public/report/:deviceId" element={<Suspense fallback={<Loading />}><PublicReportViewer /></Suspense>} />
+          <Route path="/public/device/:deviceId" element={<Suspense fallback={<Loading />}><PublicReportViewer /></Suspense>} />
+          <Route path="/public-report" element={<Suspense fallback={<Loading />}><PublicReportViewer /></Suspense>} />
           <Route path="/radiology-logbook" element={<Suspense fallback={<Loading />}><StandaloneRadiologyLogbook /></Suspense>} />
           <Route path="/standalone-logbook" element={<Suspense fallback={<Loading />}><StandaloneRadiologyLogbook /></Suspense>} />
 

@@ -104,6 +104,104 @@ export const getDeviceOverallStatus = (dev: DeviceItem): DeviceStatusInfo => {
   };
 };
 
+export interface DeviceComplianceInfo {
+  isCompliant: boolean;
+  status: StatusLevel;
+  badgeClass: string;
+  badgeBg: string;
+  badgeBorder: string;
+  textColor: string;
+  titleAr: string;
+  titleEn: string;
+  summaryAr: string;
+  summaryEn: string;
+  icon: string;
+}
+
+export const getDeviceComplianceStatus = (dev: DeviceItem): DeviceComplianceInfo => {
+  const ppm = checkDateStatus(dev.maintDate);
+  const qc = dev.enableQA ? checkDateStatus(dev.qualDate) : 'VALID';
+
+  const ppmDays = getDaysRemaining(dev.maintDate);
+  const qcDays = dev.enableQA ? getDaysRemaining(dev.qualDate) : null;
+
+  // 1. If any required inspection has expired -> NON-COMPLIANT
+  if (ppm === 'EXPIRED' || qc === 'EXPIRED') {
+    const expiredReasons: string[] = [];
+    if (ppm === 'EXPIRED') expiredReasons.push('صيانة PPM');
+    if (qc === 'EXPIRED') expiredReasons.push('فحص الجودة QC');
+
+    return {
+      isCompliant: false,
+      status: 'EXPIRED',
+      badgeClass: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/50',
+      badgeBg: 'bg-rose-500/15',
+      badgeBorder: 'border-rose-500/30',
+      textColor: 'text-rose-600 dark:text-rose-400',
+      titleAr: 'غير ممتثل - شهادات منتهية الصلاحية',
+      titleEn: 'Non-Compliant (Inspection Expired)',
+      summaryAr: `انتهت صلاحية (${expiredReasons.join(' و ')}) - يتطلب إعادة التفتيش والفحص الفوري`,
+      summaryEn: `Expired: ${expiredReasons.join(' & ')} - Urgent recertification required`,
+      icon: 'fa-triangle-exclamation',
+    };
+  }
+
+  // 2. If close to expiry (within 30 days) -> DUE SOON / WARNING
+  if (ppm === 'WARNING' || qc === 'WARNING') {
+    const minDays = Math.min(
+      ppmDays !== null && ppmDays >= 0 ? ppmDays : 999,
+      qcDays !== null && qcDays >= 0 ? qcDays : 999
+    );
+    const minDaysText = minDays < 999 ? `خلال ${minDays} يوم` : 'قريباً';
+
+    return {
+      isCompliant: true,
+      status: 'WARNING',
+      badgeClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900/50',
+      badgeBg: 'bg-amber-500/15',
+      badgeBorder: 'border-amber-500/30',
+      textColor: 'text-amber-600 dark:text-amber-400',
+      titleAr: 'ممتثل مؤقتاً - يستحق التفتيش قريباً',
+      titleEn: 'Conditionally Compliant (Due Soon)',
+      summaryAr: `التفتيش والصيانة الدورية مستحقة ${minDaysText} - يرجى جدولة الفحص`,
+      summaryEn: `Inspection due soon (${minDaysText}) - Please schedule audit`,
+      icon: 'fa-clock-rotate-left',
+    };
+  }
+
+  // 3. If dates are not set at all
+  if (ppm === 'NA' && (!dev.enableQA || qc === 'NA')) {
+    return {
+      isCompliant: false,
+      status: 'NA',
+      badgeClass: 'bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800',
+      badgeBg: 'bg-slate-500/15',
+      badgeBorder: 'border-slate-500/30',
+      textColor: 'text-slate-500 dark:text-slate-400',
+      titleAr: 'غير مكتمل البيانات - لم تحدد تواريخ التفتيش',
+      titleEn: 'Incomplete - Expiry Dates Not Set',
+      summaryAr: 'لم يتم إدخال تواريخ انتهاء الصيانة أو المعايرة للتحقق من الامتثال',
+      summaryEn: 'Inspection & calibration dates not set for verification',
+      icon: 'fa-circle-question',
+    };
+  }
+
+  // 4. Fully compliant (both valid and not expired)
+  return {
+    isCompliant: true,
+    status: 'VALID',
+    badgeClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50',
+    badgeBg: 'bg-emerald-500/15',
+    badgeBorder: 'border-emerald-500/30',
+    textColor: 'text-emerald-600 dark:text-emerald-400',
+    titleAr: 'ممتثل كلياً - الفحص والشهادات سارية',
+    titleEn: 'Fully Compliant & Certified',
+    summaryAr: 'شهادات السلامة الدورية وفحص الجودة والصيانة سارية وصالحة للاستخدام الطبي',
+    summaryEn: 'Periodic safety certifications and maintenance are active and verified',
+    icon: 'fa-shield-check',
+  };
+};
+
 export interface ModalityTheme {
   name: string;
   nameAr: string;

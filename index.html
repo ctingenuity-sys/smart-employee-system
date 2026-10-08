@@ -27,6 +27,14 @@
             root.style.colorScheme = 'light';
           }
         } catch (e) {}
+
+        // Forward public direct deep-links to HashRouter if opened without hash
+        try {
+          var p = window.location.pathname;
+          if (p && (p.startsWith('/public') || p.startsWith('/ticket') || p.startsWith('/report')) && (!window.location.hash || window.location.hash === '#/')) {
+            window.location.replace('/#' + p + window.location.search);
+          }
+        } catch (e) {}
       })();
     </script>
     <link rel="manifest" href="/manifest.json">

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
-import { DeviceItem, getDeviceOverallStatus, getModalityTheme, getDaysRemaining } from './deviceTypes';
+import { DeviceItem, getDeviceOverallStatus, getModalityTheme, getDaysRemaining, getDeviceComplianceStatus } from './deviceTypes';
 import { DeviceVisualBadge } from './DeviceVisualBadge';
 import { DeviceStickerModal } from './DeviceStickerModal';
 import { openDocumentUrl } from '../../services/storageClient';
@@ -26,6 +26,7 @@ export const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
   if (!isOpen) return null;
 
   const status = getDeviceOverallStatus(device);
+  const compliance = getDeviceComplianceStatus(device);
   const theme = getModalityTheme(device.category);
   const ppmDays = getDaysRemaining(device.maintDate);
   const qcDays = getDaysRemaining(device.qualDate);
@@ -38,7 +39,7 @@ export const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
       try {
         const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : '';
         const payload = device.id && origin
-          ? `${origin}/supervisor/devices?deviceId=${encodeURIComponent(device.id)}`
+          ? `${origin}/#/public/device/${encodeURIComponent(device.id)}`
           : `DEVICE:${device.name || 'Medical Device'} | SN:${device.serial || 'N/A'} | CAT:${device.category || ''} | PPM:${device.maintDate || 'N/A'}`;
 
         const dataUrl = await QRCode.toDataURL(payload, {
@@ -205,13 +206,28 @@ export const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
                   </div>
                 </div>
 
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 sm:col-span-2">
-                  <span className="text-[11px] font-bold text-slate-400 uppercase block mb-1">
-                    {isAr ? 'حالة التفتيش والامتثال' : 'Compliance'}
-                  </span>
-                  <div className="flex items-center gap-2 text-sm font-black text-emerald-600 dark:text-emerald-400">
-                    <i className="fas fa-shield-check text-xs"></i>
-                    {isAr ? 'معتمد طبياً وفحص السلامة سارٍ' : 'Audited & Safety Certified'}
+                <div className={`p-4 rounded-2xl border sm:col-span-2 transition-all ${
+                  compliance.status === 'EXPIRED'
+                    ? 'bg-rose-50/80 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/50'
+                    : compliance.status === 'WARNING'
+                    ? 'bg-amber-50/80 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/50'
+                    : compliance.status === 'NA'
+                    ? 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-800'
+                    : 'bg-emerald-50/80 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/50'
+                }`}>
+                  <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase">
+                      {isAr ? 'حالة التفتيش والامتثال الدوري' : 'Inspection & Compliance Status'}
+                    </span>
+                    <span className={`inline-flex items-center gap-1.5 text-xs font-black px-2.5 py-0.5 rounded-full border ${compliance.badgeClass}`}>
+                      <i className={`fas ${compliance.icon} text-xs`}></i>
+                      <span>{isAr ? compliance.titleAr : compliance.titleEn}</span>
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <p className={`text-xs font-semibold leading-relaxed ${compliance.textColor}`}>
+                      {isAr ? compliance.summaryAr : compliance.summaryEn}
+                    </p>
                   </div>
                 </div>
               </div>

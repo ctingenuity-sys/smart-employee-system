@@ -212,7 +212,7 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
           <div class="header-logo-title">
             <img src="/old-logo.png" onerror="this.src='/logo.png'" alt="Hospital Logo" class="hosp-logo" />
             <div class="hosp-titles">
-              <div class="hosp-main">${isAr ? 'مستشفى - بطاقة تعريف أصل طبي' : 'HOSPITAL MEDICAL ASSET TAG'}</div>
+              <div class="hosp-main">${isAr ? "مستشفي الجدعاني  -حي الصفا" : 'ALJEDAANI HOSPITAL - ALSAFA BRANCH'}</div>
               <div class="hosp-sub">${isAr ? 'قسم الأشعة والتصوير الطبي' : 'Radiology & Medical Imaging'}</div>
             </div>
           </div>
@@ -849,7 +849,7 @@ export const DeviceStickerModal: React.FC<DeviceStickerModalProps> = ({
                     />
                     <div>
                       <div className="text-[10px] font-black text-sky-800 leading-tight uppercase">
-                        {isAr ? 'مستشفى - بطاقة تعريف أصل طبي' : 'HOSPITAL MEDICAL ASSET TAG'}
+                        {isAr ? "مستشفي الجدعاني  -حي الصفا" : 'ALJEDAANI HOSPITAL - ALSAFA BRANCH'}
                       </div>
                       <div className="text-[8px] font-bold text-slate-500">
                         {isAr ? 'قسم الأشعة والتصوير الطبي' : 'Radiology & Medical Imaging'}

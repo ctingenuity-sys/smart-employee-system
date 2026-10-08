@@ -1,5 +1,6 @@
 import React from 'react';
 import { DeviceItem, getDeviceOverallStatus, getModalityTheme, getDaysRemaining } from './deviceTypes';
+import { openDocumentUrl } from '../../services/storageClient';
 
 interface DeviceTableViewProps {
   devices: DeviceItem[];
@@ -58,9 +59,17 @@ export const DeviceTableView: React.FC<DeviceTableViewProps> = ({
                         <span className="font-black text-slate-900 dark:text-white block hover:text-blue-600 transition-colors">
                           {device.name}
                         </span>
-                        <span className="text-[11px] text-slate-400 font-mono">
-                          {device.installDate ? `${isAr ? 'تاريخ التركيب' : 'Installed'}: ${device.installDate}` : (isAr ? 'تاريخ غير محدد' : 'No date')}
-                        </span>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+                          {device.roomNumber && (
+                            <span className="text-sky-600 dark:text-sky-400 font-bold flex items-center gap-1">
+                              <i className="fas fa-door-open text-[10px]"></i>
+                              {device.roomNumber}
+                            </span>
+                          )}
+                          <span className="font-mono">
+                            {device.installDate ? `${isAr ? 'التركيب' : 'Installed'}: ${device.installDate}` : (isAr ? 'تاريخ غير محدد' : 'No date')}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </td>
@@ -100,16 +109,17 @@ export const DeviceTableView: React.FC<DeviceTableViewProps> = ({
                         )}
                       </div>
                       {device.maintUrl && (
-                        <a
-                          href={device.maintUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDocumentUrl(device.maintUrl!);
+                          }}
                           className="text-blue-500 hover:text-blue-700 text-xs p-1"
                           title={isAr ? 'عرض تقرير PPM' : 'View PPM'}
                         >
                           <i className="fas fa-file-pdf"></i>
-                        </a>
+                        </button>
                       )}
                     </div>
                   </td>
@@ -135,16 +145,17 @@ export const DeviceTableView: React.FC<DeviceTableViewProps> = ({
                           )}
                         </div>
                         {device.qualUrl && (
-                          <a
-                            href={device.qualUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openDocumentUrl(device.qualUrl!);
+                            }}
                             className="text-purple-500 hover:text-purple-700 text-xs p-1"
                             title={isAr ? 'عرض شهادة QC' : 'View QC'}
                           >
                             <i className="fas fa-file-pdf"></i>
-                          </a>
+                          </button>
                         )}
                       </div>
                     ) : (

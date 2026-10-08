@@ -3,6 +3,8 @@ export interface DeviceItem {
   name: string;
   serial: string;
   category: string;
+  roomNumber?: string;
+  room?: string;
   installDate?: string;
   image?: string;
   maintUrl?: string;

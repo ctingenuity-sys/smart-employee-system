@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import QRCode from 'qrcode';
 import { DeviceItem, getDeviceOverallStatus, getModalityTheme, getDaysRemaining } from './deviceTypes';
 import { DeviceVisualBadge } from './DeviceVisualBadge';
+import { DeviceStickerModal } from './DeviceStickerModal';
+import { openDocumentUrl } from '../../services/storageClient';
 
 interface DeviceDetailsModalProps {
   device: DeviceItem;
@@ -18,7 +21,7 @@ export const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
   isAr,
 }) => {
   const [copiedSerial, setCopiedSerial] = useState(false);
-  const [isPrinting, setIsPrinting] = useState(false);
+  const [isStickerModalOpen, setIsStickerModalOpen] = useState(false);
 
   if (!isOpen) return null;
 
@@ -27,11 +30,40 @@ export const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
   const ppmDays = getDaysRemaining(device.maintDate);
   const qcDays = getDaysRemaining(device.qualDate);
 
-  // Generate QR code data URL (using quick universal QR API)
-  const qrData = encodeURIComponent(
-    `DEVICE:${device.name || 'Medical Device'} | SN:${device.serial || 'N/A'} | CAT:${device.category || ''} | PPM:${device.maintDate || 'N/A'}`
-  );
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${qrData}`;
+  const [qrUrl, setQrUrl] = useState<string>('');
+
+  useEffect(() => {
+    let isMounted = true;
+    const generateQr = async () => {
+      try {
+        const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : '';
+        const payload = device.id && origin
+          ? `${origin}/supervisor/devices?deviceId=${encodeURIComponent(device.id)}`
+          : `DEVICE:${device.name || 'Medical Device'} | SN:${device.serial || 'N/A'} | CAT:${device.category || ''} | PPM:${device.maintDate || 'N/A'}`;
+
+        const dataUrl = await QRCode.toDataURL(payload, {
+          width: 200,
+          margin: 1,
+          errorCorrectionLevel: 'M',
+          color: {
+            dark: '#1e293b',
+            light: '#ffffff',
+          },
+        });
+        if (isMounted) setQrUrl(dataUrl);
+      } catch (err) {
+        console.warn('QR code generation notice:', err);
+        try {
+          const fallback = await QRCode.toDataURL(`DEVICE:${device.name || 'ASSET'}`, { width: 200, margin: 1 });
+          if (isMounted) setQrUrl(fallback);
+        } catch (e2) {}
+      }
+    };
+    generateQr();
+    return () => {
+      isMounted = false;
+    };
+  }, [device]);
 
   const copySerial = () => {
     if (device.serial) {
@@ -58,61 +90,7 @@ export const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
   };
 
   const handlePrintLabel = () => {
-    setIsPrinting(true);
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert(isAr ? 'يرجى السماح بالنوافذ المنبثقة للطباعة' : 'Please allow popups to print');
-      setIsPrinting(false);
-      return;
-    }
-
-    const html = `
-      <!DOCTYPE html>
-      <html dir="${isAr ? 'rtl' : 'ltr'}">
-        <head>
-          <title>${device.name} - Asset Tag</title>
-          <style>
-            @page { size: 100mm 70mm; margin: 4mm; }
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 12px; }
-            .tag-box { border: 2px solid #0284c7; border-radius: 10px; padding: 10px; display: flex; gap: 12px; align-items: center; }
-            .info { flex: 1; }
-            .hosp-title { font-size: 11px; font-weight: bold; color: #0369a1; text-transform: uppercase; border-bottom: 1px solid #bae6fd; padding-bottom: 4px; margin-bottom: 6px; }
-            .device-name { font-size: 14px; font-weight: 900; color: #0f172a; margin-bottom: 4px; }
-            .serial { font-family: monospace; font-size: 12px; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; display: inline-block; margin-bottom: 6px; }
-            .dates { font-size: 10px; color: #475569; }
-            .dates strong { color: #0f172a; }
-            .qr-side { width: 75px; text-align: center; }
-            .qr-side img { width: 75px; height: 75px; }
-            .qr-side span { font-size: 8px; color: #64748b; display: block; margin-top: 2px; }
-          </style>
-        </head>
-        <body>
-          <div class="tag-box">
-            <div class="info">
-              <div class="hosp-title">${isAr ? 'مستشفى - بطاقة تعريف أصل طبي' : 'HOSPITAL MEDICAL ASSET TAG'}</div>
-              <div class="device-name">${device.name}</div>
-              <div class="serial">SN: ${device.serial || 'N/A'}</div>
-              <div class="dates">
-                <div>${isAr ? 'التصنيف' : 'Modality'}: <strong>${device.category}</strong></div>
-                <div>${isAr ? 'الصيانة الوقائية' : 'Next PPM'}: <strong>${device.maintDate || 'N/A'}</strong></div>
-                ${device.enableQA ? `<div>${isAr ? 'شهادة الجودة' : 'Next QC'}: <strong>${device.qualDate || 'N/A'}</strong></div>` : ''}
-              </div>
-            </div>
-            <div class="qr-side">
-              <img src="${qrUrl}" alt="QR" />
-              <span>SCAN FOR DOCS</span>
-            </div>
-          </div>
-          <script>
-            window.onload = () => { window.print(); window.close(); }
-          </script>
-        </body>
-      </html>
-    `;
-
-    printWindow.document.write(html);
-    printWindow.document.close();
-    setIsPrinting(false);
+    setIsStickerModalOpen(true);
   };
 
   return (
@@ -186,7 +164,17 @@ export const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
                 {isAr ? 'المواصفات الفنية وتاريخ التثبيت' : 'Technical Specs & Installation'}
               </h3>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase block mb-1">
+                    {isAr ? 'رقم / موقع الغرفة' : 'Room Number'}
+                  </span>
+                  <div className="flex items-center gap-2 text-sm font-black text-sky-600 dark:text-sky-400">
+                    <i className="fas fa-door-open text-xs"></i>
+                    {device.roomNumber || device.room || (isAr ? 'غير مسجل' : 'Not set')}
+                  </div>
+                </div>
+
                 <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
                   <span className="text-[11px] font-bold text-slate-400 uppercase block mb-1">
                     {isAr ? 'تاريخ التوريد والتركيب' : 'Install Date'}
@@ -217,13 +205,13 @@ export const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
                   </div>
                 </div>
 
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 sm:col-span-2">
                   <span className="text-[11px] font-bold text-slate-400 uppercase block mb-1">
                     {isAr ? 'حالة التفتيش والامتثال' : 'Compliance'}
                   </span>
                   <div className="flex items-center gap-2 text-sm font-black text-emerald-600 dark:text-emerald-400">
                     <i className="fas fa-shield-check text-xs"></i>
-                    {isAr ? 'معتمد طبياً' : 'Audited & Certified'}
+                    {isAr ? 'معتمد طبياً وفحص السلامة سارٍ' : 'Audited & Safety Certified'}
                   </div>
                 </div>
               </div>
@@ -257,16 +245,15 @@ export const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
                     )}
                   </div>
                   {device.maintUrl ? (
-                    <a
-                      href={device.maintUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => openDocumentUrl(device.maintUrl!)}
                       className="inline-flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-blue-200 dark:border-blue-800 shadow-sm mt-1 transition-colors"
                     >
                       <i className="fas fa-file-pdf text-red-500"></i>
                       <span>{isAr ? 'عرض تقرير الصيانة المعتمد (PDF)' : 'View Certified PPM Report (PDF)'}</span>
                       <i className="fas fa-external-link-alt text-[10px]"></i>
-                    </a>
+                    </button>
                   ) : (
                     <p className="text-[11px] text-slate-400 italic">
                       {isAr ? 'لا يوجد ملف تقرير مرفق حالياً' : 'No report attached'}
@@ -302,16 +289,15 @@ export const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
                       )}
                     </div>
                     {device.qualUrl ? (
-                      <a
-                        href={device.qualUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => openDocumentUrl(device.qualUrl!)}
                         className="inline-flex items-center gap-2 text-xs font-bold text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-300 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-purple-200 dark:border-purple-800 shadow-sm mt-1 transition-colors"
                       >
                         <i className="fas fa-file-pdf text-red-500"></i>
                         <span>{isAr ? 'عرض شهادة المعايرة والجودة (PDF)' : 'View Calibration Certificate (PDF)'}</span>
                         <i className="fas fa-external-link-alt text-[10px]"></i>
-                      </a>
+                      </button>
                     ) : (
                       <p className="text-[11px] text-slate-400 italic">
                         {isAr ? 'لا توجد شهادة جودة مرفقة حالياً' : 'No certificate attached'}
@@ -348,11 +334,10 @@ export const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
 
                 <button
                   onClick={handlePrintLabel}
-                  disabled={isPrinting}
-                  className="mt-4 w-full py-2.5 px-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-black flex items-center justify-center gap-2 shadow-sm transition-all"
+                  className="mt-4 w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 via-cyan-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-blue-500/20 transition-all transform active:scale-95"
                 >
-                  <i className="fas fa-print text-blue-600"></i>
-                  <span>{isAr ? 'طباعة ملصق الجهاز (Asset Tag)' : 'Print Equipment Label'}</span>
+                  <i className="fas fa-print"></i>
+                  <span>{isAr ? 'طباعة ملصق الجهاز (7 سم × 5 سم)' : 'Print Equipment Label (7cm × 5cm)'}</span>
                 </button>
               </div>
             </div>
@@ -380,6 +365,14 @@ export const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Device Sticker Print Modal (7cm x 5cm) */}
+      <DeviceStickerModal
+        device={device}
+        isOpen={isStickerModalOpen}
+        onClose={() => setIsStickerModalOpen(false)}
+        isAr={isAr}
+      />
     </div>
   );
 };

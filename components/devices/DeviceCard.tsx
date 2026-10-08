@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { DeviceItem, getDeviceOverallStatus, getModalityTheme, getDaysRemaining } from './deviceTypes';
 import { DeviceVisualBadge } from './DeviceVisualBadge';
+import { openDocumentUrl } from '../../services/storageClient';
 
 interface DeviceCardProps {
   device: DeviceItem;
@@ -124,12 +125,20 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
               {copied && <span className="text-[9px] text-emerald-600 font-bold">({isAr ? 'تم' : 'Copied'})</span>}
             </button>
 
-            {device.installDate && (
-              <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
-                <i className="fas fa-calendar-day text-[10px]"></i>
-                {device.installDate.slice(0, 7)}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {device.roomNumber && (
+                <span className="text-[10px] font-bold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/40 px-2 py-0.5 rounded border border-sky-200 dark:border-sky-800 flex items-center gap-1">
+                  <i className="fas fa-door-open text-[9px]"></i>
+                  {device.roomNumber}
+                </span>
+              )}
+              {device.installDate && (
+                <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
+                  <i className="fas fa-calendar-day text-[10px]"></i>
+                  {device.installDate.slice(0, 7)}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -180,17 +189,18 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
         <div className="mt-3.5 pt-2 flex items-center justify-between gap-2">
           {/* PPM PDF link if available */}
           {device.maintUrl ? (
-            <a
-              href={device.maintUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                openDocumentUrl(device.maintUrl!);
+              }}
               className="px-2.5 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 text-[11px] font-bold flex items-center gap-1.5 transition-colors"
               title={isAr ? 'عرض تقرير الصيانة' : 'View PPM report'}
             >
               <i className="fas fa-file-pdf text-red-500"></i>
               <span>PDF</span>
-            </a>
+            </button>
           ) : (
             <span className="text-[10px] text-slate-300 dark:text-slate-600 italic">
               {isAr ? 'لا يوجد تقرير' : 'No PDF'}

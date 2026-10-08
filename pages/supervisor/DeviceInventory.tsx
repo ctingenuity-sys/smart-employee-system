@@ -2,7 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../../firebaseData';
 // @ts-ignore
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, Timestamp, query, where } from 'firebase/firestore';
-import { uploadFile } from '../../services/storageClient';
+import {
+  uploadFile,
+  uploadReportWithCompression,
+  deleteStorageFile,
+  formatFileSize,
+  openDocumentUrl,
+} from '../../services/storageClient';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useDepartment } from '../../contexts/DepartmentContext';
@@ -55,6 +61,7 @@ const DeviceInventory: React.FC = () => {
     name: '',
     serial: '',
     category: '',
+    roomNumber: '',
     installDate: '',
     image: '',
     maintUrl: '',
@@ -101,6 +108,30 @@ const DeviceInventory: React.FC = () => {
     return () => unsub();
   }, [selectedDepartmentId]);
 
+  // Handle direct device link from QR code scan on physical machine
+  useEffect(() => {
+    if (devices.length === 0) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const targetDeviceId = params.get('deviceId');
+      const targetReport = params.get('report'); // 'ppm' or 'qc'
+
+      if (targetDeviceId) {
+        const found = devices.find((d) => d.id === targetDeviceId);
+        if (found) {
+          setInspectDevice(found);
+          if (targetReport === 'ppm' && found.maintUrl) {
+            openDocumentUrl(found.maintUrl);
+          } else if (targetReport === 'qc' && found.qualUrl) {
+            openDocumentUrl(found.qualUrl);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('QR scan param handler error:', e);
+    }
+  }, [devices]);
+
   const xrayCategories = [
     'CT',
     'X-Ray',
@@ -115,28 +146,103 @@ const DeviceInventory: React.FC = () => {
     'Other',
   ];
 
-  // Upload Handler
+  // Upload Handler with automatic client-side compression & old report deletion
   const handleFileUpload = async (file: File, field: 'image' | 'maintUrl' | 'qualUrl') => {
     if (field === 'image') setUploadingImg(true);
     if (field === 'maintUrl') setUploadingPPM(true);
     if (field === 'qualUrl') setUploadingQC(true);
 
+    const oldUrl = formData[field];
+
     try {
-      const url = await uploadFile(file, `devices/${field}`);
-      if (url) {
-        setFormData((prev) => ({ ...prev, [field]: url }));
-        setToast({ msg: isAr ? 'تم رفع الملف بنجاح' : 'File Uploaded', type: 'success' });
+      const res = await uploadReportWithCompression(file, `devices/${field}`, oldUrl);
+      if (res && res.url) {
+        setFormData((prev) => ({ ...prev, [field]: res.url }));
+
+        // If editing an existing device, immediately update Firestore so old report is erased and new compressed report is saved
+        if (editingId) {
+          try {
+            await updateDoc(doc(db, 'inventory_devices', editingId), {
+              [field]: res.url,
+            });
+          } catch (updateErr) {
+            console.warn('Could not auto-sync updated attachment to Firestore:', updateErr);
+          }
+        }
+
+        const isPdf = res.isPdf;
+        const fieldNameAr = field === 'maintUrl' ? 'تقرير الصيانة' : field === 'qualUrl' ? 'شهادة الجودة' : 'صورة الجهاز';
+        const fieldNameEn = field === 'maintUrl' ? 'Maintenance Report' : field === 'qualUrl' ? 'QC Certificate' : 'Device Image';
+        
+        let msg = '';
+        if (isAr) {
+          msg = `تم ضغط ورفع ${fieldNameAr} بنجاح (${formatFileSize(res.compressedSize)})`;
+          if (res.savedPercentage > 0) {
+            msg += ` بتوفير ${res.savedPercentage}% من المساحة`;
+          }
+          if (oldUrl) {
+            msg += `، وتم حذف التقرير السابق`;
+          }
+        } else {
+          msg = `${fieldNameEn} compressed & saved (${formatFileSize(res.compressedSize)})`;
+          if (res.savedPercentage > 0) {
+            msg += ` (saved ${res.savedPercentage}%)`;
+          }
+          if (oldUrl) {
+            msg += `, previous report deleted`;
+          }
+        }
+
+        setToast({ msg, type: 'success' });
       }
     } catch (e: any) {
       if (e.message === 'CORS_ERROR') {
         alert(isAr ? 'خطأ في إعدادات الخادم (CORS).' : 'Server CORS configuration error.');
       }
-      setToast({ msg: isAr ? 'فشل رفع الملف' : 'Upload Failed', type: 'error' });
+      setToast({ msg: isAr ? 'فشل رفع وضغط الملف' : 'Upload & compression failed', type: 'error' });
     } finally {
       if (field === 'image') setUploadingImg(false);
       if (field === 'maintUrl') setUploadingPPM(false);
       if (field === 'qualUrl') setUploadingQC(false);
     }
+  };
+
+  // Handler to explicitly delete an attached report (PPM or QC) and free storage
+  const handleDeleteReport = async (field: 'maintUrl' | 'qualUrl') => {
+    const fieldNameAr = field === 'maintUrl' ? 'تقرير الصيانة (PPM)' : 'شهادة الجودة (QC)';
+    const fieldNameEn = field === 'maintUrl' ? 'PPM Report' : 'QC Certificate';
+
+    if (
+      !window.confirm(
+        isAr
+          ? `هل أنت متأكد من حذف ${fieldNameAr} نهائياً ومسحه من الذاكرة؟`
+          : `Are you sure you want to delete this ${fieldNameEn} and free storage?`
+      )
+    ) {
+      return;
+    }
+
+    const currentUrl = formData[field];
+    if (currentUrl) {
+      await deleteStorageFile(currentUrl);
+    }
+
+    setFormData((prev) => ({ ...prev, [field]: '' }));
+
+    if (editingId) {
+      try {
+        await updateDoc(doc(db, 'inventory_devices', editingId), {
+          [field]: '',
+        });
+      } catch (err) {
+        console.warn('Could not clear report in Firestore:', err);
+      }
+    }
+
+    setToast({
+      msg: isAr ? `تم حذف ${fieldNameAr} بنجاح وتحرير المساحة` : `${fieldNameEn} deleted successfully`,
+      type: 'success',
+    });
   };
 
   const handleScannerSave = async (file: File) => {
@@ -174,8 +280,14 @@ const DeviceInventory: React.FC = () => {
   const handleDelete = async (id: string) => {
     if (window.confirm(isAr ? 'هل أنت متأكد من حذف هذا الجهاز من السجل؟' : 'Delete this device from inventory?')) {
       try {
+        const dev = devices.find((d) => d.id === id);
+        if (dev) {
+          if (dev.maintUrl) await deleteStorageFile(dev.maintUrl);
+          if (dev.qualUrl) await deleteStorageFile(dev.qualUrl);
+          if (dev.image) await deleteStorageFile(dev.image);
+        }
         await deleteDoc(doc(db, 'inventory_devices', id));
-        setToast({ msg: isAr ? 'تم حذف الجهاز' : 'Device deleted', type: 'success' });
+        setToast({ msg: isAr ? 'تم حذف الجهاز وتحرير المرفقات' : 'Device deleted & storage freed', type: 'success' });
         if (inspectDevice && inspectDevice.id === id) {
           setInspectDevice(null);
         }
@@ -190,6 +302,7 @@ const DeviceInventory: React.FC = () => {
       name: '',
       serial: '',
       category: '',
+      roomNumber: '',
       installDate: '',
       image: '',
       maintUrl: '',
@@ -206,6 +319,7 @@ const DeviceInventory: React.FC = () => {
       name: dev.name || '',
       serial: dev.serial || '',
       category: dev.category || '',
+      roomNumber: dev.roomNumber || dev.room || '',
       installDate: dev.installDate || '',
       image: dev.image || '',
       maintUrl: dev.maintUrl || '',
@@ -1169,6 +1283,30 @@ const DeviceInventory: React.FC = () => {
                 />
               </div>
 
+              {/* Room Number */}
+              <div>
+                <label
+                  className={`text-xs font-bold uppercase tracking-wider mb-2 block ${
+                    isDark ? 'text-slate-300' : 'text-slate-700'
+                  }`}
+                >
+                  {isAr ? 'رقم / اسم الغرفة (Room #)' : 'Room Number'}
+                </label>
+                <div className="relative">
+                  <input
+                    className={`w-full rounded-xl p-3 ${isAr ? 'pl-9' : 'pr-9'} text-sm font-bold outline-none transition-all border ${
+                      isDark
+                        ? 'bg-slate-800 border-slate-700 text-white focus:border-cyan-400'
+                        : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-cyan-500 focus:bg-white'
+                    }`}
+                    placeholder={isAr ? 'مثال: غرفة 104 أو أشعة 2' : 'e.g. Room 104'}
+                    value={formData.roomNumber}
+                    onChange={(e) => setFormData({ ...formData, roomNumber: e.target.value })}
+                  />
+                  <i className={`fas fa-door-open absolute ${isAr ? 'left-3' : 'right-3'} top-3.5 text-slate-400`}></i>
+                </div>
+              </div>
+
               {/* Install Date */}
               <div>
                 <label
@@ -1275,46 +1413,81 @@ const DeviceInventory: React.FC = () => {
                         isDark ? 'text-slate-400' : 'text-slate-600'
                       }`}
                     >
-                      {isAr ? 'تقرير الصيانة (PDF)' : 'Report Attachment'}
+                      {isAr ? 'تقرير الصيانة (PDF مضغوط)' : 'PPM Report (Compressed PDF)'}
                     </label>
-                    <div className="flex gap-2">
+                    <div className="flex gap-1.5 items-center">
                       <div className="relative flex-1">
                         <input
                           type="file"
                           accept=".pdf,image/*"
                           className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                          disabled={uploadingPPM}
                           onChange={(e) =>
-                            e.target.files && handleFileUpload(e.target.files[0], 'maintUrl')
+                            e.target.files && e.target.files[0] && handleFileUpload(e.target.files[0], 'maintUrl')
                           }
                         />
                         <div
-                          className={`w-full p-2.5 rounded-xl border flex items-center justify-center gap-2 text-xs font-bold ${
+                          className={`w-full p-2.5 rounded-xl border flex items-center justify-center gap-2 text-xs font-bold transition-all ${
                             formData.maintUrl
-                              ? 'border-emerald-500 text-emerald-500 bg-emerald-50 dark:bg-slate-900'
+                              ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30'
                               : isDark
                               ? 'bg-slate-900 border-slate-700 text-slate-400'
                               : 'bg-white border-slate-300 text-slate-500'
                           }`}
                         >
                           {uploadingPPM ? (
-                            <i className="fas fa-spinner fa-spin"></i>
+                            <>
+                              <i className="fas fa-spinner fa-spin text-blue-500"></i>
+                              <span className="text-[11px] animate-pulse">
+                                {isAr ? 'جارٍ ضغط التقرير ورفعه...' : 'Compressing & uploading...'}
+                              </span>
+                            </>
                           ) : (
-                            <i className="fas fa-file-upload"></i>
+                            <>
+                              <i className={formData.maintUrl ? 'fas fa-file-pdf text-rose-500' : 'fas fa-file-upload'}></i>
+                              <span>
+                                {formData.maintUrl
+                                  ? isAr
+                                    ? 'تم إرفاق وضغط التقرير'
+                                    : 'Report Attached'
+                                  : isAr
+                                  ? 'إرفاق تقرير PDF'
+                                  : 'Attach PDF'}
+                              </span>
+                            </>
                           )}
-                          <span>
-                            {formData.maintUrl
-                              ? isAr
-                                ? 'الملف مرفق'
-                                : 'Attached'
-                              : isAr
-                              ? 'إرفاق تقرير'
-                              : 'Attach PDF'}
-                          </span>
                         </div>
                       </div>
+
+                      {/* Preview Button */}
+                      {formData.maintUrl && (
+                        <button
+                          type="button"
+                          onClick={() => openDocumentUrl(formData.maintUrl)}
+                          className="p-2.5 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors shadow-sm"
+                          title={isAr ? 'معاينة وفتح تقرير الصيانة' : 'Preview PPM report'}
+                        >
+                          <i className="fas fa-eye"></i>
+                        </button>
+                      )}
+
+                      {/* Delete Button */}
+                      {formData.maintUrl && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteReport('maintUrl')}
+                          className="p-2.5 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-colors shadow-sm"
+                          title={isAr ? 'حذف تقرير الصيانة نهائياً ومسحه' : 'Delete PPM report'}
+                        >
+                          <i className="fas fa-trash-alt"></i>
+                        </button>
+                      )}
+
+                      {/* Camera Scanner */}
                       <button
+                        type="button"
                         onClick={() => setScannerField('maintUrl')}
-                        className={`p-2.5 rounded-xl border transition-colors ${
+                        className={`p-2.5 rounded-xl border transition-colors shadow-sm ${
                           isDark
                             ? 'bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 border-blue-500/30'
                             : 'bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-300'
@@ -1324,6 +1497,18 @@ const DeviceInventory: React.FC = () => {
                         <i className="fas fa-camera"></i>
                       </button>
                     </div>
+                    {formData.maintUrl ? (
+                      <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-1.5 flex items-center gap-1">
+                        <i className="fas fa-shield-alt text-[9px]"></i>
+                        {isAr
+                          ? 'التقرير مضغوط ومحمي (إرفاق ملف جديد سيقوم بضغطه وحذف الملف القديم تلقائياً)'
+                          : 'Report is compressed (uploading a new file will auto-compress and delete old file)'}
+                      </p>
+                    ) : (
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        {isAr ? 'يتم ضغط ملف PDF تلقائياً بأعلى كفاءة لتوفير المساحة' : 'PDF files are auto-compressed to save storage'}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1392,46 +1577,81 @@ const DeviceInventory: React.FC = () => {
                           isDark ? 'text-slate-400' : 'text-slate-600'
                         }`}
                       >
-                        {isAr ? 'شهادة الجودة والمعايرة (PDF)' : 'Certificate Attachment'}
+                        {isAr ? 'شهادة الجودة والمعايرة (PDF مضغوط)' : 'Certificate Attachment (Compressed PDF)'}
                       </label>
-                      <div className="flex gap-2">
+                      <div className="flex gap-1.5 items-center">
                         <div className="relative flex-1">
                           <input
                             type="file"
                             accept=".pdf,image/*"
                             className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                            disabled={uploadingQC}
                             onChange={(e) =>
-                              e.target.files && handleFileUpload(e.target.files[0], 'qualUrl')
+                              e.target.files && e.target.files[0] && handleFileUpload(e.target.files[0], 'qualUrl')
                             }
                           />
                           <div
-                            className={`w-full p-2.5 rounded-xl border flex items-center justify-center gap-2 text-xs font-bold ${
+                            className={`w-full p-2.5 rounded-xl border flex items-center justify-center gap-2 text-xs font-bold transition-all ${
                               formData.qualUrl
-                                ? 'border-emerald-500 text-emerald-500 bg-emerald-50 dark:bg-slate-900'
+                                ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30'
                                 : isDark
                                 ? 'bg-slate-900 border-slate-700 text-slate-400'
                                 : 'bg-white border-slate-300 text-slate-500'
                             }`}
                           >
                             {uploadingQC ? (
-                              <i className="fas fa-spinner fa-spin"></i>
+                              <>
+                                <i className="fas fa-spinner fa-spin text-purple-500"></i>
+                                <span className="text-[11px] animate-pulse">
+                                  {isAr ? 'جارٍ ضغط الشهادة ورفعها...' : 'Compressing & uploading...'}
+                                </span>
+                              </>
                             ) : (
-                              <i className="fas fa-file-upload"></i>
+                              <>
+                                <i className={formData.qualUrl ? 'fas fa-certificate text-purple-500' : 'fas fa-file-upload'}></i>
+                                <span>
+                                  {formData.qualUrl
+                                    ? isAr
+                                      ? 'تم إرفاق وضغط الشهادة'
+                                      : 'Certificate Attached'
+                                    : isAr
+                                    ? 'إرفاق شهادة PDF'
+                                    : 'Attach PDF'}
+                                </span>
+                              </>
                             )}
-                            <span>
-                              {formData.qualUrl
-                                ? isAr
-                                ? 'الشهادة مرفقة'
-                                : 'Attached'
-                                : isAr
-                                ? 'إرفاق شهادة'
-                                : 'Attach PDF'}
-                            </span>
                           </div>
                         </div>
+
+                        {/* Preview Button */}
+                        {formData.qualUrl && (
+                          <button
+                            type="button"
+                            onClick={() => openDocumentUrl(formData.qualUrl)}
+                            className="p-2.5 rounded-xl border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors shadow-sm"
+                            title={isAr ? 'معاينة وفتح شهادة الجودة' : 'Preview QC certificate'}
+                          >
+                            <i className="fas fa-eye"></i>
+                          </button>
+                        )}
+
+                        {/* Delete Button */}
+                        {formData.qualUrl && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteReport('qualUrl')}
+                            className="p-2.5 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-colors shadow-sm"
+                            title={isAr ? 'حذف شهادة الجودة نهائياً ومسحها' : 'Delete QC certificate'}
+                          >
+                            <i className="fas fa-trash-alt"></i>
+                          </button>
+                        )}
+
+                        {/* Camera Scanner */}
                         <button
+                          type="button"
                           onClick={() => setScannerField('qualUrl')}
-                          className={`p-2.5 rounded-xl border transition-colors ${
+                          className={`p-2.5 rounded-xl border transition-colors shadow-sm ${
                             isDark
                               ? 'bg-purple-600/20 text-purple-400 hover:bg-purple-600/30 border-purple-500/30'
                               : 'bg-purple-100 text-purple-700 hover:bg-purple-200 border-purple-300'
@@ -1441,6 +1661,18 @@ const DeviceInventory: React.FC = () => {
                           <i className="fas fa-camera"></i>
                         </button>
                       </div>
+                      {formData.qualUrl ? (
+                        <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-1.5 flex items-center gap-1">
+                          <i className="fas fa-shield-alt text-[9px]"></i>
+                          {isAr
+                            ? 'الشهادة مضغوطة ومحمية (إرفاق ملف جديد سيقوم بضغطه وحذف الملف القديم تلقائياً)'
+                            : 'Certificate is compressed (uploading a new file will auto-compress and delete old file)'}
+                        </p>
+                      ) : (
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          {isAr ? 'يتم ضغط ملف PDF تلقائياً بأعلى كفاءة لتوفير المساحة' : 'PDF files are auto-compressed to save storage'}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
